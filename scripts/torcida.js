@@ -81,3 +81,28 @@ window.torcer = async function (time) {
     location.reload();
   });
 };
+
+
+import { GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+
+const provider = new GoogleAuthProvider();
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+    document.getElementById("userEmail").textContent = user.email;
+    document.getElementById("loginBtn").style.display = "none";
+    document.getElementById("userInfo").style.display = "block";
+  } catch (error) {
+    alert("Erro ao logar: " + error.message);
+  }
+});
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    document.getElementById("userEmail").textContent = user.email;
+    document.getElementById("loginBtn").style.display = "none";
+    document.getElementById("userInfo").style.display = "block";
+  }
+});
