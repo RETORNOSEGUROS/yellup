@@ -104,13 +104,8 @@ onAuthStateChanged(auth, (user) => {
   }
 });
 
-
-let provider;
-try {
-  provider = new GoogleAuthProvider();
-} catch (e) {
-  console.warn("Provider já declarado ou erro ao criar:", e);
-}
+// Declaração única do provider fora de bloco
+const provider = new GoogleAuthProvider();
 
 document.getElementById("loginBtn").addEventListener("click", async () => {
   try {
@@ -120,11 +115,25 @@ document.getElementById("loginBtn").addEventListener("click", async () => {
     document.getElementById("loginBtn").style.display = "none";
     document.getElementById("userInfo").style.display = "block";
   } catch (error) {
-    alert("Erro ao logar: " + error.message);
+    console.warn("Erro ao logar: " + error.message);
+    // Simular login com UID fixo
+    window.simulatedUser = { uid: "uid_teste_simulado", email: "teste@yellup.app" };
+    alert("Login simulado ativado para testes.");
+    carregarEstadoSimulado();
   }
 });
 
+function carregarEstadoSimulado() {
+  document.getElementById("userEmail").textContent = simulatedUser.email;
+  document.getElementById("loginBtn").style.display = "none";
+  document.getElementById("userInfo").style.display = "block";
+}
+
 onAuthStateChanged(auth, async (user) => {
+  if (!user && typeof simulatedUser !== "undefined") {
+    user = simulatedUser;
+  }
+
   if (user) {
     document.getElementById("userEmail").textContent = user.email;
     document.getElementById("loginBtn").style.display = "none";
@@ -151,10 +160,14 @@ onAuthStateChanged(auth, async (user) => {
       console.error("Erro ao verificar torcida existente:", error);
     }
   }
-});
+}
 
 window.torcer = async function (timeNovo) {
-  const user = auth.currentUser;
+  let user = auth.currentUser;
+  if (!user && typeof simulatedUser !== "undefined") {
+    user = simulatedUser;
+  }
+
   if (!user) {
     alert("Você precisa estar logado para torcer!");
     return;
