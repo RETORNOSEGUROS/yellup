@@ -1,0 +1,126 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Perguntas do seu time</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container" id="pergunta-container">
+    <h2>Perguntas do seu time (modo avançado)</h2>
+    <p>Carregando pergunta...</p>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8",
+      measurementId: "G-SYZ16X31KQ"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    let perguntas = [];
+    let perguntaIndex = 0;
+    let perguntaData = null;
+
+    auth.onAuthStateChanged(async (user) => {
+      const container = document.getElementById("pergunta-container");
+      if (!user) {
+        container.innerHTML = "<p>Você não está logado.</p>";
+        return;
+      }
+
+      try {
+        const userRef = await db.collection("usuarios").doc(user.uid).get();
+        const userData = userRef.data();
+        const timeId = userData.timeId;
+
+        const perguntasRef = await db.collection("perguntas").where("timeId", "==", timeId).get();
+        perguntasRef.forEach(doc => perguntas.push(doc.data()));
+
+        if (perguntas.length === 0) {
+          container.innerHTML = "<p>Nenhuma pergunta disponível.</p>";
+          return;
+        }
+
+        mostrarPergunta();
+      } catch (err) {
+        container.innerHTML = "<p style='color:red;'>Erro ao carregar perguntas.</p>";
+        console.error("Erro ao carregar perguntas:", err);
+      }
+    });
+
+    function mostrarPergunta() {
+      const container = document.getElementById("pergunta-container");
+      perguntaData = perguntas[perguntaIndex];
+
+      container.innerHTML = `
+        <div class="pergunta">
+          <h3>${perguntaData.pergunta}</h3>
+          <button onclick="responder('A')">A) ${perguntaData.opcoes.A}</button>
+          <button onclick="responder('B')">B) ${perguntaData.opcoes.B}</button>
+          <button onclick="responder('C')">C) ${perguntaData.opcoes.C}</button>
+          <button onclick="responder('D')">D) ${perguntaData.opcoes.D}</button>
+          <div id="resultado" style="margin-top:10px;"></div>
+        </div>
+      `;
+    }
+
+    async function responder(opcao) {
+      const botoes = document.querySelectorAll('button');
+      botoes.forEach(b => b.disabled = true);
+
+      const container = document.getElementById("resultado");
+      const correta = perguntaData.resposta;
+      const pontos = perguntaData.pontos || 0;
+
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const userRef = db.collection("usuarios").doc(user.uid);
+      const doc = await userRef.get();
+      const userData = doc.data();
+
+      let novosPontos = userData.pontos || 0;
+      let novosCreditos = userData.creditos || 0;
+
+      novosCreditos -= 2;
+      if (opcao === correta) {
+        novosPontos += pontos;
+        container.innerHTML = `<p style='color:green;'>Resposta correta! +${pontos} pontos.</p>`;
+      } else {
+        container.innerHTML = `<p style='color:red;'>Resposta errada. A correta era: ${correta}</p>`;
+      }
+
+      await userRef.update({
+        pontos: novosPontos,
+        creditos: novosCreditos
+      });
+
+      container.innerHTML += "<br><button onclick='proximaPergunta()'>Próxima pergunta</button>";
+    }
+
+    function proximaPergunta() {
+      const resultadoDiv = document.getElementById("resultado");
+      resultadoDiv.innerHTML = "";
+      perguntaIndex++;
+      if (perguntaIndex >= perguntas.length) {
+        document.getElementById("pergunta-container").innerHTML = "<p>Você respondeu todas as perguntas disponíveis.</p>";
+        return;
+      }
+      mostrarPergunta();
+    }
+  </script>
+</body>
+</html>
