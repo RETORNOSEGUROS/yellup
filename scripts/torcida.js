@@ -10,18 +10,11 @@ const firebaseConfig = {
   messagingSenderId: "75092713724",
   appId: "1:75092713724:web:EXEMPLOID"
 };
-  apiKey: "SUA_API_KEY",
-  authDomain: "painel-yellup.firebaseapp.com",
-  projectId: "painel-yellup",
-  storageBucket: "painel-yellup.appspot.com",
-  messagingSenderId: "SENDER_ID",
-  appId: "APP_ID"
-};
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-const jogoId = "NO2daW1WuSYRxYmHfc4"; // Fixado por agora
+const jogoId = "NO2daW1WuSYRxYmHfc4";
 
 const q = query(collection(db, "torcidas"), where("jogoId", "==", jogoId));
 const snapshot = await getDocs(q);
