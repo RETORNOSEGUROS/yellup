@@ -1,15 +1,16 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getFirestore, collection, query, where, getDocs, doc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyD7F-SEU-VALOR-REAL",
+  apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
   authDomain: "painel-yellup.firebaseapp.com",
   projectId: "painel-yellup",
-  storageBucket: "painel-yellup.appspot.com",
-  messagingSenderId: "75092713724",
-  appId: "1:75092713724:web:EXEMPLOID"
+  storageBucket: "painel-yellup.firebasestorage.app",
+  messagingSenderId: "608347210297",
+  appId: "1:608347210297:web:75092713724e617c7203e8",
+  measurementId: "G-SYZ16X31KQ"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -58,7 +59,6 @@ window.torcer = async function (time) {
 
     const uid = user.uid;
 
-    // Verifica se o usuário já torceu neste jogo
     const q = query(collection(db, "torcidas"),
       where("jogoId", "==", jogoId),
       where("uid", "==", uid)
@@ -81,9 +81,6 @@ window.torcer = async function (time) {
     location.reload();
   });
 };
-
-
-import { GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
 const provider = new GoogleAuthProvider();
 
