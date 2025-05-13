@@ -103,3 +103,44 @@ onAuthStateChanged(auth, (user) => {
     document.getElementById("userInfo").style.display = "block";
   }
 });
+
+
+const provider = new GoogleAuthProvider();
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+    document.getElementById("userEmail").textContent = user.email;
+    document.getElementById("loginBtn").style.display = "none";
+    document.getElementById("userInfo").style.display = "block";
+  } catch (error) {
+    alert("Erro ao logar: " + error.message);
+  }
+});
+
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    document.getElementById("userEmail").textContent = user.email;
+    document.getElementById("loginBtn").style.display = "none";
+    document.getElementById("userInfo").style.display = "block";
+
+    // Verifica torcida já registrada
+    const q = query(collection(db, "torcidas"),
+      where("jogoId", "==", jogoId),
+      where("uid", "==", user.uid)
+    );
+    const snapshot = await getDocs(q);
+
+    if (!snapshot.empty) {
+      const voto = snapshot.docs[0].data().timeTorcido;
+
+      const jogoDoc = await getDoc(doc(db, "jogos", jogoId));
+      if (jogoDoc.exists()) {
+        const jogo = jogoDoc.data();
+        const nomeTime = voto === "A" ? jogo.timeA_nome : jogo.timeB_nome;
+        document.getElementById("torcidaStatus").textContent = `Você já torceu pelo ${nomeTime}`;
+      }
+    }
+  }
+});
