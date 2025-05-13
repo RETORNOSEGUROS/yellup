@@ -1,0 +1,118 @@
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Perguntas do seu time (modo avançado)</title>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { getFirestore, collection, query, where, limit, getDocs, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8",
+      measurementId: "G-SYZ16X31KQ"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    let perguntas = [];
+    let perguntaIndex = 0;
+    let acertos = 0;
+    let userId = "";
+    let timeId = "";
+
+    const container = document.getElementById("pergunta-container");
+    const resultadoDiv = document.getElementById("resultado");
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        container.innerHTML = "<p>Você não está logado.</p>";
+        return;
+      }
+
+      userId = user.uid;
+
+      try {
+        const userRef = await getDoc(doc(db, "usuarios", userId));
+        timeId = userRef.data().timeId;
+
+        const perguntasRef = query(
+          collection(db, "perguntas"),
+          where("timeId", "==", timeId),
+          limit(10)
+        );
+
+        const querySnapshot = await getDocs(perguntasRef);
+
+        querySnapshot.forEach((doc) => {
+          perguntas.push({ id: doc.id, ...doc.data() });
+        });
+
+        if (perguntas.length === 0) {
+          container.innerHTML = "<p>Nenhuma pergunta disponível.</p>";
+          return;
+        }
+
+        mostrarPergunta();
+      } catch (err) {
+        container.innerHTML = "<p>Erro ao carregar pergunta.</p>";
+        console.error(err);
+      }
+    });
+
+    function mostrarPergunta() {
+      if (perguntaIndex >= perguntas.length) {
+        container.innerHTML = "<p>Você respondeu todas as perguntas.</p>";
+        resultadoDiv.innerHTML = `<strong>Você acertou ${acertos} de ${perguntas.length} perguntas.</strong>`;
+        atualizarPontuacao();
+        return;
+      }
+
+      const perguntaData = perguntas[perguntaIndex];
+      container.innerHTML = `
+        <div class="pergunta">
+          <h3>${perguntaData.pergunta}</h3>
+          <button onclick="responder('A')">A) ${perguntaData.opcoes.A}</button><br>
+          <button onclick="responder('B')">B) ${perguntaData.opcoes.B}</button><br>
+          <button onclick="responder('C')">C) ${perguntaData.opcoes.C}</button><br>
+          <button onclick="responder('D')">D) ${perguntaData.opcoes.D}</button>
+        </div>
+      `;
+    }
+
+    window.responder = function (opcao) {
+      const perguntaData = perguntas[perguntaIndex];
+      if (opcao === perguntaData.resposta) {
+        acertos++;
+      }
+      perguntaIndex++;
+      mostrarPergunta();
+    }
+
+    async function atualizarPontuacao() {
+      try {
+        const userRef = doc(db, "usuarios", userId);
+        const userSnap = await getDoc(userRef);
+        const pontosAtuais = userSnap.data().pontos || 0;
+        await updateDoc(userRef, { pontos: pontosAtuais + acertos * 100 });
+      } catch (e) {
+        console.error("Erro ao atualizar pontos:", e);
+      }
+    }
+  </script>
+</head>
+<body>
+  <h2>Perguntas do seu time (modo avançado)</h2>
+  <div id="pergunta-container">Carregando pergunta...</div>
+  <div id="resultado" style="margin-top: 20px;"></div>
+  <br><button onclick="window.location.href='index.html'">Sair</button>
+</body>
+</html>
