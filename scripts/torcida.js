@@ -105,7 +105,12 @@ onAuthStateChanged(auth, (user) => {
 });
 
 
-const provider = new GoogleAuthProvider();
+let provider;
+try {
+  provider = new GoogleAuthProvider();
+} catch (e) {
+  console.warn("Provider já declarado ou erro ao criar:", e);
+}
 
 document.getElementById("loginBtn").addEventListener("click", async () => {
   try {
