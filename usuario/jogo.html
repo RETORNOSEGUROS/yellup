@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Jogo com Registro de Resposta</title>
+  <title>Jogo com Pontuação</title>
   <link rel="stylesheet" href="../css/style.css"/>
   <style>
     #modalPergunta {
@@ -27,7 +27,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>Partida com Registro de Resposta</h1>
+    <h1>Partida com Pontuação</h1>
     <p><strong>Jogo:</strong> <span id="nomeJogo">Time A vs Time B</span></p>
     <button onclick="abrirModalPergunta()">Responder Pergunta</button>
   </div>
@@ -42,7 +42,10 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-    import { getFirestore, collection, query, where, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+    import {
+      getFirestore, collection, query, where, getDocs,
+      addDoc, doc, getDoc, updateDoc
+    } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js";
 
     const firebaseConfig = {
@@ -62,7 +65,7 @@
     let perguntaAtiva = null;
     let usuarioLogado = null;
 
-    onAuthStateChanged(auth, (user) => {
+    onAuthStateChanged(auth, user => {
       if (user) usuarioLogado = user;
     });
 
@@ -105,15 +108,33 @@
         return;
       }
 
+      const correta = perguntaAtiva.correta;
+      const acertou = indice === correta;
+      const pontosGanho = acertou ? 10 : 0;
+
       await addDoc(collection(db, "respostas"), {
         uid: usuarioLogado.uid,
         jogoId,
         perguntaId: perguntaAtiva.id,
         resposta: indice,
+        correta: acertou,
+        pontos: pontosGanho,
         timestamp: new Date()
       });
 
-      alert("Resposta registrada com sucesso!");
+      if (acertou) {
+        const userRef = doc(db, "usuarios", usuarioLogado.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const dados = userSnap.data();
+          const pontosAtuais = dados.pontos ?? 0;
+          await updateDoc(userRef, {
+            pontos: pontosAtuais + pontosGanho
+          });
+        }
+      }
+
+      alert(acertou ? "Resposta correta! Pontos adicionados." : "Resposta incorreta.");
       fecharModalPergunta();
     }
   </script>
