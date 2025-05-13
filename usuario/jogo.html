@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Jogo com Pergunta</title>
+  <title>Jogo com Registro de Resposta</title>
   <link rel="stylesheet" href="../css/style.css"/>
   <style>
     #modalPergunta {
@@ -27,7 +27,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>Partida com Pergunta ao Vivo</h1>
+    <h1>Partida com Registro de Resposta</h1>
     <p><strong>Jogo:</strong> <span id="nomeJogo">Time A vs Time B</span></p>
     <button onclick="abrirModalPergunta()">Responder Pergunta</button>
   </div>
@@ -42,7 +42,8 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-    import { getFirestore, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+    import { getFirestore, collection, query, where, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
@@ -55,6 +56,15 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    const jogoId = "NO2daW1tWuSYRxYmHfc4";
+    let perguntaAtiva = null;
+    let usuarioLogado = null;
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) usuarioLogado = user;
+    });
 
     async function carregarPergunta() {
       const q = query(collection(db, "perguntas"), where("ativa", "==", true));
@@ -65,16 +75,17 @@
         return;
       }
 
-      const pergunta = snap.docs[0].data();
-      document.getElementById("textoPergunta").innerText = pergunta.texto;
+      const doc = snap.docs[0];
+      perguntaAtiva = { id: doc.id, ...doc.data() };
+      document.getElementById("textoPergunta").innerText = perguntaAtiva.texto;
 
       const opcoes = document.getElementById("opcoesPergunta");
       opcoes.innerHTML = "";
-      pergunta.opcoes.forEach((alt, idx) => {
+      perguntaAtiva.opcoes.forEach((alt, idx) => {
         const btn = document.createElement("button");
         btn.className = "alternativa";
         btn.innerText = alt;
-        btn.onclick = () => responderPergunta(pergunta.id, idx);
+        btn.onclick = () => responderPergunta(idx);
         opcoes.appendChild(btn);
       });
     }
@@ -88,10 +99,23 @@
       document.getElementById("modalPergunta").style.display = "none";
     };
 
-    window.responderPergunta = (id, idx) => {
-      alert("Resposta enviada: opção " + (idx + 1));
+    async function responderPergunta(indice) {
+      if (!usuarioLogado || !perguntaAtiva) {
+        alert("Usuário ou pergunta não carregados.");
+        return;
+      }
+
+      await addDoc(collection(db, "respostas"), {
+        uid: usuarioLogado.uid,
+        jogoId,
+        perguntaId: perguntaAtiva.id,
+        resposta: indice,
+        timestamp: new Date()
+      });
+
+      alert("Resposta registrada com sucesso!");
       fecharModalPergunta();
-    };
+    }
   </script>
 </body>
 </html>
