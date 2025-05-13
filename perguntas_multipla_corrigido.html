@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Perguntas - Yellup</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js">
+    function proximaPergunta() {
+      const resultadoDiv = document.getElementById("resultado");
+      resultadoDiv.innerHTML = "";
+      perguntaIndex++;
+      if (perguntaIndex >= perguntas.length) {
+        document.getElementById("pergunta-container").innerHTML = "<p>Você respondeu todas as perguntas disponíveis.</p>";
+        return;
+      }
+      mostrarPergunta();
+    }
+    </script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js">
+    function proximaPergunta() {
+      const resultadoDiv = document.getElementById("resultado");
+      resultadoDiv.innerHTML = "";
+      perguntaIndex++;
+      if (perguntaIndex >= perguntas.length) {
+        document.getElementById("pergunta-container").innerHTML = "<p>Você respondeu todas as perguntas disponíveis.</p>";
+        return;
+      }
+      mostrarPergunta();
+    }
+    </script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js">
+    function proximaPergunta() {
+      const resultadoDiv = document.getElementById("resultado");
+      resultadoDiv.innerHTML = "";
+      perguntaIndex++;
+      if (perguntaIndex >= perguntas.length) {
+        document.getElementById("pergunta-container").innerHTML = "<p>Você respondeu todas as perguntas disponíveis.</p>";
+        return;
+      }
+      mostrarPergunta();
+    }
+    </script>
+  <style>
+    body { font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px; }
+    .container {
+      background: white; padding: 30px; max-width: 600px; margin: auto;
+      border-radius: 10px; box-shadow: 0 0 10px #ccc;
+    }
+    .pergunta { margin-bottom: 20px; }
+    .opcao { display: block; margin: 5px 0; }
+    .mensagem { font-weight: bold; margin-top: 20px; }
+    .certa { color: green; }
+    .errada { color: red; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Perguntas do seu time (modo avançado)</h2>
+    <div id="pergunta-container">
+      <p>Carregando pergunta...</p>
+    </div>
+    <div id="resultado" class="mensagem"></div>
+    <button onclick="logout()">Sair</button>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    let userId = null;
+    let userRef = null;
+    let perguntas = [];
+    let perguntaIndex = 0;
+    let perguntaData = null;
+
+    function logout() {
+      auth.signOut().then(() => {
+        window.location.href = "login.html";
+      });
+    }
+
+    function responder(respostaUsuario) {
+      const botoes = document.querySelectorAll('button');
+      botoes.forEach(b => b.disabled = true);
+      const resultadoDiv = document.getElementById("resultado");
+      if (!perguntaData) return;
+
+      const certa = perguntaData.resposta.trim().toLowerCase();
+      const correta = respostaUsuario.trim().toLowerCase();
+
+      if (certa === correta) {
+        resultadoDiv.innerHTML = "<span class='certa'>Resposta certa! Pontos adicionados.</span>";
+        db.collection("usuarios").doc(userId).update({
+          pontos: firebase.firestore.FieldValue.increment(perguntaData.pontos || 100),
+          creditos: firebase.firestore.FieldValue.increment(-2)
+        });
+      } else {
+        resultadoDiv.innerHTML = "<span class='errada'>Resposta errada. Créditos descontados.</span>";
+        db.collection("usuarios").doc(userId).update({
+          creditos: firebase.firestore.FieldValue.increment(-2)
+        });
+      }
+    }
+
+    auth.onAuthStateChanged(async user => {
+      const container = document.getElementById('pergunta-container');
+      if (!user) {
+        container.innerHTML = '<p>Você não está logado.</p>';
+        return;
+      }
+
+      userId = user.uid;
+      try {
+        userRef = await db.collection("usuarios").doc(userId).get();
+        const timeId = userRef.data().timeId;
+
+        const perguntasRef = await db.collection("perguntas")
+          .where("timeId", "==", timeId)
+          .limit(1)
+          .get();
+
+        if (perguntasRef.empty) {
+          container.innerHTML = "<p>Nenhuma pergunta disponível.</p>";
+          return;
+        }
+
+        perguntasRef.forEach(doc => perguntas.push(doc.data()));
+
+        if (perguntas.length === 0) {
+          container.innerHTML = '<p>Nenhuma pergunta disponível.</p>';
+          return;
+        }
+        mostrarPergunta();
+
+        function mostrarPergunta() {
+          perguntaData = perguntas[perguntaIndex];
+          container.innerHTML = `
+            <div class='pergunta'>
+              <h3>${perguntaData.pergunta}</h3>
+              <button onclick="responder('A')">A) ${perguntaData.opcoes.A}</button><br>
+              <button onclick="responder('B')">B) ${perguntaData.opcoes.B}</button><br>
+              <button onclick="responder('C')">C) ${perguntaData.opcoes.C}</button><br>
+              <button onclick="responder('D')">D) ${perguntaData.opcoes.D}</button><br>
+              <button onclick='proximaPergunta()'>Próxima pergunta</button>
+            </div>`;
+        }
+          perguntaData = doc.data();
+          container.innerHTML = `
+            <div class="pergunta">
+              <h3>${perguntaData.pergunta}</h3>
+              <button onclick="responder('A')">A) ${perguntaData.opcoes.A}</button><br>
+              <button onclick="responder('B')">B) ${perguntaData.opcoes.B}</button><br>
+              <button onclick="responder('C')">C) ${perguntaData.opcoes.C}</button><br>
+              <button onclick="responder('D')">D) ${perguntaData.opcoes.D}</button>
+            </div>
+          `;
+        });
+      } catch (err) {
+        document.getElementById("pergunta-container").innerHTML = "<p>Erro ao carregar perguntas.</p>";
+        console.error("Erro ao carregar perguntas:", err);
+      }
+        container.innerHTML = "<p>Erro ao carregar pergunta.</p>";
+        console.error(err);
+      }
+    });
+  
+    function proximaPergunta() {
+      const resultadoDiv = document.getElementById("resultado");
+      resultadoDiv.innerHTML = "";
+      perguntaIndex++;
+      if (perguntaIndex >= perguntas.length) {
+        document.getElementById("pergunta-container").innerHTML = "<p>Você respondeu todas as perguntas disponíveis.</p>";
+        return;
+      }
+      mostrarPergunta();
+    }
+    </script>
+</body>
+</html>
