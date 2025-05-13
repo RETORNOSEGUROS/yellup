@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Perguntas - Yellup</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      max-width: 600px;
+      margin: auto;
+      border-radius: 10px;
+      box-shadow: 0 0 10px #ccc;
+    }
+    .pergunta {
+      margin-bottom: 20px;
+    }
+    .opcao {
+      display: block;
+      margin: 5px 0;
+    }
+    #mensagem {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Perguntas do seu time</h2>
+    <div id="pergunta-container">
+      <p id="mensagem">Carregando pergunta...</p>
+    </div>
+    <button onclick="logout()">Sair</button>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    function logout() {
+      auth.signOut().then(() => {
+        window.location.href = "login.html";
+      });
+    }
+
+    auth.onAuthStateChanged(async user => {
+      const container = document.getElementById('pergunta-container');
+      if (!user) {
+        container.innerHTML = '<p id="mensagem">Você não está logado.</p>';
+        return;
+      }
+
+      try {
+        const userRef = await db.collection('usuarios').doc(user.uid).get();
+        const timeId = userRef.data().timeId;
+
+        const perguntasRef = await db.collection('perguntas')
+          .where('timeId', '==', timeId)
+          .limit(1)
+          .get();
+
+        if (perguntasRef.empty) {
+          container.innerHTML = '<p>Nenhuma pergunta disponível para seu time.</p>';
+          return;
+        }
+
+        perguntasRef.forEach(doc => {
+          const p = doc.data();
+          container.innerHTML = `
+            <div class="pergunta">
+              <h3>${p.pergunta}</h3>
+              <label class="opcao">A) ${p.opcoes.A}</label>
+              <label class="opcao">B) ${p.opcoes.B}</label>
+              <label class="opcao">C) ${p.opcoes.C}</label>
+              <label class="opcao">D) ${p.opcoes.D}</label>
+            </div>
+          `;
+        });
+      } catch (err) {
+        container.innerHTML = '<p id="mensagem">Erro ao carregar pergunta.</p>';
+        console.error("Erro ao buscar pergunta:", err);
+      }
+    });
+  </script>
+</body>
+</html>
