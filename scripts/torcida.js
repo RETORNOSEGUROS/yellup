@@ -153,7 +153,7 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-window.torcer = async function (time) {
+window.torcer = async function (timeNovo) {
   const user = auth.currentUser;
   if (!user) {
     alert("Você precisa estar logado para torcer!");
@@ -169,17 +169,36 @@ window.torcer = async function (time) {
   const snapshot = await getDocs(q);
 
   if (!snapshot.empty) {
-    alert("Você já torceu neste jogo.");
-    return;
+    const docExistente = snapshot.docs[0];
+    const votoAtual = docExistente.data().timeTorcido;
+
+    if (votoAtual === timeNovo) {
+      alert("Você já torceu por esse time.");
+      return;
+    }
+
+    const jogoDoc = await getDoc(doc(db, "jogos", jogoId));
+    let nomeAtual = votoAtual;
+    let nomeNovo = timeNovo;
+    if (jogoDoc.exists()) {
+      const jogo = jogoDoc.data();
+      nomeAtual = votoAtual === "A" ? (jogo.timeA_nome || "Time A") : (jogo.timeB_nome || "Time B");
+      nomeNovo = timeNovo === "A" ? (jogo.timeA_nome || "Time A") : (jogo.timeB_nome || "Time B");
+    }
+
+    const confirmar = confirm(`Você já torceu pelo ${nomeAtual}. Deseja trocar seu voto para ${nomeNovo}?`);
+    if (!confirmar) return;
+
+    await deleteDoc(doc(db, "torcidas", docExistente.id));
   }
 
   await addDoc(collection(db, "torcidas"), {
     jogoId: jogoId,
-    timeTorcido: time,
+    timeTorcido: timeNovo,
     uid: uid,
     timestamp: new Date()
   });
 
-  alert("Torcida registrada com sucesso!");
+  alert("Voto registrado com sucesso!");
   location.reload();
 };
