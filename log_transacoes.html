@@ -1,1 +1,81 @@
-<h1>Log de Transações</h1><p>Créditos ganhos, usados, recompensas e bônus.</p>
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Log de Transações</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f4f4; padding: 30px; }
+    .container {
+      max-width: 700px; margin: auto; background: white; padding: 30px;
+      border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h2 { margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
+    th { background-color: #007bff; color: white; }
+    tr:nth-child(even) { background-color: #f2f2f2; }
+    .voltar { margin-top: 20px; display: inline-block; background: #007bff; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Log de Transações</h2>
+    <div id="log">Carregando...</div>
+    <a href="index.html" class="voltar">Voltar</a>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    auth.onAuthStateChanged(async user => {
+      const div = document.getElementById("log");
+      if (!user) {
+        div.innerHTML = "<p>Você não está logado.</p>";
+        return;
+      }
+
+      try {
+        const ref = await db.collection("usuarios").doc(user.uid).collection("transacoes")
+          .orderBy("data", "desc").limit(20).get();
+
+        if (ref.empty) {
+          div.innerHTML = "<p>Nenhuma transação registrada.</p>";
+          return;
+        }
+
+        let html = "<table><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th>Valor</th></tr>";
+        ref.forEach(doc => {
+          const d = doc.data();
+          const dataFormatada = new Date(d.data?.toDate()).toLocaleString("pt-BR");
+          html += `<tr>
+            <td>${dataFormatada}</td>
+            <td>${d.tipo || "-"}</td>
+            <td>${d.descricao || "-"}</td>
+            <td>${d.valor ?? 0}</td>
+          </tr>`;
+        });
+        html += "</table>";
+        div.innerHTML = html;
+      } catch (e) {
+        div.innerHTML = "<p>Erro ao carregar transações.</p>";
+        console.error(e);
+      }
+    });
+  </script>
+</body>
+</html>
