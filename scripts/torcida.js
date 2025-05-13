@@ -125,22 +125,56 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById("loginBtn").style.display = "none";
     document.getElementById("userInfo").style.display = "block";
 
-    // Verifica torcida já registrada
-    const q = query(collection(db, "torcidas"),
-      where("jogoId", "==", jogoId),
-      where("uid", "==", user.uid)
-    );
-    const snapshot = await getDocs(q);
+    try {
+      const q = query(collection(db, "torcidas"),
+        where("jogoId", "==", jogoId),
+        where("uid", "==", user.uid)
+      );
+      const snapshot = await getDocs(q);
 
-    if (!snapshot.empty) {
-      const voto = snapshot.docs[0].data().timeTorcido;
+      if (!snapshot.empty) {
+        const voto = snapshot.docs[0].data().timeTorcido;
 
-      const jogoDoc = await getDoc(doc(db, "jogos", jogoId));
-      if (jogoDoc.exists()) {
-        const jogo = jogoDoc.data();
-        const nomeTime = voto === "A" ? jogo.timeA_nome : jogo.timeB_nome;
-        document.getElementById("torcidaStatus").textContent = `Você já torceu pelo ${nomeTime}`;
+        const jogoDoc = await getDoc(doc(db, "jogos", jogoId));
+        if (jogoDoc.exists()) {
+          const jogo = jogoDoc.data();
+          const nomeTime = voto === "A" ? (jogo.timeA_nome || "Time A") : (jogo.timeB_nome || "Time B");
+          document.getElementById("torcidaStatus").textContent = `Você já torceu pelo ${nomeTime}`;
+        }
       }
+    } catch (error) {
+      console.error("Erro ao verificar torcida existente:", error);
     }
   }
 });
+
+window.torcer = async function (time) {
+  const user = auth.currentUser;
+  if (!user) {
+    alert("Você precisa estar logado para torcer!");
+    return;
+  }
+
+  const uid = user.uid;
+
+  const q = query(collection(db, "torcidas"),
+    where("jogoId", "==", jogoId),
+    where("uid", "==", uid)
+  );
+  const snapshot = await getDocs(q);
+
+  if (!snapshot.empty) {
+    alert("Você já torceu neste jogo.");
+    return;
+  }
+
+  await addDoc(collection(db, "torcidas"), {
+    jogoId: jogoId,
+    timeTorcido: time,
+    uid: uid,
+    timestamp: new Date()
+  });
+
+  alert("Torcida registrada com sucesso!");
+  location.reload();
+};
