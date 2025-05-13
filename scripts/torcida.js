@@ -10,6 +10,7 @@ const firebaseConfig = {
   messagingSenderId: "75092713724",
   appId: "1:75092713724:web:EXEMPLOID"
 };
+
   apiKey: "SUA_API_KEY",
   authDomain: "painel-yellup.firebaseapp.com",
   projectId: "painel-yellup",
