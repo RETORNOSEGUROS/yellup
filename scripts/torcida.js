@@ -42,3 +42,21 @@ if (jogoDoc.exists()) {
   document.getElementById("timeA").textContent = `Time A`;
   document.getElementById("timeB").textContent = `Time B`;
 }
+
+
+import { addDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+async function torcer(time) {
+  const uid = "usuarioTeste";
+  const jogoId = "NO2daW1WuSYRxYmHfc4";
+
+  await addDoc(collection(db, "torcidas"), {
+    jogoId: jogoId,
+    timeTorcido: time,
+    uid: uid,
+    timestamp: new Date()
+  });
+
+  alert("Torcida enviada com sucesso!");
+  location.reload();
+}
