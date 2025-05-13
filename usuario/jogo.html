@@ -1,56 +1,97 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Partida em Tempo Real</title>
+  <title>Jogo com Pergunta</title>
   <link rel="stylesheet" href="../css/style.css"/>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js"></script>
+  <style>
+    #modalPergunta {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
+      justify-content: center;
+      align-items: center;
+    }
+    #modalPergunta .conteudo {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      max-width: 400px;
+      width: 90%;
+    }
+    .alternativa { margin: 5px 0; }
+  </style>
 </head>
 <body>
   <div class="container">
-    <h1>Partida em Tempo Real</h1>
-    <div id="jogo-info">
-      <h2 id="nomeJogo">Carregando partida...</h2>
-      <div class="times">
-        <div id="ladoA" class="time-bloco">
-          <h3 id="timeA">Time A</h3>
-          <p id="torcidaA">Torcida: 0%</p>
-          <p id="pontosA">Pontos: 0</p>
-          <button onclick="torcer('A')">Torcer pelo Time A</button>
-        </div>
-        <div id="ladoB" class="time-bloco">
-          <h3 id="timeB">Time B</h3>
-          <p id="torcidaB">Torcida: 0%</p>
-          <p id="pontosB">Pontos: 0</p>
-          <button onclick="torcer('B')">Torcer pelo Time B</button>
-        </div>
-      </div>
-    </div>
-    <div class="central-panel">
-      <h3>Responder pergunta:</h3>
-      <button onclick="responderPergunta()">Responder próxima pergunta</button>
-    </div>
-    <div class="ranking-container">
-      <h3>Ranking Geral</h3>
-      <ul id="rankingGeral"></ul>
-      <h3>Ranking do Seu Time</h3>
-      <ul id="rankingTime"></ul>
-    </div>
-    <div class="info-container">
-      <p>Seus créditos: <span id="creditosUsuario">0</span></p>
-      <p>Tempo restante: <span id="tempoRestante">--:--</span></p>
-    </div>
-    <div class="chat-container">
-      <h3>Chat do seu time</h3>
-      <div id="chatTime" class="chat-box"></div>
-      <h3>Chat geral</h3>
-      <div id="chatGeral" class="chat-box"></div>
+    <h1>Partida com Pergunta ao Vivo</h1>
+    <p><strong>Jogo:</strong> <span id="nomeJogo">Time A vs Time B</span></p>
+    <button onclick="abrirModalPergunta()">Responder Pergunta</button>
+  </div>
+
+  <div id="modalPergunta">
+    <div class="conteudo">
+      <h2 id="textoPergunta">Carregando pergunta...</h2>
+      <div id="opcoesPergunta"></div>
+      <button onclick="fecharModalPergunta()">Cancelar</button>
     </div>
   </div>
-  <script src="../scripts/integracao_jogo.js"></script>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { getFirestore, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    async function carregarPergunta() {
+      const q = query(collection(db, "perguntas"), where("ativa", "==", true));
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        document.getElementById("textoPergunta").innerText = "Nenhuma pergunta ativa.";
+        return;
+      }
+
+      const pergunta = snap.docs[0].data();
+      document.getElementById("textoPergunta").innerText = pergunta.texto;
+
+      const opcoes = document.getElementById("opcoesPergunta");
+      opcoes.innerHTML = "";
+      pergunta.opcoes.forEach((alt, idx) => {
+        const btn = document.createElement("button");
+        btn.className = "alternativa";
+        btn.innerText = alt;
+        btn.onclick = () => responderPergunta(pergunta.id, idx);
+        opcoes.appendChild(btn);
+      });
+    }
+
+    window.abrirModalPergunta = () => {
+      document.getElementById("modalPergunta").style.display = "flex";
+      carregarPergunta();
+    };
+
+    window.fecharModalPergunta = () => {
+      document.getElementById("modalPergunta").style.display = "none";
+    };
+
+    window.responderPergunta = (id, idx) => {
+      alert("Resposta enviada: opção " + (idx + 1));
+      fecharModalPergunta();
+    };
+  </script>
 </body>
 </html>
