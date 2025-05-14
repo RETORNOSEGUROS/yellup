@@ -1,14 +1,13 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Visitante | Yellup</title>
-  <link rel="stylesheet" href="/css/style.css">
+  <title>Jogo | Yellup</title>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-    import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+    import { getFirestore, doc, getDocs, collection, query, where, addDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "SUA_API_KEY",
@@ -21,87 +20,76 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
+    const auth = getAuth();
 
-    async function carregarJogos() {
-      const jogosRef = collection(db, "jogos");
-      const querySnapshot = await getDocs(jogosRef);
-      const container = document.getElementById("lista-jogos");
+    let jogoAtualId = "";
+    let usuarioId = "";
 
-      querySnapshot.forEach((doc) => {
-        const jogo = doc.data();
-        const div = document.createElement("div");
-        div.className = "jogo-card";
-        div.innerHTML = `
-          <h3>${jogo.timeA} vs ${jogo.timeB}</h3>
-          <p>Data: ${jogo.data || 'A definir'}</p>
-        `;
-        container.appendChild(div);
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        usuarioId = user.uid;
+        const q = query(collection(db, "jogos"), where("status", "==", "em andamento"));
+        const querySnapshot = await getDocs(q);
+        const lista = document.getElementById("dados-jogo");
+
+        querySnapshot.forEach(async (docJogo) => {
+          const jogo = docJogo.data();
+          jogoAtualId = docJogo.id;
+          lista.innerHTML = `<h2>${jogo.timeA} vs ${jogo.timeB}</h2>`;
+
+          document.getElementById("btn-timeA").innerText = `Torcer para ${jogo.timeA}`;
+          document.getElementById("btn-timeB").innerText = `Torcer para ${jogo.timeB}`;
+        });
+      }
+    });
+
+    async function torcer(time) {
+      if (!usuarioId || !jogoAtualId) return;
+      const ref = doc(db, "torcidas", `${jogoAtualId}_${usuarioId}`);
+      await updateDoc(ref, {
+        [`${time}`]: increment(1)
+      }).catch(async () => {
+        await addDoc(collection(db, "torcidas"), {
+          jogoId: jogoAtualId,
+          usuarioId: usuarioId,
+          [time]: 1
+        });
       });
+      alert(`Você torceu para ${time}`);
     }
-
-    window.onload = carregarJogos;
+    window.torcer = torcer;
   </script>
   <style>
     body {
       font-family: Arial, sans-serif;
-      background: #f2f2f2;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      min-height: 100vh;
-    }
-    .container {
-      background: white;
-      padding: 40px;
-      border-radius: 12px;
-      box-shadow: 0 0 15px rgba(0,0,0,0.1);
+      padding: 30px;
       text-align: center;
-      margin-top: 40px;
-      width: 90%;
-      max-width: 500px;
+      background-color: #fafafa;
     }
-    img {
-      width: 160px;
+    h2 {
+      color: #333;
       margin-bottom: 20px;
     }
-    h1 {
-      font-size: 22px;
-      margin-bottom: 20px;
-    }
-    .btn {
-      display: block;
-      width: 100%;
-      padding: 14px;
-      margin: 10px auto;
+    button {
+      padding: 15px;
+      margin: 10px;
       font-size: 16px;
-      background-color: #facc15;
-      color: #000;
       border: none;
       border-radius: 8px;
+      background-color: #ffd60a;
       cursor: pointer;
-      text-decoration: none;
       font-weight: bold;
     }
-    .jogo-card {
-      margin: 20px 0;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      background: #fffbea;
+    button:hover {
+      background-color: #ffb703;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <img src="/imagem/logo-yellup.png" alt="Logo Yellup">
-    <h1>Bem-vindo à Yellup</h1>
-
-    <a class="btn" href="/visitante/ranking/">Ver Ranking</a>
-    <a class="btn" href="/usuario/login.html">Login de Usuário</a>
-
-    <div id="lista-jogos"></div>
+  <div id="dados-jogo">
+    <h2>Carregando jogo em andamento...</h2>
   </div>
+  <button id="btn-timeA" onclick="torcer('timeA')">Torcer para Time A</button>
+  <button id="btn-timeB" onclick="torcer('timeB')">Torcer para Time B</button>
 </body>
 </html>
