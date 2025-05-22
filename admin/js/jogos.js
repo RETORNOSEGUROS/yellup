@@ -1,7 +1,8 @@
 const db = firebase.firestore();
-let mapaTimes = {}; // id → nome
+const storage = firebase.storage();
+let mapaTimes = {};
 
-firebase.auth().onAuthStateChanged((user) => {
+firebase.auth().onAuthStateChanged(user => {
   if (!user) {
     window.location.href = "/admin/login.html";
   } else {
@@ -11,78 +12,96 @@ firebase.auth().onAuthStateChanged((user) => {
 });
 
 function carregarTimes() {
-  db.collection("times").orderBy("pais").get().then(snapshot => {
-    const timeCasaSelect = document.getElementById("timeCasa");
-    const timeForaSelect = document.getElementById("timeFora");
+  const selectCasa = document.getElementById("timeCasa");
+  const selectFora = document.getElementById("timeFora");
 
+  db.collection("times").get().then(snapshot => {
     const grupos = {};
 
     snapshot.forEach(doc => {
-      const time = doc.data();
+      const t = doc.data();
       const id = doc.id;
-      mapaTimes[id] = time.nome;
+      mapaTimes[id] = t.nome;
 
-      if (!grupos[time.pais]) grupos[time.pais] = [];
-      grupos[time.pais].push({ id, nome: time.nome });
+      const pais = t.pais?.normalize("NFD").replace(/[\u0300-\u036f]/g, "") || "Outro";
+      if (!grupos[pais]) grupos[pais] = [];
+      grupos[pais].push({ id, nome: t.nome });
     });
 
-    // Limpar e reconstruir os selects
-    timeCasaSelect.innerHTML = '<option value="">Selecione o Time da Casa</option>';
-    timeForaSelect.innerHTML = '<option value="">Selecione o Time Visitante</option>';
+    selectCasa.innerHTML = '<option value="">Selecione o Time da Casa</option>';
+    selectFora.innerHTML = '<option value="">Selecione o Time Visitante</option>';
 
-    Object.keys(grupos).forEach(pais => {
-      const grupoCasa = document.createElement("optgroup");
-      grupoCasa.label = pais;
+    Object.keys(grupos).sort().forEach(pais => {
+      const optgroupCasa = document.createElement("optgroup");
+      const optgroupFora = document.createElement("optgroup");
+      optgroupCasa.label = pais;
+      optgroupFora.label = pais;
 
-      const grupoFora = document.createElement("optgroup");
-      grupoFora.label = pais;
-
-      grupos[pais].forEach(time => {
-        const optionCasa = document.createElement("option");
-        optionCasa.value = time.id;
-        optionCasa.textContent = time.nome;
-
-        const optionFora = document.createElement("option");
-        optionFora.value = time.id;
-        optionFora.textContent = time.nome;
-
-        grupoCasa.appendChild(optionCasa);
-        grupoFora.appendChild(optionFora);
+      grupos[pais].forEach(t => {
+        const o1 = new Option(t.nome, t.id);
+        const o2 = new Option(t.nome, t.id);
+        optgroupCasa.appendChild(o1);
+        optgroupFora.appendChild(o2);
       });
 
-      timeCasaSelect.appendChild(grupoCasa);
-      timeForaSelect.appendChild(grupoFora);
+      selectCasa.appendChild(optgroupCasa);
+      selectFora.appendChild(optgroupFora);
     });
   });
 }
 
-function cadastrarJogo() {
+async function cadastrarJogo() {
   const timeCasa = document.getElementById('timeCasa').value;
   const timeFora = document.getElementById('timeFora').value;
   const dataInicio = document.getElementById('dataInicio').value;
   const dataFim = document.getElementById('dataFim').value;
   const status = document.getElementById('statusJogo').value;
 
+  const nomePatrocinador = document.getElementById('nomePatrocinador').value;
+  const valorPatrocinador = document.getElementById('valorPatrocinador').value;
+  const logoFile = document.getElementById('logoPatrocinador').files[0];
+
   if (!timeCasa || !timeFora || !dataInicio || !dataFim) {
-    alert("Preencha todos os campos.");
+    alert("Preencha todos os campos obrigatórios.");
     return;
   }
 
-  db.collection("jogos").add({
+  let logoURL = "";
+  if (logoFile) {
+    const storageRef = storage.ref(`patrocinadores/${Date.now()}_${logoFile.name}`);
+    await storageRef.put(logoFile);
+    logoURL = await storageRef.getDownloadURL();
+  }
+
+  const jogoRef = await db.collection("jogos").add({
     timeCasa,
     timeFora,
     dataInicio,
     dataFim,
     status
-  }).then(() => {
-    alert("Jogo cadastrado!");
-    document.getElementById('timeCasa').value = '';
-    document.getElementById('timeFora').value = '';
-    document.getElementById('dataInicio').value = '';
-    document.getElementById('dataFim').value = '';
-    document.getElementById('statusJogo').value = 'agendado';
-    carregarJogos();
   });
+
+  if (nomePatrocinador && valorPatrocinador) {
+    await db.collection("patrocinadores").add({
+      jogoId: jogoRef.id,
+      nome: nomePatrocinador,
+      valor: parseFloat(valorPatrocinador),
+      logoURL,
+      data: new Date().toISOString()
+    });
+  }
+
+  alert("Jogo cadastrado!");
+  document.getElementById('timeCasa').value = '';
+  document.getElementById('timeFora').value = '';
+  document.getElementById('dataInicio').value = '';
+  document.getElementById('dataFim').value = '';
+  document.getElementById('statusJogo').value = 'agendado';
+  document.getElementById('nomePatrocinador').value = '';
+  document.getElementById('valorPatrocinador').value = '';
+  document.getElementById('logoPatrocinador').value = '';
+
+  carregarJogos();
 }
 
 function carregarJogos() {
@@ -92,6 +111,7 @@ function carregarJogos() {
   db.collection("jogos").orderBy("dataInicio").get().then(snapshot => {
     snapshot.forEach(doc => {
       const jogo = doc.data();
+      const id = doc.id;
       const linha = document.createElement('tr');
       linha.innerHTML = `
         <td>${mapaTimes[jogo.timeCasa] ?? jogo.timeCasa}</td>
@@ -99,8 +119,26 @@ function carregarJogos() {
         <td>${new Date(jogo.dataInicio).toLocaleString()}</td>
         <td>${new Date(jogo.dataFim).toLocaleString()}</td>
         <td>${jogo.status}</td>
+        <td>
+          <button onclick="encerrarJogo('${id}')">Encerrar</button>
+          <button onclick="editarJogo('${id}')">Editar</button>
+        </td>
       `;
       tabela.appendChild(linha);
     });
   });
+}
+
+function encerrarJogo(id) {
+  db.collection("jogos").doc(id).update({
+    status: "finalizado",
+    dataFim: new Date().toISOString()
+  }).then(() => {
+    alert("Jogo encerrado.");
+    carregarJogos();
+  });
+}
+
+function editarJogo(id) {
+  alert("Função de edição será implementada em breve. ID: " + id);
 }
