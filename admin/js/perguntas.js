@@ -17,10 +17,9 @@ function cadastrarPergunta() {
     D: document.getElementById('altD').value,
   };
   const correta = document.getElementById('correta').value;
-  const jogoId = document.getElementById('jogoId').value;
   const timeId = document.getElementById('timeId').value;
 
-  if (!pergunta || !alternativas.A || !alternativas.B || !alternativas.C || !alternativas.D || !correta || !jogoId || !timeId) {
+  if (!pergunta || !alternativas.A || !alternativas.B || !alternativas.C || !alternativas.D || !correta || !timeId) {
     alert("Preencha todos os campos.");
     return;
   }
@@ -29,7 +28,6 @@ function cadastrarPergunta() {
     pergunta,
     alternativas,
     correta,
-    jogoId,
     timeId
   }).then(() => {
     alert("Pergunta cadastrada!");
@@ -39,7 +37,6 @@ function cadastrarPergunta() {
     document.getElementById('altC').value = '';
     document.getElementById('altD').value = '';
     document.getElementById('correta').value = '';
-    document.getElementById('jogoId').value = '';
     document.getElementById('timeId').value = '';
     carregarPerguntas();
   });
@@ -49,14 +46,13 @@ function carregarPerguntas() {
   const lista = document.getElementById('listaPerguntas');
   lista.innerHTML = '';
 
-  db.collection("perguntas").orderBy("jogoId").get().then(snapshot => {
+  db.collection("perguntas").orderBy("timeId").get().then(snapshot => {
     snapshot.forEach(doc => {
       const dados = doc.data();
       const linha = document.createElement('tr');
       linha.innerHTML = `
         <td>${dados.pergunta}</td>
         <td>${dados.correta}</td>
-        <td>${dados.jogoId}</td>
         <td>${dados.timeId}</td>
       `;
       lista.appendChild(linha);
