@@ -30,12 +30,17 @@ function buscarJogos() {
   ref.get().then(snapshot => {
     const tabela = document.getElementById("tabelaJogos");
     tabela.innerHTML = "";
+
     snapshot.forEach(doc => {
       const j = doc.data();
       const dataJogo = new Date(j.dataInicio);
+
+      const inicioFiltro = inicio ? new Date(inicio + 'T00:00') : null;
+      const fimFiltro = fim ? new Date(fim + 'T23:59') : null;
+
       const dentroDoPeriodo =
-        (!inicio || new Date(inicio) <= dataJogo) &&
-        (!fim || dataJogo <= new Date(fim + 'T23:59'));
+        (!inicioFiltro || dataJogo >= inicioFiltro) &&
+        (!fimFiltro || dataJogo <= fimFiltro);
 
       if (!dentroDoPeriodo) return;
 
