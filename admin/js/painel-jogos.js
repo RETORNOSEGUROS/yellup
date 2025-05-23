@@ -15,11 +15,9 @@ async function buscarNomeTime(id) {
 
 async function renderizarTabela(snapshot) {
   tabela.innerHTML = "";
-
   for (const doc of snapshot.docs) {
     const jogo = doc.data();
     const id = doc.id;
-
     const nomeCasa = await buscarNomeTime(jogo.timeCasa);
     const nomeFora = await buscarNomeTime(jogo.timeFora);
 
@@ -30,7 +28,7 @@ async function renderizarTabela(snapshot) {
       <td>${formatarData(jogo.dataInicio)}</td>
       <td>${formatarData(jogo.dataFim)}</td>
       <td>${jogo.status}</td>
-      <td><button class="btn-entrar" onclick="window.location.href='painel-jogo.html?id=${id}'">Entrar na Partida</button></td>
+      <td><a href="painel-jogo.html?id=${id}"><button>Entrar na Partida</button></a></td>
     `;
     tabela.appendChild(linha);
   }
