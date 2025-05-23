@@ -1,99 +1,114 @@
 const db = firebase.firestore();
-let mapaTimes = {};
+let jogoId;
+let dadosJogo = {};
+let times = {};
+let patrocinadores = [];
+let patrocinadorIndex = 0;
 
 firebase.auth().onAuthStateChanged(user => {
-  if (!user) {
-    window.location.href = "/admin/login.html";
-  } else {
-    carregarTimes();
-  }
+  if (!user) return window.location.href = "/admin/login.html";
+  const params = new URLSearchParams(window.location.search);
+  jogoId = params.get("id");
+  if (!jogoId) return alert("ID do jogo não encontrado na URL.");
+  carregarTimes().then(() => carregarJogo());
 });
 
-function carregarTimes() {
-  db.collection("times").get().then(snapshot => {
-    snapshot.forEach(doc => {
-      mapaTimes[doc.id] = doc.data().nome;
-    });
+async function carregarTimes() {
+  const snap = await db.collection("times").get();
+  snap.forEach(doc => times[doc.id] = doc.data().nome);
+}
+
+function carregarJogo() {
+  db.collection("jogos").doc(jogoId).onSnapshot(doc => {
+    dadosJogo = doc.data();
+    document.getElementById("nomeTimeCasa").textContent = times[dadosJogo.timeCasa] || "Casa";
+    document.getElementById("nomeTimeFora").textContent = times[dadosJogo.timeFora] || "Fora";
+    carregarTorcida();
+    carregarRanking();
+    carregarPatrocinadores();
+    carregarChats();
   });
 }
 
-function formatarData(data) {
-  const d = data instanceof Date ? data : new Date(data?.toDate?.() || data);
-  return d.toLocaleString();
+function carregarTorcida() {
+  db.collection("torcidas").where("jogoId", "==", jogoId).onSnapshot(snapshot => {
+    let torcidaCasa = 0, torcidaFora = 0;
+    snapshot.forEach(doc => {
+      const t = doc.data();
+      if (t.timeId === dadosJogo.timeCasa) torcidaCasa++;
+      if (t.timeId === dadosJogo.timeFora) torcidaFora++;
+    });
+    const total = torcidaCasa + torcidaFora;
+    const percCasa = total ? ((torcidaCasa / total) * 100).toFixed(1) : 0;
+    const percFora = total ? ((torcidaFora / total) * 100).toFixed(1) : 0;
+
+    document.getElementById("torcidaCasa").textContent = `Torcida Time Casa: ${torcidaCasa}`;
+    document.getElementById("torcidaFora").textContent = `Torcida Time Visitante: ${torcidaFora}`;
+    document.getElementById("percentual").textContent = `Percentuais: Casa ${percCasa}% | Visitante ${percFora}%`;
+  });
 }
 
-function buscarJogos() {
-  const inicio = document.getElementById("filtroDataInicio").value;
-  const fim = document.getElementById("filtroDataFim").value;
-  const status = document.getElementById("filtroStatus").value;
-  let ref = db.collection("jogos");
-
-  if (status !== "todos") {
-    ref = ref.where("status", "==", status);
-  }
-
-  ref.get().then(snapshot => {
-    const tabela = document.getElementById("tabelaJogos");
+function carregarRanking() {
+  db.collection("usuarios").orderBy("pontos", "desc").onSnapshot(snapshot => {
+    const tabela = document.getElementById("tabelaRanking");
     tabela.innerHTML = "";
-
     snapshot.forEach(doc => {
-      const j = doc.data();
-      const id = doc.id;
-
-      const dataJogo = j.dataInicio instanceof Date
-        ? j.dataInicio
-        : new Date(j.dataInicio?.toDate?.() || j.dataInicio);
-
-      const inicioFiltro = inicio ? new Date(inicio + 'T00:00') : null;
-      const fimFiltro = fim ? new Date(fim + 'T23:59') : null;
-
-      const dentroDoPeriodo =
-        (!inicioFiltro || dataJogo >= inicioFiltro) &&
-        (!fimFiltro || dataJogo <= fimFiltro);
-
-      if (!dentroDoPeriodo) return;
-
-      const linha = document.createElement("tr");
-      linha.innerHTML = `
-        <td>${mapaTimes[j.timeCasa] ?? j.timeCasa}</td>
-        <td>${mapaTimes[j.timeFora] ?? j.timeFora}</td>
-        <td>${formatarData(j.dataInicio)}</td>
-        <td>${formatarData(j.dataFim)}</td>
-        <td>${j.status}</td>
-        <td>
-          <a href="/admin/painel-jogo.html?id=${id}" target="_blank">
-            <button>Entrar na Partida</button>
-          </a>
-        </td>
-      `;
-      tabela.appendChild(linha);
+      const u = doc.data();
+      if (u.timeId === dadosJogo.timeCasa || u.timeId === dadosJogo.timeFora) {
+        const linha = document.createElement("tr");
+        linha.innerHTML = `<td>${u.nome}</td><td>${u.pontos}</td>`;
+        tabela.appendChild(linha);
+      }
     });
   });
 }
 
-function listarTodosJogos() {
-  const tabela = document.getElementById("tabelaJogos");
-  tabela.innerHTML = "";
-
-  db.collection("jogos").orderBy("dataInicio").get().then(snapshot => {
-    snapshot.forEach(doc => {
-      const j = doc.data();
-      const id = doc.id;
-
-      const linha = document.createElement("tr");
-      linha.innerHTML = `
-        <td>${mapaTimes[j.timeCasa] ?? j.timeCasa}</td>
-        <td>${mapaTimes[j.timeFora] ?? j.timeFora}</td>
-        <td>${formatarData(j.dataInicio)}</td>
-        <td>${formatarData(j.dataFim)}</td>
-        <td>${j.status}</td>
-        <td>
-          <a href="/admin/painel-jogo.html?id=${id}" target="_blank">
-            <button>Entrar na Partida</button>
-          </a>
-        </td>
-      `;
-      tabela.appendChild(linha);
-    });
+function carregarPatrocinadores() {
+  db.collection("patrocinadores").where("jogoId", "==", jogoId).get().then(snapshot => {
+    patrocinadores = [];
+    snapshot.forEach(doc => patrocinadores.push(doc.data().logoURL));
+    if (patrocinadores.length > 0) trocarLogo();
   });
+}
+
+function trocarLogo() {
+  const logo = document.getElementById("logoPatrocinador");
+  if (patrocinadores.length === 0) return;
+  logo.src = patrocinadores[patrocinadorIndex];
+  patrocinadorIndex = (patrocinadorIndex + 1) % patrocinadores.length;
+  setTimeout(trocarLogo, 5000); // muda a cada 5 segundos
+}
+
+function carregarChats() {
+  ["geral", "casa", "fora"].forEach(tipo => {
+    db.collection("chats_jogo_demo")
+      .where("jogoId", "==", jogoId)
+      .where("tipo", "==", tipo)
+      .orderBy("data", "desc")
+      .limit(20)
+      .onSnapshot(snapshot => {
+        const box = document.getElementById("chat" + tipo.charAt(0).toUpperCase() + tipo.slice(1));
+        box.innerHTML = "";
+        snapshot.forEach(doc => {
+          const m = doc.data();
+          const p = document.createElement("p");
+          p.textContent = `${m.autor || "Admin"}: ${m.mensagem}`;
+          box.appendChild(p);
+        });
+      });
+  });
+}
+
+function enviarMensagem(tipo) {
+  const campo = document.getElementById("mensagem" + tipo.charAt(0).toUpperCase() + tipo.slice(1));
+  const texto = campo.value.trim();
+  if (!texto) return;
+  db.collection("chats_jogo_demo").add({
+    jogoId,
+    tipo,
+    autor: "Admin",
+    mensagem: texto,
+    data: new Date()
+  });
+  campo.value = "";
 }
