@@ -3,63 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <title>Listagem de Jogos</title>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-  <script src="../firebase-config.js"></script>
-  <script src="../js/painel-jogos.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js"></script>
+  <script src="../firebase-init.js"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-    }
-    h1 {
-      font-size: 26px;
-      margin-bottom: 20px;
-    }
-    label {
-      margin-right: 8px;
-    }
-    input, select, button {
-      margin-right: 12px;
-      padding: 6px;
-      font-size: 14px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 10px;
-      text-align: center;
-    }
-    th {
-      background-color: #333;
-      color: white;
-    }
-    .btn-entrar {
-      padding: 6px 10px;
-      cursor: pointer;
-    }
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    h1 { font-size: 24px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #222; color: #fff; }
+    input, select, button { margin-right: 10px; padding: 5px; }
   </style>
 </head>
 <body>
   <h1>Listagem de Jogos</h1>
-  <label>Data Início:</label>
-  <input type="date" id="dataInicio">
 
-  <label>Data Fim:</label>
-  <input type="date" id="dataFim">
-
-  <label>Status:</label>
-  <select id="statusFiltro">
-    <option value="Todos">Todos</option>
-    <option value="agendado">Agendado</option>
-    <option value="finalizado">Finalizado</option>
-    <option value="em andamento">Em andamento</option>
-  </select>
-
+  <label>Data Início: <input type="date" id="dataInicio"></label>
+  <label>Data Fim: <input type="date" id="dataFim"></label>
+  <label>Status:
+    <select id="statusFiltro">
+      <option value="Todos">Todos</option>
+      <option value="agendado">Agendado</option>
+      <option value="finalizado">Finalizado</option>
+    </select>
+  </label>
   <button onclick="buscarJogos()">Buscar</button>
   <button onclick="listarTodos()">Listar Todos</button>
 
@@ -76,5 +43,69 @@
     </thead>
     <tbody id="tabela-jogos"></tbody>
   </table>
+
+  <script>
+    const db = firebase.firestore();
+    const tabela = document.getElementById("tabela-jogos");
+
+    function formatarData(timestamp) {
+      if (!timestamp) return "-";
+      const data = timestamp.toDate();
+      return data.toLocaleString("pt-BR");
+    }
+
+    async function buscarNomeTime(id) {
+      if (!id) return "Desconhecido";
+      const doc = await db.collection("times").doc(id).get();
+      return doc.exists ? doc.data().nome : "Desconhecido";
+    }
+
+    async function renderizarTabela(snapshot) {
+      tabela.innerHTML = "";
+      for (const doc of snapshot.docs) {
+        const jogo = doc.data();
+        const id = doc.id;
+        const nomeCasa = await buscarNomeTime(jogo.timeCasa);
+        const nomeFora = await buscarNomeTime(jogo.timeFora);
+
+        const linha = document.createElement("tr");
+        linha.innerHTML = `
+          <td>${nomeCasa}</td>
+          <td>${nomeFora}</td>
+          <td>${formatarData(jogo.dataInicio)}</td>
+          <td>${formatarData(jogo.dataFim)}</td>
+          <td>${jogo.status}</td>
+          <td><a href="painel-jogo.html?id=${id}"><button>Entrar na Partida</button></a></td>
+        `;
+        tabela.appendChild(linha);
+      }
+    }
+
+    function buscarJogos() {
+      const dataInicio = document.getElementById("dataInicio").value;
+      const dataFim = document.getElementById("dataFim").value;
+      const statusFiltro = document.getElementById("statusFiltro").value;
+
+      let query = db.collection("jogos");
+
+      if (dataInicio && dataFim) {
+        const inicio = new Date(dataInicio);
+        const fim = new Date(dataFim);
+        fim.setHours(23, 59, 59, 999);
+        query = query.where("dataInicio", ">=", inicio).where("dataInicio", "<=", fim);
+      }
+      if (statusFiltro !== "Todos") {
+        query = query.where("status", "==", statusFiltro);
+      }
+
+      query.get().then(renderizarTabela);
+    }
+
+    function listarTodos() {
+      db.collection("jogos").get().then(renderizarTabela);
+    }
+
+    document.addEventListener("DOMContentLoaded", listarTodos);
+  </script>
 </body>
 </html>
