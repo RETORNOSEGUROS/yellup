@@ -14,46 +14,22 @@ firebase.auth().onAuthStateChanged(user => {
 });
 
 function carregarTimes() {
-  const selectCasa = document.getElementById("timeCasa");
-  const selectFora = document.getElementById("timeFora");
+  const datalist = document.getElementById("listaTimes");
+  datalist.innerHTML = '';
+  listaTimes = [];
 
-  db.collection("times").get().then(snapshot => {
-    listaTimes = [];
-
+  db.collection("times").orderBy("nome").get().then(snapshot => {
     snapshot.forEach(doc => {
       const time = doc.data();
       time.id = doc.id;
-      mapaTimes[doc.id] = time.nome;
       listaTimes.push(time);
+      mapaTimes[time.nome] = time.id;
+
+      const option = document.createElement("option");
+      option.value = time.nome;
+      datalist.appendChild(option);
     });
-
-    preencherSelects();
   });
-}
-
-function preencherSelects(filtro = "") {
-  const selectCasa = document.getElementById("timeCasa");
-  const selectFora = document.getElementById("timeFora");
-  selectCasa.innerHTML = '<option value="">Selecione o Time da Casa</option>';
-  selectFora.innerHTML = '<option value="">Selecione o Time Visitante</option>';
-
-  const textoCasa = document.getElementById('buscaCasa')?.value?.toLowerCase() || "";
-  const textoFora = document.getElementById('buscaFora')?.value?.toLowerCase() || "";
-
-  listaTimes.forEach(time => {
-    if (time.nome.toLowerCase().includes(textoCasa)) {
-      const opt = new Option(time.nome, time.id);
-      selectCasa.appendChild(opt);
-    }
-    if (time.nome.toLowerCase().includes(textoFora)) {
-      const opt = new Option(time.nome, time.id);
-      selectFora.appendChild(opt);
-    }
-  });
-}
-
-function filtrarTimes(tipo) {
-  preencherSelects();
 }
 
 function adicionarPatrocinador() {
@@ -69,14 +45,16 @@ function adicionarPatrocinador() {
 }
 
 async function cadastrarJogo() {
-  const timeCasa = document.getElementById('timeCasa').value;
-  const timeFora = document.getElementById('timeFora').value;
+  const nomeCasa = document.getElementById('timeCasa').value.trim();
+  const nomeFora = document.getElementById('timeFora').value.trim();
+  const timeCasa = mapaTimes[nomeCasa];
+  const timeFora = mapaTimes[nomeFora];
   const dataInicio = document.getElementById('dataInicio').value;
   const dataFim = document.getElementById('dataFim').value;
   const status = document.getElementById('statusJogo').value;
 
   if (!timeCasa || !timeFora || !dataInicio || !dataFim) {
-    alert("Preencha todos os campos obrigatórios.");
+    alert("Preencha todos os campos corretamente.");
     return;
   }
 
@@ -85,7 +63,6 @@ async function cadastrarJogo() {
   });
 
   await salvarPatrocinadores(jogoRef.id);
-
   alert("Jogo cadastrado com sucesso!");
   limparFormulario();
   carregarJogos();
@@ -128,8 +105,8 @@ function carregarJogos() {
       const id = doc.id;
       const linha = document.createElement('tr');
       linha.innerHTML = `
-        <td>${mapaTimes[jogo.timeCasa] ?? jogo.timeCasa}</td>
-        <td>${mapaTimes[jogo.timeFora] ?? jogo.timeFora}</td>
+        <td>${obterNomeTime(jogo.timeCasa)}</td>
+        <td>${obterNomeTime(jogo.timeFora)}</td>
         <td>${new Date(jogo.dataInicio).toLocaleString()}</td>
         <td>${new Date(jogo.dataFim).toLocaleString()}</td>
         <td>${jogo.status}</td>
@@ -141,6 +118,12 @@ function carregarJogos() {
       tabela.appendChild(linha);
     });
   });
+}
+
+function obterNomeTime(idOuNome) {
+  return Object.values(mapaTimes).includes(idOuNome)
+    ? Object.keys(mapaTimes).find(nome => mapaTimes[nome] === idOuNome)
+    : idOuNome;
 }
 
 function encerrarJogo(id) {
@@ -160,8 +143,8 @@ function editarJogo(id) {
     const jogo = doc.data();
     jogoEditandoId = id;
 
-    document.getElementById('timeCasa').value = jogo.timeCasa;
-    document.getElementById('timeFora').value = jogo.timeFora;
+    document.getElementById('timeCasa').value = obterNomeTime(jogo.timeCasa);
+    document.getElementById('timeFora').value = obterNomeTime(jogo.timeFora);
     document.getElementById('dataInicio').value = jogo.dataInicio;
     document.getElementById('dataFim').value = jogo.dataFim;
     document.getElementById('statusJogo').value = jogo.status;
@@ -172,11 +155,18 @@ function editarJogo(id) {
 }
 
 function atualizarJogo() {
-  const timeCasa = document.getElementById('timeCasa').value;
-  const timeFora = document.getElementById('timeFora').value;
+  const nomeCasa = document.getElementById('timeCasa').value.trim();
+  const nomeFora = document.getElementById('timeFora').value.trim();
+  const timeCasa = mapaTimes[nomeCasa];
+  const timeFora = mapaTimes[nomeFora];
   const dataInicio = document.getElementById('dataInicio').value;
   const dataFim = document.getElementById('dataFim').value;
   const status = document.getElementById('statusJogo').value;
+
+  if (!timeCasa || !timeFora || !dataInicio || !dataFim) {
+    alert("Preencha todos os campos corretamente.");
+    return;
+  }
 
   db.collection("jogos").doc(jogoEditandoId).update({
     timeCasa, timeFora, dataInicio, dataFim, status
