@@ -1,4 +1,8 @@
-document.addEventListener("DOMContentLoaded", listarTodosJogos);
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("listarTodos").addEventListener("click", listarTodosJogos);
+  document.getElementById("buscar").addEventListener("click", buscarJogos);
+  listarTodosJogos();
+});
 
 const db = firebase.firestore();
 
@@ -17,8 +21,8 @@ function buscarJogos() {
   let query = db.collection("jogos");
 
   if (dataInicio && dataFim) {
-    const inicio = new Date(dataInicio);
-    const fim = new Date(dataFim);
+    const inicio = new Date(dataInicio + 'T00:00:00');
+    const fim = new Date(dataFim + 'T23:59:59');
     query = query.where("dataInicio", ">=", inicio).where("dataInicio", "<=", fim);
   }
 
@@ -41,8 +45,8 @@ function exibirJogos(jogos) {
 
     const timeCasa = jogo.timeCasaNome || "Desconhecido";
     const timeFora = jogo.timeForaNome || "Desconhecido";
-    const inicio = jogo.dataInicio?.toDate?.().toLocaleString?.("pt-BR") || "-";
-    const fim = jogo.dataFim?.toDate?.().toLocaleString?.("pt-BR") || "-";
+    const inicio = jogo.dataInicio?.toDate?.().toLocaleString("pt-BR") || "-";
+    const fim = jogo.dataFim?.toDate?.().toLocaleString("pt-BR") || "-";
 
     tr.innerHTML = `
       <td>${timeCasa}</td>
