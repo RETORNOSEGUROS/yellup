@@ -18,10 +18,8 @@ function carregarTimes() {
 }
 
 function formatarData(data) {
-  const realData = data instanceof Date
-    ? data
-    : new Date(data?.toDate?.() || data);
-  return realData.toLocaleString();
+  const d = data instanceof Date ? data : new Date(data?.toDate?.() || data);
+  return d.toLocaleString();
 }
 
 function buscarJogos() {
@@ -40,6 +38,8 @@ function buscarJogos() {
 
     snapshot.forEach(doc => {
       const j = doc.data();
+      const id = doc.id;
+
       const dataJogo = j.dataInicio instanceof Date
         ? j.dataInicio
         : new Date(j.dataInicio?.toDate?.() || j.dataInicio);
@@ -60,7 +60,11 @@ function buscarJogos() {
         <td>${formatarData(j.dataInicio)}</td>
         <td>${formatarData(j.dataFim)}</td>
         <td>${j.status}</td>
-        <td><a href="/admin/painel-jogo.html?id=${doc.id}" target="_blank">Ver Painel</a></td>
+        <td>
+          <a href="/admin/painel-jogo.html?id=${id}" target="_blank">
+            <button>Entrar na Partida</button>
+          </a>
+        </td>
       `;
       tabela.appendChild(linha);
     });
@@ -74,6 +78,8 @@ function listarTodosJogos() {
   db.collection("jogos").orderBy("dataInicio").get().then(snapshot => {
     snapshot.forEach(doc => {
       const j = doc.data();
+      const id = doc.id;
+
       const linha = document.createElement("tr");
       linha.innerHTML = `
         <td>${mapaTimes[j.timeCasa] ?? j.timeCasa}</td>
@@ -81,7 +87,11 @@ function listarTodosJogos() {
         <td>${formatarData(j.dataInicio)}</td>
         <td>${formatarData(j.dataFim)}</td>
         <td>${j.status}</td>
-        <td><a href="/admin/painel-jogo.html?id=${doc.id}" target="_blank">Ver Painel</a></td>
+        <td>
+          <a href="/admin/painel-jogo.html?id=${id}" target="_blank">
+            <button>Entrar na Partida</button>
+          </a>
+        </td>
       `;
       tabela.appendChild(linha);
     });
