@@ -37,11 +37,15 @@ function buscarJogos() {
   const dataInicio = document.getElementById("dataInicio").value;
   const dataFim = document.getElementById("dataFim").value;
   const statusFiltro = document.getElementById("statusFiltro").value;
+
   let query = db.collection("jogos");
 
   if (dataInicio && dataFim) {
     const inicio = new Date(dataInicio + 'T00:00:00');
     const fim = new Date(dataFim + 'T23:59:59');
+
+    console.log("Filtro entre:", inicio, "e", fim);
+
     query = query
       .where("dataInicio", ">=", firebase.firestore.Timestamp.fromDate(inicio))
       .where("dataInicio", "<=", firebase.firestore.Timestamp.fromDate(fim));
@@ -51,7 +55,14 @@ function buscarJogos() {
     query = query.where("status", "==", statusFiltro);
   }
 
-  query.get().then(renderizarTabela);
+  query.get()
+    .then(snapshot => {
+      console.log("Jogos encontrados:", snapshot.size);
+      renderizarTabela(snapshot);
+    })
+    .catch(error => {
+      console.error("Erro ao buscar jogos:", error);
+    });
 }
 
 function listarTodos() {
@@ -60,4 +71,5 @@ function listarTodos() {
 
 document.getElementById("btnBuscar").addEventListener("click", buscarJogos);
 document.getElementById("btnListarTodos").addEventListener("click", listarTodos);
+
 document.addEventListener("DOMContentLoaded", listarTodos);
