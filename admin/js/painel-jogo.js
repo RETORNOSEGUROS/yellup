@@ -33,7 +33,11 @@ function buscarJogos() {
 
     snapshot.forEach(doc => {
       const j = doc.data();
-      const dataJogo = new Date(j.dataInicio);
+
+      // Compatível com string, Date ou Timestamp
+      const dataJogo = j.dataInicio instanceof Date
+        ? j.dataInicio
+        : new Date(j.dataInicio?.toDate?.() || j.dataInicio);
 
       const inicioFiltro = inicio ? new Date(inicio + 'T00:00') : null;
       const fimFiltro = fim ? new Date(fim + 'T23:59') : null;
@@ -48,12 +52,19 @@ function buscarJogos() {
       linha.innerHTML = `
         <td>${mapaTimes[j.timeCasa] ?? j.timeCasa}</td>
         <td>${mapaTimes[j.timeFora] ?? j.timeFora}</td>
-        <td>${new Date(j.dataInicio).toLocaleString()}</td>
-        <td>${new Date(j.dataFim).toLocaleString()}</td>
+        <td>${formatarData(j.dataInicio)}</td>
+        <td>${formatarData(j.dataFim)}</td>
         <td>${j.status}</td>
         <td><a href="/admin/painel-jogo.html?id=${doc.id}" target="_blank">Ver Painel</a></td>
       `;
       tabela.appendChild(linha);
     });
   });
+}
+
+function formatarData(data) {
+  const realData = data instanceof Date
+    ? data
+    : new Date(data?.toDate?.() || data);
+  return realData.toLocaleString();
 }
