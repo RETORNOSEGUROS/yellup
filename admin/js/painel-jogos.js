@@ -1,6 +1,3 @@
-
-// painel-jogos.js atualizado para exibir total de torcedores e créditos por jogo
-
 const db = firebase.firestore();
 const tabela = document.getElementById("tabela-jogos");
 
@@ -38,16 +35,16 @@ async function renderizarTabela(snapshot) {
     const stats = await calcularStats(id);
 
     const linha = document.createElement("tr");
-    linha.innerHTML = \`
-      <td>\${nomeCasa}</td>
-      <td>\${nomeFora}</td>
-      <td>\${formatarData(jogo.dataInicio)}</td>
-      <td>\${formatarData(jogo.dataFim)}</td>
-      <td>\${jogo.status}</td>
-      <td><button onclick="entrarPartida('\${id}')">Entrar na Partida</button></td>
-      <td>\${stats.totalTorcedores}</td>
-      <td>R$ \${stats.creditosTotal.toFixed(2)}</td>
-    \`;
+    linha.innerHTML = `
+      <td>${nomeCasa}</td>
+      <td>${nomeFora}</td>
+      <td>${formatarData(jogo.dataInicio)}</td>
+      <td>${formatarData(jogo.dataFim)}</td>
+      <td>${jogo.status}</td>
+      <td><button onclick="entrarPartida('${id}')">Entrar na Partida</button></td>
+      <td>${stats.totalTorcedores}</td>
+      <td>R$ ${stats.creditosTotal.toFixed(2)}</td>
+    `;
     tabela.appendChild(linha);
   }
 }
@@ -78,7 +75,7 @@ function listarTodos() {
 }
 
 function entrarPartida(jogoId) {
-  window.location.href = \`painel-jogo.html?id=\${jogoId}\`;
+  window.location.href = `painel-jogo.html?id=${jogoId}`;
 }
 
 document.addEventListener("DOMContentLoaded", listarTodos);
