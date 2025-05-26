@@ -79,3 +79,5 @@ function entrarPartida(jogoId) {
 }
 
 document.addEventListener("DOMContentLoaded", listarTodos);
+document.getElementById("btnBuscar").addEventListener("click", buscarJogos);
+document.getElementById("btnListarTodos").addEventListener("click", listarTodos);
