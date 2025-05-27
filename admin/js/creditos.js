@@ -1,4 +1,5 @@
 const db = firebase.firestore();
+let listaCreditos = [];
 
 document.getElementById("formCredito").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -31,21 +32,42 @@ document.getElementById("formCredito").addEventListener("submit", async (e) => {
 async function carregarCreditos() {
   const tabela = document.getElementById("tabelaCreditos");
   tabela.innerHTML = "";
+  listaCreditos = [];
 
   const snapshot = await db.collection("creditos").orderBy("dataRegistro", "desc").get();
 
   snapshot.forEach(doc => {
     const data = doc.data();
-    const dataFormatada = data.dataRegistro.toDate().toLocaleString("pt-BR");
+    listaCreditos.push({
+      nome: data.nomeUsuario || "-",
+      valor: data.valorCredito || 0,
+      forma: data.formaPagamento || "-",
+      data: data.dataRegistro.toDate().toLocaleString("pt-BR")
+    });
+  });
+
+  exibirCreditos(listaCreditos);
+}
+
+function exibirCreditos(lista) {
+  const tabela = document.getElementById("tabelaCreditos");
+  tabela.innerHTML = "";
+  lista.forEach(c => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${dataFormatada}</td>
-      <td>${data.nomeUsuario}</td>
-      <td>${data.valorCredito}</td>
-      <td>${data.formaPagamento}</td>
+      <td>${c.data}</td>
+      <td>${c.nome}</td>
+      <td>${c.valor}</td>
+      <td>${c.forma}</td>
     `;
     tabela.appendChild(tr);
   });
+}
+
+function filtrarCreditos() {
+  const termo = document.getElementById("filtroCredito").value.toLowerCase();
+  const filtrados = listaCreditos.filter(c => c.nome.toLowerCase().includes(termo));
+  exibirCreditos(filtrados);
 }
 
 carregarCreditos();
