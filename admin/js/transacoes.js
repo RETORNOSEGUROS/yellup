@@ -45,4 +45,34 @@ function filtrarTransacoes() {
   exibirTransacoes(filtradas);
 }
 
+document.getElementById("formTransacao").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const nome = document.getElementById("nomeUsuario").value.trim();
+  const valor = parseFloat(document.getElementById("valor").value);
+  const tipo = document.getElementById("tipo").value.trim();
+  const data = new Date();
+
+  if (!nome || isNaN(valor) || !tipo) {
+    alert("Preencha todos os campos corretamente.");
+    return;
+  }
+
+  try {
+    await db.collection("transacoes").add({
+      nome,
+      valor,
+      tipo,
+      data: firebase.firestore.Timestamp.fromDate(data)
+    });
+
+    alert("Transação registrada com sucesso.");
+    document.getElementById("formTransacao").reset();
+    carregarTransacoes();
+  } catch (err) {
+    console.error("Erro ao registrar transação:", err);
+    alert("Erro ao registrar.");
+  }
+});
+
 carregarTransacoes();
