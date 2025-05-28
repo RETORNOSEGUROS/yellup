@@ -41,7 +41,10 @@ async function renderizarTabela(snapshot) {
       <td>${formatarData(jogo.dataInicio)}</td>
       <td>${formatarData(jogo.dataFim)}</td>
       <td>${jogo.status}</td>
-      <td><button onclick="entrarPartida('${id}')">Entrar na Partida</button></td>
+      <td>
+        <button class="btn" onclick="entrarPartida('${id}')">Entrar</button>
+        <button class="btn" onclick="verRelatorio('${id}')">Relatório</button>
+      </td>
       <td>${stats.totalTorcedores}</td>
       <td>R$ ${stats.creditosTotal.toFixed(2)}</td>
     `;
@@ -76,6 +79,10 @@ function listarTodos() {
 
 function entrarPartida(jogoId) {
   window.location.href = `painel-jogo.html?id=${jogoId}`;
+}
+
+function verRelatorio(jogoId) {
+  window.location.href = `relatorio-jogo.html?id=${jogoId}`;
 }
 
 document.addEventListener("DOMContentLoaded", listarTodos);
