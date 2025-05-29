@@ -9,13 +9,23 @@ function exibirFiltros() {
 }
 
 async function carregarTimesEJogos() {
-  const jogosSnap = await db.collection("jogos").orderBy("dataInicio", "desc").get();
+  // Carregar jogos finalizados
+  const jogosSnap = await db.collection("jogos").where("status", "==", "finalizado").orderBy("dataInicio", "desc").get();
   const selectJogo = document.getElementById("jogoFiltro");
   selectJogo.innerHTML = "<option value=''>Selecione um jogo</option>";
   jogosSnap.forEach(doc => {
     const j = doc.data();
     const nome = `${j.timeCasaNome} x ${j.timeVisitanteNome}`;
     selectJogo.innerHTML += `<option value="${doc.id}">${nome}</option>`;
+  });
+
+  // Carregar times
+  const timesSnap = await db.collection("times").orderBy("nome").get();
+  const selectTime = document.getElementById("timeFiltro");
+  selectTime.innerHTML = "<option value=''>Selecione um time</option>";
+  timesSnap.forEach(doc => {
+    const t = doc.data();
+    selectTime.innerHTML += `<option value="${t.nome.toLowerCase()}">${t.nome}</option>`;
   });
 }
 
