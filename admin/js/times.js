@@ -1,99 +1,73 @@
 const db = firebase.firestore();
-let listaCompleta = [];
+const lista = document.getElementById("listaTimes");
 
-firebase.auth().onAuthStateChanged(user => {
-  if (!user) {
-    window.location.href = "/admin/login.html";
-  } else {
-    carregarPaises();
-    carregarTimes();
-  }
-});
-
-function carregarPaises() {
-  const select = document.getElementById("pais");
-  const paises = [
-    "Alemanha", "Argentina", "Brasil", "Espanha", "França", "Inglaterra", "Itália", "Japão",
-    "México", "Portugal", "Estados Unidos", "Holanda", "Uruguai", "Croácia", "Bélgica", "Polônia"
-  ];
-  paises.sort().forEach(p => {
-    const option = document.createElement("option");
-    option.value = p;
-    option.textContent = p;
-    select.appendChild(option);
+async function carregarTimes() {
+  lista.innerHTML = "";
+  const snapshot = await db.collection("times").orderBy("nome").get();
+  snapshot.forEach(doc => {
+    const t = doc.data();
+    const linha = document.createElement("tr");
+    const camisa = `
+      <div class="camiseta" style="
+        background: linear-gradient(to right, ${t.corPrimaria || '#ccc'} 50%, ${t.corSecundaria || '#eee'} 50%);
+        border: 2px solid ${t.corTerciaria || '#000'};
+      "></div>
+    `;
+    linha.innerHTML = `
+      <td>${t.nome}</td>
+      <td>${t.pais}</td>
+      <td>${camisa}</td>
+      <td><button onclick="editarTime('${doc.id}')">Editar</button></td>
+    `;
+    lista.appendChild(linha);
   });
 }
 
-function atualizarPreview() {
-  document.getElementById("preview1").style.background = document.getElementById("corPrimaria").value;
-  document.getElementById("preview2").style.background = document.getElementById("corSecundaria").value;
-  document.getElementById("preview3").style.background = document.getElementById("corTerciaria").value;
-}
-
-function cadastrarTime() {
-  const nome = document.getElementById('nome').value;
-  const pais = document.getElementById('pais').value;
-  const corPrimaria = document.getElementById('corPrimaria').value;
-  const corSecundaria = document.getElementById('corSecundaria').value;
-  const corTerciaria = document.getElementById('corTerciaria').value;
+async function cadastrarTime() {
+  const nome = document.getElementById("nomeTime").value.trim();
+  const pais = document.getElementById("paisTime").value;
+  const corPrimaria = document.getElementById("corPrimaria").value;
+  const corSecundaria = document.getElementById("corSecundaria").value;
+  const corTerciaria = document.getElementById("corTerciaria").value;
 
   if (!nome || !pais) {
-    alert("Preencha o nome e o país.");
+    alert("Preencha todos os campos.");
     return;
   }
 
-  db.collection("times").add({
-    nome,
-    pais,
-    corPrimaria,
-    corSecundaria,
-    corTerciaria
-  }).then(() => {
-    alert("Time cadastrado com sucesso!");
-    document.getElementById('nome').value = '';
-    document.getElementById('pais').value = '';
-    carregarTimes();
+  await db.collection("times").add({
+    nome, pais, corPrimaria, corSecundaria, corTerciaria
   });
+
+  document.getElementById("nomeTime").value = "";
+  carregarTimes();
 }
 
-function carregarTimes() {
-  const lista = document.getElementById('listaTimes');
-  lista.innerHTML = '';
-  listaCompleta = [];
+async function editarTime(id) {
+  const doc = await db.collection("times").doc(id).get();
+  const t = doc.data();
 
-  db.collection("times").orderBy("nome").get().then(snapshot => {
-    snapshot.forEach(doc => {
-      const time = doc.data();
-      listaCompleta.push({ id: doc.id, ...time });
+  document.getElementById("nomeTime").value = t.nome;
+  document.getElementById("paisTime").value = t.pais;
+  document.getElementById("corPrimaria").value = t.corPrimaria;
+  document.getElementById("corSecundaria").value = t.corSecundaria;
+  document.getElementById("corTerciaria").value = t.corTerciaria;
+
+  document.querySelector("button[onclick='cadastrarTime()']").style.display = "none";
+
+  const botaoSalvar = document.createElement("button");
+  botaoSalvar.innerText = "Salvar Alterações";
+  botaoSalvar.onclick = async () => {
+    await db.collection("times").doc(id).update({
+      nome: document.getElementById("nomeTime").value.trim(),
+      pais: document.getElementById("paisTime").value,
+      corPrimaria: document.getElementById("corPrimaria").value,
+      corSecundaria: document.getElementById("corSecundaria").value,
+      corTerciaria: document.getElementById("corTerciaria").value
     });
-    filtrarTimes();
-  });
+    location.reload();
+  };
+  document.body.appendChild(botaoSalvar);
 }
 
-function filtrarTimes() {
-  const filtro = document.getElementById('filtro').value.toLowerCase();
-  const lista = document.getElementById('listaTimes');
-  lista.innerHTML = '';
-
-  listaCompleta
-    .filter(time =>
-      time.nome.toLowerCase().includes(filtro) ||
-      time.pais.toLowerCase().includes(filtro)
-    )
-    .forEach(time => {
-      const linha = document.createElement('tr');
-      linha.innerHTML = `
-        <td>${time.nome}</td>
-        <td>${time.pais}</td>
-        <td style="background:${time.corPrimaria};">${time.corPrimaria}</td>
-        <td style="background:${time.corSecundaria};">${time.corSecundaria}</td>
-        <td style="background:${time.corTerciaria};">${time.corTerciaria}</td>
-        <td><button onclick="editarTime('${time.id}')">Editar</button></td>
-      `;
-      lista.appendChild(linha);
-    });
-}
-
-function editarTime(id) {
-  alert(`Função de edição em desenvolvimento para o time ID: ${id}`);
-}
+document.addEventListener("DOMContentLoaded", carregarTimes);
