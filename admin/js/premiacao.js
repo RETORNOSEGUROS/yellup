@@ -9,14 +9,6 @@ function exibirFiltros() {
 }
 
 async function carregarTimesEJogos() {
-  const timesSnap = await db.collection("times").get();
-  const selectTime = document.getElementById("timeFiltro");
-  selectTime.innerHTML = "<option value=''>Selecione um time</option>";
-  timesSnap.forEach(doc => {
-    const data = doc.data();
-    selectTime.innerHTML += `<option value="${data.nome}">${data.nome}</option>`;
-  });
-
   const jogosSnap = await db.collection("jogos").orderBy("dataInicio", "desc").get();
   const selectJogo = document.getElementById("jogoFiltro");
   selectJogo.innerHTML = "<option value=''>Selecione um jogo</option>";
@@ -37,10 +29,9 @@ async function gerarPremiacao() {
   const tipo = document.getElementById("tipoRanking").value;
   const dataInicio = document.getElementById("dataInicio").value ? new Date(document.getElementById("dataInicio").value) : null;
   const dataFim = document.getElementById("dataFim").value ? new Date(document.getElementById("dataFim").value + "T23:59:59") : null;
-  const timeFiltro = document.getElementById("timeFiltro").value;
+  const timeFiltro = document.getElementById("timeFiltro").value.toLowerCase().trim();
   const jogoId = document.getElementById("jogoFiltro").value;
 
-  // buscar usuários
   const usuariosSnap = await db.collection("usuarios").get();
   const usuarios = [];
 
@@ -49,12 +40,11 @@ async function gerarPremiacao() {
     usuarios.push({
       id: doc.id,
       nome: u.nome || "Sem nome",
-      time: u.timeCoracao || "-",
+      time: u.timeCoracao?.toLowerCase() || "-",
       pontos: 0
     });
   }
 
-  // buscar apostas
   const apostasSnap = await db.collection("apostas").get();
   apostasSnap.forEach(doc => {
     const a = doc.data();
@@ -71,7 +61,7 @@ async function gerarPremiacao() {
   });
 
   const ranking = usuarios.filter(u => u.pontos > 0).sort((a, b) => b.pontos - a.pontos).slice(0, 5);
-  const premioTotal = 100; // FIXO ou use regra depois
+  const premioTotal = 100;
   const percentuais = [0.4, 0.25, 0.15, 0.10, 0.10];
 
   simulacao = ranking.map((u, i) => ({
