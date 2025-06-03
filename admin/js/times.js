@@ -1,10 +1,7 @@
-const lista = document.getElementById("listaTimes");
+# Recriar o conteúdo corrigido após reset da sessão
 
-async function carregarTimes() {
-  lista.innerHTML = "";
-  const snapshot = await db.collection("times").orderBy("nome").get();
-  ...
-
+# Versão do times.js sem redeclaração de `db`
+times_js_corrigido = """
 const lista = document.getElementById("listaTimes");
 
 async function carregarTimes() {
@@ -77,3 +74,11 @@ async function editarTime(id) {
 }
 
 document.addEventListener("DOMContentLoaded", carregarTimes);
+"""
+
+# Salvar o arquivo
+corrigido_path = "/mnt/data/times-corrigido.js"
+with open(corrigido_path, "w", encoding="utf-8") as f:
+    f.write(times_js_corrigido)
+
+corrigido_path
