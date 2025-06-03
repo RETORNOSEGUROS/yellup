@@ -1,6 +1,3 @@
-# Gerar o JS do painel de times com busca, exibição e compatibilidade total
-
-times_restaurado = """
 const lista = document.getElementById("listaTimes");
 
 function desenharCamiseta(cor1, cor2, cor3) {
@@ -98,11 +95,3 @@ document.addEventListener("DOMContentLoaded", () => {
     campoBusca.addEventListener("input", aplicarFiltro);
   }
 });
-"""
-
-# Salvar arquivo restaurado
-path_js = "/mnt/data/times-restaurado.js"
-with open(path_js, "w", encoding="utf-8") as f:
-    f.write(times_restaurado.strip())
-
-path_js
