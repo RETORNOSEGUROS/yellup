@@ -1,13 +1,13 @@
-// Configuração Firebase para Yellup (versão compatível com HTML puro)
+// Configuração Firebase compatível (modo compatível)
+
 const firebaseConfig = {
-  apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
-  authDomain: "painel-yellup.firebaseapp.com",
-  projectId: "painel-yellup",
-  storageBucket: "painel-yellup.firebasestorage.app",
-  messagingSenderId: "608347210297",
-  appId: "1:608347210297:web:75092713724e617c7203e8",
-  measurementId: "G-SYZ16X31KQ"
+  apiKey: "AIzaSyD7Qo8A62FC1dMH6ugfChfVTxpFET2nD7k",
+  authDomain: "painel-retorno.firebaseapp.com",
+  projectId: "painel-retorno",
+  storageBucket: "painel-retorno.appspot.com",
+  messagingSenderId: "568615665836",
+  appId: "1:568615665836:web:cf4b053cf7911dbe122661"
 };
 
-// Inicialização (compatível com <script> e Firebase Auth direto)
 firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
