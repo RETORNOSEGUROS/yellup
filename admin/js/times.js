@@ -1,3 +1,27 @@
+function desenharCamiseta(cor1, cor2, cor3) {
+  return `
+    <svg width="36" height="36" viewBox="0 0 64 64">
+      <!-- Corpo principal -->
+      <path d="M20 10 Q32 0 44 10 L48 18 L56 22 L52 56 H12 L8 22 L16 18 Z"
+            fill="${cor1}" stroke="#000" stroke-width="2"/>
+
+      <!-- Mangas -->
+      <path d="M16 18 L8 22 L12 56 L16 54 Z"
+            fill="${cor2}" stroke="#000" stroke-width="1"/>
+      <path d="M48 18 L56 22 L52 56 L48 54 Z"
+            fill="${cor2}" stroke="#000" stroke-width="1"/>
+
+      <!-- Gola -->
+      <path d="M28 10 Q32 14 36 10 Q32 6 28 10"
+            fill="${cor3}" stroke="#000" stroke-width="0.5"/>
+
+      <!-- Faixa decorativa no peito -->
+      <rect x="16" y="26" width="32" height="6"
+            fill="${cor3}" stroke="#000" stroke-width="0.5" rx="1"/>
+    </svg>
+  `;
+}
+
 const lista = document.getElementById("listaTimes");
 
 function desenharCamiseta(cor1, cor2, cor3) {
