@@ -1,6 +1,27 @@
 
 const lista = document.getElementById("listaTimes");
 
+function desenharCamiseta(cor1, cor2, cor3) {
+  return \`
+    <svg width="32" height="32" viewBox="0 0 64 64">
+      <path d="M8,8 Q16,0 24,8 L24,16 L40,16 L40,8 Q48,0 56,8 L52,28 L44,24 L32,44 L20,24 L12,28 Z"
+            fill="\${cor1}" stroke="\${cor3}" stroke-width="2"/>
+      <line x1="24" y1="8" x2="24" y2="16" stroke="\${cor2}" stroke-width="4"/>
+      <line x1="40" y1="8" x2="40" y2="16" stroke="\${cor2}" stroke-width="4"/>
+    </svg>
+  \`;
+}
+
+function aplicarFiltro() {
+  const termo = document.getElementById("buscaTime").value.toLowerCase();
+  const linhas = document.querySelectorAll("#listaTimes tr");
+  linhas.forEach(linha => {
+    const nome = linha.querySelector("td")?.innerText.toLowerCase() || "";
+    const pais = linha.querySelectorAll("td")[1]?.innerText.toLowerCase() || "";
+    linha.style.display = (nome.includes(termo) || pais.includes(termo)) ? "" : "none";
+  });
+}
+
 async function carregarTimes() {
   lista.innerHTML = "";
   const snapshot = await db.collection("times").orderBy("nome").get();
@@ -11,18 +32,13 @@ async function carregarTimes() {
     const cor3 = t.corTerciaria || t.terciaria || '#000';
 
     const linha = document.createElement("tr");
-    const camisa = `
-      <div class="camiseta" style="
-        background: linear-gradient(to right, ${cor1} 50%, ${cor2} 50%);
-        border: 2px solid ${cor3};
-      "></div>
-    `;
-    linha.innerHTML = `
-      <td>${t.nome}</td>
-      <td>${t.pais}</td>
-      <td>${camisa}</td>
-      <td><button onclick="editarTime('${doc.id}')">Editar</button></td>
-    `;
+    const camisa = desenharCamiseta(cor1, cor2, cor3);
+    linha.innerHTML = \`
+      <td>\${t.nome}</td>
+      <td>\${t.pais}</td>
+      <td>\${camisa}</td>
+      <td><button onclick="editarTime('\${doc.id}')">Editar</button></td>
+    \`;
     lista.appendChild(linha);
   });
 }
@@ -74,4 +90,7 @@ async function editarTime(id) {
   document.body.appendChild(botaoSalvar);
 }
 
-document.addEventListener("DOMContentLoaded", carregarTimes);
+document.addEventListener("DOMContentLoaded", () => {
+  carregarTimes();
+  document.getElementById("buscaTime").addEventListener("input", aplicarFiltro);
+});
