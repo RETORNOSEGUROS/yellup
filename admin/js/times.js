@@ -1,4 +1,10 @@
-const db = firebase.firestore();
+const lista = document.getElementById("listaTimes");
+
+async function carregarTimes() {
+  lista.innerHTML = "";
+  const snapshot = await db.collection("times").orderBy("nome").get();
+  ...
+
 const lista = document.getElementById("listaTimes");
 
 async function carregarTimes() {
