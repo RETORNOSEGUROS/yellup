@@ -1,52 +1,35 @@
-function desenharCamiseta(cor1, cor2, cor3) {
+function desenharCamiseta(cor1, cor2, cor3, estilo = "lisa") {
+  let extra = "";
+
+  if (estilo === "listrada") {
+    extra = `
+      <rect x="30" y="20" width="4" height="40" fill="${cor3}" />
+      <rect x="36" y="20" width="4" height="40" fill="${cor3}" />
+      <rect x="42" y="20" width="4" height="40" fill="${cor3}" />
+    `;
+  } else if (estilo === "faixa") {
+    extra = `<rect x="22" y="35" width="36" height="8" fill="${cor3}" />`;
+  } else if (estilo === "diagonal") {
+    extra = `<polygon points="20,70 28,70 60,30 52,30" fill="${cor3}" />`;
+  }
+
   return `
     <svg width="36" height="36" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-      <!-- Corpo principal -->
-      <path d="M30,20 Q50,0 70,20 L80,35 L90,40 L85,90 H15 L10,40 L20,35 Z"
+      <path d="M25 20 Q50 0 75 20 L85 35 L90 90 H10 L15 35 Z"
             fill="${cor1}" stroke="#000" stroke-width="2" />
-
-      <!-- Mangas -->
-      <path d="M20,35 L10,40 L15,90 L20,87 Z"
+      <path d="M15 35 L5 40 L10 90 L15 88 Z"
             fill="${cor2}" stroke="#000" stroke-width="1.5"/>
-      <path d="M80,35 L90,40 L85,90 L80,87 Z"
+      <path d="M85 35 L95 40 L90 90 L85 88 Z"
             fill="${cor2}" stroke="#000" stroke-width="1.5"/>
-
-      <!-- Gola em V -->
-      <path d="M40,20 Q50,30 60,20"
+      <path d="M40 20 Q50 30 60 20"
             fill="${cor3}" stroke="#000" stroke-width="1"/>
-
-      <!-- Faixa horizontal no peito -->
-      <rect x="25" y="45" width="50" height="8" rx="2"
-            fill="${cor3}" stroke="#000" stroke-width="0.5"/>
+      ${extra}
     </svg>
   `;
-}
-
-
-const lista = document.getElementById("listaTimes");
-
-function desenharCamiseta(cor1, cor2, cor3) {
-  return `
-    <svg width="32" height="32" viewBox="0 0 64 64">
-      <path d="M8,8 Q16,0 24,8 L24,16 L40,16 L40,8 Q48,0 56,8 L52,28 L44,24 L32,44 L20,24 L12,28 Z"
-            fill="${cor1}" stroke="${cor3}" stroke-width="2"/>
-      <line x1="24" y1="8" x2="24" y2="16" stroke="${cor2}" stroke-width="4"/>
-      <line x1="40" y1="8" x2="40" y2="16" stroke="${cor2}" stroke-width="4"/>
-    </svg>
-  `;
-}
-
-function aplicarFiltro() {
-  const termo = document.getElementById("buscaTime")?.value.toLowerCase() || "";
-  const linhas = document.querySelectorAll("#listaTimes tr");
-  linhas.forEach(linha => {
-    const nome = linha.querySelector("td")?.innerText.toLowerCase() || "";
-    const pais = linha.querySelectorAll("td")[1]?.innerText.toLowerCase() || "";
-    linha.style.display = (nome.includes(termo) || pais.includes(termo)) ? "" : "none";
-  });
 }
 
 async function carregarTimes() {
+  const lista = document.getElementById("listaTimes");
   lista.innerHTML = "";
   const snapshot = await db.collection("times").orderBy("nome").get();
   snapshot.forEach(doc => {
@@ -54,12 +37,13 @@ async function carregarTimes() {
     const cor1 = t.corPrimaria || t.primaria || "#ccc";
     const cor2 = t.corSecundaria || t.secundaria || "#eee";
     const cor3 = t.corTerciaria || t.terciaria || "#000";
+    const estilo = t.estilo || "lisa";
 
     const linha = document.createElement("tr");
     linha.innerHTML = `
       <td>${t.nome}</td>
       <td>${t.pais}</td>
-      <td>${desenharCamiseta(cor1, cor2, cor3)}</td>
+      <td>${desenharCamiseta(cor1, cor2, cor3, estilo)}</td>
       <td><button onclick="editarTime('${doc.id}')">Editar</button></td>
     `;
     lista.appendChild(linha);
@@ -72,6 +56,7 @@ async function cadastrarTime() {
   const corPrimaria = document.getElementById("corPrimaria").value;
   const corSecundaria = document.getElementById("corSecundaria").value;
   const corTerciaria = document.getElementById("corTerciaria").value;
+  const estilo = document.getElementById("estilo").value;
 
   if (!nome || !pais) {
     alert("Preencha todos os campos.");
@@ -79,7 +64,7 @@ async function cadastrarTime() {
   }
 
   await db.collection("times").add({
-    nome, pais, corPrimaria, corSecundaria, corTerciaria
+    nome, pais, corPrimaria, corSecundaria, corTerciaria, estilo
   });
 
   document.getElementById("nomeTime").value = "";
@@ -92,9 +77,10 @@ async function editarTime(id) {
 
   document.getElementById("nomeTime").value = t.nome;
   document.getElementById("paisTime").value = t.pais;
-  document.getElementById("corPrimaria").value = t.corPrimaria || t.primaria || "#cccccc";
-  document.getElementById("corSecundaria").value = t.corSecundaria || t.secundaria || "#eeeeee";
-  document.getElementById("corTerciaria").value = t.corTerciaria || t.terciaria || "#000000";
+  document.getElementById("corPrimaria").value = t.corPrimaria || "#cccccc";
+  document.getElementById("corSecundaria").value = t.corSecundaria || "#eeeeee";
+  document.getElementById("corTerciaria").value = t.corTerciaria || "#000000";
+  document.getElementById("estilo").value = t.estilo || "lisa";
 
   document.querySelector("button[onclick='cadastrarTime()']").style.display = "none";
 
@@ -106,11 +92,22 @@ async function editarTime(id) {
       pais: document.getElementById("paisTime").value,
       corPrimaria: document.getElementById("corPrimaria").value,
       corSecundaria: document.getElementById("corSecundaria").value,
-      corTerciaria: document.getElementById("corTerciaria").value
+      corTerciaria: document.getElementById("corTerciaria").value,
+      estilo: document.getElementById("estilo").value
     });
     location.reload();
   };
   document.body.appendChild(botaoSalvar);
+}
+
+function aplicarFiltro() {
+  const termo = document.getElementById("buscaTime")?.value.toLowerCase() || "";
+  const linhas = document.querySelectorAll("#listaTimes tr");
+  linhas.forEach(linha => {
+    const nome = linha.querySelector("td")?.innerText.toLowerCase() || "";
+    const pais = linha.querySelectorAll("td")[1]?.innerText.toLowerCase() || "";
+    linha.style.display = (nome.includes(termo) || pais.includes(termo)) ? "" : "none";
+  });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
