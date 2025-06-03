@@ -1,4 +1,6 @@
+# Gerar o JS do painel de times com busca, exibição e compatibilidade total
 
+times_restaurado = """
 const lista = document.getElementById("listaTimes");
 
 function desenharCamiseta(cor1, cor2, cor3) {
@@ -13,7 +15,7 @@ function desenharCamiseta(cor1, cor2, cor3) {
 }
 
 function aplicarFiltro() {
-  const termo = document.getElementById("buscaTime").value.toLowerCase();
+  const termo = document.getElementById("buscaTime")?.value.toLowerCase() || "";
   const linhas = document.querySelectorAll("#listaTimes tr");
   linhas.forEach(linha => {
     const nome = linha.querySelector("td")?.innerText.toLowerCase() || "";
@@ -27,16 +29,15 @@ async function carregarTimes() {
   const snapshot = await db.collection("times").orderBy("nome").get();
   snapshot.forEach(doc => {
     const t = doc.data();
-    const cor1 = t.corPrimaria || t.primaria || '#ccc';
-    const cor2 = t.corSecundaria || t.secundaria || '#eee';
-    const cor3 = t.corTerciaria || t.terciaria || '#000';
+    const cor1 = t.corPrimaria || t.primaria || "#ccc";
+    const cor2 = t.corSecundaria || t.secundaria || "#eee";
+    const cor3 = t.corTerciaria || t.terciaria || "#000";
 
     const linha = document.createElement("tr");
-    const camisa = desenharCamiseta(cor1, cor2, cor3);
     linha.innerHTML = \`
       <td>\${t.nome}</td>
       <td>\${t.pais}</td>
-      <td>\${camisa}</td>
+      <td>\${desenharCamiseta(cor1, cor2, cor3)}</td>
       <td><button onclick="editarTime('\${doc.id}')">Editar</button></td>
     \`;
     lista.appendChild(linha);
@@ -92,5 +93,16 @@ async function editarTime(id) {
 
 document.addEventListener("DOMContentLoaded", () => {
   carregarTimes();
-  document.getElementById("buscaTime").addEventListener("input", aplicarFiltro);
+  const campoBusca = document.getElementById("buscaTime");
+  if (campoBusca) {
+    campoBusca.addEventListener("input", aplicarFiltro);
+  }
 });
+"""
+
+# Salvar arquivo restaurado
+path_js = "/mnt/data/times-restaurado.js"
+with open(path_js, "w", encoding="utf-8") as f:
+    f.write(times_restaurado.strip())
+
+path_js
