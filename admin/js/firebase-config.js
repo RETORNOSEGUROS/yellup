@@ -1,12 +1,14 @@
 const firebaseConfig = {
-  apiKey: "AIzaSyD7Qo8A62FC1dMH6ugfChfVTxpFET2nD7k",
+  apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
   authDomain: "painel-yellup.firebaseapp.com",
   projectId: "painel-yellup",
-  storageBucket: "painel-yellup.appspot.com",
-  messagingSenderId: "568615665836",
-  appId: "1:568615665836:web:cf4b053cf7911dbe122661"
+  storageBucket: "painel-yellup.firebasestorage.app",
+  messagingSenderId: "608347210297",
+  appId: "1:608347210297:web:75092713724e617c7203e8",
+  measurementId: "G-SYZ16X31KQ"
 };
 
-// Inicializa o Firebase no modo compatível
+// Inicializa Firebase no modo compatível
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth();
