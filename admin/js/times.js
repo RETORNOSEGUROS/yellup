@@ -6,11 +6,15 @@ async function carregarTimes() {
   const snapshot = await db.collection("times").orderBy("nome").get();
   snapshot.forEach(doc => {
     const t = doc.data();
+    const cor1 = t.corPrimaria || t.primaria || '#ccc';
+    const cor2 = t.corSecundaria || t.secundaria || '#eee';
+    const cor3 = t.corTerciaria || t.terciaria || '#000';
+
     const linha = document.createElement("tr");
     const camisa = `
       <div class="camiseta" style="
-        background: linear-gradient(to right, ${t.corPrimaria || '#ccc'} 50%, ${t.corSecundaria || '#eee'} 50%);
-        border: 2px solid ${t.corTerciaria || '#000'};
+        background: linear-gradient(to right, ${cor1} 50%, ${cor2} 50%);
+        border: 2px solid ${cor3};
       "></div>
     `;
     linha.innerHTML = `
@@ -49,9 +53,9 @@ async function editarTime(id) {
 
   document.getElementById("nomeTime").value = t.nome;
   document.getElementById("paisTime").value = t.pais;
-  document.getElementById("corPrimaria").value = t.corPrimaria;
-  document.getElementById("corSecundaria").value = t.corSecundaria;
-  document.getElementById("corTerciaria").value = t.corTerciaria;
+  document.getElementById("corPrimaria").value = t.corPrimaria || t.primaria || "#cccccc";
+  document.getElementById("corSecundaria").value = t.corSecundaria || t.secundaria || "#eeeeee";
+  document.getElementById("corTerciaria").value = t.corTerciaria || t.terciaria || "#000000";
 
   document.querySelector("button[onclick='cadastrarTime()']").style.display = "none";
 
