@@ -7,13 +7,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const estiloSelect = document.getElementById('estilo');
   const btnCadastrar = document.getElementById('btnCadastrar');
   const listaTimes = document.getElementById('listaTimes');
-  const filtro = document.getElementById('filtroBusca');
+  const filtroInput = document.getElementById('filtroBusca');
 
   function renderizarCamiseta(time) {
-    const estilo = (time.estilo || 'classico').toLowerCase();
+    const estilo = (time.estilo || 'lisa').toLowerCase();
     const cor1 = time.primaria || '#000000';
     const cor2 = time.secundaria || '#ffffff';
-    const cor3 = time.terciaria || '#ff0000';
 
     if (estilo === 'listrada') {
       return `
@@ -27,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       return `
         <svg width="40" height="40" viewBox="0 0 64 64">
-          <rect width="64" height="64" fill="${cor1}" stroke="${cor3}" stroke-width="4"/>
+          <rect width="64" height="64" fill="${cor1}" stroke="${cor2}" stroke-width="4"/>
         </svg>
       `;
     }
@@ -38,14 +37,14 @@ document.addEventListener('DOMContentLoaded', () => {
       listaTimes.innerHTML = '';
       snapshot.forEach(doc => {
         const time = doc.data();
-        const div = document.createElement('tr');
-        div.innerHTML = `
+        const linha = document.createElement('tr');
+        linha.innerHTML = `
           <td>${time.nome}</td>
           <td>${time.pais}</td>
           <td>${renderizarCamiseta(time)}</td>
           <td><button onclick="editarTime('${doc.id}')">Editar</button></td>
         `;
-        listaTimes.appendChild(div);
+        listaTimes.appendChild(linha);
       });
     });
   }
@@ -59,8 +58,20 @@ document.addEventListener('DOMContentLoaded', () => {
       terciaria: corTerciaria.value,
       estilo: estiloSelect.value
     };
+
     db.collection('times').add(novoTime).then(() => {
       carregarTimes();
+      nomeInput.value = '';
+      paisInput.value = '';
+    });
+  });
+
+  filtroInput.addEventListener('input', () => {
+    const termo = filtroInput.value.toLowerCase();
+    const linhas = listaTimes.querySelectorAll('tr');
+    linhas.forEach(linha => {
+      const texto = linha.innerText.toLowerCase();
+      linha.style.display = texto.includes(termo) ? '' : 'none';
     });
   });
 
