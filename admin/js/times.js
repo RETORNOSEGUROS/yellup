@@ -1,69 +1,96 @@
-document.addEventListener("DOMContentLoaded", () => {
-  const tabela = document.getElementById("tabelaTimes");
-  const filtro = document.getElementById("filtro");
-  const btnCadastrar = document.getElementById("btnCadastrar");
 
-  function desenharCamiseta(cor1, cor2, cor3, estilo) {
+const firebaseConfig = {
+  apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain: "painel-yellup.firebaseapp.com",
+  projectId: "painel-yellup",
+  storageBucket: "painel-yellup.appspot.com",
+  messagingSenderId: "608347210297",
+  appId: "1:608347210297:web:75092713724e617c7203e8",
+  measurementId: "G-SYZ16X31KQ"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+function desenharBotaoCircular(cor1, cor2, cor3) {
   return `
-    <svg width="40" height="50" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-      <path d="M16,8 L24,0 H40 L48,8 L56,10 L54,20 L48,18 L48,56 H16 L16,18 L10,20 L8,10 Z" fill="${cor1}" stroke="black" stroke-width="2"/>
-      ${estilo === "listrada" ? `
-        <rect x="22" y="8" width="4" height="48" fill="${cor2}" />
-        <rect x="32" y="8" width="4" height="48" fill="${cor2}" />
-        <rect x="42" y="8" width="4" height="48" fill="${cor2}" />
-      ` : ""}
-      ${estilo === "gola" ? `
-        <circle cx="32" cy="12" r="5" fill="${cor3}" />
-      ` : ""}
-    </svg>
+    <div class="circle-button" style="
+      background: linear-gradient(to bottom, ${cor1} 33%, ${cor2} 33% 66%, ${cor3} 66%);
+    "></div>
   `;
 }
 
+function carregarTimes() {
+  const tabela = document.getElementById("tabelaTimes");
+  tabela.innerHTML = "";
+  db.collection("times").get().then(snapshot => {
+    snapshot.forEach(doc => {
+      const time = doc.data();
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${time.nome}</td>
+        <td>${time.pais}</td>
+        <td>${desenharBotaoCircular(time.primaria, time.secundaria, time.terciaria)}</td>
+        <td>
+          <button onclick="editarTime('${doc.id}', '${time.nome}', '${time.pais}', '${time.primaria}', '${time.secundaria}', '${time.terciaria}')">Editar</button>
+        </td>
+      `;
+      tabela.appendChild(row);
+    });
+  });
+}
 
+function editarTime(id, nome, pais, primaria, secundaria, terciaria) {
+  document.getElementById("idEdicao").value = id;
+  document.getElementById("nome").value = nome;
+  document.getElementById("pais").value = pais;
+  document.getElementById("corPrimaria").value = primaria;
+  document.getElementById("corSecundaria").value = secundaria;
+  document.getElementById("corTerciaria").value = terciaria;
+  document.getElementById("btnCadastrar").textContent = "Salvar Alterações";
+}
 
-  function carregarTimes() {
-    db.collection("times").get().then(snapshot => {
-      tabela.innerHTML = "";
-      snapshot.forEach(doc => {
-        const time = doc.data();
-        const row = document.createElement("tr");
-        row.innerHTML = `
-          <td>${time.nome}</td>
-          <td>${time.pais}</td>
-          <td>${desenharCamiseta(time.primaria, time.secundaria, time.terciaria, time.estilo)}</td>
-          <td><button onclick="editarTime('${doc.id}')">Editar</button></td>
-        `;
-        tabela.appendChild(row);
-      });
+document.getElementById("btnCadastrar").addEventListener("click", () => {
+  const idEdicao = document.getElementById("idEdicao").value;
+  const nome = document.getElementById("nome").value;
+  const pais = document.getElementById("pais").value;
+  const primaria = document.getElementById("corPrimaria").value;
+  const secundaria = document.getElementById("corSecundaria").value;
+  const terciaria = document.getElementById("corTerciaria").value;
+
+  if (!nome || !pais) {
+    alert("Preencha os campos obrigatórios.");
+    return;
+  }
+
+  const dados = { nome, pais, primaria, secundaria, terciaria };
+
+  if (idEdicao) {
+    db.collection("times").doc(idEdicao).update(dados).then(() => {
+      document.getElementById("idEdicao").value = "";
+      document.getElementById("btnCadastrar").textContent = "Cadastrar";
+      carregarTimes();
+    });
+  } else {
+    db.collection("times").add(dados).then(() => {
+      carregarTimes();
     });
   }
 
-  btnCadastrar.addEventListener("click", () => {
-    const nome = document.getElementById("nome").value;
-    const pais = document.getElementById("pais").value;
-    const primaria = document.getElementById("corPrimaria").value;
-    const secundaria = document.getElementById("corSecundaria").value;
-    const terciaria = document.getElementById("corTerciaria").value;
-    const estilo = document.getElementById("estilo").value;
-
-    if (!nome || !pais) {
-      alert("Preencha os campos obrigatórios.");
-      return;
-    }
-
-    db.collection("times").add({ nome, pais, primaria, secundaria, terciaria, estilo }).then(() => {
-      carregarTimes();
-    });
-  });
-
-  filtro.addEventListener("input", () => {
-    const termo = filtro.value.toLowerCase();
-    const linhas = tabela.querySelectorAll("tr");
-    linhas.forEach(linha => {
-      const texto = linha.textContent.toLowerCase();
-      linha.style.display = texto.includes(termo) ? "" : "none";
-    });
-  });
-
-  carregarTimes();
+  document.getElementById("nome").value = "";
+  document.getElementById("pais").value = "Brasil";
+  document.getElementById("corPrimaria").value = "#000000";
+  document.getElementById("corSecundaria").value = "#ffffff";
+  document.getElementById("corTerciaria").value = "#ff0000";
 });
+
+document.getElementById("filtro").addEventListener("input", () => {
+  const termo = document.getElementById("filtro").value.toLowerCase();
+  const linhas = document.querySelectorAll("#tabelaTimes tr");
+  linhas.forEach(linha => {
+    const texto = linha.textContent.toLowerCase();
+    linha.style.display = texto.includes(termo) ? "" : "none";
+  });
+});
+
+document.addEventListener("DOMContentLoaded", carregarTimes);
