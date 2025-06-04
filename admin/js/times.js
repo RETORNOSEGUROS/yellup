@@ -1,6 +1,12 @@
 // times.js atualizado com camiseta estilo Bet365
 
-import { getFirestore, collection, getDocs, addDoc, query, orderBy, where } from "firebase/firestore";
+import { db } from "../firebase/firebase-config.js";
+import {
+  collection,
+  getDocs,
+  addDoc
+} from "firebase/firestore";
+
 const db = getFirestore();
 
 const listaTimes = document.getElementById("listaTimes");
