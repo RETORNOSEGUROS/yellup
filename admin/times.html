@@ -1,86 +1,97 @@
 
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <title>Cadastro de Times</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f2f2f2;
-      padding: 20px;
-    }
-    label {
-      margin-right: 10px;
-    }
-    input, select, button {
-      margin: 5px;
-      padding: 5px;
-    }
-    table {
-      width: 100%;
-      margin-top: 20px;
-      border-collapse: collapse;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 10px;
-      text-align: center;
-    }
-    th {
-      background: #333;
-      color: white;
-    }
-    .circle-button {
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      border: 1px solid #ccc;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-      display: inline-block;
-    }
-  </style>
-</head>
-<body>
-  <h1>Cadastro de Times</h1>
+// Firebase compat
+const firebaseConfig = {
+  apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain: "painel-yellup.firebaseapp.com",
+  projectId: "painel-yellup",
+  storageBucket: "painel-yellup.appspot.com",
+  messagingSenderId: "608347210297",
+  appId: "1:608347210297:web:75092713724e617c7203e8",
+  measurementId: "G-SYZ16X31KQ"
+};
 
-  <input type="hidden" id="idEdicao">
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 
-  <label for="nome">Nome:</label>
-  <input type="text" id="nome">
-  <label for="pais">País:</label>
-  <select id="pais">
-    <option value="Brasil">Brasil</option>
-    <option value="Argentina">Argentina</option>
-    <option value="Itália">Itália</option>
-    <option value="Alemanha">Alemanha</option>
-    <option value="Espanha">Espanha</option>
-  </select>
-  <label for="corPrimaria">Cor Primária:</label>
-  <input type="color" id="corPrimaria" value="#000000">
-  <label for="corSecundaria">Cor Secundária:</label>
-  <input type="color" id="corSecundaria" value="#ffffff">
-  <label for="corTerciaria">Cor Terciária:</label>
-  <input type="color" id="corTerciaria" value="#ff0000">
-  <button id="btnCadastrar">Cadastrar</button>
+function desenharBotaoCircular(cor1, cor2, cor3) {
+  return `
+    <div class="circle-button" style="
+      background: linear-gradient(to bottom, ${cor1} 33%, ${cor2} 33% 66%, ${cor3} 66%);
+    "></div>
+  `;
+}
 
-  <br><br>
-  <input type="text" id="filtro" placeholder="Filtrar por nome ou país...">
+function carregarTimes() {
+  const tabela = document.getElementById("tabelaTimes");
+  tabela.innerHTML = "";
+  db.collection("times").get().then(snapshot => {
+    snapshot.forEach(doc => {
+      const time = doc.data();
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${time.nome}</td>
+        <td>${time.pais}</td>
+        <td>${desenharBotaoCircular(time.primaria, time.secundaria, time.terciaria)}</td>
+        <td>
+          <button onclick="editarTime('${doc.id}', '${time.nome}', '${time.pais}', '${time.primaria}', '${time.secundaria}', '${time.terciaria}')">Editar</button>
+        </td>
+      `;
+      tabela.appendChild(row);
+    });
+  });
+}
 
-  <table>
-    <thead>
-      <tr>
-        <th>Nome</th>
-        <th>País</th>
-        <th>Cores</th>
-        <th>Ações</th>
-      </tr>
-    </thead>
-    <tbody id="tabelaTimes"></tbody>
-  </table>
+function editarTime(id, nome, pais, primaria, secundaria, terciaria) {
+  document.getElementById("idEdicao").value = id;
+  document.getElementById("nome").value = nome;
+  document.getElementById("pais").value = pais;
+  document.getElementById("corPrimaria").value = primaria;
+  document.getElementById("corSecundaria").value = secundaria;
+  document.getElementById("corTerciaria").value = terciaria;
+  document.getElementById("btnCadastrar").textContent = "Salvar Alterações";
+}
 
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
-  <script src="times.js"></script>
-</body>
-</html>
+document.getElementById("btnCadastrar").addEventListener("click", () => {
+  const idEdicao = document.getElementById("idEdicao").value;
+  const nome = document.getElementById("nome").value;
+  const pais = document.getElementById("pais").value;
+  const primaria = document.getElementById("corPrimaria").value;
+  const secundaria = document.getElementById("corSecundaria").value;
+  const terciaria = document.getElementById("corTerciaria").value;
+
+  if (!nome || !pais) {
+    alert("Preencha os campos obrigatórios.");
+    return;
+  }
+
+  const dados = { nome, pais, primaria, secundaria, terciaria };
+
+  if (idEdicao) {
+    db.collection("times").doc(idEdicao).update(dados).then(() => {
+      document.getElementById("idEdicao").value = "";
+      document.getElementById("btnCadastrar").textContent = "Cadastrar";
+      carregarTimes();
+    });
+  } else {
+    db.collection("times").add(dados).then(() => {
+      carregarTimes();
+    });
+  }
+
+  document.getElementById("nome").value = "";
+  document.getElementById("pais").value = "Brasil";
+  document.getElementById("corPrimaria").value = "#000000";
+  document.getElementById("corSecundaria").value = "#ffffff";
+  document.getElementById("corTerciaria").value = "#ff0000";
+});
+
+document.getElementById("filtro").addEventListener("input", () => {
+  const termo = document.getElementById("filtro").value.toLowerCase();
+  const linhas = document.querySelectorAll("#tabelaTimes tr");
+  linhas.forEach(linha => {
+    const texto = linha.textContent.toLowerCase();
+    linha.style.display = texto.includes(termo) ? "" : "none";
+  });
+});
+
+document.addEventListener("DOMContentLoaded", carregarTimes);
