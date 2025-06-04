@@ -4,19 +4,31 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnCadastrar = document.getElementById("btnCadastrar");
 
   function desenharCamiseta(cor1, cor2, cor3, estilo) {
+  if (estilo === "listrada") {
     return `
-      <svg width="40" height="40" viewBox="0 0 100 100">
-        <path d="M30 20 L40 10 H60 L70 20 V90 H30 Z" fill="${cor1}" stroke="black" stroke-width="2"/>
-        ${estilo === "Listrada" ? `
-          <line x1="40" y1="20" x2="40" y2="90" stroke="${cor2}" stroke-width="6"/>
-          <line x1="50" y1="20" x2="50" y2="90" stroke="${cor3}" stroke-width="6"/>
-        ` : estilo === "Mangas" ? `
-          <path d="M30 20 L20 30 V50 L30 40 Z" fill="${cor2}" />
-          <path d="M70 20 L80 30 V50 L70 40 Z" fill="${cor3}" />
-        ` : ``}
+      <svg width="40" height="50" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="40" height="50" rx="6" ry="6" fill="${cor1}" />
+        <rect x="10" y="0" width="5" height="50" fill="${cor2}" />
+        <rect x="25" y="0" width="5" height="50" fill="${cor2}" />
+        <path d="M10 0 Q20 10 30 0" fill="${cor3}" />
+      </svg>
+    `;
+  } else if (estilo === "gola") {
+    return `
+      <svg width="40" height="50" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="40" height="50" rx="6" ry="6" fill="${cor1}" />
+        <circle cx="20" cy="10" r="6" fill="${cor3}" />
+      </svg>
+    `;
+  } else {
+    return `
+      <svg width="40" height="50" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="40" height="50" rx="6" ry="6" fill="${cor1}" />
       </svg>
     `;
   }
+}
+
 
   function carregarTimes() {
     db.collection("times").get().then(snapshot => {
