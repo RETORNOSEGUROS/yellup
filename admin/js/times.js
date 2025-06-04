@@ -1,13 +1,9 @@
-// times.js atualizado com camiseta estilo Bet365
-
 import { db } from "../firebase/firebase-config.js";
 import {
   collection,
   getDocs,
   addDoc
 } from "firebase/firestore";
-
-const db = getFirestore();
 
 const listaTimes = document.getElementById("listaTimes");
 const buscaInput = document.getElementById("buscaTime");
@@ -18,7 +14,6 @@ function desenharCamiseta(cor1, cor2, cor3, estilo) {
   svg.setAttribute("height", "50");
   svg.setAttribute("viewBox", "0 0 64 64");
 
-  // Base da camiseta
   const base = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   base.setAttribute("x", "12");
   base.setAttribute("y", "15");
@@ -27,7 +22,6 @@ function desenharCamiseta(cor1, cor2, cor3, estilo) {
   base.setAttribute("fill", cor1);
   svg.appendChild(base);
 
-  // Gola
   const gola = document.createElementNS("http://www.w3.org/2000/svg", "path");
   gola.setAttribute("d", "M22,15 Q32,5 42,15");
   gola.setAttribute("stroke", cor3);
@@ -98,11 +92,12 @@ function cadastrarTime() {
   const terciaria = document.getElementById("corTerciaria").value;
   const estilo = document.getElementById("estilo").value;
 
-  addDoc(collection(db, "times"), { nome, pais, primaria, secundaria, terciaria, estilo })
-    .then(() => carregarTimes());
+  addDoc(collection(db, "times"), {
+    nome, pais, primaria, secundaria, terciaria, estilo
+  }).then(() => carregarTimes());
 }
 
-document.getElementById("buscaTime").addEventListener("input", async e => {
+buscaInput.addEventListener("input", async e => {
   const filtro = e.target.value.toLowerCase();
   const snap = await getDocs(collection(db, "times"));
   const filtrados = snap.docs.filter(doc => {
