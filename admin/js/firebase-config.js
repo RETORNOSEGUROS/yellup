@@ -1,8 +1,4 @@
-// firebase-config.js
-
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-
+// firebase-config.js (formato compatível com script tradicional)
 const firebaseConfig = {
   apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
   authDomain: "painel-yellup.firebaseapp.com",
@@ -12,7 +8,6 @@ const firebaseConfig = {
   appId: "1:608347210297:web:75092713724e617c7203e8"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-export { db };
+// Inicializa o Firebase com compat
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
