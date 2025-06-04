@@ -4,30 +4,21 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnCadastrar = document.getElementById("btnCadastrar");
 
   function desenharCamiseta(cor1, cor2, cor3, estilo) {
-  if (estilo === "listrada") {
-    return `
-      <svg width="40" height="50" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0" y="0" width="40" height="50" rx="6" ry="6" fill="${cor1}" />
-        <rect x="10" y="0" width="5" height="50" fill="${cor2}" />
-        <rect x="25" y="0" width="5" height="50" fill="${cor2}" />
-        <path d="M10 0 Q20 10 30 0" fill="${cor3}" />
-      </svg>
-    `;
-  } else if (estilo === "gola") {
-    return `
-      <svg width="40" height="50" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0" y="0" width="40" height="50" rx="6" ry="6" fill="${cor1}" />
-        <circle cx="20" cy="10" r="6" fill="${cor3}" />
-      </svg>
-    `;
-  } else {
-    return `
-      <svg width="40" height="50" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0" y="0" width="40" height="50" rx="6" ry="6" fill="${cor1}" />
-      </svg>
-    `;
-  }
+  return `
+    <svg width="40" height="50" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <path d="M16,8 L24,0 H40 L48,8 L56,10 L54,20 L48,18 L48,56 H16 L16,18 L10,20 L8,10 Z" fill="${cor1}" stroke="black" stroke-width="2"/>
+      ${estilo === "listrada" ? `
+        <rect x="22" y="8" width="4" height="48" fill="${cor2}" />
+        <rect x="32" y="8" width="4" height="48" fill="${cor2}" />
+        <rect x="42" y="8" width="4" height="48" fill="${cor2}" />
+      ` : ""}
+      ${estilo === "gola" ? `
+        <circle cx="32" cy="12" r="5" fill="${cor3}" />
+      ` : ""}
+    </svg>
+  `;
 }
+
 
 
   function carregarTimes() {
