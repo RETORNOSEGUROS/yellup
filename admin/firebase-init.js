@@ -1,4 +1,4 @@
-// firebase-init.js para uso com HTML direto (compat SDK)
+// firebase-init.js correto (COM compat)
 import "https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js";
 import "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js";
 import "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js";
