@@ -1,7 +1,4 @@
-import "https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js";
-import "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js";
-import "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js";
-
+// firebase-init.js (sem import!)
 const firebaseConfig = {
   apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
   authDomain: "painel-yellup.firebaseapp.com",
