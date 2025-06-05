@@ -1,4 +1,8 @@
-// firebase-init.js (usando compat SDK)
+// firebase-init.js para uso com HTML direto (compat SDK)
+import "https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js";
+import "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js";
+import "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js";
+
 const firebaseConfig = {
   apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
   authDomain: "painel-yellup.firebaseapp.com",
@@ -9,5 +13,6 @@ const firebaseConfig = {
   measurementId: "G-SYZ16X31KQ"
 };
 
-// Inicializa o Firebase com compat (para Firestore 9 compatível)
 firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
