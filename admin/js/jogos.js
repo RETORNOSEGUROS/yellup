@@ -1,4 +1,4 @@
-const db = firebase.firestore();
+
 const storage = firebase.storage();
 let mapaTimes = {};
 let listaTimes = [];
