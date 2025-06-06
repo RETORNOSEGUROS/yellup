@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Simulador Profissional - Yellup</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
+    h1 { color: #111; }
+    .painel { display: flex; gap: 30px; flex-wrap: wrap; }
+    .box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); flex: 1; min-width: 300px; }
+    button { padding: 10px 20px; margin: 5px; border: none; background: #007bff; color: white; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #0056b3; }
+    .log, .ranking, .pergunta { margin-top: 10px; }
+    .log p, .ranking p { margin: 5px 0; }
+    .timer { font-size: 1.5em; font-weight: bold; color: #e63946; }
+    canvas { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>🎮 Simulador Profissional de Partida</h1>
+  <div class="timer" id="timer">⏱ Tempo: 05:00</div>
+  <div class="painel">
+    <div class="box">
+      <h3>🎯 Ações</h3>
+      <button onclick="iniciarPartida()">Iniciar Partida</button>
+      <button onclick="simularTorcida()">Simular Torcida</button>
+      <button onclick="simularResposta()">Resposta Aleatória</button>
+      <button onclick="encerrarPartida()">Encerrar</button>
+    </div>
+    <div class="box pergunta">
+      <h3>❓ Pergunta</h3>
+      <p id="perguntaTexto">Aguardando pergunta...</p>
+      <div id="opcoes">
+        <button onclick="responder('A')">A</button>
+        <button onclick="responder('B')">B</button>
+        <button onclick="responder('C')">C</button>
+        <button onclick="responder('D')">D</button>
+      </div>
+    </div>
+    <div class="box">
+      <h3>📊 Torcida</h3>
+      <canvas id="graficoTorcida"></canvas>
+    </div>
+    <div class="box ranking">
+      <h3>🏆 Ranking</h3>
+      <div id="rankingLista"></div>
+    </div>
+  </div>
+  <div class="box log">
+    <h3>📋 Log</h3>
+    <div id="log"></div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
+  <script src="firebase-init.js"></script>
+  <script>
+    let jogoId = null;
+    let cronometro = 300;
+    let cronometroInterval = null;
+
+    const perguntas = [
+      { texto: "Quem venceu o último campeonato?", correta: "B" },
+      { texto: "Quantos jogadores tem um time?", correta: "A" },
+      { texto: "Qual cor representa o time azul?", correta: "C" }
+    ];
+
+    function log(msg) {
+      const p = document.createElement("p");
+      p.textContent = msg;
+      document.getElementById("log").appendChild(p);
+    }
+
+    async function iniciarPartida() {
+      const partida = {
+        timeCasa: "Time Azul",
+        timeFora: "Time Vermelho",
+        dataInicio: new Date(),
+        dataFim: new Date(),
+        status: "ao_vivo"
+      };
+      const doc = await db.collection("jogos").add(partida);
+      jogoId = doc.id;
+      log(`✅ Partida criada com ID: ${jogoId}`);
+      iniciarCronometro();
+      escutarRanking();
+      escutarTorcida();
+      novaPergunta();
+    }
+
+    function iniciarCronometro() {
+      cronometro = 300;
+      atualizarTimer();
+      if (cronometroInterval) clearInterval(cronometroInterval);
+      cronometroInterval = setInterval(() => {
+        cronometro--;
+        atualizarTimer();
+        if (cronometro <= 0) {
+          clearInterval(cronometroInterval);
+          encerrarPartida();
+        }
+      }, 1000);
+    }
+
+    function atualizarTimer() {
+      const min = String(Math.floor(cronometro / 60)).padStart(2, "0");
+      const sec = String(cronometro % 60).padStart(2, "0");
+      document.getElementById("timer").textContent = `⏱ Tempo: ${min}:${sec}`;
+    }
+
+    async function simularTorcida() {
+      if (!jogoId) return;
+      for (let i = 1; i <= 10; i++) {
+        await db.collection("torcidas").add({
+          jogoId,
+          time: i % 2 === 0 ? "Time Azul" : "Time Vermelho",
+          userId: "Jogador_" + i,
+          creditos: 10
+        });
+      }
+      log("🎉 Torcida simulada com sucesso");
+    }
+
+    async function simularResposta() {
+      if (!jogoId) return;
+      const i = Math.floor(Math.random() * 10 + 1);
+      const pontos = Math.floor(Math.random() * 10 + 1);
+      await db.collection("respostas").add({
+        jogoId,
+        userId: "Jogador_" + i,
+        pontos,
+        data: new Date()
+      });
+      log(`✅ Jogador_${i} marcou ${pontos} pontos`);
+    }
+
+    function novaPergunta() {
+      const p = perguntas[Math.floor(Math.random() * perguntas.length)];
+      document.getElementById("perguntaTexto").textContent = p.texto;
+      document.getElementById("perguntaTexto").dataset.correta = p.correta;
+    }
+
+    async function responder(opcao) {
+      if (!jogoId) return;
+      const correta = document.getElementById("perguntaTexto").dataset.correta;
+      const acerto = opcao === correta;
+      await db.collection("respostas").add({
+        jogoId,
+        userId: "Visual_" + Date.now(),
+        pontos: acerto ? 10 : 0,
+        data: new Date()
+      });
+      log(`🧠 Resposta ${opcao} (${acerto ? "certa" : "errada"})`);
+      novaPergunta();
+    }
+
+    async function encerrarPartida() {
+      if (!jogoId) return;
+      await db.collection("jogos").doc(jogoId).update({
+        status: "finalizado",
+        dataFim: new Date()
+      });
+      log(`🏁 Partida encerrada`);
+    }
+
+    function escutarRanking() {
+      db.collection("respostas").where("jogoId", "==", jogoId)
+        .onSnapshot(snapshot => {
+          const ranking = {};
+          snapshot.forEach(doc => {
+            const { userId, pontos } = doc.data();
+            if (!ranking[userId]) ranking[userId] = 0;
+            ranking[userId] += pontos;
+          });
+          const html = Object.entries(ranking)
+            .sort((a, b) => b[1] - a[1])
+            .map(([u, p]) => `<p>${u}: ${p} pts</p>`).join("");
+          document.getElementById("rankingLista").innerHTML = html;
+        });
+    }
+
+    function escutarTorcida() {
+      db.collection("torcidas").where("jogoId", "==", jogoId)
+        .onSnapshot(snapshot => {
+          let azul = 0, vermelho = 0;
+          snapshot.forEach(doc => {
+            const { time } = doc.data();
+            if (time === "Time Azul") azul++;
+            if (time === "Time Vermelho") vermelho++;
+          });
+          graficoTorcida.data.datasets[0].data = [azul, vermelho];
+          graficoTorcida.update();
+        });
+    }
+
+    const graficoTorcida = new Chart(
+      document.getElementById("graficoTorcida").getContext("2d"), {
+        type: "bar",
+        data: {
+          labels: ["Time Azul", "Time Vermelho"],
+          datasets: [{
+            label: "Torcida",
+            data: [0, 0],
+            backgroundColor: ["#007bff", "#dc3545"]
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } }
+        }
+      }
+    );
+  </script>
+</body>
+</html>
