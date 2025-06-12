@@ -1,50 +1,54 @@
-const db = firebase.firestore();
-let dadosRanking = [];
-
-async function carregarRanking() {
-  const rankingBody = document.getElementById("rankingBody");
-  rankingBody.innerHTML = "";
-  dadosRanking = [];
-
-  try {
-    const snapshot = await db.collection("usuarios").orderBy("pontuacao", "desc").get();
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      dadosRanking.push({
-        nome: data.nome || "Sem nome",
-        pontos: data.pontuacao || 0,
-        creditos: data.creditos || 0,
-        time: data.timeCoracao || "Não definido"
-      });
-    });
-
-    exibirRanking(dadosRanking);
-  } catch (error) {
-    console.error("Erro ao carregar ranking:", error);
-    rankingBody.innerHTML = `<tr><td colspan="5">Erro ao carregar ranking.</td></tr>`;
-  }
+function listarTodos() {
+  gerarRanking(null, null);
 }
 
-function exibirRanking(lista) {
-  const rankingBody = document.getElementById("rankingBody");
-  rankingBody.innerHTML = "";
-  lista.forEach((user, index) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${index + 1}</td>
-      <td>${user.nome}</td>
-      <td>${user.pontos}</td>
-      <td>${user.creditos}</td>
-      <td>${user.time}</td>
-    `;
-    rankingBody.appendChild(tr);
+function buscarRanking() {
+  const dataInicio = document.getElementById("dataInicio").value;
+  const dataFim = document.getElementById("dataFim").value;
+
+  if (!dataInicio || !dataFim) {
+    alert("Selecione o período completo.");
+    return;
+  }
+
+  const inicio = new Date(dataInicio);
+  const fim = new Date(dataFim);
+  fim.setHours(23, 59, 59, 999);
+
+  gerarRanking(inicio, fim);
+}
+
+function gerarRanking(inicio, fim) {
+  let query = db.collection("respostas");
+
+  if (inicio && fim) {
+    query = query.where("data", ">=", inicio).where("data", "<=", fim);
+  }
+
+  query.get().then(snapshot => {
+    const ranking = {};
+
+    snapshot.forEach(doc => {
+      const { userId, pontos } = doc.data();
+      if (!ranking[userId]) ranking[userId] = 0;
+      ranking[userId] += pontos;
+    });
+
+    exibirRanking(ranking);
   });
 }
 
-function filtrarRanking() {
-  const termo = document.getElementById("filtroNome").value.toLowerCase();
-  const filtrados = dadosRanking.filter(u => u.nome.toLowerCase().includes(termo));
-  exibirRanking(filtrados);
+function exibirRanking(ranking) {
+  const tabela = document.getElementById("tabelaRanking");
+  tabela.innerHTML = "";
+
+  Object.entries(ranking)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([user, pontos]) => {
+      const linha = document.createElement("tr");
+      linha.innerHTML = `<td>${user}</td><td>${pontos}</td>`;
+      tabela.appendChild(linha);
+    });
 }
 
-carregarRanking();
+document.addEventListener("DOMContentLoaded", listarTodos);
