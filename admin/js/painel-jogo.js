@@ -19,18 +19,19 @@ async function carregarPainel() {
   document.getElementById("nomeTimeCasa").innerText = await buscarNomeTime(jogo.timeCasa);
   document.getElementById("nomeTimeVisitante").innerText = await buscarNomeTime(jogo.timeFora);
 
-  atualizarTorcida();
+  atualizarTorcida(jogo.timeCasa, jogo.timeFora);
   atualizarRanking();
+  atualizarChat();
 }
 
-function atualizarTorcida() {
+function atualizarTorcida(timeCasaId, timeVisitanteId) {
   db.collection("torcidas").where("jogoId", "==", jogoId)
     .onSnapshot(snapshot => {
       let casa = 0, visitante = 0;
       snapshot.forEach(doc => {
         const data = doc.data();
-        if (data.time === "Time Azul" || data.time === "simulado_time_azul") casa++;
-        if (data.time === "Time Vermelho" || data.time === "simulado_time_amarelo") visitante++;
+        if (data.time === timeCasaId) casa++;
+        if (data.time === timeVisitanteId) visitante++;
       });
       document.getElementById("torcidaCasa").innerText = casa;
       document.getElementById("torcidaVisitante").innerText = visitante;
@@ -56,6 +57,22 @@ function atualizarRanking() {
           linha.innerHTML = `<td>${user}</td><td>${pts}</td>`;
           tabela.appendChild(linha);
         });
+    });
+}
+
+function atualizarChat() {
+  db.collection("chats_jogo_demo").where("jogoId", "==", jogoId)
+    .orderBy("data")
+    .onSnapshot(snapshot => {
+      const chatBox = document.getElementById("chat");
+      chatBox.innerHTML = "";
+      snapshot.forEach(doc => {
+        const { user, mensagem, data } = doc.data();
+        const p = document.createElement("p");
+        p.innerText = `${user}: ${mensagem}`;
+        chatBox.appendChild(p);
+      });
+      chatBox.scrollTop = chatBox.scrollHeight;
     });
 }
 
