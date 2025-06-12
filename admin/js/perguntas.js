@@ -1,5 +1,3 @@
-const db = firebase.firestore();
-
 firebase.auth().onAuthStateChanged(user => {
   if (!user) {
     window.location.href = "/admin/login.html";
