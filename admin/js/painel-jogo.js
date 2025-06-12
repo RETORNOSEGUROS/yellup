@@ -1,70 +1,62 @@
-const db = firebase.firestore();
-const tabela = document.getElementById("tabela-jogos");
-
-function formatarData(timestamp) {
-  if (!timestamp) return "-";
-  const data = timestamp.toDate();
-  return data.toLocaleString("pt-BR");
-}
+const urlParams = new URLSearchParams(window.location.search);
+const jogoId = urlParams.get("id");
 
 async function buscarNomeTime(id) {
   if (!id) return "Desconhecido";
-  try {
-    const doc = await db.collection("times").doc(id).get();
-    return doc.exists ? doc.data().nome : "Desconhecido";
-  } catch (e) {
-    console.error("Erro ao buscar time:", e);
-    return "Desconhecido";
-  }
+  const doc = await db.collection("times").doc(id).get();
+  return doc.exists ? doc.data().nome : "Desconhecido";
 }
 
-async function renderizarTabela(snapshot) {
-  tabela.innerHTML = "";
-
-  for (const doc of snapshot.docs) {
-    const jogo = doc.data();
-    const id = doc.id;
-
-    const nomeCasa = await buscarNomeTime(jogo.timeCasa);
-    const nomeFora = await buscarNomeTime(jogo.timeFora);
-
-    const linha = document.createElement("tr");
-    linha.innerHTML = `
-      <td>${nomeCasa}</td>
-      <td>${nomeFora}</td>
-      <td>${formatarData(jogo.dataInicio)}</td>
-      <td>${formatarData(jogo.dataFim)}</td>
-      <td>${jogo.status}</td>
-      <td><button onclick="window.location.href='painel-jogo.html?id=${id}'">Entrar na Partida</button></td>
-    `;
-    tabela.appendChild(linha);
-  }
-}
-
-function buscarJogos() {
-  const dataInicio = document.getElementById("dataInicio").value;
-  const dataFim = document.getElementById("dataFim").value;
-  const statusFiltro = document.getElementById("statusFiltro").value;
-
-  let query = db.collection("jogos");
-
-  if (dataInicio && dataFim) {
-    const inicio = new Date(dataInicio);
-    const fim = new Date(dataFim);
-    fim.setHours(23, 59, 59, 999);
-
-    query = query.where("dataInicio", ">=", inicio).where("dataInicio", "<=", fim);
+async function carregarPainel() {
+  const doc = await db.collection("jogos").doc(jogoId).get();
+  if (!doc.exists) {
+    alert("Jogo não encontrado!");
+    return;
   }
 
-  if (statusFiltro !== "Todos") {
-    query = query.where("status", "==", statusFiltro);
-  }
+  const jogo = doc.data();
 
-  query.get().then(renderizarTabela);
+  document.getElementById("nomeTimeCasa").innerText = await buscarNomeTime(jogo.timeCasa);
+  document.getElementById("nomeTimeVisitante").innerText = await buscarNomeTime(jogo.timeFora);
+
+  atualizarTorcida();
+  atualizarRanking();
 }
 
-function listarTodos() {
-  db.collection("jogos").get().then(renderizarTabela);
+function atualizarTorcida() {
+  db.collection("torcidas").where("jogoId", "==", jogoId)
+    .onSnapshot(snapshot => {
+      let casa = 0, visitante = 0;
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.time === "Time Azul" || data.time === "simulado_time_azul") casa++;
+        if (data.time === "Time Vermelho" || data.time === "simulado_time_amarelo") visitante++;
+      });
+      document.getElementById("torcidaCasa").innerText = casa;
+      document.getElementById("torcidaVisitante").innerText = visitante;
+    });
 }
 
-document.addEventListener("DOMContentLoaded", listarTodos);
+function atualizarRanking() {
+  db.collection("respostas").where("jogoId", "==", jogoId)
+    .onSnapshot(snapshot => {
+      const ranking = {};
+      snapshot.forEach(doc => {
+        const { userId, pontos } = doc.data();
+        if (!ranking[userId]) ranking[userId] = 0;
+        ranking[userId] += pontos;
+      });
+
+      const tabela = document.getElementById("tabelaRanking");
+      tabela.innerHTML = "";
+      Object.entries(ranking)
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([user, pts]) => {
+          const linha = document.createElement("tr");
+          linha.innerHTML = `<td>${user}</td><td>${pts}</td>`;
+          tabela.appendChild(linha);
+        });
+    });
+}
+
+document.addEventListener("DOMContentLoaded", carregarPainel);
