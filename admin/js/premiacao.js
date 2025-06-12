@@ -1,117 +1,125 @@
-const db = firebase.firestore();
-let simulacao = [];
+async function gerarRanking() {
+  const dataInicio = document.getElementById("dataInicio").value;
+  const dataFim = document.getElementById("dataFim").value;
+  const modo = document.getElementById("modoPremiacao").value;
+  const limite = parseInt(document.getElementById("limiteRanking").value);
 
-function exibirFiltros() {
-  const tipo = document.getElementById("tipoRanking").value;
-  document.getElementById("filtroData").style.display = ["mensal", "semanal", "time"].includes(tipo) ? "block" : "none";
-  document.getElementById("filtroTime").style.display = tipo === "time" ? "block" : "none";
-  document.getElementById("filtroJogo").style.display = tipo === "jogo" ? "block" : "none";
-}
-
-async function carregarTimesEJogos() {
-  // Carregar jogos finalizados
-  const jogosSnap = await db.collection("jogos").where("status", "==", "finalizado").orderBy("dataInicio", "desc").get();
-  const selectJogo = document.getElementById("jogoFiltro");
-  selectJogo.innerHTML = "<option value=''>Selecione um jogo</option>";
-  jogosSnap.forEach(doc => {
-    const j = doc.data();
-    const nome = `${j.timeCasaNome} x ${j.timeVisitanteNome}`;
-    selectJogo.innerHTML += `<option value="${doc.id}">${nome}</option>`;
-  });
-
-  // Carregar times
-  const timesSnap = await db.collection("times").orderBy("nome").get();
-  const selectTime = document.getElementById("timeFiltro");
-  selectTime.innerHTML = "<option value=''>Selecione um time</option>";
-  timesSnap.forEach(doc => {
-    const t = doc.data();
-    selectTime.innerHTML += `<option value="${t.nome.toLowerCase()}">${t.nome}</option>`;
-  });
-}
-
-function filtrarPorData(data, inicio, fim) {
-  if (!inicio || !fim) return true;
-  const d = data.toDate();
-  return d >= inicio && d <= fim;
-}
-
-async function gerarPremiacao() {
-  const tipo = document.getElementById("tipoRanking").value;
-  const dataInicio = document.getElementById("dataInicio").value ? new Date(document.getElementById("dataInicio").value) : null;
-  const dataFim = document.getElementById("dataFim").value ? new Date(document.getElementById("dataFim").value + "T23:59:59") : null;
-  const timeFiltro = document.getElementById("timeFiltro").value.toLowerCase().trim();
-  const jogoId = document.getElementById("jogoFiltro").value;
-
-  const usuariosSnap = await db.collection("usuarios").get();
-  const usuarios = [];
-
-  for (const doc of usuariosSnap.docs) {
-    const u = doc.data();
-    usuarios.push({
-      id: doc.id,
-      nome: u.nome || "Sem nome",
-      time: u.timeCoracao?.toLowerCase() || "-",
-      pontos: 0
-    });
+  if (!dataInicio || !dataFim) {
+    alert("Selecione o período.");
+    return;
   }
 
-  const apostasSnap = await db.collection("apostas").get();
-  apostasSnap.forEach(doc => {
-    const a = doc.data();
-    const usuario = usuarios.find(u => u.id === a.usuarioId);
-    if (!usuario) return;
+  const inicio = new Date(dataInicio);
+  const fim = new Date(dataFim);
+  fim.setHours(23, 59, 59, 999);
 
-    const dataValida = !["mensal", "semanal", "time"].includes(tipo) || filtrarPorData(a.data, dataInicio, dataFim);
-    const jogoValido = tipo !== "jogo" || a.jogoId === jogoId;
-    const timeValido = tipo !== "time" || usuario.time === timeFiltro;
+  let ranking = {};
 
-    if (dataValida && jogoValido && timeValido) {
-      usuario.pontos += a.pontos || 0;
+  if (modo === "geral") {
+    ranking = await calcularGeral(inicio, fim);
+  } else if (modo === "timeDocoracao") {
+    ranking = await calcularTimeDoCoracao(inicio, fim);
+  } else if (modo === "finalizadosGeral") {
+    ranking = await calcularFinalizadosGeral(inicio, fim);
+  } else if (modo === "finalizadosTime") {
+    ranking = await calcularFinalizadosPorTime(inicio, fim);
+  }
+
+  exibirRanking(ranking, limite);
+}
+
+async function calcularGeral(inicio, fim) {
+  const dados = {};
+  const snap = await db.collection("respostas").where("data", ">=", inicio).where("data", "<=", fim).get();
+  snap.forEach(doc => {
+    const { userId, pontos } = doc.data();
+    if (!dados[userId]) dados[userId] = 0;
+    dados[userId] += pontos;
+  });
+  return dados;
+}
+
+async function calcularTimeDoCoracao(inicio, fim) {
+  const dados = {};
+  const usuariosSnap = await db.collection("usuarios").get();
+  const usuarios = {};
+  usuariosSnap.forEach(doc => usuarios[doc.id] = doc.data().timeDoCoracao);
+
+  const snap = await db.collection("respostas").where("data", ">=", inicio).where("data", "<=", fim).get();
+  snap.forEach(doc => {
+    const { userId, pontos } = doc.data();
+    if (usuarios[userId]) {
+      if (!dados[userId]) dados[userId] = 0;
+      dados[userId] += pontos;
     }
   });
-
-  const ranking = usuarios.filter(u => u.pontos > 0).sort((a, b) => b.pontos - a.pontos).slice(0, 5);
-  const premioTotal = 100;
-  const percentuais = [0.4, 0.25, 0.15, 0.10, 0.10];
-
-  simulacao = ranking.map((u, i) => ({
-    ...u,
-    premio: Math.floor(premioTotal * percentuais[i])
-  }));
-
-  document.getElementById("valorPremioTotal").innerText = `R$ ${premioTotal}`;
-  document.getElementById("tabelaPremios").innerHTML = simulacao.map((u, i) => `
-    <tr>
-      <td>${i + 1}º</td>
-      <td>${u.nome}</td>
-      <td>${u.pontos}</td>
-      <td>${u.premio}</td>
-    </tr>
-  `).join("");
-
-  document.getElementById("resultadoPremiacao").style.display = "block";
+  return dados;
 }
 
-async function confirmarPremiacao() {
-  const batch = db.batch();
-  const agora = firebase.firestore.Timestamp.fromDate(new Date());
+async function calcularFinalizadosGeral(inicio, fim) {
+  const dados = {};
+  const jogosSnap = await db.collection("jogos")
+    .where("dataInicio", ">=", inicio)
+    .where("dataInicio", "<=", fim)
+    .where("status", "==", "finalizado")
+    .get();
 
-  simulacao.forEach(u => {
-    const ref = db.collection("transacoes").doc();
-    batch.set(ref, {
-      nome: u.nome,
-      valor: u.premio,
-      tipo: "premio_ranking",
-      data: agora
-    });
+  const jogosIds = jogosSnap.docs.map(doc => doc.id);
+  if (jogosIds.length === 0) return dados;
+
+  const snap = await db.collection("respostas").where("jogoId", "in", jogosIds).get();
+  snap.forEach(doc => {
+    const { userId, pontos } = doc.data();
+    if (!dados[userId]) dados[userId] = 0;
+    dados[userId] += pontos;
   });
-
-  await batch.commit();
-  alert("Premiação registrada com sucesso!");
-  location.reload();
+  return dados;
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  carregarTimesEJogos();
-  exibirFiltros();
-});
+async function calcularFinalizadosPorTime(inicio, fim) {
+  const dados = {};
+  const jogosSnap = await db.collection("jogos")
+    .where("dataInicio", ">=", inicio)
+    .where("dataInicio", "<=", fim)
+    .where("status", "==", "finalizado")
+    .get();
+
+  const jogosIds = jogosSnap.docs.map(doc => doc.id);
+  if (jogosIds.length === 0) return dados;
+
+  const torcidasSnap = await db.collection("torcidas")
+    .where("jogoId", "in", jogosIds)
+    .get();
+
+  torcidasSnap.forEach(doc => {
+    const { userId } = doc.data();
+    if (!dados[userId]) dados[userId] = 1;
+    else dados[userId] += 1;
+  });
+  return dados;
+}
+
+function exibirRanking(ranking, limite) {
+  const tabela = document.getElementById("tabelaRanking");
+  tabela.innerHTML = "";
+
+  const lista = Object.entries(ranking).sort((a, b) => b[1] - a[1]).slice(0, limite);
+
+  lista.forEach(([user, pontos], idx) => {
+    const linha = document.createElement("tr");
+    linha.innerHTML = `
+      <td>${idx + 1}</td>
+      <td>${user}</td>
+      <td>${pontos}</td>
+      <td><input type="number" id="credito_${user}" value="0" min="0"></td>
+      <td><button onclick="pagar('${user}', ${idx + 1})">Pagar</button></td>
+    `;
+    tabela.appendChild(linha);
+  });
+}
+
+function pagar(userId, posicao) {
+  const valor = parseFloat(document.getElementById(`credito_${userId}`).value);
+  alert("Simulando pagamento de " + valor + " créditos para usuário: " + userId + " (posição " + posicao + ")");
+  // Aqui no futuro podemos integrar o crédito real no banco de dados.
+}
