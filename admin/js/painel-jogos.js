@@ -1,4 +1,3 @@
-const db = firebase.firestore();
 const tabela = document.getElementById("tabela-jogos");
 
 function formatarData(timestamp) {
