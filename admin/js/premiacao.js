@@ -43,7 +43,7 @@ async function calcularTimeDoCoracao(inicio, fim) {
   const dados = {};
   const usuariosSnap = await db.collection("usuarios").get();
   const usuarios = {};
-  usuariosSnap.forEach(doc => usuarios[doc.id] = doc.data().timeDoCoracao);
+  usuariosSnap.forEach(doc => usuarios[doc.id] = doc.data().timeId);
 
   const snap = await db.collection("respostas").where("data", ">=", inicio).where("data", "<=", fim).get();
   snap.forEach(doc => {
@@ -118,8 +118,30 @@ function exibirRanking(ranking, limite) {
   });
 }
 
-function pagar(userId, posicao) {
+async function pagar(userId, posicao) {
   const valor = parseFloat(document.getElementById(`credito_${userId}`).value);
-  alert("Simulando pagamento de " + valor + " créditos para usuário: " + userId + " (posição " + posicao + ")");
-  // Aqui no futuro podemos integrar o crédito real no banco de dados.
+  if (valor <= 0) {
+    alert("Informe o valor a pagar!");
+    return;
+  }
+
+  // Atualiza o saldo no usuário
+  const userRef = db.collection("usuarios").doc(userId);
+  await db.runTransaction(async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists) throw "Usuário não encontrado!";
+    const saldoAtual = userDoc.data().creditos || 0;
+    transaction.update(userRef, { creditos: saldoAtual + valor });
+  });
+
+  // Registra a transação de pagamento
+  await db.collection("transacoes").add({
+    userId: userId,
+    valor: valor,
+    dataPagamento: new Date(),
+    motivo: "Premiação manual painel",
+    referencia: "manual-admin"
+  });
+
+  alert("Pagamento realizado para " + userId + " com " + valor + " créditos.");
 }
