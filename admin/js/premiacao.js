@@ -1,147 +1,108 @@
+// premiacao-v2.js
+
+// Referência ao Firestore (não redefinimos db aqui, pois já vem do firebase-init.js)
+const usuariosRef = db.collection('usuarios');
+const respostasRef = db.collection('respostas');
+
+// Função para gerar o ranking de premiação
 async function gerarRanking() {
-  const dataInicio = document.getElementById("dataInicio").value;
-  const dataFim = document.getElementById("dataFim").value;
-  const modo = document.getElementById("modoPremiacao").value;
-  const limite = parseInt(document.getElementById("limiteRanking").value);
+    const dataInicio = document.getElementById('dataInicio').value;
+    const dataFim = document.getElementById('dataFim').value;
+    const tipoPremiacao = document.getElementById('tipoPremiacao').value;
+    const limiteRanking = parseInt(document.getElementById('limiteRanking').value) || 50;
 
-  if (!dataInicio || !dataFim) {
-    alert("Selecione o período.");
-    return;
-  }
+    const dtInicio = new Date(`${dataInicio}T00:00:00`);
+    const dtFim = new Date(`${dataFim}T23:59:59`);
 
-  const inicio = new Date(dataInicio);
-  const fim = new Date(dataFim);
-  fim.setHours(23, 59, 59, 999);
+    const usuariosSnapshot = await usuariosRef.get();
+    const usuariosMap = new Map();
 
-  let ranking = {};
+    usuariosSnapshot.forEach(doc => {
+        const user = doc.data();
+        usuariosMap.set(doc.id, {
+            nome: user.nome || doc.id,
+            timeId: user.timeId || '',
+            pontuacao: 0
+        });
+    });
 
-  if (modo === "geral") {
-    ranking = await calcularGeral(inicio, fim);
-  } else if (modo === "timeDocoracao") {
-    ranking = await calcularTimeDoCoracao(inicio, fim);
-  } else if (modo === "finalizadosGeral") {
-    ranking = await calcularFinalizadosGeral(inicio, fim);
-  } else if (modo === "finalizadosTime") {
-    ranking = await calcularFinalizadosPorTime(inicio, fim);
-  }
+    const respostasSnapshot = await respostasRef
+        .where('data', '>=', dtInicio)
+        .where('data', '<=', dtFim)
+        .get();
 
-  exibirRanking(ranking, limite);
+    respostasSnapshot.forEach(doc => {
+        const resp = doc.data();
+        const userData = usuariosMap.get(resp.userId);
+        if (!userData) return;
+
+        // Acumular somente se for do tipo selecionado
+        if (tipoPremiacao === 'time') {
+            if (resp.timeIdPergunta === userData.timeId) {
+                userData.pontuacao += (resp.pontos || 0);
+            }
+        } else {
+            userData.pontuacao += (resp.pontos || 0);
+        }
+    });
+
+    const ranking = Array.from(usuariosMap.entries())
+        .map(([userId, data]) => ({ userId, ...data }))
+        .filter(u => u.pontuacao > 0)
+        .sort((a, b) => b.pontuacao - a.pontuacao)
+        .slice(0, limiteRanking);
+
+    renderizarTabela(ranking);
 }
 
-async function calcularGeral(inicio, fim) {
-  const dados = {};
-  const snap = await db.collection("respostas").where("data", ">=", inicio).where("data", "<=", fim).get();
-  snap.forEach(doc => {
-    const { userId, pontos } = doc.data();
-    if (!dados[userId]) dados[userId] = 0;
-    dados[userId] += pontos;
-  });
-  return dados;
+// Função para renderizar o ranking na tela
+function renderizarTabela(ranking) {
+    const tbody = document.querySelector('table tbody');
+    tbody.innerHTML = '';
+
+    ranking.forEach((user, index) => {
+        const tr = document.createElement('tr');
+
+        tr.innerHTML = `
+            <td>${index + 1}</td>
+            <td>${user.nome}</td>
+            <td>${user.pontuacao}</td>
+            <td><input type="number" id="credito-${user.userId}" value="0" min="0" style="width:80px"></td>
+            <td><button onclick="pagarCreditos('${user.userId}')">Pagar</button></td>
+        `;
+
+        tbody.appendChild(tr);
+    });
 }
 
-async function calcularTimeDoCoracao(inicio, fim) {
-  const dados = {};
-  const usuariosSnap = await db.collection("usuarios").get();
-  const usuarios = {};
-  usuariosSnap.forEach(doc => usuarios[doc.id] = doc.data().timeId);
-
-  const snap = await db.collection("respostas").where("data", ">=", inicio).where("data", "<=", fim).get();
-  snap.forEach(doc => {
-    const { userId, pontos } = doc.data();
-    if (usuarios[userId]) {
-      if (!dados[userId]) dados[userId] = 0;
-      dados[userId] += pontos;
+// Função para pagar créditos individualmente
+async function pagarCreditos(userId) {
+    const input = document.getElementById(`credito-${userId}`);
+    const creditos = parseInt(input.value);
+    if (isNaN(creditos) || creditos <= 0) {
+        alert("Informe um valor válido.");
+        return;
     }
-  });
-  return dados;
-}
 
-async function calcularFinalizadosGeral(inicio, fim) {
-  const dados = {};
-  const jogosSnap = await db.collection("jogos")
-    .where("dataInicio", ">=", inicio)
-    .where("dataInicio", "<=", fim)
-    .where("status", "==", "finalizado")
-    .get();
+    const userDoc = usuariosRef.doc(userId);
+    const doc = await userDoc.get();
+    if (!doc.exists) {
+        alert("Usuário não encontrado.");
+        return;
+    }
 
-  const jogosIds = jogosSnap.docs.map(doc => doc.id);
-  if (jogosIds.length === 0) return dados;
+    const dadosUser = doc.data();
+    const creditosAtuais = dadosUser.creditos || 0;
+    await userDoc.update({
+        creditos: creditosAtuais + creditos
+    });
 
-  const snap = await db.collection("respostas").where("jogoId", "in", jogosIds).get();
-  snap.forEach(doc => {
-    const { userId, pontos } = doc.data();
-    if (!dados[userId]) dados[userId] = 0;
-    dados[userId] += pontos;
-  });
-  return dados;
-}
+    await db.collection('transacoes').add({
+        userId,
+        creditos,
+        data: new Date(),
+        tipo: 'premiacao'
+    });
 
-async function calcularFinalizadosPorTime(inicio, fim) {
-  const dados = {};
-  const jogosSnap = await db.collection("jogos")
-    .where("dataInicio", ">=", inicio)
-    .where("dataInicio", "<=", fim)
-    .where("status", "==", "finalizado")
-    .get();
-
-  const jogosIds = jogosSnap.docs.map(doc => doc.id);
-  if (jogosIds.length === 0) return dados;
-
-  const torcidasSnap = await db.collection("torcidas")
-    .where("jogoId", "in", jogosIds)
-    .get();
-
-  torcidasSnap.forEach(doc => {
-    const { userId } = doc.data();
-    if (!dados[userId]) dados[userId] = 1;
-    else dados[userId] += 1;
-  });
-  return dados;
-}
-
-function exibirRanking(ranking, limite) {
-  const tabela = document.getElementById("tabelaRanking");
-  tabela.innerHTML = "";
-
-  const lista = Object.entries(ranking).sort((a, b) => b[1] - a[1]).slice(0, limite);
-
-  lista.forEach(([user, pontos], idx) => {
-    const linha = document.createElement("tr");
-    linha.innerHTML = `
-      <td>${idx + 1}</td>
-      <td>${user}</td>
-      <td>${pontos}</td>
-      <td><input type="number" id="credito_${user}" value="0" min="0"></td>
-      <td><button onclick="pagar('${user}', ${idx + 1})">Pagar</button></td>
-    `;
-    tabela.appendChild(linha);
-  });
-}
-
-async function pagar(userId, posicao) {
-  const valor = parseFloat(document.getElementById(`credito_${userId}`).value);
-  if (valor <= 0) {
-    alert("Informe o valor a pagar!");
-    return;
-  }
-
-  // Atualiza o saldo no usuário
-  const userRef = db.collection("usuarios").doc(userId);
-  await db.runTransaction(async (transaction) => {
-    const userDoc = await transaction.get(userRef);
-    if (!userDoc.exists) throw "Usuário não encontrado!";
-    const saldoAtual = userDoc.data().creditos || 0;
-    transaction.update(userRef, { creditos: saldoAtual + valor });
-  });
-
-  // Registra a transação de pagamento
-  await db.collection("transacoes").add({
-    userId: userId,
-    valor: valor,
-    dataPagamento: new Date(),
-    motivo: "Premiação manual painel",
-    referencia: "manual-admin"
-  });
-
-  alert("Pagamento realizado para " + userId + " com " + valor + " créditos.");
+    alert("Créditos pagos com sucesso.");
 }
