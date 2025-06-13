@@ -1,19 +1,26 @@
+document.addEventListener("DOMContentLoaded", function() {
+    document.getElementById("btnGerar").addEventListener("click", gerarRanking);
+});
+
 async function gerarRanking() {
+    const db = firebase.firestore();
+
     const dataInicio = document.getElementById("dataInicio").value;
     const dataFim = document.getElementById("dataFim").value;
-    const limiteRanking = parseInt(document.getElementById("limiteRanking").value) || 50;
+    const tipoPremiacao = document.getElementById("tipoPremiacao").value;
+    const limiteRanking = parseInt(document.getElementById("limiteRanking").value);
 
     if (!dataInicio || !dataFim) {
         alert("Informe o período.");
         return;
     }
 
-    const usuarios = await db.collection("usuarios").get();
-    let lista = [];
+    let usuariosSnapshot = await db.collection("usuarios").get();
+    let usuarios = [];
 
-    usuarios.forEach(doc => {
+    usuariosSnapshot.forEach(doc => {
         const data = doc.data();
-        lista.push({
+        usuarios.push({
             id: doc.id,
             nome: data.nome || "(sem nome)",
             timeId: data.timeId || "",
@@ -22,9 +29,13 @@ async function gerarRanking() {
         });
     });
 
-    lista.sort((a, b) => b.pontuacao - a.pontuacao);
-    lista = lista.slice(0, limiteRanking);
-    exibirRanking(lista);
+    // Ordena por pontuação decrescente
+    usuarios.sort((a, b) => b.pontuacao - a.pontuacao);
+
+    // Aplica o limite de ranking
+    const topUsuarios = usuarios.slice(0, limiteRanking);
+
+    exibirRanking(topUsuarios);
 }
 
 function exibirRanking(lista) {
@@ -37,7 +48,7 @@ function exibirRanking(lista) {
             <td>${index + 1}</td>
             <td>${user.nome}</td>
             <td>${user.pontuacao}</td>
-            <td><input type="number" id="credito-${user.id}" value="0"></td>
+            <td><input type="number" id="credito-${user.id}" value="0" style="width:80px;"></td>
             <td><button onclick="pagar('${user.id}')">Pagar</button></td>
         `;
         tbody.appendChild(linha);
@@ -45,6 +56,7 @@ function exibirRanking(lista) {
 }
 
 async function pagar(userId) {
+    const db = firebase.firestore();
     const input = document.getElementById(`credito-${userId}`);
     const valor = parseFloat(input.value);
 
