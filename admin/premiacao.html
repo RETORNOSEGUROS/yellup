@@ -1,58 +1,70 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <title>Premiação Real - Financeiro</title>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js"></script>
-    <script src="firebase-init.js"></script>
-    <script src="premiacao.js" defer></script>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f7f7f7; }
-        .container { max-width: 1000px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 0 20px #ccc }
-        table { width: 100%; margin-top: 20px; border-collapse: collapse; }
-        th, td { border: 1px solid #999; padding: 8px; text-align: center; }
-        th { background: #222; color: #fff; }
-        button { padding: 5px 10px; }
-        input { padding: 5px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Premiação Real - Financeiro</h1>
+async function gerarRanking() {
+    const db = firebase.firestore();
 
-        <div class="filtros">
-            <label>Data Início:</label>
-            <input type="date" id="dataInicio">
+    const dataInicio = document.getElementById("dataInicio").value;
+    const dataFim = document.getElementById("dataFim").value;
+    const tipoPremiacao = document.getElementById("tipoPremiacao").value;
+    const limiteRanking = parseInt(document.getElementById("limiteRanking").value);
 
-            <label>Data Fim:</label>
-            <input type="date" id="dataFim">
+    if (!dataInicio || !dataFim) {
+        alert("Informe o período.");
+        return;
+    }
 
-            <label>Tipo:</label>
-            <select id="tipoPremiacao">
-                <option value="geral">Geral (Ranking)</option>
-                <option value="time">Time do Coração</option>
-            </select>
+    let usuarios = await db.collection("usuarios").get();
+    let lista = [];
 
-            <label>Ranking:</label>
-            <input type="number" id="limiteRanking" value="50">
+    usuarios.forEach(doc => {
+        const data = doc.data();
+        lista.push({
+            id: doc.id,
+            nome: data.nome || "(sem nome)",
+            timeId: data.timeId || '',
+            pontuacao: data.pontuacao || 0,
+            creditos: data.creditos || 0
+        });
+    });
 
-            <button onclick="gerarRanking()">Gerar Ranking</button>
-        </div>
+    lista.sort((a, b) => b.pontuacao - a.pontuacao);
+    lista = lista.slice(0, limiteRanking);
 
-        <table>
-            <thead>
-                <tr>
-                    <th>Posição</th>
-                    <th>Usuário</th>
-                    <th>Pontuação</th>
-                    <th>Créditos a Pagar</th>
-                    <th>Ação</th>
-                </tr>
-            </thead>
-            <tbody id="rankingTableBody"></tbody>
-        </table>
-    </div>
-</body>
-</html>
+    exibirRanking(lista);
+}
+
+function exibirRanking(lista) {
+    const tbody = document.getElementById("rankingTableBody");
+    tbody.innerHTML = '';
+
+    lista.forEach((user, index) => {
+        const linha = document.createElement("tr");
+        linha.innerHTML = `
+            <td>${index + 1}</td>
+            <td>${user.nome}</td>
+            <td>${user.pontuacao}</td>
+            <td><input type="number" value="0" id="credito-${user.id}" /></td>
+            <td><button onclick="pagar('${user.id}')">Pagar</button></td>
+        `;
+        tbody.appendChild(linha);
+    });
+}
+
+async function pagar(userId) {
+    const db = firebase.firestore();
+    const input = document.getElementById(`credito-${userId}`);
+    const valor = parseFloat(input.value);
+
+    if (valor <= 0 || isNaN(valor)) {
+        alert("Informe um valor válido para pagar.");
+        return;
+    }
+
+    const userRef = db.collection("usuarios").doc(userId);
+    const userSnap = await userRef.get();
+    const userData = userSnap.data();
+
+    await userRef.update({
+        creditos: (userData.creditos || 0) + valor
+    });
+
+    alert("Créditos pagos com sucesso!");
+}
