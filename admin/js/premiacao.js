@@ -1,5 +1,6 @@
 // premiacao.js
 // Motor de cálculo e busca da premiação
+const db = firebase.firestore();
 
 function gerarRanking() {
     const dataInicio = new Date(document.getElementById("dataInicio").value);
