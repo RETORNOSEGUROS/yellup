@@ -1,46 +1,72 @@
-// premiacao.js
-// Motor de cálculo e busca da premiação
 const db = firebase.firestore();
 
-function gerarRanking() {
-    const dataInicio = new Date(document.getElementById("dataInicio").value);
-    const dataFim = new Date(document.getElementById("dataFim").value);
-    const tipo = document.getElementById("tipoPremiacao").value;
-    const limite = parseInt(document.getElementById("limiteRanking").value);
+async function gerarRanking() {
+    const dataInicio = document.getElementById("dataInicio").value;
+    const dataFim = document.getElementById("dataFim").value;
+    const tipoPremiacao = document.getElementById("tipoPremiacao").value;
+    const limiteRanking = parseInt(document.getElementById("limiteRanking").value);
 
-    let colecao = "usuarios";
+    if (!dataInicio || !dataFim) {
+        alert("Informe o período.");
+        return;
+    }
 
-    db.collection(colecao)
-      .orderBy("pontuacao", "desc")
-      .limit(limite)
-      .get()
-      .then(snapshot => {
-          const tbody = document.querySelector("#tabelaRanking tbody");
-          tbody.innerHTML = "";
+    let usuarios = await db.collection("usuarios").get();
+    let lista = [];
 
-          let posicao = 1;
-          snapshot.forEach(doc => {
-              const user = doc.data();
-              const tr = document.createElement("tr");
+    usuarios.forEach(doc => {
+        const data = doc.data();
+        lista.push({
+            id: doc.id,
+            nome: data.nome || "(sem nome)",
+            timeId: data.timeId || '',
+            pontuacao: data.pontuacao || 0
+        });
+    });
 
-              const pontuacao = user.pontuacao || 0;
-              const creditosCalculados = calcularPremiacao(posicao, pontuacao);
+    if (tipoPremiacao === 'time') {
+        // Aqui poderia aplicar filtros futuros de time
+    }
 
-              tr.innerHTML = `
-                  <td>${posicao}</td>
-                  <td>${user.nome}</td>
-                  <td>${pontuacao}</td>
-                  <td><input type="number" value="${creditosCalculados}" id="valor_${doc.id}"></td>
-                  <td><button onclick="pagarPremio('${doc.id}')">Pagar</button></td>
-              `;
+    lista.sort((a, b) => b.pontuacao - a.pontuacao);
+    lista = lista.slice(0, limiteRanking);
 
-              tbody.appendChild(tr);
-              posicao++;
-          });
-      });
+    exibirRanking(lista);
 }
 
-function calcularPremiacao(posicao, pontuacao) {
-    // Lógica inicial de premiação: (exemplo simples: 10 créditos por posição)
-    return 10 * (51 - posicao);
+function exibirRanking(lista) {
+    const tbody = document.getElementById("rankingTableBody");
+    tbody.innerHTML = '';
+
+    lista.forEach((user, index) => {
+        const linha = document.createElement("tr");
+        linha.innerHTML = `
+            <td>${index + 1}</td>
+            <td>${user.nome}</td>
+            <td>${user.pontuacao}</td>
+            <td><input type="number" value="0" id="credito-${user.id}" /></td>
+            <td><button onclick="pagar('${user.id}')">Pagar</button></td>
+        `;
+        tbody.appendChild(linha);
+    });
+}
+
+async function pagar(userId) {
+    const input = document.getElementById(`credito-${userId}`);
+    const valor = parseFloat(input.value);
+
+    if (valor <= 0 || isNaN(valor)) {
+        alert("Informe um valor válido para pagar.");
+        return;
+    }
+
+    const userRef = db.collection("usuarios").doc(userId);
+    const userSnap = await userRef.get();
+    const userData = userSnap.data();
+
+    await userRef.update({
+        creditos: (userData.creditos || 0) + valor
+    });
+
+    alert("Créditos pagos com sucesso!");
 }
