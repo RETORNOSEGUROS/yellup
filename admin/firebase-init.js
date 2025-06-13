@@ -1,18 +1,11 @@
-// firebase-init.js (atualizado)
-
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
-
-// Sua config já existente:
 const firebaseConfig = {
-  apiKey: "XXXXXX",
-  authDomain: "XXXXXX",
-  projectId: "XXXXXX",
-  storageBucket: "XXXXXX",
-  messagingSenderId: "XXXXXX",
-  appId: "XXXXXX"
+    apiKey: "SUA_API_KEY",
+    authDomain: "SEU_PROJETO.firebaseapp.com",
+    projectId: "SEU_PROJECT_ID",
+    storageBucket: "SEU_PROJECT_ID.appspot.com",
+    messagingSenderId: "SENDER_ID",
+    appId: "APP_ID"
 };
 
-// Inicializa
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
