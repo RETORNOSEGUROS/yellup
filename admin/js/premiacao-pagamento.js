@@ -77,15 +77,17 @@ async function gerarRankingFinalizadosGeral(inicio, fim) {
     .get();
 
   const jogosIds = jogosSnap.docs.map(doc => doc.id);
-  const torcidasSnap = await db.collection("torcidas")
+  if (jogosIds.length === 0) return [];
+
+  const respostasSnap = await db.collection("respostas")
     .where("jogoId", "in", jogosIds)
     .get();
 
   const pontuacao = {};
-  torcidasSnap.forEach(doc => {
-    const t = doc.data();
-    if (!pontuacao[t.userId]) pontuacao[t.userId] = 0;
-    pontuacao[t.userId] += t.creditos || 0;
+  respostasSnap.forEach(doc => {
+    const r = doc.data();
+    if (!pontuacao[r.userId]) pontuacao[r.userId] = 0;
+    pontuacao[r.userId] += r.pontos || 1;
   });
 
   const ranking = [];
