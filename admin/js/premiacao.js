@@ -1,33 +1,45 @@
-// premiacao.js atualizado
+// premiacao.js
+// Motor de cálculo e busca da premiação
 
-const db = firebase.firestore();
+function gerarRanking() {
+    const dataInicio = new Date(document.getElementById("dataInicio").value);
+    const dataFim = new Date(document.getElementById("dataFim").value);
+    const tipo = document.getElementById("tipoPremiacao").value;
+    const limite = parseInt(document.getElementById("limiteRanking").value);
 
-async function gerarRanking() {
-    const tabela = document.getElementById("tabelaResultados");
-    tabela.innerHTML = "";
+    let colecao = "usuarios";
 
-    const dataInicio = document.getElementById("dataInicio").value;
-    const dataFim = document.getElementById("dataFim").value;
-    const limiteRanking = parseInt(document.getElementById("limiteRanking").value);
+    db.collection(colecao)
+      .orderBy("pontuacao", "desc")
+      .limit(limite)
+      .get()
+      .then(snapshot => {
+          const tbody = document.querySelector("#tabelaRanking tbody");
+          tbody.innerHTML = "";
 
-    // Busca dados de usuários (exemplo simples de pontuação geral)
-    const snapshot = await db.collection("usuarios")
-        .orderBy("pontuacao", "desc")
-        .limit(limiteRanking)
-        .get();
+          let posicao = 1;
+          snapshot.forEach(doc => {
+              const user = doc.data();
+              const tr = document.createElement("tr");
 
-    let posicao = 1;
-    snapshot.forEach(doc => {
-        const dados = doc.data();
-        const linha = document.createElement("tr");
-        linha.innerHTML = `
-            <td>${posicao}</td>
-            <td>${dados.nome}</td>
-            <td>${dados.pontuacao ?? 0}</td>
-            <td><input type="number" value="0"></td>
-            <td><button>Pagar</button></td>
-        `;
-        tabela.appendChild(linha);
-        posicao++;
-    });
+              const pontuacao = user.pontuacao || 0;
+              const creditosCalculados = calcularPremiacao(posicao, pontuacao);
+
+              tr.innerHTML = `
+                  <td>${posicao}</td>
+                  <td>${user.nome}</td>
+                  <td>${pontuacao}</td>
+                  <td><input type="number" value="${creditosCalculados}" id="valor_${doc.id}"></td>
+                  <td><button onclick="pagarPremio('${doc.id}')">Pagar</button></td>
+              `;
+
+              tbody.appendChild(tr);
+              posicao++;
+          });
+      });
+}
+
+function calcularPremiacao(posicao, pontuacao) {
+    // Lógica inicial de premiação: (exemplo simples: 10 créditos por posição)
+    return 10 * (51 - posicao);
 }
