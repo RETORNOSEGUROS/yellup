@@ -1,34 +1,27 @@
-const db = firebase.firestore();
+// premiacao-pagamento.js
+// Executa o pagamento de créditos para o usuário
 
-async function pagarCredito(userId, creditosPagar) {
-  try {
-    // Busca o usuário no banco
+function pagarPremio(userId) {
+    const input = document.getElementById("valor_" + userId);
+    const valorPremio = parseFloat(input.value);
+
     const userRef = db.collection("usuarios").doc(userId);
-    const userSnap = await userRef.get();
+    db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) throw "Usuário não encontrado";
 
-    if (!userSnap.exists) {
-      alert("Usuário não encontrado!");
-      return;
-    }
+        const dados = userDoc.data();
+        const creditosAtuais = dados.creditos || 0;
+        const novosCreditos = creditosAtuais + valorPremio;
 
-    const userData = userSnap.data();
-    const creditosAtuais = userData.creditos || 0;
-
-    // Atualiza os créditos do usuário
-    const novosCreditos = creditosAtuais + creditosPagar;
-    await userRef.update({ creditos: novosCreditos });
-
-    // Registra a transação no histórico de pagamentos
-    await db.collection("transacoes").add({
-      userId: userId,
-      nome: userData.nome || "",
-      creditos: creditosPagar,
-      data: new Date()
+        transaction.update(userRef, {
+            creditos: novosCreditos,
+            ultimaPremiacao: firebase.firestore.Timestamp.now()
+        });
+    }).then(() => {
+        alert("Pagamento realizado com sucesso!");
+    }).catch((error) => {
+        console.error("Erro ao pagar prêmio: ", error);
+        alert("Falha ao executar pagamento.");
     });
-
-    alert("Créditos pagos com sucesso!");
-  } catch (error) {
-    console.error("Erro ao pagar créditos:", error);
-    alert("Ocorreu um erro ao registrar o pagamento.");
-  }
 }
