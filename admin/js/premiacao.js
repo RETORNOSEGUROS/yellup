@@ -1,108 +1,59 @@
-// premiacao-v2.js
+// Inicializa conexão com Firestore
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js";
+import { getFirestore, collection, query, where, getDocs, Timestamp } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js";
 
-// Referência ao Firestore (não redefinimos db aqui, pois já vem do firebase-init.js)
-const usuariosRef = db.collection('usuarios');
-const respostasRef = db.collection('respostas');
+const firebaseConfig = {
+  apiKey: "SUA-CHAVE",
+  authDomain: "SEU-PROJETO.firebaseapp.com",
+  projectId: "SEU-PROJETO",
+  storageBucket: "SEU-PROJETO.appspot.com",
+  messagingSenderId: "SEUID",
+  appId: "SUA-ID"
+};
 
-// Função para gerar o ranking de premiação
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// Função principal de ranking
 async function gerarRanking() {
-    const dataInicio = document.getElementById('dataInicio').value;
-    const dataFim = document.getElementById('dataFim').value;
-    const tipoPremiacao = document.getElementById('tipoPremiacao').value;
-    const limiteRanking = parseInt(document.getElementById('limiteRanking').value) || 50;
+    const inicio = document.getElementById("dataInicio").value;
+    const fim = document.getElementById("dataFim").value;
+    const tipo = document.getElementById("tipoPremiacao").value;
+    const limite = parseInt(document.getElementById("limite").value);
 
-    const dtInicio = new Date(`${dataInicio}T00:00:00`);
-    const dtFim = new Date(`${dataFim}T23:59:59`);
+    const data1 = Timestamp.fromDate(new Date(inicio));
+    const data2 = Timestamp.fromDate(new Date(fim));
 
-    const usuariosSnapshot = await usuariosRef.get();
-    const usuariosMap = new Map();
+    let usuariosRef = collection(db, "usuarios");
+    let filtro = query(usuariosRef, where("dataCadastro", ">=", data1), where("dataCadastro", "<=", data2));
 
-    usuariosSnapshot.forEach(doc => {
+    const snapshot = await getDocs(filtro);
+    let dados = [];
+
+    snapshot.forEach(doc => {
         const user = doc.data();
-        usuariosMap.set(doc.id, {
-            nome: user.nome || doc.id,
-            timeId: user.timeId || '',
-            pontuacao: 0
-        });
-    });
-
-    const respostasSnapshot = await respostasRef
-        .where('data', '>=', dtInicio)
-        .where('data', '<=', dtFim)
-        .get();
-
-    respostasSnapshot.forEach(doc => {
-        const resp = doc.data();
-        const userData = usuariosMap.get(resp.userId);
-        if (!userData) return;
-
-        // Acumular somente se for do tipo selecionado
-        if (tipoPremiacao === 'time') {
-            if (resp.timeIdPergunta === userData.timeId) {
-                userData.pontuacao += (resp.pontos || 0);
-            }
-        } else {
-            userData.pontuacao += (resp.pontos || 0);
+        if (tipo === 'time') {
+            // aqui você pode filtrar o timeId se desejar futuramente
+            if (!user.timeId) return;
         }
+        dados.push(user);
     });
 
-    const ranking = Array.from(usuariosMap.entries())
-        .map(([userId, data]) => ({ userId, ...data }))
-        .filter(u => u.pontuacao > 0)
-        .sort((a, b) => b.pontuacao - a.pontuacao)
-        .slice(0, limiteRanking);
+    dados.sort((a, b) => b.pontuacao - a.pontuacao);
+    dados = dados.slice(0, limite);
 
-    renderizarTabela(ranking);
-}
+    const tbody = document.getElementById("resultado");
+    tbody.innerHTML = "";
 
-// Função para renderizar o ranking na tela
-function renderizarTabela(ranking) {
-    const tbody = document.querySelector('table tbody');
-    tbody.innerHTML = '';
-
-    ranking.forEach((user, index) => {
-        const tr = document.createElement('tr');
-
-        tr.innerHTML = `
-            <td>${index + 1}</td>
-            <td>${user.nome}</td>
+    dados.forEach((user, i) => {
+        const linha = document.createElement("tr");
+        linha.innerHTML = `
+            <td>${i + 1}</td>
+            <td>${user.nome || user.email}</td>
             <td>${user.pontuacao}</td>
-            <td><input type="number" id="credito-${user.userId}" value="0" min="0" style="width:80px"></td>
-            <td><button onclick="pagarCreditos('${user.userId}')">Pagar</button></td>
+            <td><input type="number" value="0"></td>
+            <td><button>Pagar</button></td>
         `;
-
-        tbody.appendChild(tr);
+        tbody.appendChild(linha);
     });
-}
-
-// Função para pagar créditos individualmente
-async function pagarCreditos(userId) {
-    const input = document.getElementById(`credito-${userId}`);
-    const creditos = parseInt(input.value);
-    if (isNaN(creditos) || creditos <= 0) {
-        alert("Informe um valor válido.");
-        return;
-    }
-
-    const userDoc = usuariosRef.doc(userId);
-    const doc = await userDoc.get();
-    if (!doc.exists) {
-        alert("Usuário não encontrado.");
-        return;
-    }
-
-    const dadosUser = doc.data();
-    const creditosAtuais = dadosUser.creditos || 0;
-    await userDoc.update({
-        creditos: creditosAtuais + creditos
-    });
-
-    await db.collection('transacoes').add({
-        userId,
-        creditos,
-        data: new Date(),
-        tipo: 'premiacao'
-    });
-
-    alert("Créditos pagos com sucesso.");
 }
