@@ -1,4 +1,4 @@
-const db = firebase.firestore();
+
 
 async function gerarRanking() {
   const inicioInput = document.getElementById("dataInicio").value;
