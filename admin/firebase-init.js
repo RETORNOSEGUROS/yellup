@@ -1,14 +1,18 @@
-// firebase-init.js (100% compatível com HTML direto)
+// firebase-init.js (atualizado)
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+import { getFirestore } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+
+// Sua config já existente:
 const firebaseConfig = {
-  apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
-  authDomain: "painel-yellup.firebaseapp.com",
-  projectId: "painel-yellup",
-  storageBucket: "painel-yellup.firebasestorage.app",
-  messagingSenderId: "608347210297",
-  appId: "1:608347210297:web:75092713724e617c7203e8",
-  measurementId: "G-SYZ16X31KQ"
+  apiKey: "XXXXXX",
+  authDomain: "XXXXXX",
+  projectId: "XXXXXX",
+  storageBucket: "XXXXXX",
+  messagingSenderId: "XXXXXX",
+  appId: "XXXXXX"
 };
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const auth = firebase.auth();
+// Inicializa
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
