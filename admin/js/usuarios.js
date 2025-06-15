@@ -1,36 +1,33 @@
 const db = firebase.firestore();
 
-// Carrega os times no select
 async function carregarTimes() {
     const timesRef = await db.collection("times").orderBy("nome").get();
     const select = document.getElementById("timeId");
     select.innerHTML = `<option value="">Selecione</option>`;
     timesRef.forEach(doc => {
-        const item = doc.data();
-        const opt = document.createElement("option");
+        let time = doc.data();
+        let opt = document.createElement("option");
         opt.value = doc.id;
-        opt.textContent = item.nome;
+        opt.textContent = time.nome;
         select.appendChild(opt);
     });
 }
 
-// Salva ou atualiza o usuário
 async function salvarUsuario() {
     const usuarioUnico = document.getElementById("usuarioUnico").value.trim().toLowerCase();
-    if (!usuarioUnico) return alert("Informe o usuário único!");
-
-    const dados = gerarDados();
+    if (!usuarioUnico) return alert("Preencha o usuário!");
 
     const usuarioRef = db.collection("usuarios").doc(usuarioUnico);
     const docSnap = await usuarioRef.get();
+
+    const dados = gerarDados();
 
     if (!docSnap.exists) {
         await usuarioRef.set(dados);
     } else {
         await usuarioRef.update(dados);
     }
-
-    alert("Usuário salvo com sucesso!");
+    alert("Usuário salvo com sucesso.");
     carregarUsuarios();
 }
 
@@ -43,24 +40,24 @@ function gerarDados() {
         pais: document.getElementById("pais").value,
         email: document.getElementById("email").value,
         celular: document.getElementById("celular").value,
-        creditos: parseInt(document.getElementById("creditos").value),
+        creditos: parseInt(document.getElementById("creditos").value) || 0,
         status: document.getElementById("status").value,
-        timeId: document.getElementById("timeId").value
+        timeId: document.getElementById("timeId").value || ""
     };
 }
 
-// Carrega os usuários e filtra
 async function carregarUsuarios() {
     const filtro = document.getElementById("filtro").value.toLowerCase();
     const lista = document.getElementById("listaUsuarios");
     lista.innerHTML = "";
 
     const snap = await db.collection("usuarios").get();
+
     for (const doc of snap.docs) {
         const user = doc.data();
         if (filtro && !user.nome.toLowerCase().includes(filtro)) continue;
 
-        let timeNome = "-";
+        let timeNome = '-';
         if (user.timeId) {
             const timeDoc = await db.collection("times").doc(user.timeId).get();
             if (timeDoc.exists) timeNome = timeDoc.data().nome;
@@ -72,14 +69,13 @@ async function carregarUsuarios() {
             <td>${doc.id}</td>
             <td>${timeNome}</td>
             <td>${user.status}</td>
-            <td>${user.creditos || 0}</td>
+            <td>${user.creditos}</td>
             <td><button onclick="editarUsuario('${doc.id}')">Editar</button></td>
         `;
         lista.appendChild(tr);
     }
 }
 
-// Preenche o formulário ao editar
 async function editarUsuario(id) {
     const doc = await db.collection("usuarios").doc(id).get();
     const data = doc.data();
@@ -89,16 +85,15 @@ async function editarUsuario(id) {
     document.getElementById("dataNascimento").value = data.dataNascimento;
     document.getElementById("cidade").value = data.cidade;
     document.getElementById("estado").value = data.estado;
-    document.getElementById("pais").value = data.pais;
+    document.getElementById("pais").value = data.pais || "";
     document.getElementById("email").value = data.email;
     document.getElementById("celular").value = data.celular;
     document.getElementById("creditos").value = data.creditos || 0;
-    document.getElementById("status").value = data.status;
+    document.getElementById("status").value = data.status || "ativo";
     document.getElementById("timeId").value = data.timeId || "";
 }
 
-// Ao carregar a página:
 window.onload = () => {
     carregarTimes();
     carregarUsuarios();
-};
+}
