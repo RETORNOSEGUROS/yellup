@@ -5,8 +5,8 @@ async function carregarTimes() {
     const select = document.getElementById("timeId");
     select.innerHTML = `<option value="">Selecione</option>`;
     timesRef.forEach(doc => {
-        let time = doc.data();
-        let opt = document.createElement("option");
+        const time = doc.data();
+        const opt = document.createElement("option");
         opt.value = doc.id;
         opt.textContent = time.nome;
         select.appendChild(opt);
@@ -47,15 +47,18 @@ function gerarDados() {
 }
 
 async function carregarUsuarios() {
-    const filtro = document.getElementById("filtro").value.toLowerCase();
+    const filtro = document.getElementById("filtro").value.trim().toLowerCase();
     const lista = document.getElementById("listaUsuarios");
     lista.innerHTML = "";
 
     const snap = await db.collection("usuarios").get();
-
     for (const doc of snap.docs) {
         const user = doc.data();
-        if (filtro && !user.nome.toLowerCase().includes(filtro)) continue;
+
+        // BLINDAGEM ABSOLUTA
+        const nomeSeguro = user.nome ? user.nome.toLowerCase() : "";
+
+        if (filtro && !nomeSeguro.includes(filtro)) continue;
 
         let timeNome = '-';
         if (user.timeId) {
@@ -65,11 +68,11 @@ async function carregarUsuarios() {
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td>${user.nome}</td>
+            <td>${user.nome || ''}</td>
             <td>${doc.id}</td>
             <td>${timeNome}</td>
-            <td>${user.status}</td>
-            <td>${user.creditos}</td>
+            <td>${user.status || ''}</td>
+            <td>${user.creditos || 0}</td>
             <td><button onclick="editarUsuario('${doc.id}')">Editar</button></td>
         `;
         lista.appendChild(tr);
@@ -81,13 +84,13 @@ async function editarUsuario(id) {
     const data = doc.data();
 
     document.getElementById("usuarioUnico").value = id;
-    document.getElementById("nome").value = data.nome;
-    document.getElementById("dataNascimento").value = data.dataNascimento;
-    document.getElementById("cidade").value = data.cidade;
-    document.getElementById("estado").value = data.estado;
-    document.getElementById("pais").value = data.pais || "";
-    document.getElementById("email").value = data.email;
-    document.getElementById("celular").value = data.celular;
+    document.getElementById("nome").value = data.nome || "";
+    document.getElementById("dataNascimento").value = data.dataNascimento || "";
+    document.getElementById("cidade").value = data.cidade || "";
+    document.getElementById("estado").value = data.estado || "";
+    document.getElementById("pais").value = data.pais || "Brasil";
+    document.getElementById("email").value = data.email || "";
+    document.getElementById("celular").value = data.celular || "";
     document.getElementById("creditos").value = data.creditos || 0;
     document.getElementById("status").value = data.status || "ativo";
     document.getElementById("timeId").value = data.timeId || "";
