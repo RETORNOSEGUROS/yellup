@@ -1,62 +1,100 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <title>Cadastro de Usuários</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #333; color: white; }
-        input, select { margin: 5px; padding: 5px; }
-    </style>
-</head>
-<body>
+const db = firebase.firestore();
 
-<h1>Cadastro de Usuários</h1>
+async function carregarTimes() {
+    const timesRef = await db.collection("times").orderBy("nome").get();
+    const select = document.getElementById("timeId");
+    select.innerHTML = `<option value="">Selecione</option>`;
+    timesRef.forEach(doc => {
+        let time = doc.data();
+        let opt = document.createElement("option");
+        opt.value = doc.id;
+        opt.textContent = time.nome;
+        select.appendChild(opt);
+    });
+}
 
-<div>
-    <label>Nome:</label> <input id="nome">
-    <label>Data Nasc:</label> <input id="dataNascimento" type="date">
-    <label>Cidade:</label> <input id="cidade">
-    <label>Estado:</label> <input id="estado">
-    <label>País:</label> <input id="pais" value="Brasil"><br><br>
+async function salvarUsuario() {
+    const usuarioUnico = document.getElementById("usuarioUnico").value.trim().toLowerCase();
+    if (!usuarioUnico) return alert("Preencha o usuário!");
 
-    <label>Email:</label> <input id="email">
-    <label>Celular:</label> <input id="celular">
-    <label>Usuário (único):</label> <input id="usuarioUnico"><br><br>
+    const usuarioRef = db.collection("usuarios").doc(usuarioUnico);
+    const docSnap = await usuarioRef.get();
 
-    <label>Time do Coração:</label> <select id="timeId"></select>
+    const dados = gerarDados();
 
-    <label>Créditos:</label> <input id="creditos" type="number" value="0">
-    <label>Status:</label>
-    <select id="status">
-        <option value="ativo">Ativo</option>
-        <option value="inativo">Inativo</option>
-    </select>
-    <button onclick="salvarUsuario()">Salvar</button>
-</div>
+    if (!docSnap.exists) {
+        await usuarioRef.set(dados);
+    } else {
+        await usuarioRef.update(dados);
+    }
+    alert("Usuário salvo com sucesso.");
+    carregarUsuarios();
+}
 
-<h2>Filtro</h2>
-<input id="filtro" placeholder="Buscar por nome...">
-<button onclick="carregarUsuarios()">Buscar</button>
+function gerarDados() {
+    return {
+        nome: document.getElementById("nome").value,
+        dataNascimento: document.getElementById("dataNascimento").value,
+        cidade: document.getElementById("cidade").value,
+        estado: document.getElementById("estado").value,
+        pais: document.getElementById("pais").value,
+        email: document.getElementById("email").value,
+        celular: document.getElementById("celular").value,
+        creditos: parseInt(document.getElementById("creditos").value),
+        status: document.getElementById("status").value,
+        timeId: document.getElementById("timeId").value
+    };
+}
 
-<table>
-    <thead>
-        <tr>
-            <th>Nome</th>
-            <th>Usuário</th>
-            <th>Time</th>
-            <th>Status</th>
-            <th>Créditos</th>
-            <th>Ações</th>
-        </tr>
-    </thead>
-    <tbody id="listaUsuarios"></tbody>
-</table>
+async function carregarUsuarios() {
+    const filtro = document.getElementById("filtro").value.trim().toLowerCase();
+    const lista = document.getElementById("listaUsuarios");
+    lista.innerHTML = "";
+    
+    const snap = await db.collection("usuarios").get();
+    for (const doc of snap.docs) {
+        const user = doc.data();
+        if (filtro && !user.nome?.toLowerCase().includes(filtro)) continue;
+        
+        let timeNome = '-';
+        if (user.timeId) {
+            const timeDoc = await db.collection("times").doc(user.timeId).get();
+            if (timeDoc.exists) {
+                timeNome = timeDoc.data().nome;
+            }
+        }
 
-<script src="/firebase-init.js"></script>
-<script src="usuarios.js"></script>
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${user.nome}</td>
+            <td>${doc.id}</td>
+            <td>${timeNome}</td>
+            <td>${user.status}</td>
+            <td>${user.creditos}</td>
+            <td><button onclick="editarUsuario('${doc.id}')">Editar</button></td>
+        `;
+        lista.appendChild(tr);
+    }
+}
 
-</body>
-</html>
+async function editarUsuario(id) {
+    const doc = await db.collection("usuarios").doc(id).get();
+    const data = doc.data();
+
+    document.getElementById("usuarioUnico").value = id;
+    document.getElementById("nome").value = data.nome;
+    document.getElementById("dataNascimento").value = data.dataNascimento || "";
+    document.getElementById("cidade").value = data.cidade || "";
+    document.getElementById("estado").value = data.estado || "";
+    document.getElementById("pais").value = data.pais || "";
+    document.getElementById("email").value = data.email || "";
+    document.getElementById("celular").value = data.celular || "";
+    document.getElementById("creditos").value = data.creditos || 0;
+    document.getElementById("status").value = data.status || "ativo";
+    document.getElementById("timeId").value = data.timeId || "";
+}
+
+window.onload = () => {
+    carregarTimes();
+    carregarUsuarios();
+}
