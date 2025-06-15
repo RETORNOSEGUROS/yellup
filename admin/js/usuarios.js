@@ -1,8 +1,5 @@
 // usuarios.js
 
-// Conexão com Firestore já vem do firebase-init.js
-
-// Carregar times ao abrir a página
 document.addEventListener("DOMContentLoaded", async () => {
     await carregarTimes();
     await carregarUsuarios();
@@ -30,7 +27,14 @@ async function carregarUsuarios() {
     const tbody = document.getElementById("usuariosTableBody");
     tbody.innerHTML = "";
 
-    const usuariosSnapshot = await db.collection("usuarios").get();
+    const filtro = document.getElementById("filtroNome").value.trim().toLowerCase();
+    let usuariosQuery = db.collection("usuarios");
+    
+    if (filtro !== "") {
+        usuariosQuery = usuariosQuery.where("nome", ">=", filtro).where("nome", "<=", filtro + "\uf8ff");
+    }
+
+    const usuariosSnapshot = await usuariosQuery.get();
     usuariosSnapshot.forEach(doc => {
         const usuario = doc.data();
         const tr = document.createElement("tr");
@@ -64,7 +68,6 @@ async function salvarUsuario() {
         return;
     }
 
-    // Verifica se o usuário já existe (no modo cadastro novo)
     const querySnapshot = await db.collection("usuarios").where("usuario", "==", usuario).get();
     if (!editingId && !querySnapshot.empty) {
         alert("Este nome de usuário já existe.");
