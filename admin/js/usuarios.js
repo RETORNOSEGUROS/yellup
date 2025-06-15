@@ -1,11 +1,11 @@
 const db = firebase.firestore();
 
 async function carregarTimes() {
-    const timesRef = await db.collection("times").get();
+    const timesRef = await db.collection("times").orderBy("nome").get();
     const select = document.getElementById("timeId");
     select.innerHTML = `<option value="">Selecione</option>`;
     timesRef.forEach(doc => {
-        let time = doc.data();
+        const time = doc.data();
         let opt = document.createElement("option");
         opt.value = doc.id;
         opt.textContent = time.nome;
@@ -14,17 +14,20 @@ async function carregarTimes() {
 }
 
 async function salvarUsuario() {
-    const usuarioUnico = document.getElementById("usuarioUnico").value.trim();
+    const usuarioUnico = document.getElementById("usuarioUnico").value.trim().toLowerCase();
     if (!usuarioUnico) return alert("Preencha o usuário!");
 
     const usuarioRef = db.collection("usuarios").doc(usuarioUnico);
     const docSnap = await usuarioRef.get();
 
+    const dados = gerarDados();
+
     if (!docSnap.exists) {
-        await usuarioRef.set(gerarDados());
+        await usuarioRef.set(dados);
     } else {
-        await usuarioRef.update(gerarDados());
+        await usuarioRef.update(dados);
     }
+
     alert("Usuário salvo com sucesso.");
     carregarUsuarios();
 }
@@ -48,23 +51,33 @@ async function carregarUsuarios() {
     const filtro = document.getElementById("filtro").value.trim().toLowerCase();
     const lista = document.getElementById("listaUsuarios");
     lista.innerHTML = "";
-    
+
     const snap = await db.collection("usuarios").get();
-    snap.forEach(doc => {
+
+    for (const doc of snap.docs) {
         const user = doc.data();
-        if (filtro && !user.nome?.toLowerCase().includes(filtro)) return;
-        
+
+        if (filtro && !user.nome.toLowerCase().includes(filtro)) continue;
+
+        let timeNome = '-';
+        if (user.timeId) {
+            const timeDoc = await db.collection("times").doc(user.timeId).get();
+            if (timeDoc.exists) {
+                timeNome = timeDoc.data().nome;
+            }
+        }
+
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td>${user.nome || ''}</td>
+            <td>${user.nome}</td>
             <td>${doc.id}</td>
-            <td>${user.timeId || ''}</td>
-            <td>${user.status || ''}</td>
-            <td>${user.creditos || 0}</td>
+            <td>${timeNome}</td>
+            <td>${user.status}</td>
+            <td>${user.creditos}</td>
             <td><button onclick="editarUsuario('${doc.id}')">Editar</button></td>
         `;
         lista.appendChild(tr);
-    });
+    }
 }
 
 async function editarUsuario(id) {
@@ -73,9 +86,9 @@ async function editarUsuario(id) {
 
     document.getElementById("usuarioUnico").value = id;
     document.getElementById("nome").value = data.nome;
-    document.getElementById("dataNascimento").value = data.dataNascimento || "";
-    document.getElementById("cidade").value = data.cidade || "";
-    document.getElementById("estado").value = data.estado || "";
+    document.getElementById("dataNascimento").value = data.dataNascimento;
+    document.getElementById("cidade").value = data.cidade;
+    document.getElementById("estado").value = data.estado;
     document.getElementById("pais").value = data.pais || "";
     document.getElementById("email").value = data.email || "";
     document.getElementById("celular").value = data.celular || "";
@@ -87,4 +100,4 @@ async function editarUsuario(id) {
 window.onload = () => {
     carregarTimes();
     carregarUsuarios();
-}
+};
