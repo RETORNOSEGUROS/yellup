@@ -1,8 +1,26 @@
-// usuarios.js
+// usuarios.js atualizado
 
-const db = firebase.firestore();
+// Inicializando o Firebase Modular (você já tem firebase-init.js separadamente)
 
+import { getFirestore, collection, query, where, getDocs, addDoc, updateDoc, doc, Timestamp } from "firebase/firestore";
+import { getApp } from "firebase/app";
+
+const db = getFirestore(getApp());
 let editingUserId = null;
+
+// Função para carregar os times no select
+async function carregarTimes() {
+    const timeSelect = document.getElementById('timeSelect');
+    timeSelect.innerHTML = '<option value="">Selecione</option>';
+
+    const timesSnapshot = await getDocs(collection(db, "times"));
+    timesSnapshot.forEach(doc => {
+        const option = document.createElement("option");
+        option.value = doc.id;
+        option.textContent = doc.data().nome;
+        timeSelect.appendChild(option);
+    });
+}
 
 async function salvarUsuario() {
     const nome = document.getElementById('nome').value.trim();
@@ -13,7 +31,7 @@ async function salvarUsuario() {
     const email = document.getElementById('email').value.trim();
     const celular = document.getElementById('celular').value.trim();
     const usuario = document.getElementById('usuario').value.trim().toLowerCase();
-    const timeId = document.getElementById('timeId').value.trim();
+    const timeId = document.getElementById('timeSelect').value;
     const creditos = parseInt(document.getElementById('creditos').value.trim()) || 0;
     const status = document.getElementById('status').value;
 
@@ -23,39 +41,30 @@ async function salvarUsuario() {
     }
 
     if (!editingUserId) {
-        const usuarioQuery = await db.collection("usuarios").where("usuario", "==", usuario).get();
-        if (!usuarioQuery.empty) {
+        const q = query(collection(db, "usuarios"), where("usuario", "==", usuario));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
             alert("Este nome de usuário já está em uso.");
             return;
         }
     }
 
     const dadosUsuario = {
-        nome,
-        dataNascimento,
-        cidade,
-        estado,
-        pais,
-        email,
-        celular,
-        usuario,
-        timeId,
-        creditos,
-        status,
-        dataCadastro: editingUserId ? undefined : firebase.firestore.Timestamp.now()
+        nome, dataNascimento, cidade, estado, pais, email, celular, usuario,
+        timeId, creditos, status, dataCadastro: editingUserId ? undefined : Timestamp.now()
     };
 
     try {
         if (editingUserId) {
-            await db.collection("usuarios").doc(editingUserId).update(dadosUsuario);
+            await updateDoc(doc(db, "usuarios", editingUserId), dadosUsuario);
             alert("Usuário atualizado com sucesso!");
             editingUserId = null;
         } else {
-            await db.collection("usuarios").add(dadosUsuario);
+            await addDoc(collection(db, "usuarios"), dadosUsuario);
             alert("Usuário cadastrado com sucesso!");
         }
         limparCampos();
-        carregarUsuarios();
+        listarUsuarios();
     } catch (error) {
         console.error("Erro ao salvar:", error);
         alert("Erro ao salvar usuário.");
@@ -71,36 +80,36 @@ function limparCampos() {
     document.getElementById('email').value = '';
     document.getElementById('celular').value = '';
     document.getElementById('usuario').value = '';
-    document.getElementById('timeId').value = '';
+    document.getElementById('timeSelect').value = '';
     document.getElementById('creditos').value = 0;
-    document.getElementById('status').value = 'Ativo';
+    document.getElementById('status').value = 'ativo';
 }
 
-async function carregarUsuarios(filtro = '') {
-    const tabela = document.querySelector("#usuariosTable tbody");
+async function listarUsuarios() {
+    const filtro = document.getElementById('filtroNome').value.trim();
+    const tabela = document.getElementById('tabelaUsuarios');
     tabela.innerHTML = "";
 
-    let query = db.collection("usuarios");
+    let q = collection(db, "usuarios");
     if (filtro) {
-        query = query.where("nome", ">=", filtro).where("nome", "<=", filtro + "\uf8ff");
+        q = query(q, where("nome", ">=", filtro), where("nome", "<=", filtro + "\uf8ff"));
     }
 
-    const snapshot = await query.get();
+    const snapshot = await getDocs(q);
 
-    snapshot.forEach(doc => {
-        const user = doc.data();
-        const linha = tabela.insertRow();
+    snapshot.forEach(docSnap => {
+        const user = docSnap.data();
+        const linha = document.createElement("tr");
 
-        linha.insertCell().textContent = user.nome;
-        linha.insertCell().textContent = user.usuario || '-';
-        linha.insertCell().textContent = user.timeId || '-';
-        linha.insertCell().textContent = user.status || '-';
-        linha.insertCell().textContent = user.creditos || 0;
-
-        const btnEditar = document.createElement("button");
-        btnEditar.textContent = "Editar";
-        btnEditar.onclick = () => editarUsuario(doc.id, user);
-        linha.insertCell().appendChild(btnEditar);
+        linha.innerHTML = `
+            <td>${user.nome}</td>
+            <td>${user.usuario}</td>
+            <td>${user.timeId || '-'}</td>
+            <td>${user.status}</td>
+            <td>${user.creditos}</td>
+            <td><button onclick="editarUsuario('${docSnap.id}', ${JSON.stringify(user).replace(/"/g, '&quot;')})">Editar</button></td>
+        `;
+        tabela.appendChild(linha);
     });
 }
 
@@ -115,15 +124,13 @@ function editarUsuario(id, user) {
     document.getElementById('email').value = user.email || '';
     document.getElementById('celular').value = user.celular || '';
     document.getElementById('usuario').value = user.usuario || '';
-    document.getElementById('timeId').value = user.timeId || '';
+    document.getElementById('timeSelect').value = user.timeId || '';
     document.getElementById('creditos').value = user.creditos || 0;
-    document.getElementById('status').value = user.status || 'Ativo';
+    document.getElementById('status').value = user.status || 'ativo';
 }
 
-document.getElementById('buscarBtn').addEventListener('click', () => {
-    const filtro = document.getElementById('busca').value.trim();
-    carregarUsuarios(filtro);
-});
-
-// Carregar ao abrir a página
-carregarUsuarios();
+// Inicializa ao carregar a página
+window.onload = () => {
+    carregarTimes();
+    listarUsuarios();
+}
