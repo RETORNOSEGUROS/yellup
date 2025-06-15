@@ -1,110 +1,129 @@
+// usuarios.js
+
 const db = firebase.firestore();
-const auth = firebase.auth();
 
-window.onload = async () => {
-    await carregarTimes();
-    listarUsuarios();
-};
-
-async function carregarTimes() {
-    const timesSnap = await db.collection("times").orderBy("nome").get();
-    const timeSelect = document.getElementById("timeSelect");
-    timeSelect.innerHTML = `<option value="">Selecione</option>`;
-    timesSnap.forEach(doc => {
-        const data = doc.data();
-        timeSelect.innerHTML += `<option value="${doc.id}">${data.nome}</option>`;
-    });
-}
+let editingUserId = null;
 
 async function salvarUsuario() {
-    const id = document.getElementById("idUsuario").value;
-    const usuario = document.getElementById("usuario").value;
+    const nome = document.getElementById('nome').value.trim();
+    const dataNascimento = document.getElementById('dataNascimento').value.trim();
+    const cidade = document.getElementById('cidade').value.trim();
+    const estado = document.getElementById('estado').value.trim();
+    const pais = document.getElementById('pais').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const celular = document.getElementById('celular').value.trim();
+    const usuario = document.getElementById('usuario').value.trim().toLowerCase();
+    const timeId = document.getElementById('timeId').value.trim();
+    const creditos = parseInt(document.getElementById('creditos').value.trim()) || 0;
+    const status = document.getElementById('status').value;
 
-    if (!id) {
-        const duplicado = await db.collection("usuarios").where("usuario", "==", usuario).get();
-        if (!duplicado.empty) {
-            alert("Usuário já existe.");
+    if (!nome || !usuario) {
+        alert("Preencha todos os campos obrigatórios (nome e usuário).");
+        return;
+    }
+
+    if (!editingUserId) {
+        const usuarioQuery = await db.collection("usuarios").where("usuario", "==", usuario).get();
+        if (!usuarioQuery.empty) {
+            alert("Este nome de usuário já está em uso.");
             return;
         }
     }
 
-    const dados = {
-        nome: document.getElementById("nome").value,
-        dataNascimento: document.getElementById("dataNascimento").value,
-        cidade: document.getElementById("cidade").value,
-        estado: document.getElementById("estado").value,
-        pais: document.getElementById("pais").value,
-        email: document.getElementById("email").value,
-        celular: document.getElementById("celular").value,
-        usuario: usuario,
-        timeId: document.getElementById("timeSelect").value,
-        creditos: parseInt(document.getElementById("creditos").value),
-        status: document.getElementById("status").value,
-        dataCadastro: new Date()
+    const dadosUsuario = {
+        nome,
+        dataNascimento,
+        cidade,
+        estado,
+        pais,
+        email,
+        celular,
+        usuario,
+        timeId,
+        creditos,
+        status,
+        dataCadastro: editingUserId ? undefined : firebase.firestore.Timestamp.now()
     };
 
-    if (id) {
-        await db.collection("usuarios").doc(id).update(dados);
-    } else {
-        await db.collection("usuarios").add(dados);
+    try {
+        if (editingUserId) {
+            await db.collection("usuarios").doc(editingUserId).update(dadosUsuario);
+            alert("Usuário atualizado com sucesso!");
+            editingUserId = null;
+        } else {
+            await db.collection("usuarios").add(dadosUsuario);
+            alert("Usuário cadastrado com sucesso!");
+        }
+        limparCampos();
+        carregarUsuarios();
+    } catch (error) {
+        console.error("Erro ao salvar:", error);
+        alert("Erro ao salvar usuário.");
     }
-    
-    alert("Salvo com sucesso!");
-    limparForm();
-    listarUsuarios();
 }
 
-function limparForm() {
-    document.querySelectorAll("input, select").forEach(el => el.value = "");
+function limparCampos() {
+    document.getElementById('nome').value = '';
+    document.getElementById('dataNascimento').value = '';
+    document.getElementById('cidade').value = '';
+    document.getElementById('estado').value = '';
+    document.getElementById('pais').value = 'Brasil';
+    document.getElementById('email').value = '';
+    document.getElementById('celular').value = '';
+    document.getElementById('usuario').value = '';
+    document.getElementById('timeId').value = '';
+    document.getElementById('creditos').value = 0;
+    document.getElementById('status').value = 'Ativo';
 }
 
-async function listarUsuarios() {
-    const filtro = document.getElementById("filtroNome").value.toLowerCase();
-    let snap = await db.collection("usuarios").orderBy("nome").get();
-
-    const tabela = document.getElementById("tabelaUsuarios");
+async function carregarUsuarios(filtro = '') {
+    const tabela = document.querySelector("#usuariosTable tbody");
     tabela.innerHTML = "";
 
-    snap.forEach(doc => {
-        const data = doc.data();
-        if (data.nome.toLowerCase().includes(filtro)) {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `
-                <td>${data.nome}</td>
-                <td>${data.usuario}</td>
-                <td>${data.timeId}</td>
-                <td>${data.status}</td>
-                <td>${data.creditos}</td>
-                <td>
-                    <button onclick="editarUsuario('${doc.id}')">Editar</button>
-                    <button onclick="resetSenha('${data.email}')">Reset Senha</button>
-                </td>
-            `;
-            tabela.appendChild(tr);
-        }
+    let query = db.collection("usuarios");
+    if (filtro) {
+        query = query.where("nome", ">=", filtro).where("nome", "<=", filtro + "\uf8ff");
+    }
+
+    const snapshot = await query.get();
+
+    snapshot.forEach(doc => {
+        const user = doc.data();
+        const linha = tabela.insertRow();
+
+        linha.insertCell().textContent = user.nome;
+        linha.insertCell().textContent = user.usuario || '-';
+        linha.insertCell().textContent = user.timeId || '-';
+        linha.insertCell().textContent = user.status || '-';
+        linha.insertCell().textContent = user.creditos || 0;
+
+        const btnEditar = document.createElement("button");
+        btnEditar.textContent = "Editar";
+        btnEditar.onclick = () => editarUsuario(doc.id, user);
+        linha.insertCell().appendChild(btnEditar);
     });
 }
 
-async function editarUsuario(id) {
-    const doc = await db.collection("usuarios").doc(id).get();
-    const data = doc.data();
-    document.getElementById("idUsuario").value = id;
-    document.getElementById("nome").value = data.nome;
-    document.getElementById("dataNascimento").value = data.dataNascimento;
-    document.getElementById("cidade").value = data.cidade;
-    document.getElementById("estado").value = data.estado;
-    document.getElementById("pais").value = data.pais;
-    document.getElementById("email").value = data.email;
-    document.getElementById("celular").value = data.celular;
-    document.getElementById("usuario").value = data.usuario;
-    document.getElementById("timeSelect").value = data.timeId;
-    document.getElementById("creditos").value = data.creditos;
-    document.getElementById("status").value = data.status;
+function editarUsuario(id, user) {
+    editingUserId = id;
+
+    document.getElementById('nome').value = user.nome || '';
+    document.getElementById('dataNascimento').value = user.dataNascimento || '';
+    document.getElementById('cidade').value = user.cidade || '';
+    document.getElementById('estado').value = user.estado || '';
+    document.getElementById('pais').value = user.pais || 'Brasil';
+    document.getElementById('email').value = user.email || '';
+    document.getElementById('celular').value = user.celular || '';
+    document.getElementById('usuario').value = user.usuario || '';
+    document.getElementById('timeId').value = user.timeId || '';
+    document.getElementById('creditos').value = user.creditos || 0;
+    document.getElementById('status').value = user.status || 'Ativo';
 }
 
-async function resetSenha(email) {
-    if (confirm(`Deseja enviar email de reset para ${email}?`)) {
-        await auth.sendPasswordResetEmail(email);
-        alert("E-mail de redefinição enviado!");
-    }
-}
+document.getElementById('buscarBtn').addEventListener('click', () => {
+    const filtro = document.getElementById('busca').value.trim();
+    carregarUsuarios(filtro);
+});
+
+// Carregar ao abrir a página
+carregarUsuarios();
