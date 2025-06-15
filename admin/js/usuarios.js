@@ -5,20 +5,16 @@ async function carregarTimes() {
     const select = document.getElementById("timeId");
     select.innerHTML = `<option value="">Selecione</option>`;
     timesRef.forEach(doc => {
-        let item = doc.data();
         let opt = document.createElement("option");
         opt.value = doc.id;
-        opt.textContent = item.nome;
+        opt.textContent = doc.data().nome;
         select.appendChild(opt);
     });
 }
 
 async function salvarUsuario() {
     const usuarioUnico = document.getElementById("usuarioUnico").value.trim().toLowerCase();
-    if (!usuarioUnico) {
-        alert("Preencha o usuário único!");
-        return;
-    }
+    if (!usuarioUnico) return alert("Preencha o usuário!");
 
     const usuarioRef = db.collection("usuarios").doc(usuarioUnico);
     const docSnap = await usuarioRef.get();
@@ -31,7 +27,7 @@ async function salvarUsuario() {
         pais: document.getElementById("pais").value,
         email: document.getElementById("email").value,
         celular: document.getElementById("celular").value,
-        creditos: parseInt(document.getElementById("creditos").value) || 0,
+        creditos: parseInt(document.getElementById("creditos").value),
         status: document.getElementById("status").value,
         timeId: document.getElementById("timeId").value
     };
@@ -41,8 +37,7 @@ async function salvarUsuario() {
     } else {
         await usuarioRef.update(dados);
     }
-
-    alert("Usuário salvo com sucesso.");
+    alert("Usuário salvo com sucesso!");
     carregarUsuarios();
 }
 
@@ -54,14 +49,13 @@ async function carregarUsuarios() {
     const snap = await db.collection("usuarios").get();
     for (const doc of snap.docs) {
         const user = doc.data();
+
         if (filtro && !user.nome.toLowerCase().includes(filtro)) continue;
 
         let timeNome = '-';
         if (user.timeId) {
             const timeDoc = await db.collection("times").doc(user.timeId).get();
-            if (timeDoc.exists) {
-                timeNome = timeDoc.data().nome;
-            }
+            if (timeDoc.exists) timeNome = timeDoc.data().nome;
         }
 
         const tr = document.createElement("tr");
@@ -91,10 +85,10 @@ async function editarUsuario(id) {
     document.getElementById("celular").value = data.celular;
     document.getElementById("creditos").value = data.creditos;
     document.getElementById("status").value = data.status;
-    document.getElementById("timeId").value = data.timeId;
+    document.getElementById("timeId").value = data.timeId || "";
 }
 
 window.onload = () => {
     carregarTimes();
     carregarUsuarios();
-}
+};
