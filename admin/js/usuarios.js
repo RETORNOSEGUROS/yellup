@@ -1,112 +1,103 @@
-// Conexão Firestore já está inicializada pelo firebase-init.js
-
 const db = firebase.firestore();
-let edicaoId = null;
-
-window.onload = async () => {
-    await carregarTimes();
-    listarUsuarios();
-};
 
 async function carregarTimes() {
-    const timesSelect = document.getElementById("timeId");
-    timesSelect.innerHTML = "<option value=''>Selecione</option>";
-    const snapshot = await db.collection("times").orderBy("nome").get();
+    const timesSelect = document.getElementById('timeId');
+    timesSelect.innerHTML = '<option value="">Selecione...</option>';
+
+    const snapshot = await db.collection("times").get();
     snapshot.forEach(doc => {
-        const option = document.createElement("option");
+        const time = doc.data();
+        let option = document.createElement('option');
         option.value = doc.id;
-        option.textContent = doc.data().nome;
+        option.textContent = time.nome;
         timesSelect.appendChild(option);
     });
 }
 
 async function salvarUsuario() {
-    const usuario = {
-        nome: document.getElementById("nome").value,
-        dataNascimento: document.getElementById("dataNascimento").value,
-        cidade: document.getElementById("cidade").value,
-        estado: document.getElementById("estado").value,
-        pais: document.getElementById("pais").value,
-        email: document.getElementById("email").value,
-        celular: document.getElementById("celular").value,
-        usuarioUnico: document.getElementById("usuarioUnico").value.toLowerCase(),
-        timeId: document.getElementById("timeId").value,
-        creditos: parseInt(document.getElementById("creditos").value),
-        status: document.getElementById("status").value
-    };
+    const usuario = document.getElementById('usuario').value.trim();
+    if (!usuario) { alert("Informe o nome de usuário único!"); return; }
 
-    if (edicaoId) {
-        await db.collection("usuarios").doc(edicaoId).update(usuario);
-        edicaoId = null;
+    const docRef = db.collection("usuarios").doc(usuario);
+    const docSnap = await docRef.get();
+    
+    if (!docSnap.exists) {
+        await docRef.set({
+            nome: document.getElementById('nome').value,
+            dataNascimento: document.getElementById('dataNascimento').value,
+            cidade: document.getElementById('cidade').value,
+            estado: document.getElementById('estado').value,
+            pais: document.getElementById('pais').value,
+            email: document.getElementById('email').value,
+            celular: document.getElementById('celular').value,
+            timeId: document.getElementById('timeId').value,
+            creditos: parseInt(document.getElementById('creditos').value),
+            status: document.getElementById('status').value,
+            dataCadastro: new Date(),
+            totalAcessos: 0,
+            ultimoLogin: null
+        });
+        alert("Usuário cadastrado com sucesso.");
     } else {
-        const existe = await db.collection("usuarios").where("usuarioUnico", "==", usuario.usuarioUnico).get();
-        if (!existe.empty) {
-            alert("Usuário já existe");
-            return;
-        }
-        await db.collection("usuarios").add(usuario);
+        await docRef.update({
+            nome: document.getElementById('nome').value,
+            dataNascimento: document.getElementById('dataNascimento').value,
+            cidade: document.getElementById('cidade').value,
+            estado: document.getElementById('estado').value,
+            pais: document.getElementById('pais').value,
+            email: document.getElementById('email').value,
+            celular: document.getElementById('celular').value,
+            timeId: document.getElementById('timeId').value,
+            creditos: parseInt(document.getElementById('creditos').value),
+            status: document.getElementById('status').value
+        });
+        alert("Usuário atualizado com sucesso.");
     }
-    limparFormulario();
-    listarUsuarios();
+    carregarUsuarios();
 }
 
-function limparFormulario() {
-    document.getElementById("nome").value = "";
-    document.getElementById("dataNascimento").value = "";
-    document.getElementById("cidade").value = "";
-    document.getElementById("estado").value = "";
-    document.getElementById("pais").value = "Brasil";
-    document.getElementById("email").value = "";
-    document.getElementById("celular").value = "";
-    document.getElementById("usuarioUnico").value = "";
-    document.getElementById("timeId").value = "";
-    document.getElementById("creditos").value = 0;
-    document.getElementById("status").value = "ativo";
-}
+async function carregarUsuarios() {
+    const filtro = document.getElementById('buscaNome').value.trim().toLowerCase();
+    const tbody = document.getElementById('tabelaUsuarios');
+    tbody.innerHTML = "";
 
-async function listarUsuarios() {
-    const filtroNome = document.getElementById("filtroNome").value.trim().toLowerCase();
-    let query = db.collection("usuarios");
-    const snapshot = await query.get();
-
-    const tabela = document.getElementById("usuariosTabela");
-    tabela.innerHTML = "";
-
-    for (const doc of snapshot.docs) {
+    const snapshot = await db.collection("usuarios").get();
+    snapshot.forEach(doc => {
         const user = doc.data();
-        if (filtroNome && !user.nome.toLowerCase().includes(filtroNome)) continue;
+        if (filtro && !user.nome.toLowerCase().includes(filtro)) return;
 
-        const timeDoc = user.timeId ? await db.collection("times").doc(user.timeId).get() : null;
-        const timeNome = timeDoc && timeDoc.exists ? timeDoc.data().nome : "-";
-
-        const linha = `<tr>
+        let tr = document.createElement('tr');
+        tr.innerHTML = `
             <td>${user.nome}</td>
-            <td>${user.usuarioUnico}</td>
-            <td>${timeNome}</td>
+            <td>${doc.id}</td>
+            <td>${user.timeId}</td>
             <td>${user.status}</td>
             <td>${user.creditos}</td>
             <td><button onclick="editarUsuario('${doc.id}')">Editar</button></td>
-        </tr>`;
-        tabela.innerHTML += linha;
-    }
+        `;
+        tbody.appendChild(tr);
+    });
 }
 
-async function editarUsuario(id) {
-    const doc = await db.collection("usuarios").doc(id).get();
-    if (!doc.exists) return alert("Usuário não encontrado!");
+async function editarUsuario(usuarioId) {
+    const doc = await db.collection("usuarios").doc(usuarioId).get();
+    const data = doc.data();
 
-    const u = doc.data();
-    edicaoId = id;
+    document.getElementById('usuario').value = usuarioId;
+    document.getElementById('usuario').disabled = true;
+    document.getElementById('nome').value = data.nome;
+    document.getElementById('dataNascimento').value = data.dataNascimento || "";
+    document.getElementById('cidade').value = data.cidade || "";
+    document.getElementById('estado').value = data.estado || "";
+    document.getElementById('pais').value = data.pais || "";
+    document.getElementById('email').value = data.email || "";
+    document.getElementById('celular').value = data.celular || "";
+    document.getElementById('timeId').value = data.timeId || "";
+    document.getElementById('creditos').value = data.creditos || 0;
+    document.getElementById('status').value = data.status || "ativo";
+}
 
-    document.getElementById("nome").value = u.nome;
-    document.getElementById("dataNascimento").value = u.dataNascimento;
-    document.getElementById("cidade").value = u.cidade;
-    document.getElementById("estado").value = u.estado;
-    document.getElementById("pais").value = u.pais;
-    document.getElementById("email").value = u.email;
-    document.getElementById("celular").value = u.celular;
-    document.getElementById("usuarioUnico").value = u.usuarioUnico;
-    document.getElementById("timeId").value = u.timeId;
-    document.getElementById("creditos").value = u.creditos;
-    document.getElementById("status").value = u.status;
+window.onload = () => {
+    carregarTimes();
+    carregarUsuarios();
 }
