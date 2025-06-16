@@ -1,3 +1,6 @@
+// admin/js/firebase-init.js
+
+// Configuração original do seu projeto Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
   authDomain: "painel-yellup.firebaseapp.com",
@@ -8,5 +11,7 @@ const firebaseConfig = {
   measurementId: "G-SYZ16X31KQ"
 };
 
+// Inicializa o Firebase de forma compatível com HTML puro
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth();
