@@ -1,4 +1,3 @@
-const db = firebase.firestore();
 let docEmEdicao = null;
 
 // Carrega times para o select
