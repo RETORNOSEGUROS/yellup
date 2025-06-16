@@ -55,9 +55,7 @@ async function carregarUsuarios() {
     for (const doc of snap.docs) {
         const user = doc.data();
 
-        // BLINDAGEM ABSOLUTA
         const nomeSeguro = user.nome ? user.nome.toLowerCase() : "";
-
         if (filtro && !nomeSeguro.includes(filtro)) continue;
 
         let timeNome = '-';
