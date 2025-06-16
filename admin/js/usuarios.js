@@ -1,50 +1,25 @@
-let docEmEdicao = null;
+const db = firebase.firestore();
 
-// Carrega times para o select
 async function carregarTimes() {
+    const timesRef = await db.collection("times").orderBy("nome").get();
     const select = document.getElementById("timeId");
     select.innerHTML = `<option value="">Selecione o Time</option>`;
-    const snapshot = await db.collection("times").orderBy("nome").get();
-    snapshot.forEach(doc => {
-        const option = document.createElement("option");
-        option.value = doc.id;
-        option.textContent = doc.data().nome;
-        select.appendChild(option);
+    timesRef.forEach(doc => {
+        const opt = document.createElement("option");
+        opt.value = doc.id;
+        opt.textContent = doc.data().nome;
+        select.appendChild(opt);
     });
 }
 
-// Salvar usuário com validação de duplicidade
 async function salvarUsuario() {
-    const dados = coletarDadosFormulario();
+    const usuarioUnico = document.getElementById("usuarioUnico").value.trim().toLowerCase();
+    if (!usuarioUnico) return alert("Preencha o usuário!");
 
-    if (!dados.usuarioUnico) {
-        alert("Preencha o campo de usuário!");
-        return;
-    }
+    const usuarioRef = db.collection("usuarios").doc(usuarioUnico);
+    const docSnap = await usuarioRef.get();
 
-    // Verifica duplicidade
-    const usuariosRef = db.collection("usuarios");
-    const query = await usuariosRef.where("usuarioUnico", "==", dados.usuarioUnico).get();
-
-    if (!docEmEdicao && !query.empty) {
-        alert("Usuário já cadastrado. Escolha outro.");
-        return;
-    }
-
-    if (docEmEdicao) {
-        await usuariosRef.doc(docEmEdicao).update(dados);
-        alert("Usuário atualizado com sucesso.");
-    } else {
-        await usuariosRef.add(dados);
-        alert("Usuário cadastrado com sucesso.");
-    }
-
-    limparFormulario();
-    carregarUsuarios();
-}
-
-function coletarDadosFormulario() {
-    return {
+    const dados = {
         nome: document.getElementById("nome").value,
         dataNascimento: document.getElementById("dataNascimento").value,
         cidade: document.getElementById("cidade").value,
@@ -52,12 +27,17 @@ function coletarDadosFormulario() {
         pais: document.getElementById("pais").value,
         email: document.getElementById("email").value,
         celular: document.getElementById("celular").value,
-        usuarioUnico: document.getElementById("usuarioUnico").value.trim().toLowerCase(),
-        timeId: document.getElementById("timeId").value,
+        usuario: usuarioUnico,
+        usuarioUnico: usuarioUnico,
+        timeId: document.getElementById("timeId").value || null,
         creditos: parseInt(document.getElementById("creditos").value) || 0,
-        indicadoPor: document.getElementById("indicadoPor").value.trim(),
-        status: document.getElementById("status").value
+        status: document.getElementById("status").value,
+        indicadoPor: document.getElementById("indicadoPor").value.trim() || "-"
     };
+
+    await usuarioRef.set(dados);
+    alert("Usuário salvo com sucesso!");
+    carregarUsuarios();
 }
 
 async function carregarUsuarios() {
@@ -65,12 +45,12 @@ async function carregarUsuarios() {
     const lista = document.getElementById("listaUsuarios");
     lista.innerHTML = "";
 
-    const snapshot = await db.collection("usuarios").get();
-    for (const doc of snapshot.docs) {
+    const snap = await db.collection("usuarios").get();
+    for (const doc of snap.docs) {
         const user = doc.data();
         if (filtro && !user.nome.toLowerCase().includes(filtro)) continue;
 
-        let timeNome = '-';
+        let timeNome = "-";
         if (user.timeId) {
             const timeDoc = await db.collection("times").doc(user.timeId).get();
             if (timeDoc.exists) timeNome = timeDoc.data().nome;
@@ -83,7 +63,7 @@ async function carregarUsuarios() {
             <td>${timeNome}</td>
             <td>${user.status}</td>
             <td>${user.creditos}</td>
-            <td>${user.indicadoPor || '-'}</td>
+            <td>${user.indicadoPor || "-"}</td>
             <td><button onclick="editarUsuario('${doc.id}')">Editar</button></td>
         `;
         lista.appendChild(tr);
@@ -93,33 +73,18 @@ async function carregarUsuarios() {
 async function editarUsuario(id) {
     const doc = await db.collection("usuarios").doc(id).get();
     const data = doc.data();
-
-    document.getElementById("documentId").value = id;
-    docEmEdicao = id;
-
-    document.getElementById("nome").value = data.nome || "";
+    document.getElementById("usuarioUnico").value = id;
+    document.getElementById("nome").value = data.nome;
     document.getElementById("dataNascimento").value = data.dataNascimento || "";
     document.getElementById("cidade").value = data.cidade || "";
     document.getElementById("estado").value = data.estado || "";
-    document.getElementById("pais").value = data.pais || "Brasil";
+    document.getElementById("pais").value = data.pais || "";
     document.getElementById("email").value = data.email || "";
     document.getElementById("celular").value = data.celular || "";
-    document.getElementById("usuarioUnico").value = data.usuarioUnico || "";
     document.getElementById("timeId").value = data.timeId || "";
     document.getElementById("creditos").value = data.creditos || 0;
-    document.getElementById("indicadoPor").value = data.indicadoPor || "";
     document.getElementById("status").value = data.status || "ativo";
-}
-
-function limparFormulario() {
-    document.getElementById("documentId").value = "";
-    docEmEdicao = null;
-    document.querySelectorAll("input, select").forEach(input => {
-        if (input.type === "number") input.value = 0;
-        else if (input.tagName === "SELECT") input.value = "";
-        else input.value = "";
-    });
-    document.getElementById("pais").value = "Brasil";
+    document.getElementById("indicadoPor").value = data.indicadoPor || "";
 }
 
 window.onload = () => {
