@@ -1,34 +1,18 @@
-const db = firebase.firestore();
+// admin/js/usuarios.js
+
+const dbRef = db.collection("usuarios");
+const timesRef = db.collection("times");
 
 async function carregarTimes() {
-    const timesRef = await db.collection("times").orderBy("nome").get();
     const select = document.getElementById("timeId");
-    select.innerHTML = `<option value="">Selecione</option>`;
-    timesRef.forEach(doc => {
-        const time = doc.data();
+    select.innerHTML = `<option value="">Selecione o Time</option>`;
+    const times = await timesRef.orderBy("nome").get();
+    times.forEach(doc => {
         const opt = document.createElement("option");
         opt.value = doc.id;
-        opt.textContent = time.nome;
+        opt.textContent = doc.data().nome;
         select.appendChild(opt);
     });
-}
-
-async function salvarUsuario() {
-    const usuarioUnico = document.getElementById("usuarioUnico").value.trim().toLowerCase();
-    if (!usuarioUnico) return alert("Preencha o usuário!");
-
-    const usuarioRef = db.collection("usuarios").doc(usuarioUnico);
-    const docSnap = await usuarioRef.get();
-
-    const dados = gerarDados();
-
-    if (!docSnap.exists) {
-        await usuarioRef.set(dados);
-    } else {
-        await usuarioRef.update(dados);
-    }
-    alert("Usuário salvo com sucesso.");
-    carregarUsuarios();
 }
 
 function gerarDados() {
@@ -40,36 +24,53 @@ function gerarDados() {
         pais: document.getElementById("pais").value,
         email: document.getElementById("email").value,
         celular: document.getElementById("celular").value,
+        usuarioUnico: document.getElementById("usuarioUnico").value.toLowerCase(),
+        timeId: document.getElementById("timeId").value,
         creditos: parseInt(document.getElementById("creditos").value) || 0,
         status: document.getElementById("status").value,
-        timeId: document.getElementById("timeId").value || ""
+        dataCadastro: new Date()
     };
 }
 
+async function salvarUsuario() {
+    const dados = gerarDados();
+    if (!dados.usuarioUnico) return alert("Preencha o usuário único!");
+
+    const userRef = dbRef.doc(dados.usuarioUnico);
+    const docSnap = await userRef.get();
+
+    if (!docSnap.exists) {
+        await userRef.set(dados);
+    } else {
+        await userRef.update(dados);
+    }
+
+    alert("Usuário salvo com sucesso!");
+    carregarUsuarios();
+}
+
 async function carregarUsuarios() {
-    const filtro = document.getElementById("filtro").value.trim().toLowerCase();
     const lista = document.getElementById("listaUsuarios");
+    const filtro = document.getElementById("filtro").value.toLowerCase();
     lista.innerHTML = "";
 
-    const snap = await db.collection("usuarios").get();
+    const snap = await dbRef.get();
     for (const doc of snap.docs) {
         const user = doc.data();
+        if (filtro && !user.nome.toLowerCase().includes(filtro)) continue;
 
-        const nomeSeguro = user.nome ? user.nome.toLowerCase() : "";
-        if (filtro && !nomeSeguro.includes(filtro)) continue;
-
-        let timeNome = '-';
+        let timeNome = "-";
         if (user.timeId) {
-            const timeDoc = await db.collection("times").doc(user.timeId).get();
+            const timeDoc = await timesRef.doc(user.timeId).get();
             if (timeDoc.exists) timeNome = timeDoc.data().nome;
         }
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td>${user.nome || ''}</td>
-            <td>${doc.id}</td>
+            <td>${user.nome}</td>
+            <td>${user.usuarioUnico}</td>
             <td>${timeNome}</td>
-            <td>${user.status || ''}</td>
+            <td>${user.status}</td>
             <td>${user.creditos || 0}</td>
             <td><button onclick="editarUsuario('${doc.id}')">Editar</button></td>
         `;
@@ -78,20 +79,20 @@ async function carregarUsuarios() {
 }
 
 async function editarUsuario(id) {
-    const doc = await db.collection("usuarios").doc(id).get();
+    const doc = await dbRef.doc(id).get();
     const data = doc.data();
 
+    document.getElementById("nome").value = data.nome;
+    document.getElementById("dataNascimento").value = data.dataNascimento;
+    document.getElementById("cidade").value = data.cidade;
+    document.getElementById("estado").value = data.estado;
+    document.getElementById("pais").value = data.pais;
+    document.getElementById("email").value = data.email;
+    document.getElementById("celular").value = data.celular;
     document.getElementById("usuarioUnico").value = id;
-    document.getElementById("nome").value = data.nome || "";
-    document.getElementById("dataNascimento").value = data.dataNascimento || "";
-    document.getElementById("cidade").value = data.cidade || "";
-    document.getElementById("estado").value = data.estado || "";
-    document.getElementById("pais").value = data.pais || "Brasil";
-    document.getElementById("email").value = data.email || "";
-    document.getElementById("celular").value = data.celular || "";
+    document.getElementById("timeId").value = data.timeId || "";
     document.getElementById("creditos").value = data.creditos || 0;
     document.getElementById("status").value = data.status || "ativo";
-    document.getElementById("timeId").value = data.timeId || "";
 }
 
 window.onload = () => {
