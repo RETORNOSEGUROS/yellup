@@ -2,9 +2,38 @@ firebase.auth().onAuthStateChanged(user => {
   if (!user) {
     window.location.href = "/admin/login.html";
   } else {
+    carregarTimes();
     carregarPerguntas();
   }
 });
+
+function carregarTimes() {
+  const select = document.getElementById('selectTime');
+  select.innerHTML = '<option value="">Selecione o time</option>';
+  db.collection("times").orderBy("nome").get().then(snapshot => {
+    snapshot.forEach(doc => {
+      const dados = doc.data();
+      const option = document.createElement('option');
+      option.value = doc.id;
+      option.textContent = `${dados.nome} - ${dados.pais}`;
+      option.setAttribute("data-nome", dados.nome);
+      select.appendChild(option);
+    });
+  }).catch(error => {
+    console.error("Erro ao carregar times:", error);
+    alert("Erro ao carregar a lista de times. Verifique o console.");
+  });
+}
+
+function atualizarCamposTime() {
+  const select = document.getElementById('selectTime');
+  const selectedOption = select.options[select.selectedIndex];
+  const timeId = select.value;
+  const timeNome = selectedOption.getAttribute("data-nome");
+
+  document.getElementById('timeId').value = timeId;
+  document.getElementById('timeNome').value = timeNome;
+}
 
 function salvarPergunta() {
   const id = document.getElementById('perguntaId').value;
@@ -47,8 +76,30 @@ function salvarPergunta() {
 }
 
 function carregarPerguntasFiltradas() {
-  const filtro = document.getElementById('filtroTimeId').value.trim();
-  carregarPerguntas(filtro);
+  const filtro = document.getElementById('filtroTimeNome').value.trim().toLowerCase();
+  const lista = document.getElementById('listaPerguntas');
+  lista.innerHTML = '';
+
+  db.collection("perguntas").orderBy("criadoEm", "desc").get().then(snapshot => {
+    snapshot.forEach(doc => {
+      const dados = doc.data();
+      const nomeTime = dados.timeNome?.toLowerCase() || '';
+      if (!filtro || nomeTime.includes(filtro)) {
+        const linha = document.createElement('tr');
+        linha.innerHTML = `
+          <td>${dados.pergunta}</td>
+          <td>${dados.correta} - ${dados.alternativas[dados.correta]}</td>
+          <td>${dados.timeNome}</td>
+          <td>${dados.pontuacao}</td>
+          <td class="acoes">
+            <button onclick='editarPergunta("${doc.id}", ${JSON.stringify(dados).replace(/"/g, '&quot;')})'>Editar</button>
+            <button onclick="excluirPergunta('${doc.id}')">Excluir</button>
+          </td>
+        `;
+        lista.appendChild(linha);
+      }
+    });
+  });
 }
 
 function carregarPerguntas(filtro = '') {
@@ -70,7 +121,7 @@ function carregarPerguntas(filtro = '') {
         <td>${dados.timeNome}</td>
         <td>${dados.pontuacao}</td>
         <td class="acoes">
-          <button onclick="editarPergunta('${doc.id}', ${JSON.stringify(dados).replace(/"/g, '&quot;')})">Editar</button>
+          <button onclick='editarPergunta("${doc.id}", ${JSON.stringify(dados).replace(/"/g, '&quot;')})'>Editar</button>
           <button onclick="excluirPergunta('${doc.id}')">Excluir</button>
         </td>
       `;
@@ -90,6 +141,7 @@ function editarPergunta(id, dados) {
   document.getElementById('pontuacao').value = dados.pontuacao;
   document.getElementById('timeId').value = dados.timeId;
   document.getElementById('timeNome').value = dados.timeNome;
+  document.getElementById('selectTime').value = dados.timeId;
 }
 
 function excluirPergunta(id) {
@@ -112,4 +164,5 @@ function limparCampos() {
   document.getElementById('pontuacao').value = '';
   document.getElementById('timeId').value = '';
   document.getElementById('timeNome').value = '';
+  document.getElementById('selectTime').value = '';
 }
