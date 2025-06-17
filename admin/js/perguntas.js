@@ -6,54 +6,110 @@ firebase.auth().onAuthStateChanged(user => {
   }
 });
 
-function cadastrarPergunta() {
+function salvarPergunta() {
+  const id = document.getElementById('perguntaId').value;
   const pergunta = document.getElementById('pergunta').value;
   const alternativas = {
     A: document.getElementById('altA').value,
     B: document.getElementById('altB').value,
     C: document.getElementById('altC').value,
-    D: document.getElementById('altD').value,
+    D: document.getElementById('altD').value
   };
   const correta = document.getElementById('correta').value;
+  const pontuacao = parseInt(document.getElementById('pontuacao').value);
   const timeId = document.getElementById('timeId').value;
+  const timeNome = document.getElementById('timeNome').value;
 
-  if (!pergunta || !alternativas.A || !alternativas.B || !alternativas.C || !alternativas.D || !correta || !timeId) {
+  if (!pergunta || !alternativas.A || !alternativas.B || !alternativas.C || !alternativas.D || !correta || !pontuacao || !timeId || !timeNome) {
     alert("Preencha todos os campos.");
     return;
   }
 
-  db.collection("perguntas").add({
-    pergunta,
-    alternativas,
-    correta,
-    timeId
-  }).then(() => {
-    alert("Pergunta cadastrada!");
-    document.getElementById('pergunta').value = '';
-    document.getElementById('altA').value = '';
-    document.getElementById('altB').value = '';
-    document.getElementById('altC').value = '';
-    document.getElementById('altD').value = '';
-    document.getElementById('correta').value = '';
-    document.getElementById('timeId').value = '';
-    carregarPerguntas();
-  });
+  const dados = {
+    pergunta, alternativas, correta, pontuacao, timeId, timeNome,
+    atualizadoEm: firebase.firestore.Timestamp.now()
+  };
+
+  if (id) {
+    db.collection("perguntas").doc(id).update(dados).then(() => {
+      alert("Pergunta atualizada!");
+      limparCampos();
+      carregarPerguntas();
+    });
+  } else {
+    dados.criadoEm = firebase.firestore.Timestamp.now();
+    db.collection("perguntas").add(dados).then(() => {
+      alert("Pergunta cadastrada!");
+      limparCampos();
+      carregarPerguntas();
+    });
+  }
 }
 
-function carregarPerguntas() {
+function carregarPerguntasFiltradas() {
+  const filtro = document.getElementById('filtroTimeId').value.trim();
+  carregarPerguntas(filtro);
+}
+
+function carregarPerguntas(filtro = '') {
   const lista = document.getElementById('listaPerguntas');
   lista.innerHTML = '';
 
-  db.collection("perguntas").orderBy("timeId").get().then(snapshot => {
+  let ref = db.collection("perguntas");
+  if (filtro) {
+    ref = ref.where("timeId", "==", filtro);
+  }
+
+  ref.orderBy("criadoEm", "desc").get().then(snapshot => {
     snapshot.forEach(doc => {
       const dados = doc.data();
       const linha = document.createElement('tr');
       linha.innerHTML = `
         <td>${dados.pergunta}</td>
-        <td>${dados.correta}</td>
-        <td>${dados.timeId}</td>
+        <td>${dados.correta} - ${dados.alternativas[dados.correta]}</td>
+        <td>${dados.timeNome}</td>
+        <td>${dados.pontuacao}</td>
+        <td class="acoes">
+          <button onclick="editarPergunta('${doc.id}', ${JSON.stringify(dados).replace(/"/g, '&quot;')})">Editar</button>
+          <button onclick="excluirPergunta('${doc.id}')">Excluir</button>
+        </td>
       `;
       lista.appendChild(linha);
     });
   });
+}
+
+function editarPergunta(id, dados) {
+  document.getElementById('perguntaId').value = id;
+  document.getElementById('pergunta').value = dados.pergunta;
+  document.getElementById('altA').value = dados.alternativas.A;
+  document.getElementById('altB').value = dados.alternativas.B;
+  document.getElementById('altC').value = dados.alternativas.C;
+  document.getElementById('altD').value = dados.alternativas.D;
+  document.getElementById('correta').value = dados.correta;
+  document.getElementById('pontuacao').value = dados.pontuacao;
+  document.getElementById('timeId').value = dados.timeId;
+  document.getElementById('timeNome').value = dados.timeNome;
+}
+
+function excluirPergunta(id) {
+  if (confirm("Tem certeza que deseja excluir essa pergunta?")) {
+    db.collection("perguntas").doc(id).delete().then(() => {
+      alert("Pergunta excluída!");
+      carregarPerguntas();
+    });
+  }
+}
+
+function limparCampos() {
+  document.getElementById('perguntaId').value = '';
+  document.getElementById('pergunta').value = '';
+  document.getElementById('altA').value = '';
+  document.getElementById('altB').value = '';
+  document.getElementById('altC').value = '';
+  document.getElementById('altD').value = '';
+  document.getElementById('correta').value = '';
+  document.getElementById('pontuacao').value = '';
+  document.getElementById('timeId').value = '';
+  document.getElementById('timeNome').value = '';
 }
