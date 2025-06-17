@@ -1,78 +1,55 @@
 async function carregarTimes() {
-    const timesRef = await db.collection("times").orderBy("nome").get();
-    const selectCasa = document.getElementById("timeCasa");
-    const selectVisitante = document.getElementById("timeVisitante");
-    timesRef.forEach(doc => {
-        let option = document.createElement("option");
-        option.value = doc.id;
-        option.textContent = doc.data().nome;
-        selectCasa.appendChild(option.cloneNode(true));
-        selectVisitante.appendChild(option.cloneNode(true));
-    });
-}
+    const timesSnap = await db.collection("times").orderBy("nome").get();
+    const timeCasaSelect = document.getElementById("timeCasa");
+    const timeVisitanteSelect = document.getElementById("timeVisitante");
 
-function adicionarPatrocinador() {
-    const container = document.getElementById("patrocinadores");
-    const div = document.createElement("div");
-    div.innerHTML = `
-        <input placeholder="Nome" class="pat-nome">
-        <input placeholder="Valor" type="number" class="pat-valor">
-        <input placeholder="Logo URL" class="pat-logo">
-        <input placeholder="Site" class="pat-site">
-        <hr>
-    `;
-    container.appendChild(div);
+    timeCasaSelect.innerHTML = `<option value="">Selecione</option>`;
+    timeVisitanteSelect.innerHTML = `<option value="">Selecione</option>`;
+
+    timesSnap.forEach(doc => {
+        const option = document.createElement("option");
+        option.value = doc.data().nome;
+        option.textContent = doc.data().nome;
+        timeCasaSelect.appendChild(option);
+        timeVisitanteSelect.appendChild(option.cloneNode(true));
+    });
 }
 
 async function salvarJogo() {
     const jogo = {
-        timeCasaId: document.getElementById("timeCasa").value,
-        timeForaId: document.getElementById("timeVisitante").value,
-        dataInicio: document.getElementById("dataInicio").value,
-        dataFim: document.getElementById("dataFim").value,
-        valorEntrada: parseInt(document.getElementById("valorEntrada").value),
-        status: document.getElementById("status").value,
-        patrocinadores: []
+        timeCasa: document.getElementById("timeCasa").value,
+        timeFora: document.getElementById("timeVisitante").value,
+        dataInicio: firebase.firestore.Timestamp.fromDate(new Date(document.getElementById("dataInicio").value)),
+        dataFim: firebase.firestore.Timestamp.fromDate(new Date(document.getElementById("dataFim").value)),
+        entradaCreditos: parseInt(document.getElementById("entradaCreditos").value),
+        status: document.getElementById("status").value
     };
-
-    document.querySelectorAll("#patrocinadores div").forEach(div => {
-        const pat = {
-            nome: div.querySelector(".pat-nome").value,
-            valor: parseInt(div.querySelector(".pat-valor").value),
-            logo: div.querySelector(".pat-logo").value,
-            site: div.querySelector(".pat-site").value
-        };
-        jogo.patrocinadores.push(pat);
-    });
-
     await db.collection("jogos").add(jogo);
-    alert("Jogo salvo com sucesso!");
-    listarJogos();
+    carregarJogos();
 }
 
-async function listarJogos() {
-    const lista = document.getElementById("listaJogos");
-    lista.innerHTML = "";
-    const jogosSnap = await db.collection("jogos").get();
-    for (const doc of jogosSnap.docs) {
-        const data = doc.data();
+async function carregarJogos() {
+    const jogosSnap = await db.collection("jogos").orderBy("dataInicio", "desc").get();
+    const tbody = document.querySelector("#tabelaJogos tbody");
+    tbody.innerHTML = "";
 
-        const timeCasa = await db.collection("times").doc(data.timeCasaId).get();
-        const timeFora = await db.collection("times").doc(data.timeForaId).get();
-
+    jogosSnap.forEach(doc => {
+        const jogo = doc.data();
         const tr = document.createElement("tr");
+        const inicio = jogo.dataInicio.toDate().toLocaleString('pt-BR');
+
         tr.innerHTML = `
-            <td>${timeCasa.exists ? timeCasa.data().nome : "-"}</td>
-            <td>${timeFora.exists ? timeFora.data().nome : "-"}</td>
-            <td>${data.dataInicio}</td>
-            <td>${data.valorEntrada} créditos</td>
-            <td>${data.status}</td>
+            <td>${jogo.timeCasa || "-"}</td>
+            <td>${jogo.timeFora || "-"}</td>
+            <td>${inicio}</td>
+            <td>${jogo.entradaCreditos || 0} créditos</td>
+            <td class="status-${jogo.status}">${jogo.status}</td>
         `;
-        lista.appendChild(tr);
-    }
+        tbody.appendChild(tr);
+    });
 }
 
 window.onload = () => {
     carregarTimes();
-    listarJogos();
+    carregarJogos();
 }
