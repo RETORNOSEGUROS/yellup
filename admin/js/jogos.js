@@ -1,108 +1,80 @@
+const db = firebase.firestore();
+
 async function carregarTimes() {
-    const selectCasa = document.getElementById("timeCasaId");
-    const selectFora = document.getElementById("timeForaId");
-
-    selectCasa.innerHTML = selectFora.innerHTML = `<option value="">Selecione o Time</option>`;
-
-    const snapshot = await db.collection("times").orderBy("nome").get();
-    snapshot.forEach(doc => {
-        const opt = document.createElement("option");
-        opt.value = doc.id;
-        opt.textContent = doc.data().nome;
-        selectCasa.appendChild(opt.cloneNode(true));
-        selectFora.appendChild(opt);
+    const timesRef = await db.collection("times").orderBy("nome").get();
+    const selectCasa = document.getElementById("timeCasa");
+    const selectVisitante = document.getElementById("timeVisitante");
+    timesRef.forEach(doc => {
+        let option = document.createElement("option");
+        option.value = doc.id;
+        option.textContent = doc.data().nome;
+        selectCasa.appendChild(option.cloneNode(true));
+        selectVisitante.appendChild(option.cloneNode(true));
     });
 }
 
 function adicionarPatrocinador() {
     const container = document.getElementById("patrocinadores");
     const div = document.createElement("div");
-    div.className = "patrocinador-item";
     div.innerHTML = `
-        <input placeholder="Nome" class="nome">
-        <input placeholder="Valor" type="number" class="valor">
-        <input placeholder="Site" class="site">
-        <input placeholder="Logo (URL)" class="logo">
-        <button onclick="this.parentElement.remove()">Remover</button>
+        <input placeholder="Nome" class="pat-nome">
+        <input placeholder="Valor" type="number" class="pat-valor">
+        <input placeholder="Logo URL" class="pat-logo">
+        <input placeholder="Site" class="pat-site">
+        <hr>
     `;
     container.appendChild(div);
 }
 
 async function salvarJogo() {
-    const timeCasaId = document.getElementById("timeCasaId").value;
-    const timeForaId = document.getElementById("timeForaId").value;
-    const dataInicio = document.getElementById("dataInicio").value;
-    const dataFim = document.getElementById("dataFim").value;
-
-    if (!timeCasaId || !timeForaId) return alert("Selecione os dois times.");
-    if (timeCasaId === timeForaId) return alert("Os times não podem ser iguais.");
-    if (!dataInicio || !dataFim) return alert("Preencha as datas.");
-    if (new Date(dataFim) < new Date(dataInicio)) return alert("Data fim não pode ser antes da data início.");
-
-    const patrocinadores = [];
-    document.querySelectorAll(".patrocinador-item").forEach(item => {
-        patrocinadores.push({
-            nome: item.querySelector(".nome").value,
-            valor: parseFloat(item.querySelector(".valor").value) || 0,
-            site: item.querySelector(".site").value,
-            logo: item.querySelector(".logo").value
-        });
-    });
-
-    const dados = {
-        timeCasaId, timeForaId,
-        dataInicio: firebase.firestore.Timestamp.fromDate(new Date(dataInicio)),
-        dataFim: firebase.firestore.Timestamp.fromDate(new Date(dataFim)),
-        status: document.getElementById("status").value,
+    const jogo = {
+        timeCasaId: document.getElementById("timeCasa").value,
+        timeForaId: document.getElementById("timeVisitante").value,
+        dataInicio: document.getElementById("dataInicio").value,
+        dataFim: document.getElementById("dataFim").value,
         valorEntrada: parseInt(document.getElementById("valorEntrada").value),
-        patrocinadores
+        status: document.getElementById("status").value,
+        patrocinadores: []
     };
 
-    await db.collection("jogos").add(dados);
-    alert("Jogo cadastrado com sucesso!");
-    carregarJogos();
+    document.querySelectorAll("#patrocinadores div").forEach(div => {
+        const pat = {
+            nome: div.querySelector(".pat-nome").value,
+            valor: parseInt(div.querySelector(".pat-valor").value),
+            logo: div.querySelector(".pat-logo").value,
+            site: div.querySelector(".pat-site").value
+        };
+        jogo.patrocinadores.push(pat);
+    });
+
+    await db.collection("jogos").add(jogo);
+    alert("Jogo salvo com sucesso!");
+    listarJogos();
 }
 
-async function carregarJogos() {
+async function listarJogos() {
     const lista = document.getElementById("listaJogos");
     lista.innerHTML = "";
+    const jogosSnap = await db.collection("jogos").get();
+    for (const doc of jogosSnap.docs) {
+        const data = doc.data();
 
-    const snapshot = await db.collection("jogos").orderBy("dataInicio", "desc").get();
-
-    for (const doc of snapshot.docs) {
-        const jogo = doc.data();
-
-        const timeCasa = await buscarNomeTime(jogo.timeCasaId);
-        const timeFora = await buscarNomeTime(jogo.timeForaId);
-        const inicio = jogo.dataInicio.toDate().toLocaleString();
+        const timeCasa = await db.collection("times").doc(data.timeCasaId).get();
+        const timeFora = await db.collection("times").doc(data.timeForaId).get();
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td>${timeCasa}</td>
-            <td>${timeFora}</td>
-            <td>${inicio}</td>
-            <td>${jogo.valorEntrada}</td>
-            <td>${jogo.status}</td>
-            <td><button onclick="removerJogo('${doc.id}')">Excluir</button></td>
+            <td>${timeCasa.exists ? timeCasa.data().nome : "-"}</td>
+            <td>${timeFora.exists ? timeFora.data().nome : "-"}</td>
+            <td>${data.dataInicio}</td>
+            <td>${data.valorEntrada} créditos</td>
+            <td>${data.status}</td>
         `;
         lista.appendChild(tr);
     }
 }
 
-async function buscarNomeTime(id) {
-    if (!id) return "-";
-    const doc = await db.collection("times").doc(id).get();
-    return doc.exists ? doc.data().nome : "-";
-}
-
-async function removerJogo(id) {
-    if (confirm("Deseja excluir este jogo?")) {
-        await db.collection("jogos").doc(id).delete();
-        carregarJogos();
-    }
-}
-
 window.onload = () => {
     carregarTimes();
-    carregarJogos();
+    listarJogos();
 }
