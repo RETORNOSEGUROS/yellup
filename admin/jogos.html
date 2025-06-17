@@ -1,168 +1,104 @@
-const db = firebase.firestore();
+<!DOCTYPE html>
+<html lang="pt-br">
 
-async function carregarTimes() {
-    const timesRef = await db.collection("times").orderBy("nome").get();
-    const selects = [document.getElementById("timeCasa"), document.getElementById("timeVisitante")];
-    selects.forEach(select => {
-        select.innerHTML = '<option value="">Selecione o Time</option>';
-    });
-
-    timesRef.forEach(doc => {
-        const opt = document.createElement("option");
-        opt.value = doc.id;
-        opt.textContent = doc.data().nome;
-        selects.forEach(select => select.appendChild(opt.cloneNode(true)));
-    });
-}
-
-async function salvarJogo() {
-    const timeCasaId = document.getElementById("timeCasa").value;
-    const timeForaId = document.getElementById("timeVisitante").value;
-    const dataInicio = new Date(document.getElementById("dataInicio").value);
-    const dataFim = new Date(document.getElementById("dataFim").value);
-    const valorEntrada = parseInt(document.getElementById("valorEntrada").value);
-    const status = document.getElementById("status").value;
-
-    const patrocinadores = [];
-    document.querySelectorAll(".patrocinador-item").forEach(item => {
-        patrocinadores.push({
-            nome: item.querySelector(".patrocinador-nome").value,
-            valor: parseInt(item.querySelector(".patrocinador-valor").value),
-            site: item.querySelector(".patrocinador-site").value,
-            logo: item.querySelector(".patrocinador-logo").value
-        });
-    });
-
-    const jogoData = {
-        timeCasaId,
-        timeForaId,
-        dataInicio,
-        dataFim,
-        valorEntrada,
-        status,
-        patrocinadores
-    };
-
-    await db.collection("jogos").add(jogoData);
-    alert("Jogo salvo com sucesso!");
-    listarJogos();
-}
-
-async function listarJogos() {
-    const lista = document.getElementById("listaJogos");
-    lista.innerHTML = "";
-
-    const snapshot = await db.collection("jogos").orderBy("dataInicio", "desc").get();
-
-    const agora = new Date();
-
-    for (const doc of snapshot.docs) {
-        const jogo = doc.data();
-
-        const timeCasaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
-        const timeForaDoc = await db.collection("times").doc(jogo.timeForaId).get();
-
-        const timeCasaNome = timeCasaDoc.exists ? timeCasaDoc.data().nome : "-";
-        const timeForaNome = timeForaDoc.exists ? timeForaDoc.data().nome : "-";
-
-        const dataInicio = jogo.dataInicio.toDate();
-
-        let statusCalculado = jogo.status;
-        if (dataInicio <= agora && jogo.dataFim.toDate() >= agora) {
-            statusCalculado = "ao_vivo";
-        } else if (jogo.dataFim.toDate() < agora) {
-            statusCalculado = "finalizado";
+<head>
+    <meta charset="UTF-8">
+    <title>Cadastro de Jogos</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+    <script src="js/firebase-init.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.min.css">
+    <style>
+        body {
+            background: #f7f7f7;
+            font-family: Arial, sans-serif;
         }
 
-        const row = `
-            <tr>
-                <td>${timeCasaNome}</td>
-                <td>${timeForaNome}</td>
-                <td>${dataInicio.toLocaleString()}</td>
-                <td>${jogo.valorEntrada} créditos</td>
-                <td>${statusCalculado}</td>
-                <td><button onclick="editarJogo('${doc.id}')">Editar</button></td>
-            </tr>
-        `;
-        lista.innerHTML += row;
-    }
-}
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0px 0px 10px rgba(0,0,0,0.1);
+        }
 
-function adicionarPatrocinador() {
-    const container = document.getElementById("patrocinadoresContainer");
-    const item = document.createElement("div");
-    item.classList.add("patrocinador-item");
-    item.innerHTML = `
-        <input type="text" class="patrocinador-nome" placeholder="Nome">
-        <input type="number" class="patrocinador-valor" placeholder="Valor (R$)">
-        <input type="text" class="patrocinador-site" placeholder="Site">
-        <input type="text" class="patrocinador-logo" placeholder="Logo (URL ou base64)">
-    `;
-    container.appendChild(item);
-}
+        h2 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
 
-async function editarJogo(id) {
-    const doc = await db.collection("jogos").doc(id).get();
-    const jogo = doc.data();
+        .patrocinador-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            background: #fafafa;
+        }
 
-    document.getElementById("timeCasa").value = jogo.timeCasaId;
-    document.getElementById("timeVisitante").value = jogo.timeForaId;
-    document.getElementById("dataInicio").value = jogo.dataInicio.toDate().toISOString().slice(0, 16);
-    document.getElementById("dataFim").value = jogo.dataFim.toDate().toISOString().slice(0, 16);
-    document.getElementById("valorEntrada").value = jogo.valorEntrada;
-    document.getElementById("status").value = jogo.status;
+        table {
+            margin-top: 30px;
+        }
 
-    document.getElementById("patrocinadoresContainer").innerHTML = "";
+        button {
+            cursor: pointer;
+        }
+    </style>
+</head>
 
-    jogo.patrocinadores?.forEach(p => {
-        const item = document.createElement("div");
-        item.classList.add("patrocinador-item");
-        item.innerHTML = `
-            <input type="text" class="patrocinador-nome" value="${p.nome}">
-            <input type="number" class="patrocinador-valor" value="${p.valor}">
-            <input type="text" class="patrocinador-site" value="${p.site}">
-            <input type="text" class="patrocinador-logo" value="${p.logo}">
-        `;
-        document.getElementById("patrocinadoresContainer").appendChild(item);
-    });
+<body>
+    <div class="container">
+        <h2>Cadastro de Jogos</h2>
 
-    // Atualizar botão para "Atualizar"
-    document.getElementById("salvarJogo").onclick = async function () {
-        const timeCasaId = document.getElementById("timeCasa").value;
-        const timeForaId = document.getElementById("timeVisitante").value;
-        const dataInicio = new Date(document.getElementById("dataInicio").value);
-        const dataFim = new Date(document.getElementById("dataFim").value);
-        const valorEntrada = parseInt(document.getElementById("valorEntrada").value);
-        const status = document.getElementById("status").value;
+        <label>Time Casa:</label>
+        <select id="timeCasa">
+            <option value="">Selecione o Time</option>
+        </select>
 
-        const patrocinadores = [];
-        document.querySelectorAll(".patrocinador-item").forEach(item => {
-            patrocinadores.push({
-                nome: item.querySelector(".patrocinador-nome").value,
-                valor: parseInt(item.querySelector(".patrocinador-valor").value),
-                site: item.querySelector(".patrocinador-site").value,
-                logo: item.querySelector(".patrocinador-logo").value
-            });
-        });
+        <label>Time Visitante:</label>
+        <select id="timeVisitante">
+            <option value="">Selecione o Time</option>
+        </select>
 
-        await db.collection("jogos").doc(id).update({
-            timeCasaId,
-            timeForaId,
-            dataInicio,
-            dataFim,
-            valorEntrada,
-            status,
-            patrocinadores
-        });
+        <label>Data Início:</label>
+        <input type="datetime-local" id="dataInicio">
 
-        alert("Jogo atualizado com sucesso!");
-        listarJogos();
-    }
-}
+        <label>Data Fim:</label>
+        <input type="datetime-local" id="dataFim">
 
-window.onload = () => {
-    carregarTimes();
-    listarJogos();
-    document.getElementById("btnAdicionarPatrocinador").onclick = adicionarPatrocinador;
-    document.getElementById("salvarJogo").onclick = salvarJogo;
-};
+        <label>Valor Entrada (créditos):</label>
+        <input type="number" id="valorEntrada" value="25">
+
+        <label>Status:</label>
+        <select id="status">
+            <option value="agendado">Agendado</option>
+            <option value="ao_vivo">Ao Vivo</option>
+            <option value="finalizado">Finalizado</option>
+        </select>
+
+        <h4>Patrocinadores</h4>
+        <div id="patrocinadoresContainer"></div>
+        <button id="btnAdicionarPatrocinador">+ Adicionar Patrocinador</button>
+
+        <button id="salvarJogo" style="background:#27ae60; color:#fff; margin-top:20px; width:100%;">Salvar Jogo</button>
+
+        <h4>Jogos Cadastrados</h4>
+        <table>
+            <thead>
+                <tr>
+                    <th>Casa</th>
+                    <th>Visitante</th>
+                    <th>Início</th>
+                    <th>Entrada</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody id="listaJogos"></tbody>
+        </table>
+    </div>
+
+    <script src="js/jogos.js"></script>
+</body>
+
+</html>
