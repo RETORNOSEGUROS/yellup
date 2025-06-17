@@ -16,20 +16,18 @@ function carregarTimes() {
       const option = document.createElement('option');
       option.value = doc.id;
       option.textContent = `${dados.nome} - ${dados.pais}`;
-      option.setAttribute("data-nome", dados.nome);
+      option.setAttribute("data-nome", dados.nome); // ESSENCIAL
       select.appendChild(option);
     });
-  }).catch(error => {
-    console.error("Erro ao carregar times:", error);
-    alert("Erro ao carregar a lista de times. Verifique o console.");
   });
 }
 
 function atualizarCamposTime() {
   const select = document.getElementById('selectTime');
   const selectedOption = select.options[select.selectedIndex];
+
   const timeId = select.value;
-  const timeNome = selectedOption.getAttribute("data-nome");
+  const timeNome = selectedOption.getAttribute("data-nome") || selectedOption.textContent.split(" - ")[0];
 
   document.getElementById('timeId').value = timeId;
   document.getElementById('timeNome').value = timeNome;
@@ -141,7 +139,11 @@ function editarPergunta(id, dados) {
   document.getElementById('pontuacao').value = dados.pontuacao;
   document.getElementById('timeId').value = dados.timeId;
   document.getElementById('timeNome').value = dados.timeNome;
-  document.getElementById('selectTime').value = dados.timeId;
+
+  // aguarda garantir que o select esteja carregado
+  setTimeout(() => {
+    document.getElementById('selectTime').value = dados.timeId;
+  }, 300);
 }
 
 function excluirPergunta(id) {
