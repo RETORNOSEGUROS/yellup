@@ -61,8 +61,28 @@ async function listarJogos() {
         const timeCasaNome = `${timeCasa.nome || '-'} - ${timeCasa.pais || ''}`;
         const timeForaNome = `${timeFora.nome || '-'} - ${timeFora.pais || ''}`;
 
-        const coresCasa = ['corPrimaria', 'corSecundaria', 'corTerciaria'].map(c => `<span class="color-circle" style="background:${timeCasa[c] || '#000'}"></span>`).join('');
-        const coresFora = ['corPrimaria', 'corSecundaria', 'corTerciaria'].map(c => `<span class="color-circle" style="background:${timeFora[c] || '#000'}"></span>`).join('');
+        
+        const coresCasa = `
+            <span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,
+                ${timeCasa.corPrimaria || '#000'} 0%,
+                ${timeCasa.corPrimaria || '#000'} 33%,
+                ${timeCasa.corSecundaria || '#000'} 33%,
+                ${timeCasa.corSecundaria || '#000'} 66%,
+                ${timeCasa.corTerciaria || '#000'} 66%,
+                ${timeCasa.corTerciaria || '#000'} 100%)">
+            </span>`;
+    
+        
+        const coresFora = `
+            <span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,
+                ${timeFora.corPrimaria || '#000'} 0%,
+                ${timeFora.corPrimaria || '#000'} 33%,
+                ${timeFora.corSecundaria || '#000'} 33%,
+                ${timeFora.corSecundaria || '#000'} 66%,
+                ${timeFora.corTerciaria || '#000'} 66%,
+                ${timeFora.corTerciaria || '#000'} 100%)">
+            </span>`;
+    
 
         const row = `
             <tr>
