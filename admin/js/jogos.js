@@ -1,195 +1,110 @@
+const db = firebase.firestore();
 
-const storage = firebase.storage();
-let mapaTimes = {};
-let listaTimes = [];
-let jogoEditandoId = null;
+async function carregarTimes() {
+    const selectCasa = document.getElementById("timeCasaId");
+    const selectFora = document.getElementById("timeForaId");
 
-firebase.auth().onAuthStateChanged(user => {
-  if (!user) {
-    window.location.href = "/admin/login.html";
-  } else {
-    carregarTimes();
-    carregarJogos();
-  }
-});
+    selectCasa.innerHTML = selectFora.innerHTML = `<option value="">Selecione o Time</option>`;
 
-function carregarTimes() {
-  const datalist = document.getElementById("listaTimes");
-  if (datalist) datalist.innerHTML = '';
-  listaTimes = [];
-  mapaTimes = {};
-
-  db.collection("times").orderBy("nome").get().then(snapshot => {
+    const snapshot = await db.collection("times").orderBy("nome").get();
     snapshot.forEach(doc => {
-      const time = doc.data();
-      time.id = doc.id;
-      listaTimes.push(time);
-      mapaTimes[time.nome] = time.id;
-
-      if (datalist) {
-        const option = document.createElement("option");
-        option.value = time.nome;
-        datalist.appendChild(option);
-      }
+        const opt = document.createElement("option");
+        opt.value = doc.id;
+        opt.textContent = doc.data().nome;
+        selectCasa.appendChild(opt.cloneNode(true));
+        selectFora.appendChild(opt);
     });
-  });
 }
 
 function adicionarPatrocinador() {
-  const container = document.getElementById("patrocinadoresContainer");
-  const div = document.createElement("div");
-  div.innerHTML = `
-    <input type="text" placeholder="Nome do patrocinador" class="nomePatrocinador">
-    <input type="number" placeholder="Valor pago" class="valorPatrocinador">
-    <input type="file" class="logoPatrocinador">
-    <hr>
-  `;
-  container.appendChild(div);
+    const container = document.getElementById("patrocinadores");
+    const div = document.createElement("div");
+    div.className = "patrocinador-item";
+    div.innerHTML = `
+        <input placeholder="Nome" class="nome">
+        <input placeholder="Valor" type="number" class="valor">
+        <input placeholder="Site" class="site">
+        <input placeholder="Logo (URL)" class="logo">
+        <button onclick="this.parentElement.remove()">Remover</button>
+    `;
+    container.appendChild(div);
 }
 
-async function cadastrarJogo() {
-  const nomeCasa = document.getElementById('timeCasa').value.trim();
-  const nomeFora = document.getElementById('timeFora').value.trim();
-  const timeCasa = mapaTimes[nomeCasa];
-  const timeFora = mapaTimes[nomeFora];
-  const dataInicio = new Date(document.getElementById('dataInicio').value);
-  const dataFim = new Date(document.getElementById('dataFim').value);
-  const status = document.getElementById('statusJogo').value;
+async function salvarJogo() {
+    const timeCasaId = document.getElementById("timeCasaId").value;
+    const timeForaId = document.getElementById("timeForaId").value;
+    const dataInicio = document.getElementById("dataInicio").value;
+    const dataFim = document.getElementById("dataFim").value;
 
-  if (!timeCasa || !timeFora || !dataInicio || !dataFim) {
-    alert("Preencha todos os campos corretamente.");
-    return;
-  }
+    if (!timeCasaId || !timeForaId) return alert("Selecione os dois times.");
+    if (timeCasaId === timeForaId) return alert("Os times não podem ser iguais.");
+    if (!dataInicio || !dataFim) return alert("Preencha as datas.");
+    if (new Date(dataFim) < new Date(dataInicio)) return alert("Data fim não pode ser antes da data início.");
 
-  const jogoRef = await db.collection("jogos").add({
-    timeCasa, timeFora, dataInicio, dataFim, status
-  });
+    const patrocinadores = [];
+    document.querySelectorAll(".patrocinador-item").forEach(item => {
+        patrocinadores.push({
+            nome: item.querySelector(".nome").value,
+            valor: parseFloat(item.querySelector(".valor").value) || 0,
+            site: item.querySelector(".site").value,
+            logo: item.querySelector(".logo").value
+        });
+    });
 
-  await salvarPatrocinadores(jogoRef.id);
-  alert("Jogo cadastrado com sucesso!");
-  limparFormulario();
-  carregarJogos();
+    const dados = {
+        timeCasaId, timeForaId,
+        dataInicio: firebase.firestore.Timestamp.fromDate(new Date(dataInicio)),
+        dataFim: firebase.firestore.Timestamp.fromDate(new Date(dataFim)),
+        status: document.getElementById("status").value,
+        valorEntrada: parseInt(document.getElementById("valorEntrada").value),
+        patrocinadores
+    };
+
+    await db.collection("jogos").add(dados);
+    alert("Jogo cadastrado com sucesso!");
+    carregarJogos();
 }
 
-async function salvarPatrocinadores(jogoId) {
-  const blocos = document.querySelectorAll("#patrocinadoresContainer div");
+async function carregarJogos() {
+    const lista = document.getElementById("listaJogos");
+    lista.innerHTML = "";
 
-  for (const bloco of blocos) {
-    const nome = bloco.querySelector(".nomePatrocinador").value;
-    const valor = bloco.querySelector(".valorPatrocinador").value;
-    const file = bloco.querySelector(".logoPatrocinador").files[0];
+    const snapshot = await db.collection("jogos").orderBy("dataInicio", "desc").get();
 
-    if (!nome || !valor) continue;
+    for (const doc of snapshot.docs) {
+        const jogo = doc.data();
 
-    let logoURL = "";
-    if (file) {
-      const ref = storage.ref(`patrocinadores/${Date.now()}_${file.name}`);
-      await ref.put(file);
-      logoURL = await ref.getDownloadURL();
+        const timeCasa = await buscarNomeTime(jogo.timeCasaId);
+        const timeFora = await buscarNomeTime(jogo.timeForaId);
+        const inicio = jogo.dataInicio.toDate().toLocaleString();
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${timeCasa}</td>
+            <td>${timeFora}</td>
+            <td>${inicio}</td>
+            <td>${jogo.valorEntrada}</td>
+            <td>${jogo.status}</td>
+            <td><button onclick="removerJogo('${doc.id}')">Excluir</button></td>
+        `;
+        lista.appendChild(tr);
     }
-
-    await db.collection("patrocinadores").add({
-      jogoId,
-      nome,
-      valor: parseFloat(valor),
-      logoURL,
-      data: new Date()
-    });
-  }
 }
 
-function carregarJogos() {
-  const tabela = document.getElementById('tabelaJogos');
-  if (tabela) tabela.innerHTML = '';
-
-  db.collection("jogos").orderBy("dataInicio").get().then(snapshot => {
-    snapshot.forEach(doc => {
-      const jogo = doc.data();
-      const id = doc.id;
-      if (!tabela) return;
-      const linha = document.createElement('tr');
-      linha.innerHTML = `
-        <td>${obterNomeTime(jogo.timeCasa)}</td>
-        <td>${obterNomeTime(jogo.timeFora)}</td>
-        <td>${new Date(jogo.dataInicio).toLocaleString()}</td>
-        <td>${new Date(jogo.dataFim).toLocaleString()}</td>
-        <td>${jogo.status}</td>
-        <td>
-          <button onclick="editarJogo('${id}')">Editar</button>
-          <button onclick="encerrarJogo('${id}')">Encerrar</button>
-        </td>
-      `;
-      tabela.appendChild(linha);
-    });
-  });
+async function buscarNomeTime(id) {
+    if (!id) return "-";
+    const doc = await db.collection("times").doc(id).get();
+    return doc.exists ? doc.data().nome : "-";
 }
 
-function obterNomeTime(idOuNome) {
-  return Object.values(mapaTimes).includes(idOuNome)
-    ? Object.keys(mapaTimes).find(nome => mapaTimes[nome] === idOuNome)
-    : idOuNome;
+async function removerJogo(id) {
+    if (confirm("Deseja excluir este jogo?")) {
+        await db.collection("jogos").doc(id).delete();
+        carregarJogos();
+    }
 }
 
-function encerrarJogo(id) {
-  db.collection("jogos").doc(id).update({
-    status: "finalizado",
-    dataFim: new Date()
-  }).then(() => {
-    alert("Jogo encerrado.");
+window.onload = () => {
+    carregarTimes();
     carregarJogos();
-  });
-}
-
-function editarJogo(id) {
-  db.collection("jogos").doc(id).get().then(doc => {
-    if (!doc.exists) return;
-
-    const jogo = doc.data();
-    jogoEditandoId = id;
-
-    document.getElementById('timeCasa').value = obterNomeTime(jogo.timeCasa);
-    document.getElementById('timeFora').value = obterNomeTime(jogo.timeFora);
-    document.getElementById('dataInicio').value = formatarDataInput(jogo.dataInicio);
-    document.getElementById('dataFim').value = formatarDataInput(jogo.dataFim);
-    document.getElementById('statusJogo').value = jogo.status;
-
-    document.getElementById('btnCadastrar').style.display = 'none';
-    document.getElementById('btnAtualizar').style.display = 'inline-block';
-  });
-}
-
-function atualizarJogo() {
-  const nomeCasa = document.getElementById('timeCasa').value.trim();
-  const nomeFora = document.getElementById('timeFora').value.trim();
-  const timeCasa = mapaTimes[nomeCasa];
-  const timeFora = mapaTimes[nomeFora];
-  const dataInicio = new Date(document.getElementById('dataInicio').value);
-  const dataFim = new Date(document.getElementById('dataFim').value);
-  const status = document.getElementById('statusJogo').value;
-
-  db.collection("jogos").doc(jogoEditandoId).update({
-    timeCasa, timeFora, dataInicio, dataFim, status
-  }).then(() => {
-    alert("Jogo atualizado!");
-    limparFormulario();
-    carregarJogos();
-  });
-}
-
-function limparFormulario() {
-  document.getElementById('timeCasa').value = '';
-  document.getElementById('timeFora').value = '';
-  document.getElementById('dataInicio').value = '';
-  document.getElementById('dataFim').value = '';
-  document.getElementById('statusJogo').value = 'agendado';
-  document.getElementById('patrocinadoresContainer').innerHTML = '';
-  document.getElementById('btnCadastrar').style.display = 'inline-block';
-  document.getElementById('btnAtualizar').style.display = 'none';
-  jogoEditandoId = null;
-}
-
-function formatarDataInput(valor) {
-  const date = valor instanceof Date ? valor : new Date(valor?.toDate?.() || valor);
-  const iso = date.toISOString();
-  return iso.substring(0, 16);
 }
