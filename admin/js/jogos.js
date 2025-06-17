@@ -1,5 +1,3 @@
-const db = firebase.firestore();
-
 async function carregarTimes() {
     const selectCasa = document.getElementById("timeCasaId");
     const selectFora = document.getElementById("timeForaId");
