@@ -1,6 +1,5 @@
 async function carregarTimes() {
     const timesRef = await db.collection("times").orderBy("nome").get();
-
     const selects = [document.getElementById("timeCasa"), document.getElementById("timeVisitante")];
     selects.forEach(select => {
         select.innerHTML = '<option value="">Selecione o Time</option>';
@@ -16,8 +15,8 @@ async function carregarTimes() {
 async function salvarJogo() {
     const timeCasaId = document.getElementById("timeCasa").value;
     const timeForaId = document.getElementById("timeVisitante").value;
-    const dataInicio = document.getElementById("dataInicio").value;
-    const dataFim = document.getElementById("dataFim").value;
+    const dataInicio = new Date(document.getElementById("dataInicio").value);
+    const dataFim = new Date(document.getElementById("dataFim").value);
     const valorEntrada = parseInt(document.getElementById("valorEntrada").value);
     const status = document.getElementById("status").value;
 
@@ -32,11 +31,29 @@ async function salvarJogo() {
     });
 
     await db.collection("jogos").add({
-        timeCasaId, timeForaId, dataInicio, dataFim, valorEntrada, status, patrocinadores
+        timeCasaId,
+        timeForaId,
+        dataInicio: firebase.firestore.Timestamp.fromDate(dataInicio),
+        dataFim: firebase.firestore.Timestamp.fromDate(dataFim),
+        valorEntrada,
+        status,
+        patrocinadores
     });
 
     alert("Jogo salvo com sucesso!");
     listarJogos();
+}
+
+function definirStatus(dataInicio, dataFim) {
+    const agora = new Date();
+    if (agora < dataInicio) return "agendado";
+    if (agora >= dataInicio && agora <= dataFim) return "ao_vivo";
+    return "finalizado";
+}
+
+function formatarData(timestamp) {
+    const data = timestamp.toDate();
+    return data.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
 async function listarJogos() {
@@ -47,13 +64,18 @@ async function listarJogos() {
     for (const doc of snapshot.docs) {
         const jogo = doc.data();
 
+        // Atualiza status automaticamente
+        const statusAtualizado = definirStatus(jogo.dataInicio.toDate(), jogo.dataFim.toDate());
+        if (jogo.status !== statusAtualizado) {
+            await db.collection("jogos").doc(doc.id).update({ status: statusAtualizado });
+        }
+
         const timeCasaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
         const timeForaDoc = await db.collection("times").doc(jogo.timeForaId).get();
 
         const timeCasaNome = timeCasaDoc.exists ? timeCasaDoc.data().nome : "-";
         const timeForaNome = timeForaDoc.exists ? timeForaDoc.data().nome : "-";
-        const dataInicioFormat = jogo.dataInicio; // já é string
-
+        const dataInicioFormat = formatarData(jogo.dataInicio);
         const entrada = jogo.valorEntrada + " créditos";
 
         const row = `
@@ -62,10 +84,9 @@ async function listarJogos() {
                 <td>${timeForaNome}</td>
                 <td>${dataInicioFormat}</td>
                 <td>${entrada}</td>
-                <td>${jogo.status}</td>
+                <td>${statusAtualizado}</td>
             </tr>
         `;
-
         lista.innerHTML += row;
     }
 }
