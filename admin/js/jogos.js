@@ -1,5 +1,3 @@
-const db = firebase.firestore();
-
 async function carregarTimes() {
     const timesRef = await db.collection("times").orderBy("nome").get();
     const selectCasa = document.getElementById("timeCasa");
