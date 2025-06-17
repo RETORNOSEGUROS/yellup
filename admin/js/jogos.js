@@ -1,3 +1,5 @@
+const db = firebase.firestore();
+
 async function carregarTimes() {
     const timesRef = await db.collection("times").orderBy("nome").get();
     const selects = [document.getElementById("timeCasa"), document.getElementById("timeVisitante")];
@@ -15,13 +17,24 @@ async function carregarTimes() {
 async function salvarJogo() {
     const timeCasaId = document.getElementById("timeCasa").value;
     const timeForaId = document.getElementById("timeVisitante").value;
-    const dataInicio = new Date(document.getElementById("dataInicio").value);
-    const dataFim = new Date(document.getElementById("dataFim").value);
+    const dataInicio = document.getElementById("dataInicio").value;
+    const dataFim = document.getElementById("dataFim").value;
     const valorEntrada = parseInt(document.getElementById("valorEntrada").value);
     const status = document.getElementById("status").value;
 
-    await db.collection("jogos").add({
-        timeCasaId, timeForaId, dataInicio, dataFim, valorEntrada, status
+    const patrocinadores = [];
+    document.querySelectorAll(".patrocinador-item").forEach(item => {
+        patrocinadores.push({
+            nome: item.querySelector(".patrocinador-nome").value,
+            valor: parseInt(item.querySelector(".patrocinador-valor").value),
+            site: item.querySelector(".patrocinador-site").value,
+            logo: item.querySelector(".patrocinador-logo").value
+        });
+    });
+
+    const docId = `${dataInicio}`;
+    await db.collection("jogos").doc(docId).set({
+        timeCasaId, timeForaId, dataInicio, dataFim, valorEntrada, status, patrocinadores
     });
 
     alert("Jogo salvo com sucesso!");
@@ -36,27 +49,48 @@ async function listarJogos() {
     for (const doc of snapshot.docs) {
         const jogo = doc.data();
 
-        const timeCasaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
-        const timeForaDoc = await db.collection("times").doc(jogo.timeForaId).get();
+        let timeCasaNome = "-";
+        let timeForaNome = "-";
 
-        const timeCasaNome = timeCasaDoc.exists ? timeCasaDoc.data().nome : "-";
-        const timeForaNome = timeForaDoc.exists ? timeForaDoc.data().nome : "-";
+        if (jogo.timeCasaId) {
+            const timeCasaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
+            timeCasaNome = timeCasaDoc.exists ? timeCasaDoc.data().nome : "-";
+        }
 
-        const dataInicioFormat = jogo.dataInicio.toDate().toLocaleString();
+        if (jogo.timeForaId) {
+            const timeForaDoc = await db.collection("times").doc(jogo.timeForaId).get();
+            timeForaNome = timeForaDoc.exists ? timeForaDoc.data().nome : "-";
+        }
 
-        const row = `<tr>
-            <td>${timeCasaNome}</td>
-            <td>${timeForaNome}</td>
-            <td>${dataInicioFormat}</td>
-            <td>${jogo.valorEntrada} créditos</td>
-            <td>${jogo.status}</td>
-        </tr>`;
+        const row = `
+            <tr>
+                <td>${timeCasaNome}</td>
+                <td>${timeForaNome}</td>
+                <td>${jogo.dataInicio}</td>
+                <td>${jogo.valorEntrada} créditos</td>
+                <td>${jogo.status}</td>
+            </tr>
+        `;
         lista.innerHTML += row;
     }
+}
+
+function adicionarPatrocinador() {
+    const container = document.getElementById("patrocinadoresContainer");
+    const item = document.createElement("div");
+    item.classList.add("patrocinador-item");
+    item.innerHTML = `
+        <input class="patrocinador-nome" placeholder="Nome">
+        <input class="patrocinador-valor" type="number" placeholder="Valor">
+        <input class="patrocinador-site" placeholder="Site">
+        <input class="patrocinador-logo" placeholder="Logo (base64 ou url)">
+    `;
+    container.appendChild(item);
 }
 
 window.onload = () => {
     carregarTimes();
     listarJogos();
     document.getElementById("salvarJogo").onclick = salvarJogo;
-};
+    document.getElementById("btnAdicionarPatrocinador").onclick = adicionarPatrocinador;
+}
