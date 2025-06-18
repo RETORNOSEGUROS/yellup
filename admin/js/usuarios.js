@@ -25,6 +25,7 @@ async function carregarIndicadores() {
 async function salvarUsuario() {
     const usuarioUnico = document.getElementById("usuarioUnico").value.trim();
     if (!usuarioUnico) return alert("Informe o usuário!");
+
     const docRef = db.collection("usuarios").doc(usuarioUnico);
     const doc = await docRef.get();
 
@@ -33,7 +34,7 @@ async function salvarUsuario() {
 
     const file = document.getElementById("avatar").files[0];
     if (file) {
-        const storageRef = firebase.storage().ref();
+        const storageRef = firebase.app().storage("gs://painel-yellup.appspot.com").ref();
         const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
         try {
             await avatarRef.put(file);
@@ -53,15 +54,21 @@ async function salvarUsuario() {
         email: document.getElementById("email").value,
         celular: document.getElementById("celular").value,
         usuario: usuarioUnico,
+        usuarioUnico: usuarioUnico,
         timeId: document.getElementById("timeId").value || "",
         creditos: parseInt(document.getElementById("creditos").value),
         indicadoPor: document.getElementById("indicadoPor").value || "-",
         status: document.getElementById("status").value,
-        avatarUrl: avatarUrl,
-        dataCadastro: firebase.firestore.Timestamp.now(),
+        avatarUrl: avatarUrl
     };
 
-    await docRef.set(dados);
+    if (!doc.exists) {
+        dados.dataCadastro = firebase.firestore.Timestamp.now();
+        await docRef.set(dados);
+    } else {
+        await docRef.update(dados);
+    }
+
     alert("Usuário salvo com sucesso!");
     carregarUsuarios();
 }
@@ -70,30 +77,38 @@ async function carregarUsuarios() {
     const filtro = document.getElementById("filtro").value.toLowerCase();
     const lista = document.getElementById("listaUsuarios");
     lista.innerHTML = "";
-    const snapshot = await db.collection("usuarios").get();
 
+    const snapshot = await db.collection("usuarios").get();
     for (const doc of snapshot.docs) {
         const user = doc.data();
-        if (filtro && !user.nome.toLowerCase().includes(filtro)) continue;
+        if (
+            filtro &&
+            !user.nome.toLowerCase().includes(filtro) &&
+            !user.usuarioUnico.toLowerCase().includes(filtro)
+        ) continue;
 
-        const timeNome = user.timeId
-            ? (await db.collection("times").doc(user.timeId).get()).data().nome
-            : "-";
+        let timeNome = "-";
+        if (user.timeId) {
+            const timeDoc = await db.collection("times").doc(user.timeId).get();
+            if (timeDoc.exists) timeNome = timeDoc.data().nome;
+        }
 
         const avatar = user.avatarUrl || "https://www.gravatar.com/avatar/?d=mp";
+        const dataCadastro = user.dataCadastro?.toDate().toLocaleDateString("pt-BR") || "-";
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td><img src="${avatar}" width="40" height="40" style="border-radius:50%"></td>
+            <td><img src="${avatar}" class="avatar" /></td>
             <td>${user.nome}</td>
-            <td>${user.usuario}</td>
+            <td>${user.usuario || "-"}</td>
             <td>${timeNome}</td>
             <td>${user.status}</td>
             <td>${user.creditos}</td>
-            <td>${user.indicadoPor}</td>
+            <td>${user.indicadoPor || "-"}</td>
+            <td>${dataCadastro}</td>
             <td>
-                <button class="btn btn-primary btn-sm" onclick="editarUsuario('${doc.id}')">Editar</button>
-                <button class="btn btn-danger btn-sm" onclick="excluirUsuario('${doc.id}')">Excluir</button>
+                <button class="btn-editar" onclick="editarUsuario('${doc.id}')">Editar</button>
+                <button class="btn-excluir" onclick="excluirUsuario('${doc.id}')">Excluir</button>
             </td>
         `;
         lista.appendChild(tr);
@@ -110,7 +125,7 @@ async function editarUsuario(id) {
     document.getElementById("pais").value = data.pais || "";
     document.getElementById("email").value = data.email || "";
     document.getElementById("celular").value = data.celular || "";
-    document.getElementById("usuarioUnico").value = data.usuario || "";
+    document.getElementById("usuarioUnico").value = data.usuarioUnico || "";
     document.getElementById("timeId").value = data.timeId || "";
     document.getElementById("creditos").value = data.creditos || 0;
     document.getElementById("indicadoPor").value = data.indicadoPor || "";
@@ -124,46 +139,20 @@ async function excluirUsuario(id) {
     carregarUsuarios();
 }
 
-function exportarCSV() {
-    db.collection("usuarios").get().then(snapshot => {
-        let csv = "Nome,Usuário,Time,Status,Créditos,Email,Celular,Cidade,Estado,País,Indicado Por\n";
+function exportarExcel() {
+    const tabela = document.querySelector("#listaUsuarios");
+    const linhas = [...tabela.querySelectorAll("tr")].map(tr =>
+        [...tr.querySelectorAll("td")].map(td => td.textContent)
+    );
+    let csv = "Nome,Usuário,Time,Status,Créditos,Indicado Por,Data Cadastro\n";
+    linhas.forEach(l => { csv += l.slice(1, -1).join(",") + "\n"; });
 
-        const promessas = snapshot.docs.map(async doc => {
-            const user = doc.data();
-            let timeNome = "-";
-            if (user.timeId) {
-                const timeDoc = await db.collection("times").doc(user.timeId).get();
-                if (timeDoc.exists) timeNome = timeDoc.data().nome;
-            }
-
-            const linha = [
-                \`\${user.nome || ""}\`,
-                \`\${user.usuario || ""}\`,
-                \`\${timeNome}\`,
-                \`\${user.status || ""}\`,
-                \`\${user.creditos || 0}\`,
-                \`\${user.email || ""}\`,
-                \`\${user.celular || ""}\`,
-                \`\${user.cidade || ""}\`,
-                \`\${user.estado || ""}\`,
-                \`\${user.pais || ""}\`,
-                \`\${user.indicadoPor || ""}\`
-            ].join(",");
-
-            return linha;
-        });
-
-        Promise.all(promessas).then(linhas => {
-            csv += linhas.join("\n");
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "usuarios.csv";
-            a.click();
-            URL.revokeObjectURL(url);
-        });
-    });
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "usuarios.csv";
+    link.click();
 }
 
 window.onload = () => {
