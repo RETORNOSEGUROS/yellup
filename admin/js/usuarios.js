@@ -1,4 +1,3 @@
-
 async function carregarTimes() {
     const select = document.getElementById("timeId");
     select.innerHTML = `<option value="">Selecione o Time</option>`;
@@ -30,7 +29,9 @@ async function salvarUsuario() {
     const docRef = db.collection("usuarios").doc(usuarioUnico);
     const doc = await docRef.get();
 
-    let avatarUrl = "";
+    let avatarUrlAntigo = doc.exists ? doc.data().avatarUrl || "" : "";
+    let avatarUrl = avatarUrlAntigo;
+
     const file = document.getElementById("avatar").files[0];
     if (file) {
         const storageRef = firebase.storage().ref();
@@ -53,11 +54,8 @@ async function salvarUsuario() {
         creditos: parseInt(document.getElementById("creditos").value),
         indicadoPor: document.getElementById("indicadoPor").value || "-",
         status: document.getElementById("status").value,
+        avatarUrl: avatarUrl
     };
-
-    if (avatarUrl) {
-        dados.avatarUrl = avatarUrl;
-    }
 
     if (!doc.exists) {
         dados.dataCadastro = firebase.firestore.Timestamp.now();
