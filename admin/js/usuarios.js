@@ -1,7 +1,20 @@
+
 async function carregarTimes() {
     const select = document.getElementById("timeId");
     select.innerHTML = `<option value="">Selecione o Time</option>`;
     const snapshot = await db.collection("times").orderBy("nome").get();
+    snapshot.forEach(doc => {
+        const opt = document.createElement("option");
+        opt.value = doc.id;
+        opt.textContent = doc.data().nome;
+        select.appendChild(opt);
+    });
+}
+
+async function carregarIndicadores() {
+    const select = document.getElementById("indicadoPor");
+    select.innerHTML = `<option value="">Selecione o Indicador</option>`;
+    const snapshot = await db.collection("usuarios").where("status", "==", "ativo").get();
     snapshot.forEach(doc => {
         const opt = document.createElement("option");
         opt.value = doc.id;
@@ -33,6 +46,7 @@ async function salvarUsuario() {
     };
 
     if (!doc.exists) {
+        dados.dataCadastro = firebase.firestore.Timestamp.now();
         await docRef.set(dados);
     } else {
         await docRef.update(dados);
@@ -50,7 +64,11 @@ async function carregarUsuarios() {
     const snapshot = await db.collection("usuarios").get();
     for (const doc of snapshot.docs) {
         const user = doc.data();
-        if (filtro && !user.nome.toLowerCase().includes(filtro)) continue;
+        if (
+            filtro &&
+            !user.nome.toLowerCase().includes(filtro) &&
+            !user.usuarioUnico.toLowerCase().includes(filtro)
+        ) continue;
 
         let timeNome = "-";
         if (user.timeId) {
@@ -66,7 +84,10 @@ async function carregarUsuarios() {
             <td>${user.status}</td>
             <td>${user.creditos}</td>
             <td>${user.indicadoPor || "-"}</td>
-            <td><button onclick="editarUsuario('${doc.id}')">Editar</button></td>
+            <td>
+                <button onclick="editarUsuario('${doc.id}')">Editar</button>
+                <button onclick="excluirUsuario('${doc.id}')">Excluir</button>
+            </td>
         `;
         lista.appendChild(tr);
     }
@@ -89,4 +110,15 @@ async function editarUsuario(id) {
     document.getElementById("status").value = data.status || "ativo";
 }
 
-window.onload = () => { carregarTimes(); carregarUsuarios(); }
+async function excluirUsuario(id) {
+    if (!confirm("Tem certeza que deseja excluir este usuário?")) return;
+    await db.collection("usuarios").doc(id).delete();
+    alert("Usuário excluído com sucesso!");
+    carregarUsuarios();
+}
+
+window.onload = () => {
+    carregarTimes();
+    carregarUsuarios();
+    carregarIndicadores();
+};
