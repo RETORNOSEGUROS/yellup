@@ -1,108 +1,92 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <title>Cadastro de Usuários</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f6fa; color: #333; }
-        h1 { color: #222; margin-bottom: 20px; }
-        .card { background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); max-width: 1000px; margin: auto; }
-        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-        label { font-weight: bold; }
-        input, select { padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 5px; }
-        .full { grid-column: 1 / -1; }
-        button { background: #3498db; color: #fff; border: none; padding: 15px; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%; }
-        button:hover { background: #2980b9; }
-        table { width: 100%; border-collapse: collapse; margin-top: 30px; }
-        th, td { padding: 10px; border: 1px solid #ddd; text-align: center; }
-        th { background: #333; color: #fff; }
-        .filter { margin-top: 30px; display: flex; gap: 10px; justify-content: center; }
-    </style>
-</head>
-<body>
-
-<div class="card">
-    <h1>Cadastro de Usuários</h1>
-
-    <div class="form-grid">
-        <div><label>Nome:</label><input type="text" id="nome"></div>
-        <div><label>Data Nasc.:</label><input type="date" id="dataNascimento"></div>
-
-        <div><label>Cidade:</label><input type="text" id="cidade"></div>
-        <div><label>Estado:</label><input type="text" id="estado"></div>
-
-        <div><label>País:</label>
-            <select id="pais">
-                <option value="Brasil">Brasil</option>
-                <option value="Argentina">Argentina</option>
-                <option value="Estados Unidos">Estados Unidos</option>
-                <option value="Inglaterra">Inglaterra</option>
-                <option value="França">França</option>
-                <option value="Alemanha">Alemanha</option>
-                <option value="Espanha">Espanha</option>
-                <option value="Itália">Itália</option>
-                <option value="México">México</option>
-                <option value="Portugal">Portugal</option>
-            </select>
-        </div>
-        <div><label>Email:</label><input type="email" id="email"></div>
-
-        <div><label>Celular:</label><input type="text" id="celular" placeholder="(99) 99999-9999"></div>
-        <div><label>Usuário (único):</label><input type="text" id="usuarioUnico"></div>
-
-        <div><label>Time do Coração:</label>
-            <select id="timeId"><option value="">Selecione o Time</option></select>
-        </div>
-        <div><label>Créditos:</label><input type="number" id="creditos" value="0"></div>
-
-        <div><label>Indicado Por:</label>
-            <select id="indicadoPor">
-                <option value="">Selecione o Indicador</option>
-            </select>
-        </div>
-        <div><label>Status:</label>
-            <select id="status">
-                <option value="ativo">Ativo</option>
-                <option value="inativo">Inativo</option>
-            </select>
-        </div>
-
-        <div class="full"><button onclick="salvarUsuario()">Salvar</button></div>
-    </div>
-
-    <h2 style="margin-top: 40px;">Usuários Cadastrados</h2>
-
-    <div class="filter">
-        <input type="text" id="filtro" placeholder="Buscar por nome ou usuário..." style="padding:10px;width:50%;border-radius:5px;border:1px solid #ccc;">
-        <button onclick="carregarUsuarios()">Buscar</button>
-    </div>
-
-    <table>
-        <thead>
-            <tr>
-                <th>Nome</th><th>Usuário</th><th>Time</th><th>Status</th><th>Créditos</th><th>Indicado Por</th><th>Ações</th>
-            </tr>
-        </thead>
-        <tbody id="listaUsuarios"></tbody>
-    </table>
-</div>
-
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
-<script src="js/firebase-init.js"></script>
-<script src="js/usuarios.js"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const celularInput = document.getElementById('celular');
-        celularInput.addEventListener('input', () => {
-            celularInput.value = celularInput.value
-                .replace(/\D/g, '')
-                .replace(/(\d{2})(\d)/, '($1) $2')
-                .replace(/(\d{5})(\d)/, '$1-$2')
-                .replace(/(-\d{4})\d+?$/, '$1');
-        });
+async function carregarTimes() {
+    const select = document.getElementById("timeId");
+    select.innerHTML = `<option value="">Selecione o Time</option>`;
+    const snapshot = await db.collection("times").orderBy("nome").get();
+    snapshot.forEach(doc => {
+        const opt = document.createElement("option");
+        opt.value = doc.id;
+        opt.textContent = doc.data().nome;
+        select.appendChild(opt);
     });
-</script>
+}
 
-</body>
-</html>
+async function salvarUsuario() {
+    const usuarioUnico = document.getElementById("usuarioUnico").value.trim();
+    if (!usuarioUnico) return alert("Informe o usuário!");
+
+    const docRef = db.collection("usuarios").doc(usuarioUnico);
+    const doc = await docRef.get();
+    const dados = {
+        nome: document.getElementById("nome").value,
+        dataNascimento: document.getElementById("dataNascimento").value,
+        cidade: document.getElementById("cidade").value,
+        estado: document.getElementById("estado").value,
+        pais: document.getElementById("pais").value,
+        email: document.getElementById("email").value,
+        celular: document.getElementById("celular").value,
+        usuario: usuarioUnico,
+        usuarioUnico: usuarioUnico,
+        timeId: document.getElementById("timeId").value || "",
+        creditos: parseInt(document.getElementById("creditos").value),
+        indicadoPor: document.getElementById("indicadoPor").value || "-",
+        status: document.getElementById("status").value,
+    };
+
+    if (!doc.exists) {
+        await docRef.set(dados);
+    } else {
+        await docRef.update(dados);
+    }
+
+    alert("Usuário salvo com sucesso!");
+    carregarUsuarios();
+}
+
+async function carregarUsuarios() {
+    const filtro = document.getElementById("filtro").value.toLowerCase();
+    const lista = document.getElementById("listaUsuarios");
+    lista.innerHTML = "";
+
+    const snapshot = await db.collection("usuarios").get();
+    for (const doc of snapshot.docs) {
+        const user = doc.data();
+        if (filtro && !user.nome.toLowerCase().includes(filtro)) continue;
+
+        let timeNome = "-";
+        if (user.timeId) {
+            const timeDoc = await db.collection("times").doc(user.timeId).get();
+            if (timeDoc.exists) timeNome = timeDoc.data().nome;
+        }
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${user.nome}</td>
+            <td>${user.usuario || "-"}</td>
+            <td>${timeNome}</td>
+            <td>${user.status}</td>
+            <td>${user.creditos}</td>
+            <td>${user.indicadoPor || "-"}</td>
+            <td><button onclick="editarUsuario('${doc.id}')">Editar</button></td>
+        `;
+        lista.appendChild(tr);
+    }
+}
+
+async function editarUsuario(id) {
+    const doc = await db.collection("usuarios").doc(id).get();
+    const data = doc.data();
+    document.getElementById("nome").value = data.nome || "";
+    document.getElementById("dataNascimento").value = data.dataNascimento || "";
+    document.getElementById("cidade").value = data.cidade || "";
+    document.getElementById("estado").value = data.estado || "";
+    document.getElementById("pais").value = data.pais || "";
+    document.getElementById("email").value = data.email || "";
+    document.getElementById("celular").value = data.celular || "";
+    document.getElementById("usuarioUnico").value = data.usuarioUnico || "";
+    document.getElementById("timeId").value = data.timeId || "";
+    document.getElementById("creditos").value = data.creditos || 0;
+    document.getElementById("indicadoPor").value = data.indicadoPor || "";
+    document.getElementById("status").value = data.status || "ativo";
+}
+
+window.onload = () => { carregarTimes(); carregarUsuarios(); }
