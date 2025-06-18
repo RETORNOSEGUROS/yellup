@@ -29,6 +29,16 @@ async function salvarUsuario() {
 
     const docRef = db.collection("usuarios").doc(usuarioUnico);
     const doc = await docRef.get();
+
+    let avatarUrl = "";
+    const file = document.getElementById("avatar").files[0];
+    if (file) {
+        const storageRef = firebase.storage().ref();
+        const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
+        await avatarRef.put(file);
+        avatarUrl = await avatarRef.getDownloadURL();
+    }
+
     const dados = {
         nome: document.getElementById("nome").value,
         dataNascimento: document.getElementById("dataNascimento").value,
@@ -44,6 +54,10 @@ async function salvarUsuario() {
         indicadoPor: document.getElementById("indicadoPor").value || "-",
         status: document.getElementById("status").value,
     };
+
+    if (avatarUrl) {
+        dados.avatarUrl = avatarUrl;
+    }
 
     if (!doc.exists) {
         dados.dataCadastro = firebase.firestore.Timestamp.now();
@@ -76,8 +90,11 @@ async function carregarUsuarios() {
             if (timeDoc.exists) timeNome = timeDoc.data().nome;
         }
 
+        const avatar = user.avatarUrl || "https://www.gravatar.com/avatar/?d=mp";
+
         const tr = document.createElement("tr");
         tr.innerHTML = `
+            <td><img src="${avatar}" class="avatar" /></td>
             <td>${user.nome}</td>
             <td>${user.usuario || "-"}</td>
             <td>${timeNome}</td>
