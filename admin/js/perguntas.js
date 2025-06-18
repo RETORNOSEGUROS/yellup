@@ -1,3 +1,4 @@
+
 firebase.auth().onAuthStateChanged(user => {
   if (!user) {
     window.location.href = "/admin/login.html";
@@ -15,9 +16,10 @@ function carregarTimes() {
       const dados = doc.data();
       const option = document.createElement('option');
       option.value = doc.id;
-      option.textContent = `${dados.nome} - ${dados.pais}`;
-      option.setAttribute("data-nome", dados.nome); // ESSENCIAL
+      option.textContent = dados.pais ? `${dados.nome} - ${dados.pais}` : dados.nome;
+      option.setAttribute("data-nome", dados.nome);
       select.appendChild(option);
+      console.log("✅ Time carregado:", dados.nome, doc.id); // LOG para debug
     });
   });
 }
@@ -140,9 +142,10 @@ function editarPergunta(id, dados) {
   document.getElementById('timeId').value = dados.timeId;
   document.getElementById('timeNome').value = dados.timeNome;
 
-  // aguarda garantir que o select esteja carregado
   setTimeout(() => {
-    document.getElementById('selectTime').value = dados.timeId;
+    const select = document.getElementById('selectTime');
+    select.value = dados.timeId;
+    console.log("🎯 Select preenchido com:", dados.timeId);
   }, 300);
 }
 
