@@ -35,11 +35,9 @@ async function salvarUsuario() {
     if (file) {
         const storageRef = firebase.storage().ref();
         const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
-        console.log("Fazendo upload de imagem:", file.name);
         try {
             await avatarRef.put(file);
             avatarUrl = await avatarRef.getDownloadURL();
-            console.log("URL da imagem salva:", avatarUrl);
         } catch (erro) {
             console.error("Erro ao fazer upload do avatar:", erro);
             alert("Erro ao enviar imagem para o Firebase Storage.");
@@ -139,17 +137,17 @@ function exportarCSV() {
             }
 
             const linha = [
-                `"${user.nome || ""}"`,
-                `"${user.usuario || ""}"`,
-                `"${timeNome}"`,
-                `"${user.status || ""}"`,
-                `${user.creditos || 0}`,
-                `"${user.email || ""}"`,
-                `"${user.celular || ""}"`,
-                `"${user.cidade || ""}"`,
-                `"${user.estado || ""}"`,
-                `"${user.pais || ""}"`,
-                `"${user.indicadoPor || ""}"`
+                \`\${user.nome || ""}\`,
+                \`\${user.usuario || ""}\`,
+                \`\${timeNome}\`,
+                \`\${user.status || ""}\`,
+                \`\${user.creditos || 0}\`,
+                \`\${user.email || ""}\`,
+                \`\${user.celular || ""}\`,
+                \`\${user.cidade || ""}\`,
+                \`\${user.estado || ""}\`,
+                \`\${user.pais || ""}\`,
+                \`\${user.indicadoPor || ""}\`
             ].join(",");
 
             return linha;
@@ -159,7 +157,6 @@ function exportarCSV() {
             csv += linhas.join("\n");
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
-
             const a = document.createElement("a");
             a.href = url;
             a.download = "usuarios.csv";
