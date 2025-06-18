@@ -32,22 +32,33 @@ async function salvarUsuario() {
     let avatarUrlAntigo = doc.exists ? doc.data().avatarUrl || "" : "";
     let avatarUrl = avatarUrlAntigo;
 
-   const file = document.getElementById("avatar").files[0];
-if (file) {
-    const storageRef = firebase.app().storage("gs://painel-yellup.firebasestorage.app").ref();
-    const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
-    console.log("Fazendo upload de imagem:", file.name);
+    const fileInput = document.getElementById("avatar");
+    const file = fileInput.files[0];
 
-    try {
-        await avatarRef.put(file);
-        avatarUrl = await avatarRef.getDownloadURL();
-        console.log("URL da imagem salva:", avatarUrl);
-    } catch (erro) {
-        console.error("Erro ao fazer upload do avatar:", erro);
-        alert("Erro ao enviar imagem para o Firebase Storage.");
+    if (file) {
+        const tiposPermitidos = ["image/jpeg", "image/png"];
+        if (!tiposPermitidos.includes(file.type)) {
+            return alert("Apenas arquivos JPG ou PNG são permitidos.");
+        }
+        if (file.size > 1024 * 1024) {
+            return alert("Imagem muito grande (máximo 1 MB).");
+        }
+
+        try {
+            const resizedBlob = await redimensionarImagem(file, 128, 128);
+
+            const timestamp = Date.now();
+            const storageRef = firebase.app().storage("gs://painel-yellup.firebasestorage.app").ref();
+            const avatarRef = storageRef.child(`avatars/${usuarioUnico}_${timestamp}.jpg`);
+            console.log("Fazendo upload de imagem...");
+
+            await avatarRef.put(resizedBlob);
+            avatarUrl = await avatarRef.getDownloadURL();
+            console.log("URL da imagem salva:", avatarUrl);
+        } catch (erro) {
+            console.error("Erro ao fazer upload do avatar:", erro);
+        }
     }
-}
-
 
     const dados = {
         nome: document.getElementById("nome").value,
@@ -75,6 +86,43 @@ if (file) {
 
     alert("Usuário salvo com sucesso!");
     carregarUsuarios();
+}
+
+function redimensionarImagem(file, maxWidth, maxHeight) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const reader = new FileReader();
+        reader.onload = e => {
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+
+        img.onload = () => {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            let [w, h] = [img.width, img.height];
+
+            if (w > h) {
+                if (w > maxWidth) {
+                    h = Math.round(h * (maxWidth / w));
+                    w = maxWidth;
+                }
+            } else {
+                if (h > maxHeight) {
+                    w = Math.round(w * (maxHeight / h));
+                    h = maxHeight;
+                }
+            }
+
+            canvas.width = w;
+            canvas.height = h;
+            ctx.drawImage(img, 0, 0, w, h);
+            canvas.toBlob(resolve, "image/jpeg", 0.8);
+        };
+
+        img.onerror = reject;
+    });
 }
 
 async function carregarUsuarios() {
