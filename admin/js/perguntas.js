@@ -142,11 +142,17 @@ function editarPergunta(id, dados) {
   document.getElementById('timeId').value = dados.timeId;
   document.getElementById('timeNome').value = dados.timeNome;
 
-  setTimeout(() => {
-    const select = document.getElementById('selectTime');
-    select.value = dados.timeId;
-    console.log("🎯 Select preenchido com:", dados.timeId);
-  }, 300);
+ setTimeout(() => {
+  const select = document.getElementById('selectTime');
+  const option = [...select.options].find(opt => opt.value === dados.timeId);
+  if (option) {
+    select.value = option.value;
+    console.log("🎯 Select preenchido com:", option.textContent, option.value);
+  } else {
+    console.warn("⚠️ Time não encontrado no select:", dados.timeId);
+  }
+}, 300);
+
 }
 
 function excluirPergunta(id) {
