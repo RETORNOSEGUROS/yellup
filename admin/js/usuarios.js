@@ -32,13 +32,22 @@ async function salvarUsuario() {
     let avatarUrlAntigo = doc.exists ? doc.data().avatarUrl || "" : "";
     let avatarUrl = avatarUrlAntigo;
 
-    const file = document.getElementById("avatar").files[0];
-    if (file) {
-        const storageRef = firebase.storage().ref();
-        const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
+   const file = document.getElementById("avatar").files[0];
+if (file) {
+    const storageRef = firebase.storage().ref();
+    const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
+    console.log("Fazendo upload de imagem:", file.name);
+
+    try {
         await avatarRef.put(file);
         avatarUrl = await avatarRef.getDownloadURL();
+        console.log("URL da imagem salva:", avatarUrl);
+    } catch (erro) {
+        console.error("Erro ao fazer upload do avatar:", erro);
+        alert("Erro ao enviar imagem para o Firebase Storage.");
     }
+}
+
 
     const dados = {
         nome: document.getElementById("nome").value,
