@@ -1,3 +1,30 @@
+
+// Firebase config (placeholder)
+const firebaseConfig = {};
+
+// Inicialização Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const storage = firebase.storage();
+
+function exportarUsuariosParaCSV() {
+  db.collection("usuarios").get().then(snapshot => {
+    let csv = "Nome,Usuário,Time,Status,Créditos,Indicado Por\n";
+    snapshot.forEach(doc => {
+      const u = doc.data();
+      csv += `${u.nome},${u.usuarioUnico},${u.timeId},${u.status},${u.creditos},${u.indicadoPor}\n`;
+    });
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "usuarios.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+
 async function carregarTimes() {
     const select = document.getElementById("timeId");
     select.innerHTML = `<option value="">Selecione o Time</option>`;
