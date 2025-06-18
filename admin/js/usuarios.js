@@ -46,15 +46,11 @@ async function salvarUsuario() {
 
         try {
             const resizedBlob = await redimensionarImagem(file, 128, 128);
-
             const timestamp = Date.now();
             const storageRef = firebase.app().storage("gs://painel-yellup.firebasestorage.app").ref();
             const avatarRef = storageRef.child(`avatars/${usuarioUnico}_${timestamp}.jpg`);
-            console.log("Fazendo upload de imagem...");
-
             await avatarRef.put(resizedBlob);
             avatarUrl = await avatarRef.getDownloadURL();
-            console.log("URL da imagem salva:", avatarUrl);
         } catch (erro) {
             console.error("Erro ao fazer upload do avatar:", erro);
         }
@@ -146,6 +142,8 @@ async function carregarUsuarios() {
         }
 
         const avatar = user.avatarUrl || "https://www.gravatar.com/avatar/?d=mp";
+        const dataCadastro = user.dataCadastro?.toDate?.() || null;
+        const dataFormatada = dataCadastro ? dataCadastro.toLocaleDateString("pt-BR") : "-";
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -156,9 +154,10 @@ async function carregarUsuarios() {
             <td>${user.status}</td>
             <td>${user.creditos}</td>
             <td>${user.indicadoPor || "-"}</td>
+            <td>${dataFormatada}</td>
             <td>
-                <button onclick="editarUsuario('${doc.id}')">Editar</button>
-                <button onclick="excluirUsuario('${doc.id}')">Excluir</button>
+                <button style="margin-right: 5px; background:#1976d2; color:white;" onclick="editarUsuario('${doc.id}')">Editar</button>
+                <button style="background:#d32f2f; color:white;" onclick="excluirUsuario('${doc.id}')">Excluir</button>
             </td>
         `;
         lista.appendChild(tr);
