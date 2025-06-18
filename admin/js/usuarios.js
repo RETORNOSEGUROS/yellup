@@ -34,7 +34,7 @@ async function salvarUsuario() {
 
    const file = document.getElementById("avatar").files[0];
 if (file) {
-    const storageRef = firebase.storage().ref();
+    const storageRef = firebase.app().storage("gs://painel-yellup.firebasestorage.app").ref();
     const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
     console.log("Fazendo upload de imagem:", file.name);
 
