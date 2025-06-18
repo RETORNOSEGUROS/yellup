@@ -32,18 +32,22 @@ async function salvarUsuario() {
     let avatarUrlAntigo = doc.exists ? doc.data().avatarUrl || "" : "";
     let avatarUrl = avatarUrlAntigo;
 
-    const file = document.getElementById("avatar").files[0];
-    if (file) {
-        const storageRef = firebase.app().storage("gs://painel-yellup.appspot.com").ref();
-        const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
-        try {
-            await avatarRef.put(file);
-            avatarUrl = await avatarRef.getDownloadURL();
-        } catch (erro) {
-            console.error("Erro ao fazer upload do avatar:", erro);
-            alert("Erro ao enviar imagem para o Firebase Storage.");
-        }
+   const file = document.getElementById("avatar").files[0];
+if (file) {
+    const storageRef = firebase.app().storage("gs://painel-yellup.firebasestorage.app").ref();
+    const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
+    console.log("Fazendo upload de imagem:", file.name);
+
+    try {
+        await avatarRef.put(file);
+        avatarUrl = await avatarRef.getDownloadURL();
+        console.log("URL da imagem salva:", avatarUrl);
+    } catch (erro) {
+        console.error("Erro ao fazer upload do avatar:", erro);
+        alert("Erro ao enviar imagem para o Firebase Storage.");
     }
+}
+
 
     const dados = {
         nome: document.getElementById("nome").value,
@@ -94,7 +98,6 @@ async function carregarUsuarios() {
         }
 
         const avatar = user.avatarUrl || "https://www.gravatar.com/avatar/?d=mp";
-        const dataCadastro = user.dataCadastro?.toDate().toLocaleDateString("pt-BR") || "-";
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -105,10 +108,9 @@ async function carregarUsuarios() {
             <td>${user.status}</td>
             <td>${user.creditos}</td>
             <td>${user.indicadoPor || "-"}</td>
-            <td>${dataCadastro}</td>
             <td>
-                <button class="btn-editar" onclick="editarUsuario('${doc.id}')">Editar</button>
-                <button class="btn-excluir" onclick="excluirUsuario('${doc.id}')">Excluir</button>
+                <button onclick="editarUsuario('${doc.id}')">Editar</button>
+                <button onclick="excluirUsuario('${doc.id}')">Excluir</button>
             </td>
         `;
         lista.appendChild(tr);
@@ -137,22 +139,6 @@ async function excluirUsuario(id) {
     await db.collection("usuarios").doc(id).delete();
     alert("Usuário excluído com sucesso!");
     carregarUsuarios();
-}
-
-function exportarExcel() {
-    const tabela = document.querySelector("#listaUsuarios");
-    const linhas = [...tabela.querySelectorAll("tr")].map(tr =>
-        [...tr.querySelectorAll("td")].map(td => td.textContent)
-    );
-    let csv = "Nome,Usuário,Time,Status,Créditos,Indicado Por,Data Cadastro\n";
-    linhas.forEach(l => { csv += l.slice(1, -1).join(",") + "\n"; });
-
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "usuarios.csv";
-    link.click();
 }
 
 window.onload = () => {
