@@ -1,3 +1,5 @@
+// substitua TODO o conteúdo do arquivo usuarios.js por este
+
 async function carregarTimes() {
     const select = document.getElementById("timeId");
     select.innerHTML = `<option value="">Selecione o Time</option>`;
@@ -29,25 +31,20 @@ async function salvarUsuario() {
     const docRef = db.collection("usuarios").doc(usuarioUnico);
     const doc = await docRef.get();
 
-    let avatarUrlAntigo = doc.exists ? doc.data().avatarUrl || "" : "";
-    let avatarUrl = avatarUrlAntigo;
+    let avatarUrl = doc.exists ? doc.data().avatarUrl || "" : "";
+    const file = document.getElementById("avatar").files[0];
 
-   const file = document.getElementById("avatar").files[0];
-if (file) {
-    const storageRef = firebase.app().storage("gs://painel-yellup.firebasestorage.app").ref();
-    const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
-    console.log("Fazendo upload de imagem:", file.name);
-
-    try {
-        await avatarRef.put(file);
-        avatarUrl = await avatarRef.getDownloadURL();
-        console.log("URL da imagem salva:", avatarUrl);
-    } catch (erro) {
-        console.error("Erro ao fazer upload do avatar:", erro);
-        alert("Erro ao enviar imagem para o Firebase Storage.");
+    if (file) {
+        const storageRef = firebase.app().storage("gs://painel-yellup.firebasestorage.app").ref();
+        const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
+        try {
+            await avatarRef.put(file);
+            avatarUrl = await avatarRef.getDownloadURL();
+        } catch (erro) {
+            console.error("Erro ao fazer upload do avatar:", erro);
+            alert("Erro ao enviar imagem para o Firebase Storage.");
+        }
     }
-}
-
 
     const dados = {
         nome: document.getElementById("nome").value,
@@ -60,7 +57,7 @@ if (file) {
         usuario: usuarioUnico,
         usuarioUnico: usuarioUnico,
         timeId: document.getElementById("timeId").value || "",
-        creditos: parseInt(document.getElementById("creditos").value),
+        creditos: 50, // fixo para cadastro novo
         indicadoPor: document.getElementById("indicadoPor").value || "-",
         status: document.getElementById("status").value,
         avatarUrl: avatarUrl
@@ -75,6 +72,12 @@ if (file) {
 
     alert("Usuário salvo com sucesso!");
     carregarUsuarios();
+}
+
+function formatarData(timestamp) {
+    if (!timestamp) return "-";
+    const date = timestamp.toDate();
+    return date.toLocaleDateString("pt-BR") + " " + date.toLocaleTimeString("pt-BR").slice(0, 5);
 }
 
 async function carregarUsuarios() {
@@ -98,6 +101,7 @@ async function carregarUsuarios() {
         }
 
         const avatar = user.avatarUrl || "https://www.gravatar.com/avatar/?d=mp";
+        const dataCadastro = formatarData(user.dataCadastro);
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -107,10 +111,11 @@ async function carregarUsuarios() {
             <td>${timeNome}</td>
             <td>${user.status}</td>
             <td>${user.creditos}</td>
+            <td>${dataCadastro}</td>
             <td>${user.indicadoPor || "-"}</td>
             <td>
-                <button onclick="editarUsuario('${doc.id}')">Editar</button>
-                <button onclick="excluirUsuario('${doc.id}')">Excluir</button>
+                <button class="editar" onclick="editarUsuario('${doc.id}')">Editar</button>
+                <button class="excluir" onclick="excluirUsuario('${doc.id}')">Excluir</button>
             </td>
         `;
         lista.appendChild(tr);
