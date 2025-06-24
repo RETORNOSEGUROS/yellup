@@ -1,31 +1,18 @@
+// Inicialização do Firebase (ajuste com sua config real se ainda não estiver no projeto)
+const firebaseConfig = {
+  apiKey: "SUA_API_KEY",
+  authDomain: "SEU_AUTH_DOMAIN",
+  projectId: "SEU_PROJECT_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// Carrega os times no filtro
 async function carregarTimes() {
-  const select = document.getElementById("timeId");
-  select.innerHTML = `<option value="">Selecione o Time</option>`;
+  const select = document.getElementById("filtroTime");
+  if (!select) return;
+  select.innerHTML = `<option value="Todos">Todos</option>`;
   const snapshot = await db.collection("times").orderBy("nome").get();
-  snapshot.forEach(doc => {
-    const opt = document.createElement("option");
-    opt.value = doc.id;
-    opt.textContent = doc.data().nome;
-    select.appendChild(opt);
-  });
-}
-
-async function carregarIndicadores() {
-  const select = document.getElementById("indicadoPor");
-  select.innerHTML = `<option value="">Selecione o Indicador</option>`;
-  const snapshot = await db.collection("usuarios").where("status", "==", "ativo").get();
-  snapshot.forEach(doc => {
-    const opt = document.createElement("option");
-    opt.value = doc.id;
-    opt.textContent = doc.data().nome;
-    select.appendChild(opt);
-  });
-}
-
-async function carregarPaises() {
-  const select = document.getElementById("pais");
-  select.innerHTML = `<option value="">Selecione o País</option>`;
-  const snapshot = await db.collection("paises").orderBy("nome").get();
   snapshot.forEach(doc => {
     const opt = document.createElement("option");
     opt.value = doc.data().nome;
@@ -34,125 +21,145 @@ async function carregarPaises() {
   });
 }
 
-async function salvarUsuario() {
-  const usuarioUnico = document.getElementById("usuarioUnico").value.trim();
-  if (!usuarioUnico) return alert("Informe o usuário!");
-
-  const docRef = db.collection("usuarios").doc(usuarioUnico);
-  const doc = await docRef.get();
-
-  let avatarUrlAntigo = doc.exists ? doc.data().avatarUrl || "" : "";
-  let avatarUrl = avatarUrlAntigo;
-
-  const file = document.getElementById("avatar").files[0];
-  if (file) {
-    const storageRef = firebase.app().storage("gs://painel-yellup.firebasestorage.app").ref();
-    const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
-    try {
-      await avatarRef.put(file);
-      avatarUrl = await avatarRef.getDownloadURL();
-    } catch (erro) {
-      console.error("Erro ao fazer upload do avatar:", erro);
-      alert("Erro ao enviar imagem para o Firebase Storage.");
-    }
+// Calcula idade baseado na data de nascimento
+function calcularIdade(dataNasc) {
+  if (!dataNasc) return "-";
+  const [ano, mes, dia] = dataNasc.split("-").map(Number);
+  const hoje = new Date();
+  let idade = hoje.getFullYear() - ano;
+  if (
+    hoje.getMonth() + 1 < mes ||
+    (hoje.getMonth() + 1 === mes && hoje.getDate() < dia)
+  ) {
+    idade--;
   }
-
-  const dados = {
-    nome: document.getElementById("nome").value,
-    dataNascimento: document.getElementById("dataNascimento").value,
-    cidade: document.getElementById("cidade").value,
-    estado: document.getElementById("estado").value,
-    pais: document.getElementById("pais").value,
-    email: document.getElementById("email").value,
-    celular: document.getElementById("celular").value,
-    usuario: usuarioUnico,
-    usuarioUnico: usuarioUnico,
-    timeId: document.getElementById("timeId").value || "",
-    creditos: 50,
-    indicadoPor: document.getElementById("indicadoPor").value || "-",
-    status: document.getElementById("status").value,
-    avatarUrl: avatarUrl
-  };
-
-  if (!doc.exists) {
-    dados.dataCadastro = firebase.firestore.Timestamp.now();
-    await docRef.set(dados);
-  } else {
-    await docRef.update(dados);
-  }
-
-  alert("Usuário salvo com sucesso!");
-  carregarUsuarios();
+  return idade;
 }
 
-async function carregarUsuarios() {
-  const filtro = document.getElementById("filtro").value.toLowerCase();
-  const lista = document.getElementById("listaUsuarios");
-  lista.innerHTML = "";
+// Busca usuários com base nos filtros
+async function buscarUsuarios() {
+  const tabela = document.getElementById("tabelaUsuarios");
+  tabela.innerHTML = "";
+
+  const filtros = {
+    status: document.getElementById("filtroStatus").value,
+    time: document.getElementById("filtroTime").value,
+    idadeMin: parseInt(document.getElementById("filtroIdadeMin").value) || 0,
+    idadeMax: parseInt(document.getElementById("filtroIdadeMax").value) || 150,
+    indicador: document.getElementById("filtroIndicador").value.toLowerCase(),
+    nomeUsuario: document.getElementById("filtroNomeUsuario").value.toLowerCase(),
+    cidade: document.getElementById("filtroCidade").value.toLowerCase(),
+    estado: document.getElementById("filtroEstado").value.toLowerCase(),
+    pais: document.getElementById("filtroPais").value.toLowerCase(),
+    creditosMin: parseInt(document.getElementById("filtroCreditosMin").value) || 0,
+    creditosMax: parseInt(document.getElementById("filtroCreditosMax").value) || 9999,
+    dataInicio: document.getElementById("filtroDataInicio").value,
+    dataFim: document.getElementById("filtroDataFim").value
+  };
 
   const snapshot = await db.collection("usuarios").get();
+
   for (const doc of snapshot.docs) {
-    const user = doc.data();
+    const u = doc.data();
+    const idade = calcularIdade(u.dataNasc);
+    const dataCadastro = u.dataCadastro || "-";
+    const creditos = u.creditos || 0;
+
+    // Filtros
     if (
-      filtro &&
-      !user.nome.toLowerCase().includes(filtro) &&
-      !user.usuarioUnico.toLowerCase().includes(filtro)
+      (filtros.status !== "todos" && u.status !== filtros.status) ||
+      (filtros.time !== "Todos" && u.time !== filtros.time) ||
+      idade < filtros.idadeMin || idade > filtros.idadeMax ||
+      (filtros.nomeUsuario && !(`${u.nome} ${u.usuario}`.toLowerCase().includes(filtros.nomeUsuario))) ||
+      (filtros.cidade && !(u.cidade || "").toLowerCase().includes(filtros.cidade)) ||
+      (filtros.estado && !(u.estado || "").toLowerCase().includes(filtros.estado)) ||
+      (filtros.pais && !(u.pais || "").toLowerCase().includes(filtros.pais)) ||
+      (creditos < filtros.creditosMin || creditos > filtros.creditosMax) ||
+      (filtros.dataInicio && dataCadastro < filtros.dataInicio) ||
+      (filtros.dataFim && dataCadastro > filtros.dataFim)
     ) continue;
 
-    let timeNome = "-";
-    if (user.timeId) {
-      const timeDoc = await db.collection("times").doc(user.timeId).get();
-      if (timeDoc.exists) timeNome = timeDoc.data().nome;
+    // Indicador (resolve nome via ID)
+    let nomeIndicador = "-";
+    if (u.indicadoPor) {
+      try {
+        const indDoc = await db.collection("usuarios").doc(u.indicadoPor).get();
+        if (indDoc.exists) nomeIndicador = indDoc.data().nome || "-";
+      } catch (e) {}
     }
 
-    const avatar = user.avatarUrl || "https://www.gravatar.com/avatar/?d=mp";
+    // Verifica se nome do indicador corresponde ao filtro
+    if (
+      filtros.indicador &&
+      !nomeIndicador.toLowerCase().includes(filtros.indicador)
+    ) continue;
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><img src="${avatar}" class="avatar" /></td>
-      <td>${user.nome}</td>
-      <td>${user.usuario || "-"}</td>
-      <td>${timeNome}</td>
-      <td>${user.status}</td>
-      <td>${user.creditos}</td>
-      <td>${user.dataCadastro?.toDate().toLocaleDateString('pt-BR') || "-"}</td>
-      <td>${user.indicadoPor || "-"}</td>
-      <td>
-        <button class="editar" onclick="editarUsuario('${doc.id}')">Editar</button>
-        <button class="excluir" onclick="excluirUsuario('${doc.id}')">Excluir</button>
-      </td>
+      <td><input type="checkbox" class="ckbUsuario" data-id="${doc.id}"></td>
+      <td>${u.nome || "-"}</td>
+      <td>${u.usuario || "-"}</td>
+      <td>${u.status || "-"}</td>
+      <td>${u.time || "-"}</td>
+      <td>${idade}</td>
+      <td>${creditos}</td>
+      <td>${dataCadastro}</td>
+      <td>${nomeIndicador}</td>
+      <td>${u.cidade || "-"}</td>
+      <td>${u.estado || "-"}</td>
+      <td>${u.pais || "-"}</td>
     `;
-    lista.appendChild(tr);
+    tabela.appendChild(tr);
   }
 }
 
-async function editarUsuario(id) {
-  const doc = await db.collection("usuarios").doc(id).get();
-  const data = doc.data();
-  document.getElementById("nome").value = data.nome || "";
-  document.getElementById("dataNascimento").value = data.dataNascimento || "";
-  document.getElementById("cidade").value = data.cidade || "";
-  document.getElementById("estado").value = data.estado || "";
-  document.getElementById("pais").value = data.pais || "";
-  document.getElementById("email").value = data.email || "";
-  document.getElementById("celular").value = data.celular || "";
-  document.getElementById("usuarioUnico").value = data.usuarioUnico || "";
-  document.getElementById("timeId").value = data.timeId || "";
-  document.getElementById("creditos").value = data.creditos || 50;
-  document.getElementById("indicadoPor").value = data.indicadoPor || "";
-  document.getElementById("status").value = data.status || "ativo";
+// Exportações
+
+function exportarExcel() {
+  const tabela = document.getElementById("tabelaUsuarios");
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.table_to_sheet(tabela);
+  XLSX.utils.book_append_sheet(wb, ws, "Usuários");
+  XLSX.writeFile(wb, "relatorio_usuarios.xlsx");
 }
 
-async function excluirUsuario(id) {
-  if (!confirm("Tem certeza que deseja excluir este usuário?")) return;
-  await db.collection("usuarios").doc(id).delete();
-  alert("Usuário excluído com sucesso!");
-  carregarUsuarios();
+function exportarCSV() {
+  const tabela = document.getElementById("tabelaUsuarios");
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.table_to_sheet(tabela);
+  XLSX.utils.book_append_sheet(wb, ws, "Usuários");
+  XLSX.writeFile(wb, "relatorio_usuarios.csv");
 }
 
+function gerarPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.text("Relatório de Usuários Yellup", 14, 15);
+  const headers = [["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"]];
+  const linhas = Array.from(document.querySelectorAll(".ckbUsuario:checked")).map(ckb => {
+    const tr = ckb.closest("tr");
+    return Array.from(tr.children).slice(1).map(td => td.textContent);
+  });
+  doc.autoTable({
+    head: headers,
+    body: linhas.length ? linhas : [["Nenhum usuário selecionado"]],
+    startY: 25,
+    theme: 'grid'
+  });
+  doc.save("relatorio_usuarios.pdf");
+}
+
+// Eventos
+document.getElementById("btnBuscar").onclick = buscarUsuarios;
+document.getElementById("btnExcel").onclick = exportarExcel;
+document.getElementById("btnCSV").onclick = exportarCSV;
+document.getElementById("btnPDF").onclick = gerarPDF;
+document.getElementById("btnSelecionarTodos").onclick = () => {
+  document.querySelectorAll(".ckbUsuario").forEach(cb => cb.checked = true);
+};
+
+// Inicialização
 window.onload = () => {
   carregarTimes();
-  carregarUsuarios();
-  carregarIndicadores();
-  carregarPaises(); // ← incluído aqui
+  buscarUsuarios();
 };
