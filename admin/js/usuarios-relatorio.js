@@ -1,4 +1,3 @@
-
 async function carregarFiltros() {
   const selectTime = document.getElementById("filtroTime");
   selectTime.innerHTML = '<option value="">Todos</option>';
@@ -107,10 +106,22 @@ function selecionarTodosCheckboxes(source) {
 }
 
 function exportarExcel() {
-  const table = document.getElementById('tabelaUsuarios');
+  const rows = [];
+  const checkboxes = document.querySelectorAll(".linhaSelecionada:checked");
+
+  checkboxes.forEach(cb => {
+    const tr = cb.closest("tr");
+    const cols = [...tr.children].map(td => td.innerText);
+    rows.push(cols.slice(1)); // Ignora o checkbox
+  });
+
+  if (rows.length === 0) return alert("Selecione pelo menos um usuário.");
+
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.table_to_sheet(table, { raw: true });
-  XLSX.utils.sheet_add_aoa(ws, [["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"]], { origin: "A1" });
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"],
+    ...rows
+  ]);
   XLSX.utils.book_append_sheet(wb, ws, "RelatorioUsuarios");
   XLSX.writeFile(wb, "relatorio_usuarios.xlsx");
 }
@@ -122,17 +133,24 @@ function gerarPDF() {
   doc.text("Relatório de Usuários Yellup", 14, 20);
 
   const rows = [];
-  document.querySelectorAll("#tabelaUsuarios tr").forEach((tr, i) => {
-    if (i === 0) return;
+  const checkboxes = document.querySelectorAll(".linhaSelecionada:checked");
+
+  checkboxes.forEach(cb => {
+    const tr = cb.closest("tr");
     const cols = [...tr.children].map(td => td.innerText);
-    rows.push(cols.slice(1));
+    rows.push(cols.slice(1)); // Ignora o checkbox
   });
 
+  if (rows.length === 0) return alert("Selecione pelo menos um usuário.");
+
   doc.autoTable({
-    head: [["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"]],
+    head: [[
+      "Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"
+    ]],
     body: rows,
     startY: 30,
-    styles: { fontSize: 8 }
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [41, 128, 185] }
   });
 
   doc.save("relatorio_usuarios.pdf");
