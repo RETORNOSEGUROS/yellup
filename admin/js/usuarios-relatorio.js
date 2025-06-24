@@ -1,11 +1,9 @@
-// Referência ao Firestore
-
+// Referência ao Firestore assumida via firebase-init.js
 
 async function carregarFiltros() {
   const selectTime = document.getElementById("filtroTime");
   const selectIndicador = document.getElementById("filtroIndicador");
 
-  // Buscar Times
   selectTime.innerHTML = '<option value="">Todos</option>';
   const timesSnap = await db.collection("times").orderBy("nome").get();
   timesSnap.forEach(doc => {
@@ -15,7 +13,6 @@ async function carregarFiltros() {
     selectTime.appendChild(opt);
   });
 
-  // Buscar Indicadores
   selectIndicador.innerHTML = '<option value="">Todos</option>';
   const indicadoresSnap = await db.collection("usuarios").where("status", "==", "ativo").get();
   indicadoresSnap.forEach(doc => {
@@ -50,6 +47,12 @@ async function buscarUsuarios() {
   const idadeMax = parseInt(document.getElementById("filtroIdadeMax")?.value || 200);
   const dataInicio = document.getElementById("filtroDataInicio").value;
   const dataFim = document.getElementById("filtroDataFim").value;
+  const buscaUsuario = document.getElementById("filtroBuscaUsuario").value.toLowerCase();
+  const filtroCidade = document.getElementById("filtroCidade").value.toLowerCase();
+  const filtroEstado = document.getElementById("filtroEstado").value.toLowerCase();
+  const filtroPais = document.getElementById("filtroPais").value.toLowerCase();
+  const creditosMin = parseInt(document.getElementById("filtroCreditosMin")?.value || 0);
+  const creditosMax = parseInt(document.getElementById("filtroCreditosMax")?.value || 999999);
 
   const tabela = document.getElementById("tabelaUsuarios");
   tabela.innerHTML = "";
@@ -58,19 +61,21 @@ async function buscarUsuarios() {
 
   for (const doc of snap.docs) {
     const user = doc.data();
-
     const idade = calcularIdade(user.dataNascimento);
     const cadastro = user.dataCadastro?.toDate?.() || null;
 
-    // Aplicar filtros
     if (status && user.status !== status) continue;
     if (timeId && user.timeId !== timeId) continue;
     if (indicador && user.indicadoPor !== indicador) continue;
     if (idade && (idade < idadeMin || idade > idadeMax)) continue;
     if (dataInicio && (!cadastro || cadastro < new Date(dataInicio))) continue;
     if (dataFim && (!cadastro || cadastro > new Date(dataFim))) continue;
+    if (buscaUsuario && !(`${user.nome || ""}`.toLowerCase().includes(buscaUsuario) || `${user.usuarioUnico || ""}`.toLowerCase().includes(buscaUsuario))) continue;
+    if (filtroCidade && !(`${user.cidade || ""}`.toLowerCase().includes(filtroCidade))) continue;
+    if (filtroEstado && !(`${user.estado || ""}`.toLowerCase().includes(filtroEstado))) continue;
+    if (filtroPais && !(`${user.pais || ""}`.toLowerCase().includes(filtroPais))) continue;
+    if (user.creditos < creditosMin || user.creditos > creditosMax) continue;
 
-    // Obter nome do time
     let timeNome = "-";
     if (user.timeId) {
       const timeDoc = await db.collection("times").doc(user.timeId).get();
@@ -87,14 +92,12 @@ async function buscarUsuarios() {
       <td>${user.creditos || 0}</td>
       <td>${formatarData(user.dataCadastro)}</td>
       <td>${user.indicadoPor || "-"}</td>
+      <td>${user.cidade || "-"}</td>
+      <td>${user.estado || "-"}</td>
+      <td>${user.pais || "-"}</td>
     `;
     tabela.appendChild(tr);
   }
 }
-
-// TODO FUTURO:
-// - Exportar Excel
-// - Gerar PDF com totalizador e listagem
-// - Adicionar filtros: país, cidade (com normalização), último login, créditos comprados/gastos
 
 window.onload = carregarFiltros;
