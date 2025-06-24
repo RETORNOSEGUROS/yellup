@@ -1,74 +1,150 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <title>Relatórios de Usuários</title>
+  <meta charset="UTF-8">
+  <title>Relatório Avançado de Usuários</title>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
   <style>
-    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f4f6f8; margin: 0; padding: 40px; }
-    .container { max-width: 1300px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-    h1 { margin-bottom: 30px; font-size: 28px; color: #333; }
-    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-    label { font-weight: bold; font-size: 14px; }
-    input, select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; }
-    .buttons { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 10px; }
-    button { padding: 10px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; }
-    .buscar { background: #3498db; color: white; }
-    .excel { background: #27ae60; color: white; }
-    .csv { background: #16a085; color: white; }
-    .pdf { background: #e67e22; color: white; }
-    .selecionarTodos { background: #7f8c8d; color: white; }
-    table { width: 100%; border-collapse: collapse; margin-top: 25px; }
-    th, td { padding: 10px; border: 1px solid #ddd; text-align: center; font-size: 14px; }
-    th { background: #2c3e50; color: white; position: sticky; top: 0; }
-    tr:hover { background: #f1f1f1; }
-    td:first-child, th:first-child { width: 40px; }
+    body { font-family: Arial, sans-serif; background: #f1f3f6; margin: 0; padding: 30px; }
+    .container { background: #fff; padding: 25px 30px; border-radius: 10px; box-shadow: 0 0 10px #ccc; max-width: 1400px; margin: auto; }
+    h2 { margin-top: 0; font-size: 24px; }
+
+    .filtros { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
+    .filtros > div { flex: 1 1 200px; }
+
+    input, select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 5px; }
+
+    .acoes { margin-bottom: 15px; display: flex; gap: 10px; }
+    .acoes button { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; }
+    .acoes button:hover { opacity: 0.9; }
+    #btnBuscar { background: #007bff; color: #fff; }
+    #btnExcel { background: #28a745; color: #fff; }
+    #btnCSV { background: #17a2b8; color: #fff; }
+    #btnPDF { background: #fd7e14; color: #fff; }
+    #btnSelecionarTodos { background: #6c757d; color: #fff; }
+
+    table { width: 100%; border-collapse: collapse; background: #fff; font-size: 14px; }
+    th, td { border: 1px solid #dee2e6; padding: 8px; text-align: center; }
+    th { background: #2c3e50; color: #fff; }
+    td:first-child, th:first-child { width: 35px; }
   </style>
 </head>
 <body>
-<div class="container">
-  <h1>Relatório Avançado de Usuários</h1>
-  <div class="grid">
-    <div><label>Status</label><select id="filtroStatus"><option value="">Todos</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
-    <div><label>Time do Coração</label><select id="filtroTime"></select></div>
-    <div><label>Idade Mínima</label><input type="number" id="filtroIdadeMin" placeholder="Ex: 18" /></div>
-    <div><label>Idade Máxima</label><input type="number" id="filtroIdadeMax" placeholder="Ex: 65" /></div>
-    <div><label>Indicado Por (nome)</label><input type="text" id="filtroIndicadorNome" placeholder="Digite nome do indicador" /></div>
-    <div><label>Período de Cadastro (Início)</label><input type="date" id="filtroDataInicio" /></div>
-    <div><label>Período de Cadastro (Fim)</label><input type="date" id="filtroDataFim" /></div>
-    <div><label>Buscar por Nome/Usuário</label><input type="text" id="filtroBuscaUsuario" placeholder="Digite parte do nome ou usuário" /></div>
-    <div><label>Cidade</label><input type="text" id="filtroCidade" /></div>
-    <div><label>Estado</label><input type="text" id="filtroEstado" /></div>
-    <div><label>País</label><input type="text" id="filtroPais" /></div>
-    <div><label>Créditos Mínimos</label><input type="number" id="filtroCreditosMin" /></div>
-    <div><label>Créditos Máximos</label><input type="number" id="filtroCreditosMax" /></div>
+  <div class="container">
+    <h2>Relatório Avançado de Usuários</h2>
+
+    <div class="filtros">
+      <div>
+        <label>Status</label>
+        <select id="filtroStatus">
+          <option value="todos">Todos</option>
+          <option value="ativo">Ativo</option>
+          <option value="inativo">Inativo</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Time do Coração</label>
+        <select id="filtroTime"></select>
+      </div>
+
+      <div>
+        <label>Idade Mínima</label>
+        <input type="number" id="filtroIdadeMin" placeholder="Ex: 18">
+      </div>
+
+      <div>
+        <label>Idade Máxima</label>
+        <input type="number" id="filtroIdadeMax" placeholder="Ex: 65">
+      </div>
+
+      <div>
+        <label>Indicador Por (nome)</label>
+        <input type="text" id="filtroIndicador" placeholder="Digite nome do indicador">
+      </div>
+
+      <div>
+        <label>Período de Cadastro (Início)</label>
+        <input type="date" id="filtroDataInicio">
+      </div>
+
+      <div>
+        <label>Período de Cadastro (Fim)</label>
+        <input type="date" id="filtroDataFim">
+      </div>
+
+      <div>
+        <label>Buscar por Nome/Usuário</label>
+        <input type="text" id="filtroNomeUsuario" placeholder="Digite parte do nome ou usuário">
+      </div>
+
+      <div>
+        <label>Cidade</label>
+        <input type="text" id="filtroCidade">
+      </div>
+
+      <div>
+        <label>Estado</label>
+        <input type="text" id="filtroEstado">
+      </div>
+
+      <div>
+        <label>País</label>
+        <input type="text" id="filtroPais">
+      </div>
+
+      <div>
+        <label>Créditos Mínimos</label>
+        <input type="number" id="filtroCreditosMin">
+      </div>
+
+      <div>
+        <label>Créditos Máximos</label>
+        <input type="number" id="filtroCreditosMax">
+      </div>
+    </div>
+
+    <div class="acoes">
+      <button id="btnBuscar">Buscar</button>
+      <button id="btnExcel">Exportar Excel</button>
+      <button id="btnCSV">Exportar CSV</button>
+      <button id="btnPDF">Gerar PDF</button>
+      <button id="btnSelecionarTodos">Selecionar Todos</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th><input type="checkbox" onclick="document.querySelectorAll('.ckbUsuario').forEach(cb => cb.checked = this.checked)"></th>
+          <th>Nome</th>
+          <th>Usuário</th>
+          <th>Status</th>
+          <th>Time</th>
+          <th>Idade</th>
+          <th>Créditos</th>
+          <th>Data Cadastro</th>
+          <th>Indicador</th>
+          <th>Cidade</th>
+          <th>Estado</th>
+          <th>País</th>
+        </tr>
+      </thead>
+      <tbody id="tabelaUsuarios"></tbody>
+    </table>
   </div>
 
-  <div class="buttons">
-    <button class="buscar" onclick="buscarUsuarios()">Buscar</button>
-    <button class="excel" onclick="exportarExcel()">Exportar Excel</button>
-    <button class="csv" onclick="exportarCSV()">Exportar CSV</button>
-    <button class="pdf" onclick="gerarPDF()">Gerar PDF</button>
-    <button class="selecionarTodos" onclick="selecionarTodosCheckboxes()">Selecionar Todos</button>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th><input type="checkbox" onclick="selecionarTodosCheckboxes(this)" /></th>
-        <th>Nome</th><th>Usuário</th><th>Status</th><th>Time</th><th>Idade</th><th>Créditos</th><th>Data Cadastro</th><th>Indicador</th><th>Cidade</th><th>Estado</th><th>País</th>
-      </tr>
-    </thead>
-    <tbody id="tabelaUsuarios"></tbody>
-  </table>
-</div>
-
-<!-- Firebase + XLSX + PDF Libs -->
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
-<script src="js/firebase-init.js"></script>
-<script src="js/usuarios-relatorio.js"></script>
+  <script>
+    // 🔐 configure seu firebase aqui se ainda não tiver
+    firebase.initializeApp({
+      apiKey: "SUA_API_KEY",
+      authDomain: "SEU_AUTH_DOMAIN",
+      projectId: "SEU_PROJECT_ID"
+    });
+  </script>
+  <script src="usuarios-relatorio.js"></script>
 </body>
 </html>
