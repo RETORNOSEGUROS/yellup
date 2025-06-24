@@ -1,4 +1,4 @@
-// Inicialização do Firebase
+// Inicialização do Firebase (ajuste com sua config real se ainda não estiver no projeto)
 const firebaseConfig = {
   apiKey: "SUA_API_KEY",
   authDomain: "SEU_AUTH_DOMAIN",
@@ -7,9 +7,10 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-// Carregar times para o filtro
+// Carrega os times no filtro
 async function carregarTimes() {
   const select = document.getElementById("filtroTime");
+  if (!select) return;
   select.innerHTML = `<option value="Todos">Todos</option>`;
   const snapshot = await db.collection("times").orderBy("nome").get();
   snapshot.forEach(doc => {
@@ -20,57 +21,78 @@ async function carregarTimes() {
   });
 }
 
-// Buscar usuários com filtros
+// Calcula idade baseado na data de nascimento
+function calcularIdade(dataNasc) {
+  if (!dataNasc) return "-";
+  const [ano, mes, dia] = dataNasc.split("-").map(Number);
+  const hoje = new Date();
+  let idade = hoje.getFullYear() - ano;
+  if (
+    hoje.getMonth() + 1 < mes ||
+    (hoje.getMonth() + 1 === mes && hoje.getDate() < dia)
+  ) {
+    idade--;
+  }
+  return idade;
+}
+
+// Busca usuários com base nos filtros
 async function buscarUsuarios() {
   const tabela = document.getElementById("tabelaUsuarios");
   tabela.innerHTML = "";
 
-  const filtroStatus = document.getElementById("filtroStatus").value;
-  const filtroTime = document.getElementById("filtroTime").value;
-  const idadeMin = parseInt(document.getElementById("filtroIdadeMin").value) || 0;
-  const idadeMax = parseInt(document.getElementById("filtroIdadeMax").value) || 200;
-  const filtroIndicador = document.getElementById("filtroIndicador").value.toLowerCase();
-  const dataInicio = document.getElementById("filtroDataInicio").value;
-  const dataFim = document.getElementById("filtroDataFim").value;
-  const filtroNomeUsuario = document.getElementById("filtroNomeUsuario").value.toLowerCase();
-  const filtroCidade = document.getElementById("filtroCidade").value.toLowerCase();
-  const filtroEstado = document.getElementById("filtroEstado").value.toLowerCase();
-  const filtroPais = document.getElementById("filtroPais").value.toLowerCase();
-  const creditoMin = parseInt(document.getElementById("filtroCreditosMin").value) || 0;
-  const creditoMax = parseInt(document.getElementById("filtroCreditosMax").value) || 9999;
+  const filtros = {
+    status: document.getElementById("filtroStatus").value,
+    time: document.getElementById("filtroTime").value,
+    idadeMin: parseInt(document.getElementById("filtroIdadeMin").value) || 0,
+    idadeMax: parseInt(document.getElementById("filtroIdadeMax").value) || 150,
+    indicador: document.getElementById("filtroIndicador").value.toLowerCase(),
+    nomeUsuario: document.getElementById("filtroNomeUsuario").value.toLowerCase(),
+    cidade: document.getElementById("filtroCidade").value.toLowerCase(),
+    estado: document.getElementById("filtroEstado").value.toLowerCase(),
+    pais: document.getElementById("filtroPais").value.toLowerCase(),
+    creditosMin: parseInt(document.getElementById("filtroCreditosMin").value) || 0,
+    creditosMax: parseInt(document.getElementById("filtroCreditosMax").value) || 9999,
+    dataInicio: document.getElementById("filtroDataInicio").value,
+    dataFim: document.getElementById("filtroDataFim").value
+  };
 
   const snapshot = await db.collection("usuarios").get();
+
   for (const doc of snapshot.docs) {
     const u = doc.data();
     const idade = calcularIdade(u.dataNasc);
-    const nome = u.nome?.toLowerCase() || "";
-    const usuario = u.usuario?.toLowerCase() || "";
-    const cidade = u.cidade?.toLowerCase() || "";
-    const estado = u.estado?.toLowerCase() || "";
-    const pais = u.pais?.toLowerCase() || "";
-    const dataCadastro = u.dataCadastro || "";
+    const dataCadastro = u.dataCadastro || "-";
     const creditos = u.creditos || 0;
-    const time = u.time || "";
 
+    // Filtros
     if (
-      (filtroStatus !== "todos" && u.status !== filtroStatus) ||
-      (filtroTime !== "Todos" && time !== filtroTime) ||
-      idade < idadeMin || idade > idadeMax ||
-      (filtroNomeUsuario && !nome.includes(filtroNomeUsuario) && !usuario.includes(filtroNomeUsuario)) ||
-      (filtroCidade && !cidade.includes(filtroCidade)) ||
-      (filtroEstado && !estado.includes(filtroEstado)) ||
-      (filtroPais && !pais.includes(filtroPais)) ||
-      (creditos < creditoMin || creditos > creditoMax) ||
-      (dataInicio && dataCadastro < dataInicio) ||
-      (dataFim && dataCadastro > dataFim)
+      (filtros.status !== "todos" && u.status !== filtros.status) ||
+      (filtros.time !== "Todos" && u.time !== filtros.time) ||
+      idade < filtros.idadeMin || idade > filtros.idadeMax ||
+      (filtros.nomeUsuario && !(`${u.nome} ${u.usuario}`.toLowerCase().includes(filtros.nomeUsuario))) ||
+      (filtros.cidade && !(u.cidade || "").toLowerCase().includes(filtros.cidade)) ||
+      (filtros.estado && !(u.estado || "").toLowerCase().includes(filtros.estado)) ||
+      (filtros.pais && !(u.pais || "").toLowerCase().includes(filtros.pais)) ||
+      (creditos < filtros.creditosMin || creditos > filtros.creditosMax) ||
+      (filtros.dataInicio && dataCadastro < filtros.dataInicio) ||
+      (filtros.dataFim && dataCadastro > filtros.dataFim)
     ) continue;
 
-    // Buscar nome do indicador
+    // Indicador (resolve nome via ID)
     let nomeIndicador = "-";
     if (u.indicadoPor) {
-      const indDoc = await db.collection("usuarios").doc(u.indicadoPor).get();
-      if (indDoc.exists) nomeIndicador = indDoc.data().nome || "-";
+      try {
+        const indDoc = await db.collection("usuarios").doc(u.indicadoPor).get();
+        if (indDoc.exists) nomeIndicador = indDoc.data().nome || "-";
+      } catch (e) {}
     }
+
+    // Verifica se nome do indicador corresponde ao filtro
+    if (
+      filtros.indicador &&
+      !nomeIndicador.toLowerCase().includes(filtros.indicador)
+    ) continue;
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -91,19 +113,7 @@ async function buscarUsuarios() {
   }
 }
 
-function calcularIdade(data) {
-  if (!data) return "-";
-  const [ano, mes, dia] = data.split("-").map(Number);
-  const hoje = new Date();
-  let idade = hoje.getFullYear() - ano;
-  if (
-    hoje.getMonth() + 1 < mes ||
-    (hoje.getMonth() + 1 === mes && hoje.getDate() < dia)
-  ) {
-    idade--;
-  }
-  return idade;
-}
+// Exportações
 
 function exportarExcel() {
   const tabela = document.getElementById("tabelaUsuarios");
@@ -125,21 +135,21 @@ function gerarPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   doc.text("Relatório de Usuários Yellup", 14, 15);
-  const tabela = document.getElementById("tabelaUsuarios");
   const headers = [["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"]];
-  const data = Array.from(tabela.querySelectorAll("tr"))
-    .slice(1)
-    .filter(row => row.querySelector("input[type='checkbox']").checked)
-    .map(row => Array.from(row.children).slice(1).map(td => td.textContent));
+  const linhas = Array.from(document.querySelectorAll(".ckbUsuario:checked")).map(ckb => {
+    const tr = ckb.closest("tr");
+    return Array.from(tr.children).slice(1).map(td => td.textContent);
+  });
   doc.autoTable({
     head: headers,
-    body: data.length ? data : [["Nenhum usuário selecionado"]],
+    body: linhas.length ? linhas : [["Nenhum usuário selecionado"]],
     startY: 25,
     theme: 'grid'
   });
   doc.save("relatorio_usuarios.pdf");
 }
 
+// Eventos
 document.getElementById("btnBuscar").onclick = buscarUsuarios;
 document.getElementById("btnExcel").onclick = exportarExcel;
 document.getElementById("btnCSV").onclick = exportarCSV;
@@ -148,6 +158,7 @@ document.getElementById("btnSelecionarTodos").onclick = () => {
   document.querySelectorAll(".ckbUsuario").forEach(cb => cb.checked = true);
 };
 
+// Inicialização
 window.onload = () => {
   carregarTimes();
   buscarUsuarios();
