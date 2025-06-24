@@ -1,5 +1,5 @@
 // Referência ao Firestore
-const db = firebase.firestore();
+
 
 async function carregarFiltros() {
   const timeSelect = document.getElementById("filtroTime");
