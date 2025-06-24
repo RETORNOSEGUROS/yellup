@@ -112,7 +112,7 @@ function exportarExcel() {
   checkboxes.forEach(cb => {
     const tr = cb.closest("tr");
     const cols = [...tr.children].map(td => td.innerText);
-    rows.push(cols.slice(1)); // Ignora o checkbox
+    rows.push(cols.slice(1));
   });
 
   if (rows.length === 0) return alert("Selecione pelo menos um usuário.");
@@ -138,14 +138,15 @@ function gerarPDF() {
   checkboxes.forEach(cb => {
     const tr = cb.closest("tr");
     const cols = [...tr.children].map(td => td.innerText);
-    rows.push(cols.slice(1)); // Ignora o checkbox
+    rows.push(cols.slice(1));
   });
 
   if (rows.length === 0) return alert("Selecione pelo menos um usuário.");
 
   doc.autoTable({
     head: [[
-      "Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"
+      "Nome", "Usuário", "Status", "Time", "Idade", "Créditos",
+      "Cadastro", "Indicador", "Cidade", "Estado", "País"
     ]],
     body: rows,
     startY: 30,
@@ -154,6 +155,36 @@ function gerarPDF() {
   });
 
   doc.save("relatorio_usuarios.pdf");
+}
+
+function exportarCSV() {
+  const checkboxes = document.querySelectorAll(".linhaSelecionada:checked");
+  if (checkboxes.length === 0) return alert("Selecione pelo menos um usuário.");
+
+  const headers = [
+    "Nome", "Usuário", "Status", "Time", "Idade", "Créditos",
+    "Cadastro", "Indicador", "Cidade", "Estado", "País"
+  ];
+
+  const linhas = [headers];
+
+  checkboxes.forEach(cb => {
+    const tr = cb.closest("tr");
+    const cols = [...tr.children].map(td => td.innerText);
+    linhas.push(cols.slice(1));
+  });
+
+  const csvContent = linhas.map(linha =>
+    linha.map(valor => `"${valor.replace(/"/g, '""')}"`).join(";")
+  ).join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute("download", "relatorio_usuarios.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 document.addEventListener('DOMContentLoaded', carregarFiltros);
