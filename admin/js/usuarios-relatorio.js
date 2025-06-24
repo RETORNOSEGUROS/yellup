@@ -1,165 +1,141 @@
-// Inicialização do Firebase (ajuste com sua config real se ainda não estiver no projeto)
-const firebaseConfig = {
-  apiKey: "SUA_API_KEY",
-  authDomain: "SEU_AUTH_DOMAIN",
-  projectId: "SEU_PROJECT_ID"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
 
-// Carrega os times no filtro
-async function carregarTimes() {
-  const select = document.getElementById("filtroTime");
-  if (!select) return;
-  select.innerHTML = `<option value="Todos">Todos</option>`;
-  const snapshot = await db.collection("times").orderBy("nome").get();
-  snapshot.forEach(doc => {
+async function carregarFiltros() {
+  const selectTime = document.getElementById("filtroTime");
+  selectTime.innerHTML = '<option value="">Todos</option>';
+  const timesSnap = await db.collection("times").orderBy("nome").get();
+  timesSnap.forEach(doc => {
     const opt = document.createElement("option");
-    opt.value = doc.data().nome;
+    opt.value = doc.id;
     opt.textContent = doc.data().nome;
-    select.appendChild(opt);
+    selectTime.appendChild(opt);
   });
 }
 
-// Calcula idade baseado na data de nascimento
-function calcularIdade(dataNasc) {
-  if (!dataNasc) return "-";
-  const [ano, mes, dia] = dataNasc.split("-").map(Number);
+function calcularIdade(dataNascStr) {
+  if (!dataNascStr) return null;
   const hoje = new Date();
-  let idade = hoje.getFullYear() - ano;
-  if (
-    hoje.getMonth() + 1 < mes ||
-    (hoje.getMonth() + 1 === mes && hoje.getDate() < dia)
-  ) {
-    idade--;
-  }
+  const nasc = new Date(dataNascStr);
+  let idade = hoje.getFullYear() - nasc.getFullYear();
+  const m = hoje.getMonth() - nasc.getMonth();
+  if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
   return idade;
 }
 
-// Busca usuários com base nos filtros
+function formatarData(timestamp) {
+  if (!timestamp || !timestamp.toDate) return "-";
+  const d = timestamp.toDate();
+  return d.toLocaleDateString('pt-BR');
+}
+
+let cacheIndicadores = {};
+
 async function buscarUsuarios() {
+  const status = document.getElementById("filtroStatus").value;
+  const timeId = document.getElementById("filtroTime").value;
+  const idadeMin = parseInt(document.getElementById("filtroIdadeMin")?.value || 0);
+  const idadeMax = parseInt(document.getElementById("filtroIdadeMax")?.value || 200);
+  const dataInicio = document.getElementById("filtroDataInicio").value;
+  const dataFim = document.getElementById("filtroDataFim").value;
+  const buscaUsuario = document.getElementById("filtroBuscaUsuario").value.toLowerCase();
+  const filtroCidade = document.getElementById("filtroCidade").value.toLowerCase();
+  const filtroEstado = document.getElementById("filtroEstado").value.toLowerCase();
+  const filtroPais = document.getElementById("filtroPais").value.toLowerCase();
+  const creditosMin = parseInt(document.getElementById("filtroCreditosMin")?.value || 0);
+  const creditosMax = parseInt(document.getElementById("filtroCreditosMax")?.value || 999999);
+  const filtroIndicadorNome = document.getElementById("filtroIndicadorNome").value.toLowerCase();
+
   const tabela = document.getElementById("tabelaUsuarios");
   tabela.innerHTML = "";
 
-  const filtros = {
-    status: document.getElementById("filtroStatus").value,
-    time: document.getElementById("filtroTime").value,
-    idadeMin: parseInt(document.getElementById("filtroIdadeMin").value) || 0,
-    idadeMax: parseInt(document.getElementById("filtroIdadeMax").value) || 150,
-    indicador: document.getElementById("filtroIndicador").value.toLowerCase(),
-    nomeUsuario: document.getElementById("filtroNomeUsuario").value.toLowerCase(),
-    cidade: document.getElementById("filtroCidade").value.toLowerCase(),
-    estado: document.getElementById("filtroEstado").value.toLowerCase(),
-    pais: document.getElementById("filtroPais").value.toLowerCase(),
-    creditosMin: parseInt(document.getElementById("filtroCreditosMin").value) || 0,
-    creditosMax: parseInt(document.getElementById("filtroCreditosMax").value) || 9999,
-    dataInicio: document.getElementById("filtroDataInicio").value,
-    dataFim: document.getElementById("filtroDataFim").value
-  };
+  const snap = await db.collection("usuarios").get();
+  cacheIndicadores = {};
 
-  const snapshot = await db.collection("usuarios").get();
+  for (const doc of snap.docs) {
+    const user = doc.data();
+    const idade = calcularIdade(user.dataNascimento);
+    const cadastro = user.dataCadastro?.toDate?.() || null;
 
-  for (const doc of snapshot.docs) {
-    const u = doc.data();
-    const idade = calcularIdade(u.dataNasc);
-    const dataCadastro = u.dataCadastro || "-";
-    const creditos = u.creditos || 0;
-
-    // Filtros
-    if (
-      (filtros.status !== "todos" && u.status !== filtros.status) ||
-      (filtros.time !== "Todos" && u.time !== filtros.time) ||
-      idade < filtros.idadeMin || idade > filtros.idadeMax ||
-      (filtros.nomeUsuario && !(`${u.nome} ${u.usuario}`.toLowerCase().includes(filtros.nomeUsuario))) ||
-      (filtros.cidade && !(u.cidade || "").toLowerCase().includes(filtros.cidade)) ||
-      (filtros.estado && !(u.estado || "").toLowerCase().includes(filtros.estado)) ||
-      (filtros.pais && !(u.pais || "").toLowerCase().includes(filtros.pais)) ||
-      (creditos < filtros.creditosMin || creditos > filtros.creditosMax) ||
-      (filtros.dataInicio && dataCadastro < filtros.dataInicio) ||
-      (filtros.dataFim && dataCadastro > filtros.dataFim)
-    ) continue;
-
-    // Indicador (resolve nome via ID)
-    let nomeIndicador = "-";
-    if (u.indicadoPor) {
-      try {
-        const indDoc = await db.collection("usuarios").doc(u.indicadoPor).get();
-        if (indDoc.exists) nomeIndicador = indDoc.data().nome || "-";
-      } catch (e) {}
+    let indicadorNome = "-";
+    if (user.indicadoPor && filtroIndicadorNome) {
+      if (!cacheIndicadores[user.indicadoPor]) {
+        const indicadorDoc = await db.collection("usuarios").doc(user.indicadoPor).get();
+        cacheIndicadores[user.indicadoPor] = indicadorDoc.exists ? indicadorDoc.data().nome.toLowerCase() : "";
+      }
+      if (!cacheIndicadores[user.indicadoPor].includes(filtroIndicadorNome)) continue;
+      indicadorNome = cacheIndicadores[user.indicadoPor];
     }
 
-    // Verifica se nome do indicador corresponde ao filtro
-    if (
-      filtros.indicador &&
-      !nomeIndicador.toLowerCase().includes(filtros.indicador)
-    ) continue;
+    if (status && user.status !== status) continue;
+    if (timeId && user.timeId !== timeId) continue;
+    if (idade && (idade < idadeMin || idade > idadeMax)) continue;
+    if (dataInicio && (!cadastro || cadastro < new Date(dataInicio))) continue;
+    if (dataFim && (!cadastro || cadastro > new Date(dataFim))) continue;
+    if (buscaUsuario && !(`${user.nome || ""}`.toLowerCase().includes(buscaUsuario) || `${user.usuarioUnico || ""}`.toLowerCase().includes(buscaUsuario))) continue;
+    if (filtroCidade && !(`${user.cidade || ""}`.toLowerCase().includes(filtroCidade))) continue;
+    if (filtroEstado && !(`${user.estado || ""}`.toLowerCase().includes(filtroEstado))) continue;
+    if (filtroPais && !(`${user.pais || ""}`.toLowerCase().includes(filtroPais))) continue;
+    if (user.creditos < creditosMin || user.creditos > creditosMax) continue;
+
+    let timeNome = "-";
+    if (user.timeId) {
+      const timeDoc = await db.collection("times").doc(user.timeId).get();
+      if (timeDoc.exists) timeNome = `${timeDoc.data().nome} - ${timeDoc.data().pais?.slice(0,3).toUpperCase() || ""}`;
+    }
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><input type="checkbox" class="ckbUsuario" data-id="${doc.id}"></td>
-      <td>${u.nome || "-"}</td>
-      <td>${u.usuario || "-"}</td>
-      <td>${u.status || "-"}</td>
-      <td>${u.time || "-"}</td>
-      <td>${idade}</td>
-      <td>${creditos}</td>
-      <td>${dataCadastro}</td>
-      <td>${nomeIndicador}</td>
-      <td>${u.cidade || "-"}</td>
-      <td>${u.estado || "-"}</td>
-      <td>${u.pais || "-"}</td>
+      <td><input type="checkbox" class="linhaSelecionada" value="${doc.id}" /></td>
+      <td>${user.nome}</td>
+      <td>${user.usuario || "-"}</td>
+      <td>${user.status}</td>
+      <td>${timeNome}</td>
+      <td>${idade || "-"}</td>
+      <td>${user.creditos || 0}</td>
+      <td>${formatarData(user.dataCadastro)}</td>
+      <td>${indicadorNome}</td>
+      <td>${user.cidade || "-"}</td>
+      <td>${user.estado || "-"}</td>
+      <td>${user.pais || "-"}</td>
     `;
     tabela.appendChild(tr);
   }
 }
 
-// Exportações
-
-function exportarExcel() {
-  const tabela = document.getElementById("tabelaUsuarios");
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.table_to_sheet(tabela);
-  XLSX.utils.book_append_sheet(wb, ws, "Usuários");
-  XLSX.writeFile(wb, "relatorio_usuarios.xlsx");
+function selecionarTodosCheckboxes(source) {
+  const checkboxes = document.querySelectorAll('.linhaSelecionada');
+  checkboxes.forEach(cb => cb.checked = source?.checked ?? true);
 }
 
-function exportarCSV() {
-  const tabela = document.getElementById("tabelaUsuarios");
+function exportarExcel() {
+  const table = document.getElementById('tabelaUsuarios');
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.table_to_sheet(tabela);
-  XLSX.utils.book_append_sheet(wb, ws, "Usuários");
-  XLSX.writeFile(wb, "relatorio_usuarios.csv");
+  const ws = XLSX.utils.table_to_sheet(table, { raw: true });
+  XLSX.utils.sheet_add_aoa(ws, [["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"]], { origin: "A1" });
+  XLSX.utils.book_append_sheet(wb, ws, "RelatorioUsuarios");
+  XLSX.writeFile(wb, "relatorio_usuarios.xlsx");
 }
 
 function gerarPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  doc.text("Relatório de Usuários Yellup", 14, 15);
-  const headers = [["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"]];
-  const linhas = Array.from(document.querySelectorAll(".ckbUsuario:checked")).map(ckb => {
-    const tr = ckb.closest("tr");
-    return Array.from(tr.children).slice(1).map(td => td.textContent);
+  doc.setFontSize(12);
+  doc.text("Relatório de Usuários Yellup", 14, 20);
+
+  const rows = [];
+  document.querySelectorAll("#tabelaUsuarios tr").forEach((tr, i) => {
+    if (i === 0) return;
+    const cols = [...tr.children].map(td => td.innerText);
+    rows.push(cols.slice(1));
   });
+
   doc.autoTable({
-    head: headers,
-    body: linhas.length ? linhas : [["Nenhum usuário selecionado"]],
-    startY: 25,
-    theme: 'grid'
+    head: [["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"]],
+    body: rows,
+    startY: 30,
+    styles: { fontSize: 8 }
   });
+
   doc.save("relatorio_usuarios.pdf");
 }
 
-// Eventos
-document.getElementById("btnBuscar").onclick = buscarUsuarios;
-document.getElementById("btnExcel").onclick = exportarExcel;
-document.getElementById("btnCSV").onclick = exportarCSV;
-document.getElementById("btnPDF").onclick = gerarPDF;
-document.getElementById("btnSelecionarTodos").onclick = () => {
-  document.querySelectorAll(".ckbUsuario").forEach(cb => cb.checked = true);
-};
-
-// Inicialização
-window.onload = () => {
-  carregarTimes();
-  buscarUsuarios();
-};
+document.addEventListener('DOMContentLoaded', carregarFiltros);
