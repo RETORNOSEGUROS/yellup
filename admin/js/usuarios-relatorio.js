@@ -109,7 +109,8 @@ function selecionarTodosCheckboxes(source) {
 function exportarExcel() {
   const table = document.getElementById('tabelaUsuarios');
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.table_to_sheet(table);
+  const ws = XLSX.utils.table_to_sheet(table, { raw: true });
+  XLSX.utils.sheet_add_aoa(ws, [["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"]], { origin: "A1" });
   XLSX.utils.book_append_sheet(wb, ws, "RelatorioUsuarios");
   XLSX.writeFile(wb, "relatorio_usuarios.xlsx");
 }
