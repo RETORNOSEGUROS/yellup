@@ -1,142 +1,158 @@
-// Script atualizado com filtro de indicador digitável, seleção, exportação Excel e PDF
-
-async function carregarFiltros() {
-  const selectTime = document.getElementById("filtroTime");
-  selectTime.innerHTML = '<option value="">Todos</option>';
-  const timesSnap = await db.collection("times").orderBy("nome").get();
-  timesSnap.forEach(doc => {
+async function carregarTimes() {
+  const select = document.getElementById("timeId");
+  select.innerHTML = `<option value="">Selecione o Time</option>`;
+  const snapshot = await db.collection("times").orderBy("nome").get();
+  snapshot.forEach(doc => {
     const opt = document.createElement("option");
     opt.value = doc.id;
     opt.textContent = doc.data().nome;
-    selectTime.appendChild(opt);
+    select.appendChild(opt);
   });
 }
 
-function calcularIdade(dataNascStr) {
-  if (!dataNascStr) return null;
-  const hoje = new Date();
-  const nasc = new Date(dataNascStr);
-  let idade = hoje.getFullYear() - nasc.getFullYear();
-  const m = hoje.getMonth() - nasc.getMonth();
-  if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
-  return idade;
+async function carregarIndicadores() {
+  const select = document.getElementById("indicadoPor");
+  select.innerHTML = `<option value="">Selecione o Indicador</option>`;
+  const snapshot = await db.collection("usuarios").where("status", "==", "ativo").get();
+  snapshot.forEach(doc => {
+    const opt = document.createElement("option");
+    opt.value = doc.id;
+    opt.textContent = doc.data().nome;
+    select.appendChild(opt);
+  });
 }
 
-function formatarData(timestamp) {
-  if (!timestamp || !timestamp.toDate) return "-";
-  const d = timestamp.toDate();
-  return d.toLocaleDateString('pt-BR');
+async function carregarPaises() {
+  const select = document.getElementById("pais");
+  select.innerHTML = `<option value="">Selecione o País</option>`;
+  const snapshot = await db.collection("paises").orderBy("nome").get();
+  snapshot.forEach(doc => {
+    const opt = document.createElement("option");
+    opt.value = doc.data().nome;
+    opt.textContent = doc.data().nome;
+    select.appendChild(opt);
+  });
 }
 
-let cacheIndicadores = {};
+async function salvarUsuario() {
+  const usuarioUnico = document.getElementById("usuarioUnico").value.trim();
+  if (!usuarioUnico) return alert("Informe o usuário!");
 
-async function buscarUsuarios() {
-  const status = document.getElementById("filtroStatus").value;
-  const timeId = document.getElementById("filtroTime").value;
-  const idadeMin = parseInt(document.getElementById("filtroIdadeMin")?.value || 0);
-  const idadeMax = parseInt(document.getElementById("filtroIdadeMax")?.value || 200);
-  const dataInicio = document.getElementById("filtroDataInicio").value;
-  const dataFim = document.getElementById("filtroDataFim").value;
-  const buscaUsuario = document.getElementById("filtroBuscaUsuario").value.toLowerCase();
-  const filtroCidade = document.getElementById("filtroCidade").value.toLowerCase();
-  const filtroEstado = document.getElementById("filtroEstado").value.toLowerCase();
-  const filtroPais = document.getElementById("filtroPais").value.toLowerCase();
-  const creditosMin = parseInt(document.getElementById("filtroCreditosMin")?.value || 0);
-  const creditosMax = parseInt(document.getElementById("filtroCreditosMax")?.value || 999999);
-  const filtroIndicadorNome = document.getElementById("filtroIndicadorNome").value.toLowerCase();
+  const docRef = db.collection("usuarios").doc(usuarioUnico);
+  const doc = await docRef.get();
 
-  const tabela = document.getElementById("tabelaUsuarios");
-  tabela.innerHTML = "";
+  let avatarUrlAntigo = doc.exists ? doc.data().avatarUrl || "" : "";
+  let avatarUrl = avatarUrlAntigo;
 
-  const snap = await db.collection("usuarios").get();
-  cacheIndicadores = {}; // zera cache
-
-  for (const doc of snap.docs) {
-    const user = doc.data();
-    const idade = calcularIdade(user.dataNascimento);
-    const cadastro = user.dataCadastro?.toDate?.() || null;
-
-    // Busca indicador (se houver filtro)
-    let indicadorNome = "-";
-    if (user.indicadoPor && filtroIndicadorNome) {
-      if (!cacheIndicadores[user.indicadoPor]) {
-        const indicadorDoc = await db.collection("usuarios").doc(user.indicadoPor).get();
-        cacheIndicadores[user.indicadoPor] = indicadorDoc.exists ? indicadorDoc.data().nome.toLowerCase() : "";
-      }
-      if (!cacheIndicadores[user.indicadoPor].includes(filtroIndicadorNome)) continue;
-      indicadorNome = cacheIndicadores[user.indicadoPor];
+  const file = document.getElementById("avatar").files[0];
+  if (file) {
+    const storageRef = firebase.app().storage("gs://painel-yellup.firebasestorage.app").ref();
+    const avatarRef = storageRef.child(`avatars/${usuarioUnico}.jpg`);
+    try {
+      await avatarRef.put(file);
+      avatarUrl = await avatarRef.getDownloadURL();
+    } catch (erro) {
+      console.error("Erro ao fazer upload do avatar:", erro);
+      alert("Erro ao enviar imagem para o Firebase Storage.");
     }
+  }
 
-    if (status && user.status !== status) continue;
-    if (timeId && user.timeId !== timeId) continue;
-    if (idade && (idade < idadeMin || idade > idadeMax)) continue;
-    if (dataInicio && (!cadastro || cadastro < new Date(dataInicio))) continue;
-    if (dataFim && (!cadastro || cadastro > new Date(dataFim))) continue;
-    if (buscaUsuario && !(`${user.nome || ""}`.toLowerCase().includes(buscaUsuario) || `${user.usuarioUnico || ""}`.toLowerCase().includes(buscaUsuario))) continue;
-    if (filtroCidade && !(`${user.cidade || ""}`.toLowerCase().includes(filtroCidade))) continue;
-    if (filtroEstado && !(`${user.estado || ""}`.toLowerCase().includes(filtroEstado))) continue;
-    if (filtroPais && !(`${user.pais || ""}`.toLowerCase().includes(filtroPais))) continue;
-    if (user.creditos < creditosMin || user.creditos > creditosMax) continue;
+  const dados = {
+    nome: document.getElementById("nome").value,
+    dataNascimento: document.getElementById("dataNascimento").value,
+    cidade: document.getElementById("cidade").value,
+    estado: document.getElementById("estado").value,
+    pais: document.getElementById("pais").value,
+    email: document.getElementById("email").value,
+    celular: document.getElementById("celular").value,
+    usuario: usuarioUnico,
+    usuarioUnico: usuarioUnico,
+    timeId: document.getElementById("timeId").value || "",
+    creditos: 50,
+    indicadoPor: document.getElementById("indicadoPor").value || "-",
+    status: document.getElementById("status").value,
+    avatarUrl: avatarUrl
+  };
+
+  if (!doc.exists) {
+    dados.dataCadastro = firebase.firestore.Timestamp.now();
+    await docRef.set(dados);
+  } else {
+    await docRef.update(dados);
+  }
+
+  alert("Usuário salvo com sucesso!");
+  carregarUsuarios();
+}
+
+async function carregarUsuarios() {
+  const filtro = document.getElementById("filtro").value.toLowerCase();
+  const lista = document.getElementById("listaUsuarios");
+  lista.innerHTML = "";
+
+  const snapshot = await db.collection("usuarios").get();
+  for (const doc of snapshot.docs) {
+    const user = doc.data();
+    if (
+      filtro &&
+      !user.nome.toLowerCase().includes(filtro) &&
+      !user.usuarioUnico.toLowerCase().includes(filtro)
+    ) continue;
 
     let timeNome = "-";
     if (user.timeId) {
       const timeDoc = await db.collection("times").doc(user.timeId).get();
-      if (timeDoc.exists) timeNome = `${timeDoc.data().nome} - ${timeDoc.data().pais?.slice(0,3).toUpperCase() || ""}`;
+      if (timeDoc.exists) timeNome = timeDoc.data().nome;
     }
+
+    const avatar = user.avatarUrl || "https://www.gravatar.com/avatar/?d=mp";
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><input type="checkbox" class="linhaSelecionada" value="${doc.id}" /></td>
+      <td><img src="${avatar}" class="avatar" /></td>
       <td>${user.nome}</td>
       <td>${user.usuario || "-"}</td>
-      <td>${user.status}</td>
       <td>${timeNome}</td>
-      <td>${idade || "-"}</td>
-      <td>${user.creditos || 0}</td>
-      <td>${formatarData(user.dataCadastro)}</td>
-      <td>${indicadorNome}</td>
-      <td>${user.cidade || "-"}</td>
-      <td>${user.estado || "-"}</td>
-      <td>${user.pais || "-"}</td>
+      <td>${user.status}</td>
+      <td>${user.creditos}</td>
+      <td>${user.dataCadastro?.toDate().toLocaleDateString('pt-BR') || "-"}</td>
+      <td>${user.indicadoPor || "-"}</td>
+      <td>
+        <button class="editar" onclick="editarUsuario('${doc.id}')">Editar</button>
+        <button class="excluir" onclick="excluirUsuario('${doc.id}')">Excluir</button>
+      </td>
     `;
-    tabela.appendChild(tr);
+    lista.appendChild(tr);
   }
 }
 
-function selecionarTodosCheckboxes(source) {
-  const checkboxes = document.querySelectorAll('.linhaSelecionada');
-  checkboxes.forEach(cb => cb.checked = source?.checked ?? true);
+async function editarUsuario(id) {
+  const doc = await db.collection("usuarios").doc(id).get();
+  const data = doc.data();
+  document.getElementById("nome").value = data.nome || "";
+  document.getElementById("dataNascimento").value = data.dataNascimento || "";
+  document.getElementById("cidade").value = data.cidade || "";
+  document.getElementById("estado").value = data.estado || "";
+  document.getElementById("pais").value = data.pais || "";
+  document.getElementById("email").value = data.email || "";
+  document.getElementById("celular").value = data.celular || "";
+  document.getElementById("usuarioUnico").value = data.usuarioUnico || "";
+  document.getElementById("timeId").value = data.timeId || "";
+  document.getElementById("creditos").value = data.creditos || 50;
+  document.getElementById("indicadoPor").value = data.indicadoPor || "";
+  document.getElementById("status").value = data.status || "ativo";
 }
 
-function exportarExcel() {
-  const table = document.getElementById('tabelaUsuarios');
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.table_to_sheet(table);
-  XLSX.utils.book_append_sheet(wb, ws, "RelatórioUsuarios");
-  XLSX.writeFile(wb, "relatorio_usuarios.xlsx");
+async function excluirUsuario(id) {
+  if (!confirm("Tem certeza que deseja excluir este usuário?")) return;
+  await db.collection("usuarios").doc(id).delete();
+  alert("Usuário excluído com sucesso!");
+  carregarUsuarios();
 }
 
-function gerarPDF() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  doc.setFontSize(12);
-  doc.text("Relatório de Usuários Yellup", 14, 20);
-
-  const rows = [];
-  document.querySelectorAll("#tabelaUsuarios tr").forEach((tr, i) => {
-    if (i === 0) return; // ignora header
-    const cols = [...tr.children].map(td => td.innerText);
-    rows.push(cols.slice(1));
-  });
-
-  doc.autoTable({
-    head: [["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"]],
-    body: rows,
-    startY: 30,
-    styles: { fontSize: 8 }
-  });
-
-  doc.save("relatorio_usuarios.pdf");
-}
-
-window.onload = carregarFiltros;
+window.onload = () => {
+  carregarTimes();
+  carregarUsuarios();
+  carregarIndicadores();
+  carregarPaises(); // ← incluído aqui
+};
