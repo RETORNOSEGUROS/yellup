@@ -43,7 +43,9 @@ async function listarJogos() {
 
   const filtroStatus = document.getElementById("filtroStatus").value;
   const filtroInicio = document.getElementById("filtroDataInicio").value;
+  const inicioFiltroDate = filtroInicio ? new Date(filtroInicio + "T00:00:00") : null;
   const filtroFim = document.getElementById("filtroDataFim").value;
+  const fimFiltroDate = filtroFim ? new Date(filtroFim + "T23:59:59") : null;
   const filtroTime = document.getElementById("filtroTime").value;
 
   const snapshot = await db.collection("jogos").orderBy("dataInicio", "desc").get();
@@ -60,8 +62,8 @@ async function listarJogos() {
     }
 
     if (filtroStatus && filtroStatus !== statusAtualizado) continue;
-    if (filtroInicio && new Date(filtroInicio) > dataInicio) continue;
-    if (filtroFim && new Date(filtroFim) < dataFim) continue;
+    if (inicioFiltroDate && dataFim < inicioFiltroDate) continue;
+    if (fimFiltroDate && dataInicio > fimFiltroDate) continue;
     if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
 
     jogosFiltrados.push({ id: doc.id, jogo, status: statusAtualizado });
