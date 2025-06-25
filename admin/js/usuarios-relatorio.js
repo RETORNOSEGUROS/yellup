@@ -1,34 +1,3 @@
-
-async function carregarFiltros() {
-  const selectTime = document.getElementById("filtroTime");
-  selectTime.innerHTML = '<option value="">Todos</option>';
-  const timesSnap = await db.collection("times").orderBy("nome").get();
-  timesSnap.forEach(doc => {
-    const opt = document.createElement("option");
-    opt.value = doc.id;
-    opt.textContent = doc.data().nome;
-    selectTime.appendChild(opt);
-  });
-}
-
-function calcularIdade(dataNascStr) {
-  if (!dataNascStr) return null;
-  const hoje = new Date();
-  const nasc = new Date(dataNascStr);
-  let idade = hoje.getFullYear() - nasc.getFullYear();
-  const m = hoje.getMonth() - nasc.getMonth();
-  if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
-  return idade;
-}
-
-function formatarData(timestamp) {
-  if (!timestamp || !timestamp.toDate) return "-";
-  const d = timestamp.toDate();
-  return d.toLocaleDateString('pt-BR');
-}
-
-let cacheIndicadores = {};
-
 async function buscarUsuarios() {
   const status = document.getElementById("filtroStatus").value;
   const timeId = document.getElementById("filtroTime").value;
@@ -48,21 +17,20 @@ async function buscarUsuarios() {
   tabela.innerHTML = "";
 
   const snap = await db.collection("usuarios").get();
-  cacheIndicadores = {};
-
+  const cacheIndicadores = {};
   for (const doc of snap.docs) {
     const user = doc.data();
     const idade = calcularIdade(user.dataNascimento);
     const cadastro = user.dataCadastro?.toDate?.() || null;
 
     let indicadorNome = "-";
-    if (user.indicadoPor && filtroIndicadorNome) {
+    if (user.indicadoPor) {
       if (!cacheIndicadores[user.indicadoPor]) {
         const indicadorDoc = await db.collection("usuarios").doc(user.indicadoPor).get();
-        cacheIndicadores[user.indicadoPor] = indicadorDoc.exists ? indicadorDoc.data().nome.toLowerCase() : "";
+        cacheIndicadores[user.indicadoPor] = indicadorDoc.exists ? indicadorDoc.data().nome : "-";
       }
-      if (!cacheIndicadores[user.indicadoPor].includes(filtroIndicadorNome)) continue;
       indicadorNome = cacheIndicadores[user.indicadoPor];
+      if (filtroIndicadorNome && !indicadorNome.toLowerCase().includes(filtroIndicadorNome)) continue;
     }
 
     if (status && user.status !== status) continue;
@@ -79,7 +47,7 @@ async function buscarUsuarios() {
     let timeNome = "-";
     if (user.timeId) {
       const timeDoc = await db.collection("times").doc(user.timeId).get();
-      if (timeDoc.exists) timeNome = `${timeDoc.data().nome} - ${timeDoc.data().pais?.slice(0,3).toUpperCase() || ""}`;
+      if (timeDoc.exists) timeNome = `${timeDoc.data().nome} - ${timeDoc.data().pais?.slice(0, 3).toUpperCase() || ""}`;
     }
 
     const tr = document.createElement("tr");
@@ -99,6 +67,22 @@ async function buscarUsuarios() {
     `;
     tabela.appendChild(tr);
   }
+}
+
+function calcularIdade(dataNascStr) {
+  if (!dataNascStr) return null;
+  const hoje = new Date();
+  const nasc = new Date(dataNascStr);
+  let idade = hoje.getFullYear() - nasc.getFullYear();
+  const m = hoje.getMonth() - nasc.getMonth();
+  if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
+  return idade;
+}
+
+function formatarData(timestamp) {
+  if (!timestamp || !timestamp.toDate) return "-";
+  const d = timestamp.toDate();
+  return d.toLocaleDateString('pt-BR');
 }
 
 function selecionarTodosCheckboxes(source) {
@@ -138,4 +122,16 @@ function gerarPDF() {
   doc.save("relatorio_usuarios.pdf");
 }
 
-document.addEventListener('DOMContentLoaded', carregarFiltros);
+async function carregarFiltros() {
+  const selectTime = document.getElementById("filtroTime");
+  selectTime.innerHTML = '<option value="">Todos</option>';
+  const timesSnap = await db.collection("times").orderBy("nome").get();
+  timesSnap.forEach(doc => {
+    const opt = document.createElement("option");
+    opt.value = doc.id;
+    opt.textContent = doc.data().nome;
+    selectTime.appendChild(opt);
+  });
+}
+
+window.onload = carregarFiltros;
