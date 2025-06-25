@@ -1,226 +1,79 @@
-async function carregarFiltros() {
-  const selectTime = document.getElementById("filtroTime");
-  selectTime.innerHTML = '<option value="">Todos</option>';
-  const timesSnap = await db.collection("times").orderBy("nome").get();
-  timesSnap.forEach(doc => {
-    const opt = document.createElement("option");
-    opt.value = doc.id;
-    opt.textContent = doc.data().nome;
-    selectTime.appendChild(opt);
-  });
-}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <title>Relatórios de Usuários</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f4f6f8; margin: 0; padding: 40px; }
+    .container { max-width: 1300px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    h1 { margin-bottom: 30px; font-size: 28px; color: #333; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
+    label { font-weight: bold; font-size: 14px; }
+    input, select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; }
+    .buttons { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 10px; }
+    button { padding: 10px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; }
+    .buscar { background: #3498db; color: white; }
+    .excel { background: #27ae60; color: white; }
+    .csv { background: #16a085; color: white; }
+    .pdf { background: #e67e22; color: white; }
+    .selecionarTodos { background: #7f8c8d; color: white; }
+    table { width: 100%; border-collapse: collapse; margin-top: 25px; }
+    th, td { padding: 10px; border: 1px solid #ddd; text-align: center; font-size: 14px; }
+    th { background: #2c3e50; color: white; position: sticky; top: 0; }
+    tr:hover { background: #f1f1f1; }
+    td:first-child, th:first-child { width: 40px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Relatório Avançado de Usuários</h1>
+  <div class="grid">
+    <div><label>Status</label><select id="filtroStatus"><option value="">Todos</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
+    <div><label>Time do Coração</label><select id="filtroTime"></select></div>
+    <div><label>Idade Mínima</label><input type="number" id="filtroIdadeMin" placeholder="Ex: 18" /></div>
+    <div><label>Idade Máxima</label><input type="number" id="filtroIdadeMax" placeholder="Ex: 65" /></div>
+    <div><label>Indicado Por (nome)</label><input type="text" id="filtroIndicadorNome" placeholder="Digite nome do indicador" /></div>
+    <div><label>Período de Cadastro (Início)</label><input type="date" id="filtroDataInicio" /></div>
+    <div><label>Período de Cadastro (Fim)</label><input type="date" id="filtroDataFim" /></div>
+    <div><label>Buscar por Nome/Usuário</label><input type="text" id="filtroBuscaUsuario" placeholder="Digite parte do nome ou usuário" /></div>
+    <div><label>Cidade</label><input type="text" id="filtroCidade" /></div>
+    <div><label>Estado</label><input type="text" id="filtroEstado" /></div>
+<div>
+  <label>País</label>
+  <select id="filtroPais">
+    <option value="">Todos</option>
+  </select>
+</div>
+    <div><label>Créditos Mínimos</label><input type="number" id="filtroCreditosMin" /></div>
+    <div><label>Créditos Máximos</label><input type="number" id="filtroCreditosMax" /></div>
+  </div>
 
-function calcularIdade(dataNascStr) {
-  if (!dataNascStr) return null;
-  const hoje = new Date();
-  const nasc = new Date(dataNascStr);
-  let idade = hoje.getFullYear() - nasc.getFullYear();
-  const m = hoje.getMonth() - nasc.getMonth();
-  if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
-  return idade;
-}
+  <div class="buttons">
+    <button class="buscar" onclick="buscarUsuarios()">Buscar</button>
+    <button class="excel" onclick="exportarExcel()">Exportar Excel</button>
+    <button class="csv" onclick="exportarCSV()">Exportar CSV</button>
+    <button class="pdf" onclick="gerarPDF()">Gerar PDF</button>
+    <button class="selecionarTodos" onclick="selecionarTodosCheckboxes()">Selecionar Todos</button>
+  </div>
 
-function formatarData(timestamp) {
-  if (!timestamp || !timestamp.toDate) return "-";
-  const d = timestamp.toDate();
-  return d.toLocaleDateString('pt-BR');
-}
+  <table>
+    <thead>
+      <tr>
+        <th><input type="checkbox" onclick="selecionarTodosCheckboxes(this)" /></th>
+        <th>Nome</th><th>Usuário</th><th>Status</th><th>Time</th><th>Idade</th><th>Créditos</th><th>Data Cadastro</th><th>Indicador</th><th>Cidade</th><th>Estado</th><th>País</th>
+      </tr>
+    </thead>
+    <tbody id="tabelaUsuarios"></tbody>
+  </table>
+</div>
 
-let cacheIndicadores = {};
-
-async function buscarUsuarios() {
-  const status = document.getElementById("filtroStatus").value;
-  const timeId = document.getElementById("filtroTime").value;
-  const idadeMin = parseInt(document.getElementById("filtroIdadeMin")?.value || 0);
-  const idadeMax = parseInt(document.getElementById("filtroIdadeMax")?.value || 200);
-  const dataInicio = document.getElementById("filtroDataInicio").value;
-  const dataFim = document.getElementById("filtroDataFim").value;
-  const buscaUsuario = document.getElementById("filtroBuscaUsuario").value.toLowerCase();
-  const filtroCidade = document.getElementById("filtroCidade").value.toLowerCase();
-  const filtroEstado = document.getElementById("filtroEstado").value.toLowerCase();
-  const filtroPais = document.getElementById("filtroPais").value.toLowerCase();
-  const creditosMin = parseInt(document.getElementById("filtroCreditosMin")?.value || 0);
-  const creditosMax = parseInt(document.getElementById("filtroCreditosMax")?.value || 999999);
-  const filtroIndicadorNome = document.getElementById("filtroIndicadorNome").value.toLowerCase();
-
-  const tabela = document.getElementById("tabelaUsuarios");
-  tabela.innerHTML = "";
-
-  const snap = await db.collection("usuarios").get();
-  cacheIndicadores = {};
-
-  for (const doc of snap.docs) {
-    const user = doc.data();
-    const idade = calcularIdade(user.dataNascimento);
-    const cadastro = user.dataCadastro?.toDate?.() || null;
-
-    let indicadorUsuario = "-";
-
-    if (user.indicadoPor) {
-      if (!cacheIndicadores[user.indicadoPor]) {
-        const indicadorDoc = await db.collection("usuarios").doc(user.indicadoPor).get();
-        if (indicadorDoc.exists) {
-          cacheIndicadores[user.indicadoPor] = indicadorDoc.data().usuarioUnico || "";
-        } else {
-          cacheIndicadores[user.indicadoPor] = "-";
-        }
-      }
-
-      indicadorUsuario = cacheIndicadores[user.indicadoPor];
-
-      if (filtroIndicadorNome && !indicadorUsuario.toLowerCase().includes(filtroIndicadorNome)) {
-        continue;
-      }
-    }
-
-    if (status && user.status !== status) continue;
-    if (timeId && user.timeId !== timeId) continue;
-    if (idade && (idade < idadeMin || idade > idadeMax)) continue;
-    if (dataInicio && (!cadastro || cadastro < new Date(`${dataInicio}T00:00:00`))) continue;
-    if (dataFim && (!cadastro || cadastro > new Date(`${dataFim}T23:59:59`))) continue;
-    if (buscaUsuario && !(`${user.nome || ""}`.toLowerCase().includes(buscaUsuario) || `${user.usuarioUnico || ""}`.toLowerCase().includes(buscaUsuario))) continue;
-    if (filtroCidade && !(`${user.cidade || ""}`.toLowerCase().includes(filtroCidade))) continue;
-    if (filtroEstado && !(`${user.estado || ""}`.toLowerCase().includes(filtroEstado))) continue;
-    if (filtroPais && !(`${user.pais || ""}`.toLowerCase().includes(filtroPais))) continue;
-    if (user.creditos < creditosMin || user.creditos > creditosMax) continue;
-
-    let timeNome = "-";
-    if (user.timeId) {
-      const timeDoc = await db.collection("times").doc(user.timeId).get();
-      if (timeDoc.exists) {
-        const timeData = timeDoc.data();
-        timeNome = `${timeData.nome} - ${timeData.pais?.slice(0, 3).toUpperCase() || ""}`;
-      }
-    }
-
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><input type="checkbox" class="linhaSelecionada" value="${doc.id}" /></td>
-      <td>${user.nome}</td>
-      <td>${user.usuario || "-"}</td>
-      <td>${user.status}</td>
-      <td>${timeNome}</td>
-      <td>${idade || "-"}</td>
-      <td>${user.creditos || 0}</td>
-      <td>${formatarData(user.dataCadastro)}</td>
-      <td>${indicadorUsuario}</td>
-      <td>${user.cidade || "-"}</td>
-      <td>${user.estado || "-"}</td>
-      <td>${user.pais || "-"}</td>
-    `;
-    tabela.appendChild(tr);
-  }
-}
-
-function selecionarTodosCheckboxes(source) {
-  const checkboxes = document.querySelectorAll('.linhaSelecionada');
-  checkboxes.forEach(cb => cb.checked = source?.checked ?? true);
-}
-
-// As funções exportarExcel, gerarPDF e exportarCSV permanecem inalteradas...
-
-document.addEventListener('DOMContentLoaded', () => {
-  carregarFiltros();
-  carregarPaises();
-});
-
-
-
-async function carregarPaises() {
-  const selectPais = document.getElementById("filtroPais");
-  if (!selectPais) return;
-
-  selectPais.innerHTML = `<option value="">Todos</option>`;
-  const snapshot = await db.collection("paises").orderBy("nome").get();
-  snapshot.forEach(doc => {
-    const nomePais = doc.data().nome;
-    const opt = document.createElement("option");
-    opt.value = nomePais;
-    opt.textContent = nomePais;
-    selectPais.appendChild(opt);
-  });
-}
-
-
-
-function exportarExcel() {
-  const rows = [];
-  const checkboxes = document.querySelectorAll(".linhaSelecionada:checked");
-
-  checkboxes.forEach(cb => {
-    const tr = cb.closest("tr");
-    const cols = [...tr.children].map(td => td.innerText);
-    rows.push(cols.slice(1));
-  });
-
-  if (rows.length === 0) return alert("Selecione pelo menos um usuário.");
-
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([
-    ["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"],
-    ...rows
-  ]);
-  XLSX.utils.book_append_sheet(wb, ws, "RelatorioUsuarios");
-  XLSX.writeFile(wb, "relatorio_usuarios.xlsx");
-}
-
-function gerarPDF() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  doc.setFontSize(12);
-  doc.text("Relatório de Usuários Yellup", 14, 20);
-
-  const rows = [];
-  const checkboxes = document.querySelectorAll(".linhaSelecionada:checked");
-
-  checkboxes.forEach(cb => {
-    const tr = cb.closest("tr");
-    const cols = [...tr.children].map(td => td.innerText);
-    rows.push(cols.slice(1));
-  });
-
-  if (rows.length === 0) return alert("Selecione pelo menos um usuário.");
-
-  doc.autoTable({
-    head: [[
-      "Nome", "Usuário", "Status", "Time", "Idade", "Créditos",
-      "Cadastro", "Indicador", "Cidade", "Estado", "País"
-    ]],
-    body: rows,
-    startY: 30,
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [41, 128, 185] }
-  });
-
-  doc.save("relatorio_usuarios.pdf");
-}
-
-function exportarCSV() {
-  const checkboxes = document.querySelectorAll(".linhaSelecionada:checked");
-  if (checkboxes.length === 0) return alert("Selecione pelo menos um usuário.");
-
-  const headers = [
-    "Nome", "Usuário", "Status", "Time", "Idade", "Créditos",
-    "Cadastro", "Indicador", "Cidade", "Estado", "País"
-  ];
-
-  const linhas = [headers];
-
-  checkboxes.forEach(cb => {
-    const tr = cb.closest("tr");
-    const cols = [...tr.children].map(td => td.innerText);
-    linhas.push(cols.slice(1));
-  });
-
-  const csvContent = linhas.map(linha =>
-    linha.map(valor => `"${valor.replace(/"/g, '""')}"`).join(";")
-  ).join("\n");
-
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.setAttribute("download", "relatorio_usuarios.csv");
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
+<!-- Firebase + XLSX + PDF Libs -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+<script src="js/firebase-init.js"></script>
+<script src="js/usuarios-relatorio.js"></script>
+</body>
+</html>
