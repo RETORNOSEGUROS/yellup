@@ -251,10 +251,6 @@ function exportarTabelaPDF() {
 }
 
 window.onload = () => {
-  carregarTimes();
   listarJogos();
-  document.getElementById("btnAdicionarPatrocinador").onclick = adicionarPatrocinador;
-  document.getElementById("salvarJogo").onclick = salvarJogo;
-  document.getElementById("btnExportarCSV").onclick = exportarTabelaCSV;
-  document.getElementById("btnExportarPDF").onclick = exportarTabelaPDF;
 };
+
