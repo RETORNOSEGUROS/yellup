@@ -266,3 +266,51 @@ function selecionarTodos(masterCheckbox) {
   const checkboxes = document.querySelectorAll('.jogoSelecionado');
   checkboxes.forEach(cb => cb.checked = masterCheckbox.checked);
 }
+
+
+function exportarTabelaPDF() {
+  import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(jsPDFModule => {
+    const { jsPDF } = jsPDFModule;
+    const doc = new jsPDF();
+    let y = 10;
+    doc.setFontSize(12);
+    doc.text("Lista de Jogos", 10, y);
+    y += 10;
+
+    const linhasSelecionadas = obterJogosSelecionados();
+    const linhas = linhasSelecionadas.length ? linhasSelecionadas : document.querySelectorAll("#listaJogos tr");
+
+    linhas.forEach(row => {
+      const cols = Array.from(row.children).slice(1, 7).map(col => col.innerText.replace(/\n/g, ' ').trim());
+      doc.text(cols.join(" | "), 10, y);
+      y += 10;
+      if (y > 280) {
+        doc.addPage();
+        y = 10;
+      }
+    });
+    doc.save("jogos.pdf");
+  });
+}
+
+function exportarTabelaExcel() {
+  const linhasSelecionadas = obterJogosSelecionados();
+  const linhas = linhasSelecionadas.length ? linhasSelecionadas : document.querySelectorAll("#listaJogos tr");
+
+  let table = `<table border='1'><tr>
+    <th>Casa</th><th>Visitante</th><th>Início</th><th>Fim</th><th>Entrada</th><th>Status</th>
+  </tr>`;
+
+  linhas.forEach(row => {
+    const cols = Array.from(row.children).slice(1, 7).map(col => col.innerText.replace(/\n/g, ' ').trim());
+    table += `<tr><td>${cols.join("</td><td>")}</td></tr>`;
+  });
+
+  table += "</table>";
+
+  const blob = new Blob([table], { type: "application/vnd.ms-excel" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "jogos.xls";
+  link.click();
+}
