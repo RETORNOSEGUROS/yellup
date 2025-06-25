@@ -43,9 +43,7 @@ async function listarJogos() {
 
   const filtroStatus = document.getElementById("filtroStatus").value;
   const filtroInicio = document.getElementById("filtroDataInicio").value;
-  const inicioFiltroDate = filtroInicio ? new Date(filtroInicio + "T00:00:00") : null;
   const filtroFim = document.getElementById("filtroDataFim").value;
-  const fimFiltroDate = filtroFim ? new Date(filtroFim + "T23:59:59") : null;
   const filtroTime = document.getElementById("filtroTime").value;
 
   const snapshot = await db.collection("jogos").orderBy("dataInicio", "desc").get();
@@ -62,8 +60,8 @@ async function listarJogos() {
     }
 
     if (filtroStatus && filtroStatus !== statusAtualizado) continue;
-    if (inicioFiltroDate && dataFim < inicioFiltroDate) continue;
-    if (fimFiltroDate && dataInicio > fimFiltroDate) continue;
+    if (filtroInicio && new Date(filtroInicio) > dataInicio) continue;
+    if (filtroFim && new Date(filtroFim) < dataFim) continue;
     if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
 
     jogosFiltrados.push({ id: doc.id, jogo, status: statusAtualizado });
@@ -75,6 +73,7 @@ async function listarJogos() {
   });
 
   for (const { id, jogo, status } of jogosFiltrados) {
+    const linhaCheckbox = `<td><input type='checkbox' class='jogoSelecionado' value='${id}'></td>`;
     const timeCasaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
     const timeForaDoc = await db.collection("times").doc(jogo.timeForaId).get();
 
@@ -88,7 +87,7 @@ async function listarJogos() {
 
     const coresFora = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeFora.primaria || '#000'} 0%,${timeFora.primaria || '#000'} 33%,${timeFora.secundaria || '#000'} 33%,${timeFora.secundaria || '#000'} 66%,${timeFora.terciaria || '#000'} 66%,${timeFora.terciaria || '#000'} 100%)"></span>`;
 
-    lista.innerHTML += `
+    lista.innerHTML += `<tr>${linhaCheckbox}` + `
       <tr>
         <td>${coresCasa} ${timeCasaNome}</td>
         <td>${coresFora} ${timeForaNome}</td>
@@ -222,8 +221,10 @@ async function editarJogo(jogoId) {
 }
 
 function exportarTabelaCSV() {
+  const linhasSelecionadas = obterJogosSelecionados();
+  const linhas = linhasSelecionadas.length ? linhasSelecionadas : document.querySelectorAll("#listaJogos tr");
   let csv = "Casa,Visitante,Início,Fim,Entrada,Status\n";
-  document.querySelectorAll("#listaJogos tr").forEach(row => {
+  linhas.forEach(row => {
     const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
     csv += cols.join(",") + "\n";
   });
@@ -235,13 +236,15 @@ function exportarTabelaCSV() {
 }
 
 function exportarTabelaPDF() {
+  const linhasSelecionadas = obterJogosSelecionados();
+  const linhas = linhasSelecionadas.length ? linhasSelecionadas : document.querySelectorAll("#listaJogos tr");
   import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(jsPDFModule => {
     const { jsPDF } = jsPDFModule;
     const doc = new jsPDF();
     let y = 10;
     doc.text("Lista de Jogos", 10, y);
     y += 10;
-    document.querySelectorAll("#listaJogos tr").forEach(row => {
+    linhas.forEach(row => {
       const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
       doc.text(cols.join(" | "), 10, y);
       y += 10;
@@ -258,3 +261,15 @@ window.onload = () => {
   document.getElementById("btnExportarCSV").onclick = exportarTabelaCSV;
   document.getElementById("btnExportarPDF").onclick = exportarTabelaPDF;
 };
+
+
+
+function selecionarTodos(master) {
+  const checkboxes = document.querySelectorAll('.jogoSelecionado');
+  checkboxes.forEach(cb => cb.checked = master.checked);
+}
+
+function obterJogosSelecionados() {
+  return Array.from(document.querySelectorAll('.jogoSelecionado:checked'))
+    .map(cb => cb.closest('tr'));
+}
