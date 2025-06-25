@@ -60,8 +60,11 @@ async function listarJogos() {
     }
 
     if (filtroStatus && filtroStatus !== statusAtualizado) continue;
-    if (filtroInicio && new Date(filtroInicio) > dataInicio) continue;
-    if (filtroFim && new Date(filtroFim) < dataFim) continue;
+const filtroInicio = document.getElementById("filtroDataInicio").value;
+const filtroFim = document.getElementById("filtroDataFim").value;
+let inicioFiltroDate = filtroInicio ? new Date(filtroInicio + "T00:00:00") : null;
+let fimFiltroDate = filtroFim ? new Date(filtroFim + "T23:59:59") : null;
+
     if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
 
     jogosFiltrados.push({ id: doc.id, jogo, status: statusAtualizado });
