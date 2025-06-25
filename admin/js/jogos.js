@@ -87,6 +87,8 @@ async function listarJogos() {
     const timeForaNome = `${timeFora.nome || '-'} - ${timeFora.pais || ''}`;
 
     const linha = document.createElement("tr");
+    const coresCasa = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeCasa.primaria || '#000'} 0%,${timeCasa.primaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 100%)"></span>`;
+    const coresFora = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeFora.primaria || '#000'} 0%,${timeFora.primaria || '#000'} 33%,${timeFora.secundaria || '#000'} 33%,${timeFora.secundaria || '#000'} 66%,${timeFora.terciaria || '#000'} 66%,${timeFora.terciaria || '#000'} 100%)"></span>`;
     linha.innerHTML = `
       <td><input type="checkbox" class="jogo-checkbox" data-export='${JSON.stringify({ casa: timeCasaNome, visitante: timeForaNome, inicio: formatarData(jogo.dataInicio), fim: formatarData(jogo.dataFim), entrada: jogo.valorEntrada + " créditos", status })}'></td>
       <td>${timeCasaNome}</td>
