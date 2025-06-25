@@ -1,141 +1,70 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Cadastro de Jogos</title>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
-  <script src="./js/firebase-init.js"></script>
-  <script defer src="./js/jogos.js"></script>
+  <meta charset="UTF-8">
+  <title>Painel de Jogos</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #f5f5f5;
-      margin: 0;
-      padding: 0;
-    }
-    .container {
-      max-width: 960px;
-      margin: 40px auto;
-      background: white;
-      padding: 30px;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
-    h2, h3 {
-      text-align: center;
-    }
-    input, select, button {
-      width: 100%;
-      margin: 5px 0 15px;
-      padding: 10px;
-      font-size: 16px;
-    }
-    .btn-success {
-      background-color: #28a745;
-      color: white;
-      border: none;
-    }
-    .btn-purple {
-      background-color: #7f3ccf;
-      color: white;
-      border: none;
-    }
-    table {
-      width: 100%;
-      margin-top: 20px;
-      border-collapse: collapse;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 8px;
-      text-align: center;
-    }
-    th {
-      background-color: #333;
-      color: white;
-    }
-    .filtros {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin: 20px 0;
-    }
-    .patrocinador-item img {
-      max-height: 40px;
-      margin-top: 5px;
-    }
-    .preview {
-      margin-top: 5px;
-    }
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h2 { margin-top: 40px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    table, th, td { border: 1px solid #ddd; }
+    th, td { padding: 10px; text-align: left; }
+    th { background-color: #333; color: white; }
+    button { margin: 2px; padding: 5px 10px; }
+    select, input { padding: 6px; margin: 4px 0; width: 100%; max-width: 300px; }
+    .btn-purple { background-color: purple; color: white; border: none; padding: 10px; }
+    .btn-green { background-color: green; color: white; border: none; padding: 10px; }
+    .btn-red { color: red; border: 1px solid red; background: none; padding: 5px; }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
-  <div class="container">
-    <h2>Cadastro de Jogos</h2>
+  <h1>Cadastro de Jogos</h1>
 
-    <label>Time Casa:</label>
-    <select id="timeCasa"></select>
+  <!-- Campos de cadastro omitidos para foco nos filtros e listagem -->
 
-    <label>Time Visitante:</label>
-    <select id="timeVisitante"></select>
+  <h2>Jogos Cadastrados</h2>
 
-    <label>Data Início:</label>
-    <input type="datetime-local" id="dataInicio">
+  <select id="filtroStatus">
+    <option value="">Todos</option>
+    <option value="agendado">Agendado</option>
+    <option value="ao_vivo">Ao Vivo</option>
+    <option value="finalizado">Finalizado</option>
+  </select>
 
-    <label>Data Fim:</label>
-    <input type="datetime-local" id="dataFim">
+  <select id="filtroTime">
+    <option value="">Selecione o Time</option>
+    <!-- preenchido dinamicamente -->
+  </select>
 
-    <label>Valor Entrada (créditos):</label>
-    <input type="number" id="valorEntrada" value="25">
+  <input type="date" id="filtroDataInicio">
+  <input type="date" id="filtroDataFim">
+  <button id="filtrarBtn">Filtrar</button>
 
-    <label>Status:</label>
-    <select id="status">
-      <option value="agendado">Agendado</option>
-      <option value="ao_vivo">Ao Vivo</option>
-      <option value="finalizado">Finalizado</option>
-    </select>
+  <button id="btnExportarCSV">Exportar CSV</button>
+  <button id="btnExportarPDF">Exportar PDF</button>
+  <button id="btnExportarXLSX">Exportar Excel</button>
 
-    <h3>Patrocinadores</h3>
-    <div id="patrocinadoresContainer"></div>
-    <button id="btnAdicionarPatrocinador" class="btn-purple">+ Adicionar Patrocinador</button>
+  <table>
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="selecionarTodos"></th>
+        <th>Casa</th>
+        <th>Visitante</th>
+        <th>Início</th>
+        <th>Fim</th>
+        <th>Entrada</th>
+        <th>Status</th>
+        <th>Patrocínio</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody id="listaJogos"></tbody>
+  </table>
 
-    <button id="salvarJogo" class="btn-success">Salvar Jogo</button>
-
-    <h3>Jogos Cadastrados</h3>
-
-    <div class="filtros">
-      <select id="filtroStatus">
-        <option value="">Todos</option>
-        <option value="ao_vivo">Ao Vivo</option>
-        <option value="agendado">Agendado</option>
-        <option value="finalizado">Finalizado</option>
-      </select>
-      <select id="filtroTime"></select>
-      <input type="date" id="filtroDataInicio">
-      <input type="date" id="filtroDataFim">
-      <button onclick="listarJogos()">Filtrar</button>
-      <button id="btnExportarCSV">Exportar CSV</button>
-      <button id="btnExportarPDF">Exportar PDF</button>
-      <button id="btnExportarXLSX">Exportar Excel</button>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th><input type="checkbox" onclick="document.querySelectorAll('.select-jogo').forEach(c=>c.checked=this.checked)"></th>
-          <th>Casa</th>
-          <th>Visitante</th>
-          <th>Início</th>
-          <th>Fim</th>
-          <th>Entrada</th>
-          <th>Status</th>
-          <th>Ações</th>
-        </tr>
-      </thead>
-      <tbody id="listaJogos"></tbody>
-    </table>
-  </div>
+  <script defer src="/js/jogos.js"></script>
 </body>
 </html>
