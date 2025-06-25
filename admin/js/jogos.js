@@ -1,8 +1,4 @@
-// jogos.js atualizado com filtros, exportação selecionada, e suporte Excel
-// BASE: jogos (9).js ajustado
-
 let jogoEditandoId = null;
-let todosJogosCarregados = [];
 
 async function carregarTimes() {
   const timesRef = await db.collection("times").orderBy("nome").get();
@@ -63,17 +59,13 @@ async function listarJogos() {
       await db.collection("jogos").doc(doc.id).update({ status: statusAtualizado });
     }
 
-    const dataStr = dataInicio.toDateString();
-
     if (filtroStatus && filtroStatus !== statusAtualizado) continue;
-    if (filtroInicio && new Date(filtroInicio).toDateString() > dataStr) continue;
-    if (filtroFim && new Date(filtroFim).toDateString() < dataStr) continue;
+    if (filtroInicio && new Date(filtroInicio) > dataInicio) continue;
+    if (filtroFim && new Date(filtroFim) < dataFim) continue;
     if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
 
     jogosFiltrados.push({ id: doc.id, jogo, status: statusAtualizado });
   }
-
-  todosJogosCarregados = jogosFiltrados;
 
   jogosFiltrados.sort((a, b) => {
     const peso = { ao_vivo: 1, agendado: 2, finalizado: 3 };
@@ -90,73 +82,177 @@ async function listarJogos() {
     const timeCasaNome = `${timeCasa.nome || '-'} - ${timeCasa.pais || ''}`;
     const timeForaNome = `${timeFora.nome || '-'} - ${timeFora.pais || ''}`;
 
-    const row = document.createElement("tr");
-    row.innerHTML = `
-      <td><input type="checkbox" class="select-jogo" data-id="${id}"></td>
-      <td>${timeCasaNome}</td>
-      <td>${timeForaNome}</td>
-      <td>${formatarData(jogo.dataInicio)}</td>
-      <td>${formatarData(jogo.dataFim)}</td>
-      <td>${jogo.valorEntrada} créditos</td>
-      <td>${status}</td>
-      <td>
-        <button onclick="editarJogo('${id}')">Editar</button>
-        <button onclick="excluirJogo('${id}')" style="color:red">Excluir</button>
-      </td>
-    `;
-    lista.appendChild(row);
+    const coresCasa = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeCasa.primaria || '#000'} 0%,${timeCasa.primaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 100%)"></span>`;
+
+    const coresFora = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeFora.primaria || '#000'} 0%,${timeFora.primaria || '#000'} 33%,${timeFora.secundaria || '#000'} 33%,${timeFora.secundaria || '#000'} 66%,${timeFora.terciaria || '#000'} 66%,${timeFora.terciaria || '#000'} 100%)"></span>`;
+
+    lista.innerHTML += `
+      <tr>
+        <td>${coresCasa} ${timeCasaNome}</td>
+        <td>${coresFora} ${timeForaNome}</td>
+        <td>${formatarData(jogo.dataInicio)}</td>
+        <td>${formatarData(jogo.dataFim)}</td>
+        <td>${jogo.valorEntrada} créditos</td>
+        <td>${status}</td>
+        <td>
+          <button onclick="editarJogo('${id}')">Editar</button>
+          <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
+        </td>
+      </tr>`;
   }
 }
 
-function exportarSelecionados(tipo) {
-  const selecionados = [...document.querySelectorAll(".select-jogo:checked")].map(el => el.dataset.id);
-  const jogos = todosJogosCarregados.filter(j => selecionados.includes(j.id));
-  if (!jogos.length) return alert("Nenhum jogo selecionado");
-
-  const dados = jogos.map(({ jogo, status }) => [
-    jogo.timeCasaId,
-    jogo.timeForaId,
-    formatarData(jogo.dataInicio),
-    formatarData(jogo.dataFim),
-    jogo.valorEntrada + " créditos",
-    status
-  ]);
-  const cabecalho = ["Time Casa", "Time Visitante", "Início", "Fim", "Entrada", "Status"];
-
-  if (tipo === "csv") {
-    let csv = cabecalho.join(",") + "\n" + dados.map(r => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "jogos.csv";
-    a.click();
+async function excluirJogo(jogoId) {
+  if (confirm("Tem certeza que deseja excluir este jogo?")) {
+    await db.collection("jogos").doc(jogoId).delete();
+    alert("Jogo excluído com sucesso!");
+    listarJogos();
   }
+}
 
-  if (tipo === "excel") {
-    import("https://cdn.sheetjs.com/xlsx-0.20.0/package/xlsx.mjs").then(XLSX => {
-      const ws = XLSX.utils.aoa_to_sheet([cabecalho, ...dados]);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Jogos");
-      XLSX.writeFile(wb, "jogos.xlsx");
+function adicionarPatrocinador() {
+  const container = document.getElementById("patrocinadoresContainer");
+  const item = document.createElement("div");
+  item.classList.add("patrocinador-item");
+  item.innerHTML = `
+    <input type="text" class="patrocinador-nome" placeholder="Nome">
+    <input type="number" class="patrocinador-valor" placeholder="Valor em R$">
+    <input type="url" class="patrocinador-site" placeholder="Site">
+    <input type="file" class="patrocinador-logo">
+    <div class="preview"></div>
+  `;
+
+  item.querySelector(".patrocinador-logo").addEventListener("change", function (e) {
+    const file = e.target.files[0];
+    if (file && file.size < 300 * 1024) {
+      const reader = new FileReader();
+      reader.onload = function (evt) {
+        const preview = item.querySelector(".preview");
+        preview.innerHTML = `<img src="${evt.target.result}" alt="Logo">`;
+        item.dataset.base64 = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      alert("Logo inválido ou maior que 300KB.");
+    }
+  });
+
+  container.appendChild(item);
+}
+
+async function salvarJogo() {
+  const timeCasaId = document.getElementById("timeCasa").value;
+  const timeForaId = document.getElementById("timeVisitante").value;
+  const dataInicio = firebase.firestore.Timestamp.fromDate(new Date(document.getElementById("dataInicio").value));
+  const dataFim = firebase.firestore.Timestamp.fromDate(new Date(document.getElementById("dataFim").value));
+  const valorEntrada = parseInt(document.getElementById("valorEntrada").value) || 0;
+  const status = document.getElementById("status").value;
+
+  const patrocinadores = [];
+  document.querySelectorAll(".patrocinador-item").forEach(item => {
+    patrocinadores.push({
+      nome: item.querySelector(".patrocinador-nome").value || "",
+      valor: parseInt(item.querySelector(".patrocinador-valor").value) || 0,
+      site: item.querySelector(".patrocinador-site").value || "",
+      logo: item.dataset.base64 || ""
     });
+  });
+
+  const jogoData = { timeCasaId, timeForaId, dataInicio, dataFim, valorEntrada, status, patrocinadores };
+
+  if (jogoEditandoId) {
+    await db.collection("jogos").doc(jogoEditandoId).update(jogoData);
+    alert("Jogo atualizado com sucesso!");
+    jogoEditandoId = null;
+    document.getElementById("salvarJogo").textContent = "Salvar Jogo";
+  } else {
+    await db.collection("jogos").add(jogoData);
+    alert("Jogo salvo com sucesso!");
   }
 
-  if (tipo === "pdf") {
-    import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(jsPDFModule => {
-      const { jsPDF } = jsPDFModule;
-      import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js").then(() => {
-        const doc = new jsPDF();
-        doc.autoTable({ head: [cabecalho], body: dados });
-        doc.save("jogos.pdf");
-      });
+  listarJogos();
+}
+
+async function editarJogo(jogoId) {
+  const doc = await db.collection("jogos").doc(jogoId).get();
+  if (!doc.exists) return alert("Jogo não encontrado!");
+
+  const jogo = doc.data();
+  jogoEditandoId = jogoId;
+
+  document.getElementById("timeCasa").value = jogo.timeCasaId;
+  document.getElementById("timeVisitante").value = jogo.timeForaId;
+  document.getElementById("dataInicio").value = jogo.dataInicio.toDate().toISOString().slice(0, 16);
+  document.getElementById("dataFim").value = jogo.dataFim.toDate().toISOString().slice(0, 16);
+  document.getElementById("valorEntrada").value = jogo.valorEntrada;
+  document.getElementById("status").value = jogo.status;
+
+  document.getElementById("patrocinadoresContainer").innerHTML = "";
+  (jogo.patrocinadores || []).forEach(p => {
+    const item = document.createElement("div");
+    item.classList.add("patrocinador-item");
+    item.dataset.base64 = p.logo;
+    item.innerHTML = `
+      <input type="text" class="patrocinador-nome" placeholder="Nome" value="${p.nome}">
+      <input type="number" class="patrocinador-valor" placeholder="Valor em R$" value="${p.valor}">
+      <input type="url" class="patrocinador-site" placeholder="Site" value="${p.site}">
+      <input type="file" class="patrocinador-logo">
+      <div class="preview">${p.logo ? `<img src="${p.logo}" alt="Logo">` : ""}</div>
+    `;
+    item.querySelector(".patrocinador-logo").addEventListener("change", function (e) {
+      const file = e.target.files[0];
+      if (file && file.size < 300 * 1024) {
+        const reader = new FileReader();
+        reader.onload = function (evt) {
+          const preview = item.querySelector(".preview");
+          preview.innerHTML = `<img src="${evt.target.result}" alt="Logo">`;
+          item.dataset.base64 = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+      } else {
+        alert("Logo inválido ou maior que 300KB.");
+      }
     });
-  }
+    document.getElementById("patrocinadoresContainer").appendChild(item);
+  });
+
+  document.getElementById("salvarJogo").textContent = "Atualizar Jogo";
+}
+
+function exportarTabelaCSV() {
+  let csv = "Casa,Visitante,Início,Fim,Entrada,Status\n";
+  document.querySelectorAll("#listaJogos tr").forEach(row => {
+    const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
+    csv += cols.join(",") + "\n";
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "jogos.csv";
+  link.click();
+}
+
+function exportarTabelaPDF() {
+  import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(jsPDFModule => {
+    const { jsPDF } = jsPDFModule;
+    const doc = new jsPDF();
+    let y = 10;
+    doc.text("Lista de Jogos", 10, y);
+    y += 10;
+    document.querySelectorAll("#listaJogos tr").forEach(row => {
+      const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
+      doc.text(cols.join(" | "), 10, y);
+      y += 10;
+    });
+    doc.save("jogos.pdf");
+  });
 }
 
 window.onload = () => {
   carregarTimes();
   listarJogos();
-  document.getElementById("btnExportarCSV").onclick = () => exportarSelecionados("csv");
-  document.getElementById("btnExportarPDF").onclick = () => exportarSelecionados("pdf");
-  document.getElementById("btnExportarXLSX").onclick = () => exportarSelecionados("excel");
+  document.getElementById("btnAdicionarPatrocinador").onclick = adicionarPatrocinador;
+  document.getElementById("salvarJogo").onclick = salvarJogo;
+  document.getElementById("btnExportarCSV").onclick = exportarTabelaCSV;
+  document.getElementById("btnExportarPDF").onclick = exportarTabelaPDF;
 };
