@@ -1,4 +1,5 @@
-// VERSÃO FINAL CORRIGIDA - jogos.js (com PDF fixo, filtro funcional e bandeiras)
+// VERSÃO CONSOLIDADA FINAL - jogos.js
+// Base: jogos (13).js + correções PDF (script) + estabilidade filtro e bandeiras mantidas
 
 let jogoEditandoId = null;
 
@@ -29,11 +30,9 @@ function formatarData(timestamp) {
 }
 
 function dataEhMesmoDia(d1, d2) {
-  return (
-    d1.getFullYear() === d2.getFullYear() &&
-    d1.getMonth() === d2.getMonth() &&
-    d1.getDate() === d2.getDate()
-  );
+  return d1.getFullYear() === d2.getFullYear() &&
+         d1.getMonth() === d2.getMonth() &&
+         d1.getDate() === d2.getDate();
 }
 
 function definirStatus(dataInicio, dataFim) {
@@ -123,5 +122,3 @@ function exportarSelecionadosPDF() {
   });
   doc.save("jogos.pdf");
 }
-
-// As demais funções (salvarJogo, editarJogo, exportar CSV/Excel) permanecem como estão
