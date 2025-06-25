@@ -54,30 +54,21 @@ async function buscarUsuarios() {
     const idade = calcularIdade(user.dataNascimento);
     const cadastro = user.dataCadastro?.toDate?.() || null;
 
-    let indicadorUsuario = "-";
-
-    if (user.indicadoPor) {
+    let indicadorNome = "-";
+    if (user.indicadoPor && filtroIndicadorNome) {
       if (!cacheIndicadores[user.indicadoPor]) {
         const indicadorDoc = await db.collection("usuarios").doc(user.indicadoPor).get();
-        if (indicadorDoc.exists) {
-          cacheIndicadores[user.indicadoPor] = indicadorDoc.data().usuarioUnico || "";
-        } else {
-          cacheIndicadores[user.indicadoPor] = "-";
-        }
+        cacheIndicadores[user.indicadoPor] = indicadorDoc.exists ? indicadorDoc.data().nome.toLowerCase() : "";
       }
-
-      indicadorUsuario = cacheIndicadores[user.indicadoPor];
-
-      if (filtroIndicadorNome && !indicadorUsuario.toLowerCase().includes(filtroIndicadorNome)) {
-        continue;
-      }
+      if (!cacheIndicadores[user.indicadoPor].includes(filtroIndicadorNome)) continue;
+      indicadorNome = cacheIndicadores[user.indicadoPor];
     }
 
     if (status && user.status !== status) continue;
     if (timeId && user.timeId !== timeId) continue;
     if (idade && (idade < idadeMin || idade > idadeMax)) continue;
-    if (dataInicio && (!cadastro || cadastro < new Date(dataInicio))) continue;
-    if (dataFim && (!cadastro || cadastro > new Date(dataFim))) continue;
+    if (dataInicio && (!cadastro || cadastro < new Date(`${dataInicio}T00:00:00`))) continue;
+    if (dataFim && (!cadastro || cadastro > new Date(`${dataFim}T23:59:59`))) continue;
     if (buscaUsuario && !(`${user.nome || ""}`.toLowerCase().includes(buscaUsuario) || `${user.usuarioUnico || ""}`.toLowerCase().includes(buscaUsuario))) continue;
     if (filtroCidade && !(`${user.cidade || ""}`.toLowerCase().includes(filtroCidade))) continue;
     if (filtroEstado && !(`${user.estado || ""}`.toLowerCase().includes(filtroEstado))) continue;
@@ -87,10 +78,7 @@ async function buscarUsuarios() {
     let timeNome = "-";
     if (user.timeId) {
       const timeDoc = await db.collection("times").doc(user.timeId).get();
-      if (timeDoc.exists) {
-        const timeData = timeDoc.data();
-        timeNome = `${timeData.nome} - ${timeData.pais?.slice(0, 3).toUpperCase() || ""}`;
-      }
+      if (timeDoc.exists) timeNome = `${timeDoc.data().nome} - ${timeDoc.data().pais?.slice(0,3).toUpperCase() || ""}`;
     }
 
     const tr = document.createElement("tr");
@@ -103,7 +91,7 @@ async function buscarUsuarios() {
       <td>${idade || "-"}</td>
       <td>${user.creditos || 0}</td>
       <td>${formatarData(user.dataCadastro)}</td>
-      <td>${indicadorUsuario}</td>
+      <td>${indicadorNome}</td>
       <td>${user.cidade || "-"}</td>
       <td>${user.estado || "-"}</td>
       <td>${user.pais || "-"}</td>
@@ -117,6 +105,106 @@ function selecionarTodosCheckboxes(source) {
   checkboxes.forEach(cb => cb.checked = source?.checked ?? true);
 }
 
-// As funções exportarExcel, gerarPDF e exportarCSV permanecem inalteradas...
+function exportarExcel() {
+  const rows = [];
+  const checkboxes = document.querySelectorAll(".linhaSelecionada:checked");
 
-document.addEventListener('DOMContentLoaded', carregarFiltros);
+  checkboxes.forEach(cb => {
+    const tr = cb.closest("tr");
+    const cols = [...tr.children].map(td => td.innerText);
+    rows.push(cols.slice(1));
+  });
+
+  if (rows.length === 0) return alert("Selecione pelo menos um usuário.");
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["Nome", "Usuário", "Status", "Time", "Idade", "Créditos", "Cadastro", "Indicador", "Cidade", "Estado", "País"],
+    ...rows
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws, "RelatorioUsuarios");
+  XLSX.writeFile(wb, "relatorio_usuarios.xlsx");
+}
+
+function gerarPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(12);
+  doc.text("Relatório de Usuários Yellup", 14, 20);
+
+  const rows = [];
+  const checkboxes = document.querySelectorAll(".linhaSelecionada:checked");
+
+  checkboxes.forEach(cb => {
+    const tr = cb.closest("tr");
+    const cols = [...tr.children].map(td => td.innerText);
+    rows.push(cols.slice(1));
+  });
+
+  if (rows.length === 0) return alert("Selecione pelo menos um usuário.");
+
+  doc.autoTable({
+    head: [[
+      "Nome", "Usuário", "Status", "Time", "Idade", "Créditos",
+      "Cadastro", "Indicador", "Cidade", "Estado", "País"
+    ]],
+    body: rows,
+    startY: 30,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [41, 128, 185] }
+  });
+
+  doc.save("relatorio_usuarios.pdf");
+}
+
+function exportarCSV() {
+  const checkboxes = document.querySelectorAll(".linhaSelecionada:checked");
+  if (checkboxes.length === 0) return alert("Selecione pelo menos um usuário.");
+
+  const headers = [
+    "Nome", "Usuário", "Status", "Time", "Idade", "Créditos",
+    "Cadastro", "Indicador", "Cidade", "Estado", "País"
+  ];
+
+  const linhas = [headers];
+
+  checkboxes.forEach(cb => {
+    const tr = cb.closest("tr");
+    const cols = [...tr.children].map(td => td.innerText);
+    linhas.push(cols.slice(1));
+  });
+
+  const csvContent = linhas.map(linha =>
+    linha.map(valor => `"${valor.replace(/"/g, '""')}"`).join(";")
+  ).join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute("download", "relatorio_usuarios.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  carregarFiltros();
+  carregarPaises();
+});
+
+
+
+async function carregarPaises() {
+  const selectPais = document.getElementById("filtroPais");
+  if (!selectPais) return;
+
+  selectPais.innerHTML = `<option value="">Todos</option>`;
+  const snapshot = await db.collection("paises").orderBy("nome").get();
+  snapshot.forEach(doc => {
+    const nomePais = doc.data().nome;
+    const opt = document.createElement("option");
+    opt.value = nomePais;
+    opt.textContent = nomePais;
+    selectPais.appendChild(opt);
+  });
+}
