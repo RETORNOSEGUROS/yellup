@@ -1,23 +1,40 @@
-// jogos.js atualizado com:
-// - Filtro por data exata (00:00 até 23:59)
-// - Exportação com nomes dos times
-// - Valor total dos patrocinadores
-// - Correção de jsPDF
-// - Bandeiras funcionais
-
 let jogoEditandoId = null;
-let todosJogosCarregados = [];
 
-function formatarDataCompleta(data) {
-  return new Date(data).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+async function carregarTimes() {
+  const timesRef = await db.collection("times").orderBy("nome").get();
+  const selects = [document.getElementById("timeCasa"), document.getElementById("timeVisitante"), document.getElementById("filtroTime")];
+  selects.forEach(select => {
+    if (!select) return;
+    select.innerHTML = '<option value="">Selecione o Time</option>';
+    timesRef.forEach(doc => {
+      const data = doc.data();
+      const opt = document.createElement("option");
+      opt.value = doc.id;
+      opt.textContent = data.nome + ' - ' + (data.pais || '');
+      select.appendChild(opt);
+    });
+  });
 }
 
-function formatarReais(valor) {
-  return `R$ ${parseFloat(valor).toFixed(2).replace('.', ',')}`;
+function formatarData(timestamp) {
+  if (typeof timestamp?.toDate === "function") {
+    return timestamp.toDate().toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  }
+  if (typeof timestamp === "string") {
+    return new Date(timestamp).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  }
+  return "-";
 }
 
-function formatarHoraBrasil(data) {
-  return new Date(data).toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' });
+function formatarMoeda(valor) {
+  return valor?.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) || "R$ 0,00";
+}
+
+function definirStatus(dataInicio, dataFim) {
+  const agora = new Date();
+  if (agora < dataInicio) return "agendado";
+  if (agora >= dataInicio && agora <= dataFim) return "ao_vivo";
+  return "finalizado";
 }
 
 async function listarJogos() {
@@ -30,104 +47,212 @@ async function listarJogos() {
   const filtroTime = document.getElementById("filtroTime").value;
 
   const snapshot = await db.collection("jogos").orderBy("dataInicio", "desc").get();
+  const jogosFiltrados = [];
 
-  todosJogosCarregados = [];
   for (const doc of snapshot.docs) {
     const jogo = doc.data();
-    const id = doc.id;
-    const dataInicio = new Date(jogo.dataInicio?.seconds ? jogo.dataInicio.seconds * 1000 : jogo.dataInicio);
-    const dataFim = new Date(jogo.dataFim?.seconds ? jogo.dataFim.seconds * 1000 : jogo.dataFim);
+    const dataInicio = jogo.dataInicio?.toDate?.() || new Date(jogo.dataInicio);
+    const dataFim = jogo.dataFim?.toDate?.() || new Date(jogo.dataFim);
+    const statusAtualizado = definirStatus(dataInicio, dataFim);
 
-    // Filtro por data exata
-    if (filtroInicio) {
-      const inicioFiltro = new Date(filtroInicio);
-      inicioFiltro.setHours(0, 0, 0, 0);
-      if (dataInicio < inicioFiltro) continue;
+    if (jogo.status !== statusAtualizado) {
+      await db.collection("jogos").doc(doc.id).update({ status: statusAtualizado });
     }
-    if (filtroFim) {
-      const fimFiltro = new Date(filtroFim);
-      fimFiltro.setHours(23, 59, 59, 999);
-      if (dataInicio > fimFiltro) continue;
-    }
-    if (filtroStatus && filtroStatus !== jogo.status) continue;
+
+    if (filtroStatus && filtroStatus !== statusAtualizado) continue;
+    if (filtroInicio && new Date(filtroInicio) > dataInicio) continue;
+    if (filtroFim && new Date(filtroFim) < dataFim) continue;
     if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
 
+    jogosFiltrados.push({ id: doc.id, jogo, status: statusAtualizado });
+  }
+
+  jogosFiltrados.sort((a, b) => {
+    const peso = { ao_vivo: 1, agendado: 2, finalizado: 3 };
+    return peso[a.status] - peso[b.status];
+  });
+
+  for (const { id, jogo, status } of jogosFiltrados) {
     const timeCasaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
     const timeForaDoc = await db.collection("times").doc(jogo.timeForaId).get();
+
     const timeCasa = timeCasaDoc.exists ? timeCasaDoc.data() : {};
     const timeFora = timeForaDoc.exists ? timeForaDoc.data() : {};
 
-    const patrocinadores = jogo.patrocinadores || [];
-    const totalPatrocinio = patrocinadores.reduce((acc, cur) => acc + (parseFloat(cur.valor || 0) || 0), 0);
+    const timeCasaNome = `${timeCasa.nome || '-'} - ${timeCasa.pais || ''}`;
+    const timeForaNome = `${timeFora.nome || '-'} - ${timeFora.pais || ''}`;
 
-    const row = document.createElement("tr");
-    row.innerHTML = `
-      <td><input type="checkbox" class="select-jogo" data-id="${id}"></td>
-      <td><img src="${timeCasa.bandeira || '#'}" width="20"> ${timeCasa.nome || '-'} - ${timeCasa.pais || ''}</td>
-      <td><img src="${timeFora.bandeira || '#'}" width="20"> ${timeFora.nome || '-'} - ${timeFora.pais || ''}</td>
-      <td>${formatarDataCompleta(dataInicio)}</td>
-      <td>${formatarDataCompleta(dataFim)}</td>
-      <td>${jogo.valorEntrada} créditos</td>
-      <td>${jogo.status}</td>
-      <td>💰 ${formatarReais(totalPatrocinio)}</td>
-      <td>
-        <button onclick="editarJogo('${id}')">Editar</button>
-        <button onclick="excluirJogo('${id}')" style="color:red">Excluir</button>
-      </td>
-    `;
-    lista.appendChild(row);
-    todosJogosCarregados.push({ id, jogo, timeCasa, timeFora, totalPatrocinio });
+    const coresCasa = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeCasa.primaria || '#000'} 0%,${timeCasa.primaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 100%)"></span>`;
+
+    const coresFora = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeFora.primaria || '#000'} 0%,${timeFora.primaria || '#000'} 33%,${timeFora.secundaria || '#000'} 33%,${timeFora.secundaria || '#000'} 66%,${timeFora.terciaria || '#000'} 66%,${timeFora.terciaria || '#000'} 100%)"></span>`;
+
+    lista.innerHTML += `
+      <tr>
+        <td>${coresCasa} ${timeCasaNome}</td>
+        <td>${coresFora} ${timeForaNome}</td>
+        <td>${formatarData(jogo.dataInicio)}</td>
+        <td>${formatarData(jogo.dataFim)}</td>
+        <td>${jogo.valorEntrada} créditos</td>
+        <td>${status}</td>
+        <td>
+          <button onclick="editarJogo('${id}')">Editar</button>
+          <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
+        </td>
+      </tr>`;
   }
 }
 
-function exportarSelecionados(tipo) {
-  const selecionados = Array.from(document.querySelectorAll(".select-jogo:checked"))
-    .map(el => todosJogosCarregados.find(j => j.id === el.dataset.id))
-    .filter(Boolean);
+async function excluirJogo(jogoId) {
+  if (confirm("Tem certeza que deseja excluir este jogo?")) {
+    await db.collection("jogos").doc(jogoId).delete();
+    alert("Jogo excluído com sucesso!");
+    listarJogos();
+  }
+}
 
-  if (selecionados.length === 0) {
-    alert("Selecione ao menos 1 jogo para exportar");
-    return;
+function adicionarPatrocinador() {
+  const container = document.getElementById("patrocinadoresContainer");
+  const item = document.createElement("div");
+  item.classList.add("patrocinador-item");
+  item.innerHTML = `
+    <input type="text" class="patrocinador-nome" placeholder="Nome">
+    <input type="number" class="patrocinador-valor" placeholder="Valor em R$">
+    <input type="url" class="patrocinador-site" placeholder="Site">
+    <input type="file" class="patrocinador-logo">
+    <div class="preview"></div>
+  `;
+
+  item.querySelector(".patrocinador-logo").addEventListener("change", function (e) {
+    const file = e.target.files[0];
+    if (file && file.size < 300 * 1024) {
+      const reader = new FileReader();
+      reader.onload = function (evt) {
+        const preview = item.querySelector(".preview");
+        preview.innerHTML = `<img src="${evt.target.result}" alt="Logo">`;
+        item.dataset.base64 = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      alert("Logo inválido ou maior que 300KB.");
+    }
+  });
+
+  container.appendChild(item);
+}
+
+async function salvarJogo() {
+  const timeCasaId = document.getElementById("timeCasa").value;
+  const timeForaId = document.getElementById("timeVisitante").value;
+  const dataInicio = firebase.firestore.Timestamp.fromDate(new Date(document.getElementById("dataInicio").value));
+  const dataFim = firebase.firestore.Timestamp.fromDate(new Date(document.getElementById("dataFim").value));
+  const valorEntrada = parseInt(document.getElementById("valorEntrada").value) || 0;
+  const status = document.getElementById("status").value;
+
+  const patrocinadores = [];
+  document.querySelectorAll(".patrocinador-item").forEach(item => {
+    patrocinadores.push({
+      nome: item.querySelector(".patrocinador-nome").value || "",
+      valor: parseInt(item.querySelector(".patrocinador-valor").value) || 0,
+      site: item.querySelector(".patrocinador-site").value || "",
+      logo: item.dataset.base64 || ""
+    });
+  });
+
+  const jogoData = { timeCasaId, timeForaId, dataInicio, dataFim, valorEntrada, status, patrocinadores };
+
+  if (jogoEditandoId) {
+    await db.collection("jogos").doc(jogoEditandoId).update(jogoData);
+    alert("Jogo atualizado com sucesso!");
+    jogoEditandoId = null;
+    document.getElementById("salvarJogo").textContent = "Salvar Jogo";
+  } else {
+    await db.collection("jogos").add(jogoData);
+    alert("Jogo salvo com sucesso!");
   }
 
-  const header = ["Time Casa", "Time Visitante", "Início", "Fim", "Entrada", "Status", "Patrocínio"];
-  const dados = selecionados.map(j => [
-    `${j.timeCasa.nome} - ${j.timeCasa.pais}`,
-    `${j.timeFora.nome} - ${j.timeFora.pais}`,
-    formatarDataCompleta(j.jogo.dataInicio),
-    formatarDataCompleta(j.jogo.dataFim),
-    j.jogo.valorEntrada + " créditos",
-    j.jogo.status,
-    formatarReais(j.totalPatrocinio)
-  ]);
+  listarJogos();
+}
 
-  if (tipo === 'csv') {
-    let csv = header.join(";") + "\n";
-    dados.forEach(l => csv += l.join(";") + "\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "jogos.csv";
-    a.click();
-  } else if (tipo === 'pdf') {
-    const doc = new jspdf.jsPDF();
-    doc.text("Relatório de Jogos", 14, 10);
-    doc.autoTable({ head: [header], body: dados });
+async function editarJogo(jogoId) {
+  const doc = await db.collection("jogos").doc(jogoId).get();
+  if (!doc.exists) return alert("Jogo não encontrado!");
+
+  const jogo = doc.data();
+  jogoEditandoId = jogoId;
+
+  document.getElementById("timeCasa").value = jogo.timeCasaId;
+  document.getElementById("timeVisitante").value = jogo.timeForaId;
+  document.getElementById("dataInicio").value = jogo.dataInicio.toDate().toISOString().slice(0, 16);
+  document.getElementById("dataFim").value = jogo.dataFim.toDate().toISOString().slice(0, 16);
+  document.getElementById("valorEntrada").value = jogo.valorEntrada;
+  document.getElementById("status").value = jogo.status;
+
+  document.getElementById("patrocinadoresContainer").innerHTML = "";
+  (jogo.patrocinadores || []).forEach(p => {
+    const item = document.createElement("div");
+    item.classList.add("patrocinador-item");
+    item.dataset.base64 = p.logo;
+    item.innerHTML = `
+      <input type="text" class="patrocinador-nome" placeholder="Nome" value="${p.nome}">
+      <input type="number" class="patrocinador-valor" placeholder="Valor em R$" value="${p.valor}">
+      <input type="url" class="patrocinador-site" placeholder="Site" value="${p.site}">
+      <input type="file" class="patrocinador-logo">
+      <div class="preview">${p.logo ? `<img src="${p.logo}" alt="Logo">` : ""}</div>
+    `;
+    item.querySelector(".patrocinador-logo").addEventListener("change", function (e) {
+      const file = e.target.files[0];
+      if (file && file.size < 300 * 1024) {
+        const reader = new FileReader();
+        reader.onload = function (evt) {
+          const preview = item.querySelector(".preview");
+          preview.innerHTML = `<img src="${evt.target.result}" alt="Logo">`;
+          item.dataset.base64 = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+      } else {
+        alert("Logo inválido ou maior que 300KB.");
+      }
+    });
+    document.getElementById("patrocinadoresContainer").appendChild(item);
+  });
+
+  document.getElementById("salvarJogo").textContent = "Atualizar Jogo";
+}
+
+function exportarTabelaCSV() {
+  let csv = "Casa,Visitante,Início,Fim,Entrada,Status\n";
+  document.querySelectorAll("#listaJogos tr").forEach(row => {
+    const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
+    csv += cols.join(",") + "\n";
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "jogos.csv";
+  link.click();
+}
+
+function exportarTabelaPDF() {
+  import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(jsPDFModule => {
+    const { jsPDF } = jsPDFModule;
+    const doc = new jsPDF();
+    let y = 10;
+    doc.text("Lista de Jogos", 10, y);
+    y += 10;
+    document.querySelectorAll("#listaJogos tr").forEach(row => {
+      const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
+      doc.text(cols.join(" | "), 10, y);
+      y += 10;
+    });
     doc.save("jogos.pdf");
-  } else if (tipo === 'excel') {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([header, ...dados]);
-    XLSX.utils.book_append_sheet(wb, ws, "Jogos");
-    XLSX.writeFile(wb, "jogos.xlsx");
-  }
+  });
 }
 
 window.onload = () => {
+  carregarTimes();
   listarJogos();
-
-  document.getElementById("btnExportarCSV")?.addEventListener("click", () => exportarSelecionados('csv'));
-  document.getElementById("btnExportarPDF")?.addEventListener("click", () => exportarSelecionados('pdf'));
-  document.getElementById("btnExportarXLSX")?.addEventListener("click", () => exportarSelecionados('excel'));
-  document.getElementById("btnAdicionarPatrocinador")?.addEventListener("click", () => alert("Função de patrocinador ativada"));
-  document.getElementById("filtrarBtn")?.addEventListener("click", listarJogos);
+  document.getElementById("btnAdicionarPatrocinador").onclick = adicionarPatrocinador;
+  document.getElementById("salvarJogo").onclick = salvarJogo;
+  document.getElementById("btnExportarCSV").onclick = exportarTabelaCSV;
+  document.getElementById("btnExportarPDF").onclick = exportarTabelaPDF;
 };
