@@ -60,8 +60,19 @@ const lista = document.getElementById("tabela-jogos");
     }
 
     if (filtroStatus && filtroStatus !== statusAtualizado) continue;
-    if (filtroInicio && new Date(filtroInicio) > dataInicio) continue;
-    if (filtroFim && new Date(filtroFim) < dataFim) continue;
+if (filtroInicio && filtroFim) {
+  const inicio = new Date(filtroInicio);
+  inicio.setHours(0, 0, 0, 0);
+  const fim = new Date(filtroFim);
+  fim.setHours(23, 59, 59, 999);
+  if (dataInicio < inicio || dataInicio > fim) continue;
+} else if (filtroInicio) {
+  const inicio = new Date(filtroInicio);
+  const fim = new Date(filtroInicio);
+  inicio.setHours(0, 0, 0, 0);
+  fim.setHours(23, 59, 59, 999);
+  if (dataInicio < inicio || dataInicio > fim) continue;
+}
     if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
 
     jogosFiltrados.push({ id: doc.id, jogo, status: statusAtualizado });
