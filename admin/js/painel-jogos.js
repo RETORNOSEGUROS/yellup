@@ -94,10 +94,12 @@ async function listarJogos() {
         <td>${formatarData(jogo.dataFim)}</td>
         <td>${jogo.valorEntrada} créditos</td>
         <td>${status}</td>
-        <td>
-          <button onclick="editarJogo('${id}')">Editar</button>
-          <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
-        </td>
+<td>
+  <a class="btn" href="painel-jogo.html?id=${id}" target="_blank">Ver</a><br/>
+  <button onclick="editarJogo('${id}')">Editar</button>
+  <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
+</td>
+
       </tr>`;
   }
 }
