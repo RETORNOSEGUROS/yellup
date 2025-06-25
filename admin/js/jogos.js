@@ -1,4 +1,4 @@
-// AJUSTES CORRIGIDOS COMPLETOS - jogos.js
+// VERSÃO CORRIGIDA COM AJUSTES FINAIS - jogos.js
 
 let jogoEditandoId = null;
 
@@ -35,6 +35,12 @@ function definirStatus(dataInicio, dataFim) {
   return "finalizado";
 }
 
+function dataEhMesmoDia(d1, d2) {
+  return d1.getFullYear() === d2.getFullYear() &&
+         d1.getMonth() === d2.getMonth() &&
+         d1.getDate() === d2.getDate();
+}
+
 async function listarJogos() {
   const lista = document.getElementById("listaJogos");
   lista.innerHTML = "";
@@ -58,8 +64,8 @@ async function listarJogos() {
     }
 
     if (filtroStatus && filtroStatus !== statusAtualizado) continue;
-    if (filtroInicio && new Date(filtroInicio).toDateString() !== dataInicio.toDateString()) continue;
-    if (filtroFim && new Date(filtroFim).toDateString() !== dataFim.toDateString()) continue;
+    if (filtroInicio && !dataEhMesmoDia(new Date(filtroInicio), dataInicio)) continue;
+    if (filtroFim && !dataEhMesmoDia(new Date(filtroFim), dataFim)) continue;
     if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
 
     jogosFiltrados.push({ id: doc.id, jogo, status: statusAtualizado });
@@ -80,15 +86,11 @@ async function listarJogos() {
     const timeCasaNome = `${timeCasa.nome || '-'} - ${timeCasa.pais || ''}`;
     const timeForaNome = `${timeFora.nome || '-'} - ${timeFora.pais || ''}`;
 
-    const coresCasa = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeCasa.primaria || '#000'} 0%,${timeCasa.primaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 100%)"></span>`;
-
-    const coresFora = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeFora.primaria || '#000'} 0%,${timeFora.primaria || '#000'} 33%,${timeFora.secundaria || '#000'} 33%,${timeFora.secundaria || '#000'} 66%,${timeFora.terciaria || '#000'} 66%,${timeFora.terciaria || '#000'} 100%)"></span>`;
-
     const linha = document.createElement("tr");
     linha.innerHTML = `
       <td><input type="checkbox" class="jogo-checkbox" data-export='${JSON.stringify({ casa: timeCasaNome, visitante: timeForaNome, inicio: formatarData(jogo.dataInicio), fim: formatarData(jogo.dataFim), entrada: jogo.valorEntrada + " créditos", status })}'></td>
-      <td>${coresCasa} ${timeCasaNome}</td>
-      <td>${coresFora} ${timeForaNome}</td>
+      <td>${timeCasaNome}</td>
+      <td>${timeForaNome}</td>
       <td>${formatarData(jogo.dataInicio)}</td>
       <td>${formatarData(jogo.dataFim)}</td>
       <td>${jogo.valorEntrada} créditos</td>
@@ -97,7 +99,6 @@ async function listarJogos() {
         <button onclick="editarJogo('${id}')">Editar</button>
         <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
       </td>`;
-
     lista.appendChild(linha);
   }
 }
@@ -130,6 +131,47 @@ function adicionarPatrocinador() {
   container.appendChild(item);
 }
 
+async function salvarJogo() {
+  const timeCasaId = document.getElementById("timeCasa").value;
+  const timeForaId = document.getElementById("timeVisitante").value;
+  const dataInicio = new Date(document.getElementById("dataInicio").value);
+  const dataFim = new Date(document.getElementById("dataFim").value);
+  const valorEntrada = parseInt(document.getElementById("valorEntrada").value);
+  const status = document.getElementById("status").value;
+  const patrocinadores = [];
+
+  const items = document.querySelectorAll(".patrocinador-item");
+  items.forEach(item => {
+    patrocinadores.push({
+      nome: item.querySelector(".patrocinador-nome").value,
+      valor: parseFloat(item.querySelector(".patrocinador-valor").value),
+      site: item.querySelector(".patrocinador-site").value,
+      logo: item.dataset.base64 || ""
+    });
+  });
+
+  const jogo = {
+    timeCasaId,
+    timeForaId,
+    dataInicio: firebase.firestore.Timestamp.fromDate(dataInicio),
+    dataFim: firebase.firestore.Timestamp.fromDate(dataFim),
+    valorEntrada,
+    status,
+    patrocinadores
+  };
+
+  if (jogoEditandoId) {
+    await db.collection("jogos").doc(jogoEditandoId).update(jogo);
+    alert("Jogo atualizado com sucesso!");
+    jogoEditandoId = null;
+  } else {
+    await db.collection("jogos").add(jogo);
+    alert("Jogo criado com sucesso!");
+  }
+
+  listarJogos();
+}
+
 async function excluirJogo(id) {
   if (confirm("Deseja excluir este jogo?")) {
     await db.collection("jogos").doc(id).delete();
@@ -153,13 +195,13 @@ async function editarJogo(id) {
 
 function exportarSelecionadosCSV() {
   const selecionados = Array.from(document.querySelectorAll(".jogo-checkbox:checked"));
-  if (selecionados.length === 0) return alert("Nenhum jogo selecionado.");
+  if (!selecionados.length) return alert("Nenhum jogo selecionado.");
   let csv = "Casa,Visitante,Início,Fim,Entrada,Status\n";
   selecionados.forEach(cb => {
-    const data = JSON.parse(cb.dataset.export);
-    csv += `${data.casa},${data.visitante},${data.inicio},${data.fim},${data.entrada},${data.status}\n`;
+    const d = JSON.parse(cb.dataset.export);
+    csv += `${d.casa},${d.visitante},${d.inicio},${d.fim},${d.entrada},${d.status}\n`;
   });
-  const blob = new Blob([csv], { type: 'text/csv' });
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
   link.download = "jogos.csv";
@@ -168,7 +210,7 @@ function exportarSelecionadosCSV() {
 
 function exportarSelecionadosPDF() {
   const selecionados = Array.from(document.querySelectorAll(".jogo-checkbox:checked"));
-  if (selecionados.length === 0) return alert("Nenhum jogo selecionado.");
+  if (!selecionados.length) return alert("Nenhum jogo selecionado.");
   import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(jsPDFModule => {
     const { jsPDF } = jsPDFModule;
     const doc = new jsPDF();
@@ -176,8 +218,8 @@ function exportarSelecionadosPDF() {
     doc.text("Jogos Selecionados", 10, y);
     y += 10;
     selecionados.forEach(cb => {
-      const data = JSON.parse(cb.dataset.export);
-      doc.text(`${data.casa} x ${data.visitante} | ${data.inicio} - ${data.fim} | ${data.entrada} | ${data.status}`, 10, y);
+      const d = JSON.parse(cb.dataset.export);
+      doc.text(`${d.casa} x ${d.visitante} | ${d.inicio} - ${d.fim} | ${d.entrada} | ${d.status}`, 10, y);
       y += 10;
     });
     doc.save("jogos.pdf");
@@ -186,7 +228,7 @@ function exportarSelecionadosPDF() {
 
 function exportarSelecionadosExcel() {
   const selecionados = Array.from(document.querySelectorAll(".jogo-checkbox:checked"));
-  if (selecionados.length === 0) return alert("Nenhum jogo selecionado.");
+  if (!selecionados.length) return alert("Nenhum jogo selecionado.");
   const dados = selecionados.map(cb => JSON.parse(cb.dataset.export));
   const ws = XLSX.utils.json_to_sheet(dados);
   const wb = XLSX.utils.book_new();
