@@ -73,33 +73,20 @@ async function listarJogos() {
   });
 
   for (const { id, jogo, status } of jogosFiltrados) {
-    const linhaCheckbox = `<td><input type='checkbox' class='jogoSelecionado' value='${id}'></td>`;
-    const timeCasaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
-    const timeForaDoc = await db.collection("times").doc(jogo.timeForaId).get();
-
-    const timeCasa = timeCasaDoc.exists ? timeCasaDoc.data() : {};
-    const timeFora = timeForaDoc.exists ? timeForaDoc.data() : {};
-
-    const timeCasaNome = `${timeCasa.nome || '-'} - ${timeCasa.pais || ''}`;
-    const timeForaNome = `${timeFora.nome || '-'} - ${timeFora.pais || ''}`;
-
-    const coresCasa = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeCasa.primaria || '#000'} 0%,${timeCasa.primaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 100%)"></span>`;
-
-    const coresFora = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeFora.primaria || '#000'} 0%,${timeFora.primaria || '#000'} 33%,${timeFora.secundaria || '#000'} 33%,${timeFora.secundaria || '#000'} 66%,${timeFora.terciaria || '#000'} 66%,${timeFora.terciaria || '#000'} 100%)"></span>`;
-
-    lista.innerHTML += `<tr>${linhaCheckbox}` + `
-      <tr>
-        <td>${coresCasa} ${timeCasaNome}</td>
-        <td>${coresFora} ${timeForaNome}</td>
-        <td>${formatarData(jogo.dataInicio)}</td>
-        <td>${formatarData(jogo.dataFim)}</td>
-        <td>${jogo.valorEntrada} créditos</td>
-        <td>${status}</td>
-        <td>
-          <button onclick="editarJogo('${id}')">Editar</button>
-          <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
-        </td>
-      </tr>`;
+lista.innerHTML += `
+  <tr>
+    <td><input type="checkbox" class="jogoSelecionado" value="${id}"></td>
+    <td>${coresCasa} ${timeCasaNome}</td>
+    <td>${coresFora} ${timeForaNome}</td>
+    <td>${formatarData(jogo.dataInicio)}</td>
+    <td>${formatarData(jogo.dataFim)}</td>
+    <td>${jogo.valorEntrada} créditos</td>
+    <td>${status}</td>
+    <td>
+      <button onclick="editarJogo('${id}')">Editar</button>
+      <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
+    </td>
+  </tr>`;
   }
 }
 
