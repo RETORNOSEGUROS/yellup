@@ -38,7 +38,7 @@ function definirStatus(dataInicio, dataFim) {
 }
 
 async function listarJogos() {
-  const lista = document.getElementById("listaJogos");
+const lista = document.getElementById("tabela-jogos");
   lista.innerHTML = "";
 
   const filtroStatus = document.getElementById("filtroStatus").value;
@@ -251,6 +251,8 @@ function exportarTabelaPDF() {
 }
 
 window.onload = () => {
+  carregarTimes();
   listarJogos();
 };
+
 
