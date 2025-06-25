@@ -73,21 +73,33 @@ async function listarJogos() {
   });
 
   for (const { id, jogo, status } of jogosFiltrados) {
-lista.innerHTML += `
-  <tr>
-    <td><input type="checkbox" class="jogoSelecionado" value="${id}"></td>
-    <td>${coresCasa} ${timeCasaNome}</td>
-    <td>${coresFora} ${timeForaNome}</td>
-    <td>${formatarData(jogo.dataInicio)}</td>
-    <td>${formatarData(jogo.dataFim)}</td>
-    <td>${jogo.valorEntrada} créditos</td>
-    <td>${status}</td>
-    <td>
-      <button onclick="editarJogo('${id}')">Editar</button>
-      <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
-    </td>
-  </tr>
-`;
+    const timeCasaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
+    const timeForaDoc = await db.collection("times").doc(jogo.timeForaId).get();
+
+    const timeCasa = timeCasaDoc.exists ? timeCasaDoc.data() : {};
+    const timeFora = timeForaDoc.exists ? timeForaDoc.data() : {};
+
+    const timeCasaNome = `${timeCasa.nome || '-'} - ${timeCasa.pais || ''}`;
+    const timeForaNome = `${timeFora.nome || '-'} - ${timeFora.pais || ''}`;
+
+    const coresCasa = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeCasa.primaria || '#000'} 0%,${timeCasa.primaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 33%,${timeCasa.secundaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 66%,${timeCasa.terciaria || '#000'} 100%)"></span>`;
+    const coresFora = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeFora.primaria || '#000'} 0%,${timeFora.primaria || '#000'} 33%,${timeFora.secundaria || '#000'} 33%,${timeFora.secundaria || '#000'} 66%,${timeFora.terciaria || '#000'} 66%,${timeFora.terciaria || '#000'} 100%)"></span>`;
+
+    lista.innerHTML += `
+      <tr>
+        <td><input type="checkbox" class="jogoSelecionado" value="${id}"></td>
+        <td>${coresCasa} ${timeCasaNome}</td>
+        <td>${coresFora} ${timeForaNome}</td>
+        <td>${formatarData(jogo.dataInicio)}</td>
+        <td>${formatarData(jogo.dataFim)}</td>
+        <td>${jogo.valorEntrada} créditos</td>
+        <td>${status}</td>
+        <td>
+          <button onclick="editarJogo('${id}')">Editar</button>
+          <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
+        </td>
+      </tr>
+    `;
   }
 }
 
@@ -209,10 +221,8 @@ async function editarJogo(jogoId) {
 }
 
 function exportarTabelaCSV() {
-  const linhasSelecionadas = obterJogosSelecionados();
-  const linhas = linhasSelecionadas.length ? linhasSelecionadas : document.querySelectorAll("#listaJogos tr");
   let csv = "Casa,Visitante,Início,Fim,Entrada,Status\n";
-  linhas.forEach(row => {
+  document.querySelectorAll("#listaJogos tr").forEach(row => {
     const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
     csv += cols.join(",") + "\n";
   });
@@ -224,15 +234,13 @@ function exportarTabelaCSV() {
 }
 
 function exportarTabelaPDF() {
-  const linhasSelecionadas = obterJogosSelecionados();
-  const linhas = linhasSelecionadas.length ? linhasSelecionadas : document.querySelectorAll("#listaJogos tr");
   import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(jsPDFModule => {
     const { jsPDF } = jsPDFModule;
     const doc = new jsPDF();
     let y = 10;
     doc.text("Lista de Jogos", 10, y);
     y += 10;
-    linhas.forEach(row => {
+    document.querySelectorAll("#listaJogos tr").forEach(row => {
       const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
       doc.text(cols.join(" | "), 10, y);
       y += 10;
@@ -249,15 +257,3 @@ window.onload = () => {
   document.getElementById("btnExportarCSV").onclick = exportarTabelaCSV;
   document.getElementById("btnExportarPDF").onclick = exportarTabelaPDF;
 };
-
-
-
-function selecionarTodos(master) {
-  const checkboxes = document.querySelectorAll('.jogoSelecionado');
-  checkboxes.forEach(cb => cb.checked = master.checked);
-}
-
-function obterJogosSelecionados() {
-  return Array.from(document.querySelectorAll('.jogoSelecionado:checked'))
-    .map(cb => cb.closest('tr'));
-}
