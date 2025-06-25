@@ -1,5 +1,5 @@
-// VERSÃO CONSOLIDADA FINAL - jogos.js
-// Base: jogos (13).js + correções PDF (script) + estabilidade filtro e bandeiras mantidas
+// BASE RESTAURADA DO ARQUIVO ORIGINAL - jogos.js (jogos 13.js) - NENHUMA FUNÇÃO REMOVIDA
+// Apenas melhorias pontuais aplicadas: PDF fixo, comparação de data, sem quebrar estrutura
 
 let jogoEditandoId = null;
 
