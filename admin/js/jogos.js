@@ -1,3 +1,93 @@
+
+let paginaAtual = 1;
+const jogosPorPagina = 10;
+let jogosCache = [];
+let ordenacaoAscendente = false;
+
+
+
+function alternarOrdenacao() {
+  ordenacaoAscendente = !ordenacaoAscendente;
+  listarJogos();
+}
+
+
+
+function proximaPagina() {
+  if (paginaAtual * jogosPorPagina < jogosCache.length) {
+    paginaAtual++;
+    listarJogos();
+  }
+}
+function paginaAnterior() {
+  if (paginaAtual > 1) {
+    paginaAtual--;
+    listarJogos();
+  }
+}
+function atualizarControlesPaginacao() {
+  document.getElementById("paginacaoInfo").textContent =
+    `Página ${paginaAtual} de ${Math.ceil(jogosCache.length / jogosPorPagina)}`;
+}
+
+
+
+async function listarJogos() {
+  const lista = document.getElementById("listaJogos");
+  lista.innerHTML = "";
+
+  const filtroStatus = document.getElementById("filtroStatus").value;
+  const filtroInicio = document.getElementById("filtroDataInicio").value;
+  const filtroFim = document.getElementById("filtroDataFim").value;
+  const filtroTime = document.getElementById("filtroTime").value;
+
+  const snapshot = await db.collection("jogos").orderBy("dataInicio", "desc").get();
+  const todosJogos = [];
+
+  for (const doc of snapshot.docs) {
+    const jogo = doc.data();
+    const dataInicio = jogo.dataInicio?.toDate?.() || new Date(jogo.dataInicio);
+    const dataFim = jogo.dataFim?.toDate?.() || new Date(jogo.dataFim);
+
+    if (filtroInicio && dataFim < new Date(filtroInicio + "T00:00:00")) continue;
+    if (filtroFim && dataInicio > new Date(filtroFim + "T23:59:59")) continue;
+    if (filtroStatus && jogo.status !== filtroStatus) continue;
+    if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
+
+    todosJogos.push({ id: doc.id, jogo });
+  }
+
+  jogosCache = [...todosJogos];
+
+  // Ordenação
+  jogosCache.sort((a, b) => {
+    const dataA = a.jogo.dataInicio?.toDate?.() || new Date(a.jogo.dataInicio);
+    const dataB = b.jogo.dataInicio?.toDate?.() || new Date(b.jogo.dataInicio);
+    return ordenacaoAscendente ? dataA - dataB : dataB - dataA;
+  });
+
+  const inicio = (paginaAtual - 1) * jogosPorPagina;
+  const fim = inicio + jogosPorPagina;
+  const pagina = jogosCache.slice(inicio, fim);
+
+  for (const { id, jogo } of pagina) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="checkbox" class="jogoSelecionado" value="${id}"></td>
+      <td>${jogo.timeCasaNome || "-"}</td>
+      <td>${jogo.timeForaNome || "-"}</td>
+      <td>${jogo.dataInicio.toDate().toLocaleString("pt-BR")}</td>
+      <td>${jogo.dataFim.toDate().toLocaleString("pt-BR")}</td>
+      <td>${jogo.valorEntrada || 0}</td>
+      <td>${jogo.status || "-"}</td>
+    `;
+    lista.appendChild(tr);
+  }
+
+  atualizarControlesPaginacao();
+}
+
+
 let jogoEditandoId = null;
 
 async function carregarTimes() {
