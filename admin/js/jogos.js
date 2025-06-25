@@ -1,10 +1,10 @@
-// Firebase e estados
 let jogoEditandoId = null;
 
 async function carregarTimes() {
   const timesRef = await db.collection("times").orderBy("nome").get();
-  const selects = [document.getElementById("timeCasa"), document.getElementById("timeVisitante")];
+  const selects = [document.getElementById("timeCasa"), document.getElementById("timeVisitante"), document.getElementById("filtroTime")];
   selects.forEach(select => {
+    if (!select) return;
     select.innerHTML = '<option value="">Selecione o Time</option>';
     timesRef.forEach(doc => {
       const data = doc.data();
@@ -44,6 +44,7 @@ async function listarJogos() {
   const filtroStatus = document.getElementById("filtroStatus").value;
   const filtroInicio = document.getElementById("filtroDataInicio").value;
   const filtroFim = document.getElementById("filtroDataFim").value;
+  const filtroTime = document.getElementById("filtroTime").value;
 
   const snapshot = await db.collection("jogos").orderBy("dataInicio", "desc").get();
   const jogosFiltrados = [];
@@ -61,6 +62,7 @@ async function listarJogos() {
     if (filtroStatus && filtroStatus !== statusAtualizado) continue;
     if (filtroInicio && new Date(filtroInicio) > dataInicio) continue;
     if (filtroFim && new Date(filtroFim) < dataFim) continue;
+    if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
 
     jogosFiltrados.push({ id: doc.id, jogo, status: statusAtualizado });
   }
@@ -90,10 +92,21 @@ async function listarJogos() {
         <td>${coresFora} ${timeForaNome}</td>
         <td>${formatarData(jogo.dataInicio)}</td>
         <td>${formatarData(jogo.dataFim)}</td>
-        <td>${formatarMoeda(jogo.valorEntrada)}</td>
+        <td>${jogo.valorEntrada} créditos</td>
         <td>${status}</td>
-        <td><button onclick="editarJogo('${id}')">Editar</button></td>
+        <td>
+          <button onclick="editarJogo('${id}')">Editar</button>
+          <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
+        </td>
       </tr>`;
+  }
+}
+
+async function excluirJogo(jogoId) {
+  if (confirm("Tem certeza que deseja excluir este jogo?")) {
+    await db.collection("jogos").doc(jogoId).delete();
+    alert("Jogo excluído com sucesso!");
+    listarJogos();
   }
 }
 
@@ -103,7 +116,7 @@ function adicionarPatrocinador() {
   item.classList.add("patrocinador-item");
   item.innerHTML = `
     <input type="text" class="patrocinador-nome" placeholder="Nome">
-    <input type="number" class="patrocinador-valor" placeholder="Valor">
+    <input type="number" class="patrocinador-valor" placeholder="Valor em R$">
     <input type="url" class="patrocinador-site" placeholder="Site">
     <input type="file" class="patrocinador-logo">
     <div class="preview"></div>
@@ -181,7 +194,7 @@ async function editarJogo(jogoId) {
     item.dataset.base64 = p.logo;
     item.innerHTML = `
       <input type="text" class="patrocinador-nome" placeholder="Nome" value="${p.nome}">
-      <input type="number" class="patrocinador-valor" placeholder="Valor" value="${p.valor}">
+      <input type="number" class="patrocinador-valor" placeholder="Valor em R$" value="${p.valor}">
       <input type="url" class="patrocinador-site" placeholder="Site" value="${p.site}">
       <input type="file" class="patrocinador-logo">
       <div class="preview">${p.logo ? `<img src="${p.logo}" alt="Logo">` : ""}</div>
@@ -206,9 +219,40 @@ async function editarJogo(jogoId) {
   document.getElementById("salvarJogo").textContent = "Atualizar Jogo";
 }
 
+function exportarTabelaCSV() {
+  let csv = "Casa,Visitante,Início,Fim,Entrada,Status\n";
+  document.querySelectorAll("#listaJogos tr").forEach(row => {
+    const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
+    csv += cols.join(",") + "\n";
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "jogos.csv";
+  link.click();
+}
+
+function exportarTabelaPDF() {
+  import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(jsPDFModule => {
+    const { jsPDF } = jsPDFModule;
+    const doc = new jsPDF();
+    let y = 10;
+    doc.text("Lista de Jogos", 10, y);
+    y += 10;
+    document.querySelectorAll("#listaJogos tr").forEach(row => {
+      const cols = Array.from(row.children).slice(0, 6).map(col => col.innerText.replace(/\n/g, ' ').trim());
+      doc.text(cols.join(" | "), 10, y);
+      y += 10;
+    });
+    doc.save("jogos.pdf");
+  });
+}
+
 window.onload = () => {
   carregarTimes();
   listarJogos();
   document.getElementById("btnAdicionarPatrocinador").onclick = adicionarPatrocinador;
   document.getElementById("salvarJogo").onclick = salvarJogo;
+  document.getElementById("btnExportarCSV").onclick = exportarTabelaCSV;
+  document.getElementById("btnExportarPDF").onclick = exportarTabelaPDF;
 };
