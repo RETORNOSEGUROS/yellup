@@ -59,17 +59,27 @@ async function listarJogos() {
     if (filtroStatus && filtroStatus !== statusAtualizado) continue;
 
     if (filtroInicio && filtroFim) {
-      const inicio = new Date(filtroInicio);
-      inicio.setHours(0, 0, 0, 0);
-      const fim = new Date(filtroFim);
-      fim.setHours(23, 59, 59, 999);
-      if (dataInicio < inicio || dataInicio > fim) continue;
+      const inicioFiltro = new Date(filtroInicio);
+      const fimFiltro = new Date(filtroFim);
+      inicioFiltro.setHours(0, 0, 0, 0);
+      fimFiltro.setHours(23, 59, 59, 999);
+
+      const comecaDentro = dataInicio >= inicioFiltro && dataInicio <= fimFiltro;
+      const terminaDentro = dataFim >= inicioFiltro && dataFim <= fimFiltro;
+      const cruzaPeriodo = dataInicio <= fimFiltro && dataFim >= inicioFiltro;
+
+      if (!comecaDentro && !terminaDentro && !cruzaPeriodo) continue;
     } else if (filtroInicio) {
-      const inicio = new Date(filtroInicio);
-      const fim = new Date(filtroInicio);
-      inicio.setHours(0, 0, 0, 0);
-      fim.setHours(23, 59, 59, 999);
-      if (dataInicio < inicio || dataInicio > fim) continue;
+      const inicioFiltro = new Date(filtroInicio);
+      const fimFiltro = new Date(filtroInicio);
+      inicioFiltro.setHours(0, 0, 0, 0);
+      fimFiltro.setHours(23, 59, 59, 999);
+
+      const comecaDentro = dataInicio >= inicioFiltro && dataInicio <= fimFiltro;
+      const terminaDentro = dataFim >= inicioFiltro && dataFim <= fimFiltro;
+      const cruzaPeriodo = dataInicio <= fimFiltro && dataFim >= inicioFiltro;
+
+      if (!comecaDentro && !terminaDentro && !cruzaPeriodo) continue;
     }
 
     if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
