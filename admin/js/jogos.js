@@ -314,3 +314,52 @@ function exportarTabelaExcel() {
   link.download = "jogos.xls";
   link.click();
 }
+
+function exportarExcel() {
+  const rows = [];
+  const checkboxes = document.querySelectorAll(".jogoSelecionado:checked");
+
+  checkboxes.forEach(cb => {
+    const tr = cb.closest("tr");
+    const cols = [...tr.children].map(td => td.innerText);
+    rows.push(cols.slice(1));
+  });
+
+  if (rows.length === 0) return alert("Selecione pelo menos um jogo.");
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["Casa", "Visitante", "Início", "Fim", "Entrada", "Status"],
+    ...rows
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws, "RelatorioJogos");
+  XLSX.writeFile(wb, "relatorio_jogos.xlsx");
+}
+
+function exportarTabelaPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(12);
+  doc.text("Relatório de Jogos Yellup", 14, 20);
+
+  const rows = [];
+  const checkboxes = document.querySelectorAll(".jogoSelecionado:checked");
+
+  checkboxes.forEach(cb => {
+    const tr = cb.closest("tr");
+    const cols = [...tr.children].map(td => td.innerText);
+    rows.push(cols.slice(1));
+  });
+
+  if (rows.length === 0) return alert("Selecione pelo menos um jogo.");
+
+  doc.autoTable({
+    head: [["Casa", "Visitante", "Início", "Fim", "Entrada", "Status"]],
+    body: rows,
+    startY: 30,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [41, 128, 185] }
+  });
+
+  doc.save("relatorio_jogos.pdf");
+}
