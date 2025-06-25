@@ -76,8 +76,8 @@ async function buscarUsuarios() {
     if (status && user.status !== status) continue;
     if (timeId && user.timeId !== timeId) continue;
     if (idade && (idade < idadeMin || idade > idadeMax)) continue;
-    if (dataInicio && (!cadastro || cadastro < new Date(dataInicio))) continue;
-    if (dataFim && (!cadastro || cadastro > new Date(dataFim))) continue;
+    if (dataInicio && (!cadastro || cadastro < new Date(`${dataInicio}T00:00:00`))) continue;
+    if (dataFim && (!cadastro || cadastro > new Date(`${dataFim}T23:59:59`))) continue;
     if (buscaUsuario && !(`${user.nome || ""}`.toLowerCase().includes(buscaUsuario) || `${user.usuarioUnico || ""}`.toLowerCase().includes(buscaUsuario))) continue;
     if (filtroCidade && !(`${user.cidade || ""}`.toLowerCase().includes(filtroCidade))) continue;
     if (filtroEstado && !(`${user.estado || ""}`.toLowerCase().includes(filtroEstado))) continue;
@@ -119,4 +119,24 @@ function selecionarTodosCheckboxes(source) {
 
 // As funções exportarExcel, gerarPDF e exportarCSV permanecem inalteradas...
 
-document.addEventListener('DOMContentLoaded', carregarFiltros);
+document.addEventListener('DOMContentLoaded', () => {
+  carregarFiltros();
+  carregarPaises();
+});
+
+
+
+async function carregarPaises() {
+  const selectPais = document.getElementById("filtroPais");
+  if (!selectPais) return;
+
+  selectPais.innerHTML = `<option value="">Todos</option>`;
+  const snapshot = await db.collection("paises").orderBy("nome").get();
+  snapshot.forEach(doc => {
+    const nomePais = doc.data().nome;
+    const opt = document.createElement("option");
+    opt.value = nomePais;
+    opt.textContent = nomePais;
+    selectPais.appendChild(opt);
+  });
+}
