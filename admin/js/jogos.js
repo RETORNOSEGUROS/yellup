@@ -1,4 +1,4 @@
-// AJUSTES SOLICITADOS PARA jogos.js COMPLETO
+// AJUSTES CORRIGIDOS COMPLETOS - jogos.js
 
 let jogoEditandoId = null;
 
@@ -26,10 +26,6 @@ function formatarData(timestamp) {
     return new Date(timestamp).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
   }
   return "-";
-}
-
-function formatarMoeda(valor) {
-  return valor?.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) || "R$ 0,00";
 }
 
 function definirStatus(dataInicio, dataFim) {
@@ -62,8 +58,8 @@ async function listarJogos() {
     }
 
     if (filtroStatus && filtroStatus !== statusAtualizado) continue;
-    if (filtroInicio && new Date(filtroInicio) > dataInicio) continue;
-    if (filtroFim && new Date(filtroFim) < dataFim) continue;
+    if (filtroInicio && new Date(filtroInicio).toDateString() !== dataInicio.toDateString()) continue;
+    if (filtroFim && new Date(filtroFim).toDateString() !== dataFim.toDateString()) continue;
     if (filtroTime && filtroTime !== jogo.timeCasaId && filtroTime !== jogo.timeForaId) continue;
 
     jogosFiltrados.push({ id: doc.id, jogo, status: statusAtualizado });
@@ -89,22 +85,8 @@ async function listarJogos() {
     const coresFora = `<span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(to bottom,${timeFora.primaria || '#000'} 0%,${timeFora.primaria || '#000'} 33%,${timeFora.secundaria || '#000'} 33%,${timeFora.secundaria || '#000'} 66%,${timeFora.terciaria || '#000'} 66%,${timeFora.terciaria || '#000'} 100%)"></span>`;
 
     const linha = document.createElement("tr");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.classList.add("jogo-checkbox");
-    checkbox.dataset.export = JSON.stringify({
-      casa: timeCasaNome,
-      visitante: timeForaNome,
-      inicio: formatarData(jogo.dataInicio),
-      fim: formatarData(jogo.dataFim),
-      entrada: jogo.valorEntrada + " créditos",
-      status
-    });
-    const tdCheck = document.createElement("td");
-    tdCheck.appendChild(checkbox);
-    linha.appendChild(tdCheck);
-
-    linha.innerHTML += `
+    linha.innerHTML = `
+      <td><input type="checkbox" class="jogo-checkbox" data-export='${JSON.stringify({ casa: timeCasaNome, visitante: timeForaNome, inicio: formatarData(jogo.dataInicio), fim: formatarData(jogo.dataFim), entrada: jogo.valorEntrada + " créditos", status })}'></td>
       <td>${coresCasa} ${timeCasaNome}</td>
       <td>${coresFora} ${timeForaNome}</td>
       <td>${formatarData(jogo.dataInicio)}</td>
@@ -120,20 +102,63 @@ async function listarJogos() {
   }
 }
 
-function selecionarTodos(master) {
-  document.querySelectorAll(".jogo-checkbox").forEach(cb => cb.checked = master.checked);
+function adicionarPatrocinador() {
+  const container = document.getElementById("patrocinadoresContainer");
+  const item = document.createElement("div");
+  item.classList.add("patrocinador-item");
+  item.innerHTML = `
+    <input type="text" class="patrocinador-nome" placeholder="Nome">
+    <input type="number" class="patrocinador-valor" placeholder="Valor em R$">
+    <input type="url" class="patrocinador-site" placeholder="Site">
+    <input type="file" class="patrocinador-logo">
+    <div class="preview"></div>`;
+
+  item.querySelector(".patrocinador-logo").addEventListener("change", function (e) {
+    const file = e.target.files[0];
+    if (file && file.size < 300 * 1024) {
+      const reader = new FileReader();
+      reader.onload = function (evt) {
+        const preview = item.querySelector(".preview");
+        preview.innerHTML = `<img src="${evt.target.result}" alt="Logo">`;
+        item.dataset.base64 = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      alert("Logo inválido ou maior que 300KB.");
+    }
+  });
+  container.appendChild(item);
+}
+
+async function excluirJogo(id) {
+  if (confirm("Deseja excluir este jogo?")) {
+    await db.collection("jogos").doc(id).delete();
+    alert("Jogo excluído com sucesso!");
+    listarJogos();
+  }
+}
+
+async function editarJogo(id) {
+  const doc = await db.collection("jogos").doc(id).get();
+  if (!doc.exists) return alert("Jogo não encontrado!");
+  const jogo = doc.data();
+  jogoEditandoId = id;
+  document.getElementById("timeCasa").value = jogo.timeCasaId;
+  document.getElementById("timeVisitante").value = jogo.timeForaId;
+  document.getElementById("dataInicio").value = jogo.dataInicio.toDate().toISOString().slice(0, 16);
+  document.getElementById("dataFim").value = jogo.dataFim.toDate().toISOString().slice(0, 16);
+  document.getElementById("valorEntrada").value = jogo.valorEntrada;
+  document.getElementById("status").value = jogo.status;
 }
 
 function exportarSelecionadosCSV() {
   const selecionados = Array.from(document.querySelectorAll(".jogo-checkbox:checked"));
   if (selecionados.length === 0) return alert("Nenhum jogo selecionado.");
-
   let csv = "Casa,Visitante,Início,Fim,Entrada,Status\n";
   selecionados.forEach(cb => {
     const data = JSON.parse(cb.dataset.export);
     csv += `${data.casa},${data.visitante},${data.inicio},${data.fim},${data.entrada},${data.status}\n`;
   });
-
   const blob = new Blob([csv], { type: 'text/csv' });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
@@ -144,7 +169,6 @@ function exportarSelecionadosCSV() {
 function exportarSelecionadosPDF() {
   const selecionados = Array.from(document.querySelectorAll(".jogo-checkbox:checked"));
   if (selecionados.length === 0) return alert("Nenhum jogo selecionado.");
-
   import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js").then(jsPDFModule => {
     const { jsPDF } = jsPDFModule;
     const doc = new jsPDF();
@@ -163,12 +187,15 @@ function exportarSelecionadosPDF() {
 function exportarSelecionadosExcel() {
   const selecionados = Array.from(document.querySelectorAll(".jogo-checkbox:checked"));
   if (selecionados.length === 0) return alert("Nenhum jogo selecionado.");
-
   const dados = selecionados.map(cb => JSON.parse(cb.dataset.export));
   const ws = XLSX.utils.json_to_sheet(dados);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Jogos");
   XLSX.writeFile(wb, "jogos.xlsx");
+}
+
+function selecionarTodos(master) {
+  document.querySelectorAll(".jogo-checkbox").forEach(cb => cb.checked = master.checked);
 }
 
 window.onload = () => {
