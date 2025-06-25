@@ -259,3 +259,10 @@ window.onload = () => {
   document.getElementById("btnExportarCSV").onclick = exportarTabelaCSV;
   document.getElementById("btnExportarPDF").onclick = exportarTabelaPDF;
 };
+
+
+
+function selecionarTodos(masterCheckbox) {
+  const checkboxes = document.querySelectorAll('.jogoSelecionado');
+  checkboxes.forEach(cb => cb.checked = masterCheckbox.checked);
+}
