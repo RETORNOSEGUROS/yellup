@@ -86,7 +86,8 @@ lista.innerHTML += `
       <button onclick="editarJogo('${id}')">Editar</button>
       <button onclick="excluirJogo('${id}')" style="margin-top:4px;color:red">Excluir</button>
     </td>
-  </tr>`;
+  </tr>
+`;
   }
 }
 
