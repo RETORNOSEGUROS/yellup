@@ -12,7 +12,7 @@ async function carregarTimes() {
       const data = doc.data();
       const opt = document.createElement("option");
       opt.value = doc.id;
-      opt.textContent = data.nome + ' - ' + (data.pais || '');
+      opt.textContent = `${data.nome} - ${data.pais || ''}`;
       select.appendChild(opt);
     });
   });
@@ -71,7 +71,6 @@ async function listarJogos() {
     }
   }
 
-  // fallback se nenhum jogo do dia for encontrado
   if (!filtroStatus && !filtroTime && !filtroInicio && !filtroFim && jogosFiltrados.length === 0) {
     jogosFiltrados = snapshot.docs.slice(0, 10).map(doc => {
       const jogo = doc.data();
@@ -96,8 +95,8 @@ async function listarJogos() {
     const row = document.createElement("tr");
     row.innerHTML = `
       <td><input type="checkbox" class="select-jogo" data-id="${id}"></td>
-      <td>${timeCasaNome}</td>
-      <td>${timeForaNome}</td>
+      <td><img src="${timeCasa.bandeira || '#'}" alt="" width="20"> ${timeCasaNome}</td>
+      <td><img src="${timeFora.bandeira || '#'}" alt="" width="20"> ${timeForaNome}</td>
       <td>${formatarData(jogo.dataInicio)}</td>
       <td>${formatarData(jogo.dataFim)}</td>
       <td>${jogo.valorEntrada} créditos</td>
@@ -111,22 +110,17 @@ async function listarJogos() {
   }
 }
 
+function adicionarPatrocinador() {
+  alert("Função de patrocinador ativada — implemente aqui seu modal ou upload.");
+}
+
 window.onload = () => {
   carregarTimes();
   listarJogos();
 
-  const botaoAdd = document.getElementById("btnAdicionarPatrocinador");
-  if (botaoAdd) botaoAdd.onclick = adicionarPatrocinador;
-
-  const botaoSalvar = document.getElementById("salvarJogo");
-  if (botaoSalvar) botaoSalvar.onclick = salvarJogo;
-
-  const csv = document.getElementById("btnExportarCSV");
-  if (csv) csv.onclick = () => exportarSelecionados("csv");
-
-  const pdf = document.getElementById("btnExportarPDF");
-  if (pdf) pdf.onclick = () => exportarSelecionados("pdf");
-
-  const xlsx = document.getElementById("btnExportarXLSX");
-  if (xlsx) xlsx.onclick = () => exportarSelecionados("excel");
-};
+  document.getElementById("btnAdicionarPatrocinador")?.addEventListener("click", adicionarPatrocinador);
+  document.getElementById("salvarJogo")?.addEventListener("click", salvarJogo);
+  document.getElementById("btnExportarCSV")?.addEventListener("click", () => exportarSelecionados('csv'));
+  document.getElementById("btnExportarPDF")?.addEventListener("click", () => exportarSelecionados('pdf'));
+  document.getElementById("btnExportarXLSX")?.addEventListener("click", () => exportarSelecionados('excel'));
+}
