@@ -1,5 +1,7 @@
+// jogos.js atualizado - com filtros, exportações e patrocinadores funcionando
 let jogoEditandoId = null;
 let todosJogosCarregados = [];
+let patrocinadores = [];
 
 async function carregarTimes() {
   const timesRef = await db.collection("times").orderBy("nome").get();
@@ -111,7 +113,26 @@ async function listarJogos() {
 }
 
 function adicionarPatrocinador() {
-  alert("Função de patrocinador ativada — implemente aqui seu modal ou upload.");
+  const container = document.getElementById("patrocinadoresContainer");
+  const div = document.createElement("div");
+  div.className = "patrocinador-item";
+  div.innerHTML = `
+    <input type="text" placeholder="Nome" class="pat-nome">
+    <input type="number" placeholder="Valor em R$" class="pat-valor">
+    <input type="text" placeholder="Site" class="pat-site">
+    <input type="file" class="pat-logo" accept="image/*">
+    <div class="preview"></div>
+  `;
+  div.querySelector(".pat-logo").addEventListener("change", e => {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = ev => {
+      div.querySelector(".preview").innerHTML = `<img src="${ev.target.result}" height="40">`;
+      div.dataset.logoBase64 = ev.target.result;
+    };
+    if (file) reader.readAsDataURL(file);
+  });
+  container.appendChild(div);
 }
 
 window.onload = () => {
@@ -123,4 +144,45 @@ window.onload = () => {
   document.getElementById("btnExportarCSV")?.addEventListener("click", () => exportarSelecionados('csv'));
   document.getElementById("btnExportarPDF")?.addEventListener("click", () => exportarSelecionados('pdf'));
   document.getElementById("btnExportarXLSX")?.addEventListener("click", () => exportarSelecionados('excel'));
+}
+
+function exportarSelecionados(formato) {
+  const selecionados = Array.from(document.querySelectorAll(".select-jogo:checked"))
+    .map(input => todosJogosCarregados.find(j => j.id === input.dataset.id))
+    .filter(Boolean);
+
+  if (!selecionados.length) {
+    alert("Selecione ao menos 1 jogo para exportar.");
+    return;
+  }
+
+  const cabecalho = ["Time Casa", "Time Visitante", "Início", "Fim", "Entrada", "Status"];
+  const dados = selecionados.map(({ jogo, status }) => [
+    jogo.timeCasaId,
+    jogo.timeForaId,
+    formatarData(jogo.dataInicio),
+    formatarData(jogo.dataFim),
+    jogo.valorEntrada,
+    status
+  ]);
+
+  if (formato === 'csv') {
+    let csv = cabecalho.join(";") + "\n";
+    dados.forEach(row => csv += row.join(";") + "\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "jogos.csv";
+    link.click();
+  } else if (formato === 'pdf') {
+    const doc = new jspdf.jsPDF();
+    doc.text("Relatório de Jogos", 14, 10);
+    doc.autoTable({ head: [cabecalho], body: dados });
+    doc.save("jogos.pdf");
+  } else if (formato === 'excel') {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([cabecalho, ...dados]);
+    XLSX.utils.book_append_sheet(wb, ws, "Jogos");
+    XLSX.writeFile(wb, "jogos.xlsx");
+  }
 }
