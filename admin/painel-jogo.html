@@ -1,39 +1,72 @@
-
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <title>Painel do Jogo</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; background: #f8f8f8; }
-    .painel { background: white; max-width: 800px; margin: 30px auto; padding: 20px; border-radius: 10px; }
-    .titulo { font-size: 22px; font-weight: bold; margin-bottom: 10px; }
-    .info { margin-bottom: 20px; }
-    .chat-box { width: 100%; height: 150px; margin-bottom: 10px; }
-    .envio { display: flex; gap: 10px; margin-bottom: 20px; }
-    .envio input { flex: 1; padding: 8px; }
-    .pergunta { background: #fff7d7; padding: 10px; border-radius: 8px; margin-top: 20px; }
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f8f8f8;
+      margin: 0;
+      padding: 2rem;
+    }
+    .painel {
+      max-width: 800px;
+      margin: auto;
+      background: white;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h2 {
+      color: #c40064;
+    }
+    .bloco {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      border-radius: 8px;
+    }
+    .chat {
+      background-color: #f0f0f0;
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+    }
+    input[type="text"] {
+      width: 80%;
+      padding: 0.5rem;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      background-color: #c40064;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #a30050;
+    }
   </style>
 </head>
 <body>
   <div class="painel">
-    <div class="titulo">📢 Painel do Jogo</div>
-    <div class="info" id="infoJogo">⌛ Carregando dados do jogo...</div>
+    <h2>🎯 Painel do Jogo</h2>
+    <div id="infoJogo">⏳ Carregando dados do jogo...</div>
 
-    <div class="chat">
-      <div class="titulo">💬 Chat da Torcida</div>
-      <textarea class="chat-box" id="chatDisplay" readonly></textarea>
-      <div class="envio">
-        <input id="mensagemInput" placeholder="Digite sua mensagem..." />
-        <button onclick="enviarMensagem()">Enviar</button>
-      </div>
+    <div class="bloco chat">
+      <h3>💬 Chat da Torcida</h3>
+      <textarea id="chatMensagens" readonly></textarea><br />
+      <input type="text" id="mensagemInput" placeholder="Digite sua mensagem..." />
+      <button onclick="enviarMensagem()">Enviar</button>
     </div>
 
-    <div class="pergunta">
-      <div class="titulo">🎯 Envio Manual de Pergunta</div>
-      <button onclick="sortearEEnviar()">+ Sortear e Enviar Pergunta</button>
+    <div class="bloco" style="background-color: #fff5cc;">
+      <h3>🎯 Envio Manual de Pergunta</h3>
+      <button onclick="sortearEEnviarPergunta()">+ Sortear e Enviar Pergunta</button>
     </div>
   </div>
 
@@ -53,79 +86,78 @@
     const urlParams = new URLSearchParams(window.location.search);
     const jogoId = urlParams.get("id");
 
-    let idTimeA = "";
-    let idTimeB = "";
+    let jogoData = null;
 
-    function carregarJogo() {
-      if (!jogoId) return;
-      db.collection("jogos").doc(jogoId).get().then(doc => {
-        if (doc.exists) {
-          const dados = doc.data();
-          idTimeA = dados.idTimeA;
-          idTimeB = dados.idTimeB;
-          const inicio = dados.inicio || "-";
-          const entrada = dados.entrada || "-";
-          const nomeCasa = dados.nomeTimeA || "Time A";
-          const nomeFora = dados.nomeTimeB || "Time B";
-          document.getElementById("infoJogo").innerText = `🏟️ ${nomeCasa} vs ${nomeFora}
-📅 Início: ${inicio}
-💳 Entrada: ${entrada}`;
-        } else {
-          document.getElementById("infoJogo").innerText = "❌ Jogo não encontrado.";
-        }
-      });
+    async function carregarJogo() {
+      const doc = await db.collection("jogos").doc(jogoId).get();
+      if (doc.exists) {
+        jogoData = doc.data();
+        document.getElementById("infoJogo").innerHTML = `
+          <strong>🏟 ${jogoData.timeCasa} vs ${jogoData.timeVisitante}</strong><br />
+          📅 Início: ${jogoData.inicio || "-"}<br />
+          🎟 Entrada: ${jogoData.valorCreditos || "-"} créditos
+        `;
+      } else {
+        document.getElementById("infoJogo").innerText = "❌ Jogo não encontrado.";
+      }
     }
 
-    function sortearEEnviar() {
-      if (!jogoId || !idTimeA || !idTimeB) return alert("Jogo ou times não carregados.");
-      const times = [idTimeA, idTimeB];
-      const sorteado = times[Math.floor(Math.random() * times.length)];
-      db.collection("perguntas")
-        .where("idTime", "==", sorteado)
-        .get()
-        .then(snapshot => {
-          const perguntas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          const usadas = perguntas.filter(p => p.jogoId === jogoId);
-          const restantes = perguntas.filter(p => !usadas.some(u => u.id === p.id));
-          if (restantes.length === 0) return alert("Sem perguntas inéditas.");
-          const escolhida = restantes[Math.floor(Math.random() * restantes.length)];
-          db.collection("perguntas_jogo").add({
-            perguntaId: escolhida.id,
-            jogoId,
-            enviadaEm: new Date(),
-            tempoSegundos: 10
-          });
-          alert("Pergunta enviada!");
-        });
+    async function sortearEEnviarPergunta() {
+      if (!jogoData || !jogoData.timeId) {
+        alert("Jogo ainda não carregado!");
+        return;
+      }
+
+      const perguntasSnapshot = await db.collection("perguntas")
+        .where("timeId", "==", jogoData.timeId)
+        .get();
+
+      const perguntas = perguntasSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(p => p.ativa !== false); // Pode aplicar mais filtros
+
+      if (perguntas.length === 0) {
+        alert("Nenhuma pergunta disponível para esse time.");
+        return;
+      }
+
+      const perguntaSorteada = perguntas[Math.floor(Math.random() * perguntas.length)];
+
+      await db.collection("perguntas_ativas").doc(jogoId).set({
+        ...perguntaSorteada,
+        perguntaId: perguntaSorteada.id,
+        enviadaEm: new Date(),
+        tempoSegundos: 10
+      });
+
+      alert("Pergunta enviada com sucesso!");
     }
 
     function enviarMensagem() {
-      const texto = document.getElementById("mensagemInput").value;
-      if (!texto || !jogoId) return;
+      const input = document.getElementById("mensagemInput");
+      const texto = input.value.trim();
+      if (texto === "") return;
+
       db.collection("chats_jogo_demo").add({
         jogoId,
-        mensagem: texto,
-        criadaEm: new Date()
+        texto,
+        data: new Date()
       });
-      document.getElementById("mensagemInput").value = "";
+      input.value = "";
     }
 
-    function escutarMensagens() {
+    function carregarChat() {
       db.collection("chats_jogo_demo")
         .where("jogoId", "==", jogoId)
-        .orderBy("criadaEm")
+        .orderBy("data")
         .onSnapshot(snapshot => {
-          let chat = "";
-          snapshot.forEach(doc => {
-            const msg = doc.data();
-            chat += msg.mensagem + "\n";
-          });
-          document.getElementById("chatDisplay").value = chat;
+          const mensagens = snapshot.docs.map(doc => doc.data().texto);
+          document.getElementById("chatMensagens").value = mensagens.join("\n");
         });
     }
 
     carregarJogo();
-    escutarMensagens();
+    carregarChat();
   </script>
 </body>
 </html>
