@@ -1,46 +1,41 @@
 
+<!-- painel-jogo.html (versão completa com dados do jogo, chat e envio manual de pergunta) -->
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Painel do Jogo</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; }
-    #perguntaContainer, #chatContainer { margin-bottom: 20px; padding: 20px; background: white; border-radius: 8px; }
-    #botoesAlternativas button { display: block; margin-top: 10px; padding: 10px; width: 100%; }
-    #barraTempo { height: 10px; background: green; transition: width 0.2s; }
-    #chatMensagens { border: 1px solid #ccc; height: 200px; overflow-y: auto; padding: 10px; background: #fafafa; }
-    .chat-msg { margin: 5px 0; }
+    body { font-family: Arial, sans-serif; background: #f7f7f7; padding: 20px; }
+    .painel { background: white; border-radius: 8px; padding: 20px; max-width: 900px; margin: auto; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    h1 { font-size: 22px; color: #222; }
+    .chat-area, .pergunta-area { margin-top: 30px; }
+    textarea { width: 100%; height: 120px; }
+    input[type="text"] { width: 80%; }
+    button { padding: 6px 12px; margin-top: 5px; }
+    .info-jogo { font-size: 18px; margin-bottom: 10px; }
   </style>
 </head>
 <body>
+<div class="painel">
+  <h1>🎯 Painel do Jogo</h1>
+  <div class="info-jogo" id="dadosJogo">Carregando dados do jogo...</div>
 
-<h2>📢 Painel do Jogo</h2>
+  <div class="chat-area">
+    <h3>💬 Chat da Torcida</h3>
+    <textarea id="chatMensagens" readonly></textarea><br>
+    <input type="text" id="mensagemInput" placeholder="Digite sua mensagem...">
+    <button onclick="enviarMensagem()">Enviar</button>
+  </div>
 
-<div id="perguntaContainer" style="display:none;">
-  <h3 id="textoPergunta"></h3>
-  <div id="botoesAlternativas"></div>
-  <div style="margin-top: 10px;">
-    <div id="barraTempo" style="width: 100%;"></div>
+  <div class="pergunta-area">
+    <h3>🎯 Envio Manual de Pergunta</h3>
+    <button onclick="sortearEEnviarPergunta()">+ Sortear e Enviar Pergunta</button>
   </div>
 </div>
 
-<div id="chatContainer">
-  <h4>💬 Chat da Torcida</h4>
-  <div id="chatMensagens"></div>
-  <input type="text" id="inputChat" placeholder="Digite sua mensagem..." style="width:80%;" />
-  <button onclick="enviarChat()">Enviar</button>
-</div>
-
-<div style="background: #fff3cd; padding: 15px; border-radius: 8px;">
-  <h4>🎯 Envio Manual de Pergunta</h4>
-  <button onclick="sortearPergunta()">+ Sortear e Enviar Pergunta</button>
-</div>
-
-<!-- Firebase compat libraries -->
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 <script>
   const firebaseConfig = {
     apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
@@ -53,109 +48,69 @@
   };
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
-</script>
-<script>
+
   const urlParams = new URLSearchParams(window.location.search);
-  const jogoId = urlParams.get("id");
-  const container = document.getElementById("perguntaContainer");
-  const textoPergunta = document.getElementById("textoPergunta");
-  const botoesAlternativas = document.getElementById("botoesAlternativas");
-  const barraTempo = document.getElementById("barraTempo");
+  const jogoId = urlParams.get('id');
+  const campoJogo = document.getElementById('dadosJogo');
 
-  let intervaloBarra, perguntaAtual;
+  const chatTextarea = document.getElementById("chatMensagens");
+  const inputMensagem = document.getElementById("mensagemInput");
 
-  function sortearPergunta() {
-    db.collection("jogos").doc(jogoId).get().then(doc => {
-      const timeId = doc.data().timeCasaId;
-      db.collection("perguntas").where("timeId", "==", timeId).limit(1).get().then(snapshot => {
-        snapshot.forEach(doc => {
-          const pergunta = doc.data();
-          enviarPerguntaParaChat(pergunta, timeId, doc.id);
-        });
-      });
-    });
-  }
-
-  function enviarPerguntaParaChat(pergunta, timeId, perguntaId) {
-    db.collection("chats_jogo_demo").add({
-      jogId: jogoId,
-      timeId: timeId,
-      perguntaId: perguntaId,
-      tipo: "pergunta",
-      data: new Date().toISOString()
-    });
-  }
-
-  function iniciarBarraTempo(duracao = 10) {
-    let tempoRestante = duracao;
-    barraTempo.style.width = "100%";
-    clearInterval(intervaloBarra);
-    intervaloBarra = setInterval(() => {
-      tempoRestante--;
-      barraTempo.style.width = (tempoRestante * 10) + "%";
-      if (tempoRestante <= 0) {
-        clearInterval(intervaloBarra);
-        container.style.display = "none";
-      }
-    }, 1000);
-  }
-
-  db.collection("chats_jogo_demo")
-    .where("jogId", "==", jogoId)
-    .where("tipo", "==", "pergunta")
-    .orderBy("data", "desc")
-    .limit(1)
-    .onSnapshot(snapshot => {
-      snapshot.forEach(doc => {
-        const perguntaId = doc.data().perguntaId;
-        db.collection("perguntas").doc(perguntaId).get().then(pdoc => {
-          const p = pdoc.data();
-          textoPergunta.innerText = p.pergunta;
-          botoesAlternativas.innerHTML = "";
-          ["a", "b", "c", "d"].forEach(letra => {
-            const btn = document.createElement("button");
-            btn.textContent = letra.toUpperCase() + ") " + p[letra];
-            botoesAlternativas.appendChild(btn);
-          });
-          container.style.display = "block";
-          iniciarBarraTempo(10);
-        });
-      });
-    });
-
-  // Chat da torcida
-  const chatMensagens = document.getElementById("chatMensagens");
-  const inputChat = document.getElementById("inputChat");
-
-  function enviarChat() {
-    const texto = inputChat.value;
-    if (texto.trim() !== "") {
-      db.collection("chats_jogo_demo").add({
-        jogId: jogoId,
-        tipo: "chat",
-        mensagem: texto,
-        data: new Date().toISOString()
-      });
-      inputChat.value = "";
+  async function carregarJogo() {
+    const doc = await db.collection("jogos").doc(jogoId).get();
+    if (doc.exists) {
+      const jogo = doc.data();
+      campoJogo.innerHTML = `🏟️ <strong>${jogo.timeCasa?.nome || 'Time A'} vs ${jogo.timeVisitante?.nome || 'Time B'}</strong><br>⏰ Início: ${jogo.inicio?.toDate().toLocaleString() || '-'}<br>🎟️ Entrada: ${jogo.entrada || '0 créditos'}`;
+    } else {
+      campoJogo.innerHTML = "Jogo não encontrado.";
     }
   }
 
-  db.collection("chats_jogo_demo")
-    .where("jogId", "==", jogoId)
-    .where("tipo", "==", "chat")
-    .orderBy("data", "desc")
-    .limit(50)
-    .onSnapshot(snapshot => {
-      chatMensagens.innerHTML = "";
-      snapshot.forEach(doc => {
-        const msg = document.createElement("div");
-        msg.className = "chat-msg";
-        msg.textContent = doc.data().mensagem;
-        chatMensagens.appendChild(msg);
-      });
+  function enviarMensagem() {
+    const texto = inputMensagem.value.trim();
+    if (texto === "") return;
+    db.collection("chats_jogo_demo").add({
+      data: new Date(),
+      texto: texto,
+      jogoId: jogoId,
+      tipo: "chat"
     });
+    inputMensagem.value = "";
+  }
 
-  setInterval(() => sortearPergunta(), 5 * 60 * 1000); // auto a cada 5 min
+  function escutarChat() {
+    db.collection("chats_jogo_demo")
+      .where("jogoId", "==", jogoId)
+      .where("tipo", "==", "chat")
+      .orderBy("data", "asc")
+      .onSnapshot(snapshot => {
+        chatTextarea.value = snapshot.docs.map(doc => doc.data().texto).join("\n");
+        chatTextarea.scrollTop = chatTextarea.scrollHeight;
+      });
+  }
+
+  async function sortearEEnviarPergunta() {
+    const perguntasSnap = await db.collection("perguntas")
+      .where("timeId", "!=", "")
+      .limit(1) // depois pode ser aleatório
+      .get();
+    if (!perguntasSnap.empty) {
+      const pergunta = perguntasSnap.docs[0].data();
+      await db.collection("chats_jogo_demo").add({
+        data: new Date(),
+        jogoId: jogoId,
+        timeId: pergunta.timeId || "",
+        perguntaId: perguntasSnap.docs[0].id,
+        tipo: "pergunta"
+      });
+      alert("Pergunta enviada!");
+    } else {
+      alert("Nenhuma pergunta encontrada.");
+    }
+  }
+
+  carregarJogo();
+  escutarChat();
 </script>
 </body>
 </html>
