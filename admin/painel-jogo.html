@@ -1,22 +1,18 @@
-<!-- painel-jogo.html -->
+<!-- 🔴 PERGUNTA INTERATIVA -->
 <div id="perguntaContainer" style="display:none; padding: 20px; border: 2px solid #ddd; border-radius: 8px; background: #fff; max-width: 400px; margin: 20px auto;">
   <h3 id="textoPergunta" style="font-weight: bold;"></h3>
-
   <div id="botoesAlternativas" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;"></div>
-
-  <div style="margin-top: 15px;">
-    <div id="barraTempo" style="height: 10px; background: green; transition: width 0.1s linear;"></div>
-  </div>
+  <div style="margin-top: 15px;"><div id="barraTempo" style="height: 10px; background: green; transition: width 0.1s linear;"></div></div>
 </div>
 
-<!-- Botão Ver Ranking -->
+<!-- 🔵 BOTÃO RANKING -->
 <div style="text-align: center; margin-top: 30px;">
   <button onclick="carregarRanking()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
     👀 Ver Ranking ao Vivo
   </button>
 </div>
 
-<!-- Container do Ranking -->
+<!-- 🟢 RANKING -->
 <div id="rankingContainer" style="display:none; margin: 30px auto; max-width: 400px; background: #f8f8f8; padding: 20px; border-radius: 8px; text-align: center;">
   <h4>🏆 Ranking ao Vivo</h4>
   <ol id="listaRanking" style="text-align: left;"></ol>
@@ -26,7 +22,20 @@
   </button>
 </div>
 
-<!-- Firebase compat libraries -->
+<!-- 🟡 CHAT DA TORCIDA -->
+<div id="chatContainer" style="margin: 40px auto; max-width: 500px; background: #eef2f5; padding: 15px; border-radius: 8px;">
+  <h4>💬 Chat da Torcida</h4>
+  <div id="chatMensagens" style="height: 250px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: #fff; border-radius: 5px; margin-bottom: 10px;"></div>
+  <input type="text" id="chatInput" placeholder="Digite sua mensagem..." style="width: 75%; padding: 8px; border-radius: 5px; border: 1px solid #ccc;" />
+  <button onclick="enviarMensagem()" style="padding: 8px 12px; margin-left: 5px; background: #28a745; color: white; border: none; border-radius: 5px;">Enviar</button>
+</div>
+
+<!-- 🔴 PAINEL ADMIN -->
+<div id="painelAdmin" style="display:none; margin: 40px auto; max-width: 400px; padding: 20px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px;">
+  <h4>🎯 Envio Manual de Pergunta</h4>
+  <button onclick="enviarPerguntaParaTime()" style="padding: 10px 15px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">➕ Sortear e Enviar Pergunta</button>
+  <p id="ultimaPerguntaEnviada" style="margin-top: 15px; font-size: 14px;"></p>
+</div>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 <script>
@@ -39,14 +48,15 @@
     appId: "1:608347210297:web:75092713724e617c7203e8",
     measurementId: "G-SYZ16X31KQ"
   };
-
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
+  // Variáveis dinâmicas do jogo
   const jogoId = "SEU_JOGO_ID";
   const timeId = "SEU_TIME_ID";
   const userId = "SEU_USER_ID";
-
+  const nomeUsuario = "Fulano"; // Pode vir do login
+  const modoAdmin = true;
   const container = document.getElementById("perguntaContainer");
   const textoPergunta = document.getElementById("textoPergunta");
   const botoesAlternativas = document.getElementById("botoesAlternativas");
@@ -56,59 +66,60 @@
   const listaRanking = document.getElementById("listaRanking");
   const minhaPontuacao = document.getElementById("minhaPontuacao");
 
+  const chatMensagens = document.getElementById("chatMensagens");
+  const chatInput = document.getElementById("chatInput");
+
   let tempoTotal = 10;
   let intervalId;
   let perguntaRespondida = false;
 
-  async function buscarCreditos(usuarioId) {
-    const docRef = db.collection("usuarios").doc(usuarioId);
-    const docSnap = await docRef.get();
-    return docSnap.exists ? (docSnap.data().creditos || 0) : 0;
+  if (modoAdmin) {
+    document.getElementById("painelAdmin").style.display = "block";
+    setInterval(() => enviarPerguntaParaTime(), 5 * 60 * 1000); // Auto a cada 5min
   }
 
-  async function descontarCreditos(usuarioId, valor) {
-    const ref = db.collection("usuarios").doc(usuarioId);
+  async function buscarCreditos(uid) {
+    const snap = await db.collection("usuarios").doc(uid).get();
+    return snap.exists ? (snap.data().creditos || 0) : 0;
+  }
+
+  async function descontarCreditos(uid, valor) {
+    const ref = db.collection("usuarios").doc(uid);
     const docSnap = await ref.get();
-    if (!docSnap.exists) return;
     const dados = docSnap.data();
-    const novosCreditos = (dados.creditos || 0) - valor;
-    await ref.set({ ...dados, creditos: novosCreditos }, { merge: true });
+    await ref.set({ ...dados, creditos: (dados.creditos || 0) - valor }, { merge: true });
   }
 
   db.collection("chats_jogo_demo")
     .where("jogoId", "==", jogoId)
     .where("timeId", "==", timeId)
-    .where("tipo", "==", "pergunta")
-    .onSnapshot(async (snapshot) => {
-      snapshot.docChanges().forEach(async (change) => {
-        if (change.type === "added") {
-          const dados = change.doc.data();
-          const perguntaId = dados.perguntaId;
-
-          // ⚠️ Verifica se o usuário já respondeu essa pergunta
-          const jaRespondeuSnap = await db.collection("respostas")
+    .onSnapshot(snapshot => {
+      snapshot.docChanges().forEach(async change => {
+        const d = change.doc.data();
+        if (d.tipo === "pergunta" && change.type === "added") {
+          const resp = await db.collection("respostas")
             .where("userId", "==", userId)
             .where("jogoId", "==", jogoId)
-            .where("perguntaId", "==", perguntaId)
+            .where("perguntaId", "==", d.perguntaId)
             .get();
+          if (!resp.empty) return;
 
-          if (!jaRespondeuSnap.empty) return;
-
-          const perguntaDoc = await db.collection("perguntas").doc(perguntaId).get();
-          if (perguntaDoc.exists) {
-            mostrarPergunta(perguntaDoc.data(), perguntaId);
-          }
+          const docPergunta = await db.collection("perguntas").doc(d.perguntaId).get();
+          if (docPergunta.exists) mostrarPergunta(docPergunta.data(), d.perguntaId);
+        }
+        if (d.tipo === "mensagem" && change.type === "added") {
+          exibirMensagem(d);
         }
       });
     });
 
-  async function mostrarPergunta(pergunta, perguntaId) {
+  function mostrarPergunta(pergunta, perguntaId) {
     perguntaRespondida = false;
     container.style.display = "block";
     textoPergunta.textContent = pergunta.pergunta;
     botoesAlternativas.innerHTML = "";
 
-    ["A", "B", "C", "D"].forEach((letra) => {
+    ["A", "B", "C", "D"].forEach(letra => {
       const btn = document.createElement("button");
       btn.textContent = `${letra}) ${pergunta.alternativas[letra]}`;
       btn.style.padding = "10px";
@@ -119,78 +130,58 @@
       botoesAlternativas.appendChild(btn);
     });
 
-    const creditos = await buscarCreditos(userId);
-    if (creditos >= 5) {
-      tempoTotal = 15;
-      await descontarCreditos(userId, 5);
-    } else {
-      tempoTotal = 10;
-    }
-
-    iniciarTempo();
+    buscarCreditos(userId).then(c => {
+      tempoTotal = c >= 5 ? 15 : 10;
+      if (c >= 5) descontarCreditos(userId, 5);
+      iniciarTempo();
+    });
   }
 
   function iniciarTempo() {
-    let tempoRestante = tempoTotal;
+    let restante = tempoTotal;
     barraTempo.style.width = "100%";
     barraTempo.style.background = "green";
 
     intervalId = setInterval(() => {
-      tempoRestante--;
-      barraTempo.style.width = `${(tempoRestante / tempoTotal) * 100}%`;
-
-      if (tempoRestante <= 0) {
+      restante--;
+      barraTempo.style.width = `${(restante / tempoTotal) * 100}%`;
+      if (restante <= 0) {
         clearInterval(intervalId);
-        if (!perguntaRespondida) {
-          ocultarPergunta();
-        }
+        if (!perguntaRespondida) ocultarPergunta();
       }
     }, 1000);
   }
 
-  async function responder(letraSelecionada, correta, pontos, perguntaId, botaoClicado) {
+  async function responder(letra, correta, pontos, perguntaId, btnClicado) {
     perguntaRespondida = true;
     clearInterval(intervalId);
 
-    const botoes = botoesAlternativas.querySelectorAll("button");
-
-    botoes.forEach(btn => {
-      const letra = btn.textContent.charAt(0);
-      if (letra === correta) {
-        btn.style.background = "#4CAF50";
-        btn.style.color = "#fff";
-      } else if (btn === botaoClicado) {
-        btn.style.background = "#f44336";
-        btn.style.color = "#fff";
-      } else {
-        btn.disabled = true;
-      }
+    botoesAlternativas.querySelectorAll("button").forEach(btn => {
+      const letraBtn = btn.textContent.charAt(0);
+      if (letraBtn === correta) btn.style.background = "#4CAF50";
+      else if (btn === btnClicado) btn.style.background = "#f44336";
+      else btn.disabled = true;
+      btn.style.color = "#fff";
     });
 
     await db.collection("respostas").add({
-      userId,
-      jogoId,
-      perguntaId,
-      pontos: letraSelecionada === correta ? pontos : 0,
+      userId, jogoId, perguntaId,
+      pontos: letra === correta ? pontos : 0,
       data: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    setTimeout(() => {
-      ocultarPergunta();
-      carregarRanking();
-    }, 3000);
+    setTimeout(() => { ocultarPergunta(); carregarRanking(); }, 3000);
   }
 
   function ocultarPergunta() {
     container.style.display = "none";
-    botoesAlternativas.innerHTML = "";
     textoPergunta.textContent = "";
+    botoesAlternativas.innerHTML = "";
   }
 
   async function carregarRanking() {
     const snap = await db.collection("respostas").where("jogoId", "==", jogoId).get();
     const pontuacoes = {};
-
     snap.forEach(doc => {
       const r = doc.data();
       if (!pontuacoes[r.userId]) pontuacoes[r.userId] = 0;
@@ -201,17 +192,66 @@
       .map(([user, pontos]) => ({ user, pontos }))
       .sort((a, b) => b.pontos - a.pontos);
 
-    const top10 = ranking.slice(0, 10);
-    listaRanking.innerHTML = top10.map(item => `<li>${item.user}: ${item.pontos} pts</li>`).join("");
+    listaRanking.innerHTML = ranking.slice(0, 10)
+      .map(item => `<li>${item.user}: ${item.pontos} pts</li>`).join("");
 
-    const minhaPosicao = ranking.findIndex(r => r.user === userId) + 1;
-    const meusPontos = pontuacoes[userId] || 0;
-    minhaPontuacao.textContent = `Sua posição: #${minhaPosicao} — ${meusPontos} pts`;
-
+    const minhaPos = ranking.findIndex(r => r.user === userId) + 1;
+    minhaPontuacao.textContent = `Sua posição: #${minhaPos} — ${pontuacoes[userId] || 0} pts`;
     rankingContainer.style.display = "block";
   }
 
   function fecharRanking() {
     rankingContainer.style.display = "none";
+  }
+
+  async function enviarPerguntaParaTime() {
+    const usadasSnap = await db.collection("chats_jogo_demo")
+      .where("jogoId", "==", jogoId)
+      .where("timeId", "==", timeId)
+      .where("tipo", "==", "pergunta")
+      .get();
+    const usadas = usadasSnap.docs.map(d => d.data().perguntaId);
+
+    const todasSnap = await db.collection("perguntas").where("timeId", "==", timeId).get();
+    const candidatas = todasSnap.docs.filter(doc => !usadas.includes(doc.id));
+    if (candidatas.length === 0) {
+      alert("Sem perguntas inéditas.");
+      return;
+    }
+
+    const sorteada = candidatas[Math.floor(Math.random() * candidatas.length)];
+    await db.collection("chats_jogo_demo").add({
+      tipo: "pergunta",
+      jogoId,
+      timeId,
+      perguntaId: sorteada.id,
+      data: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    document.getElementById("ultimaPerguntaEnviada").textContent =
+      `Pergunta enviada: ${sorteada.id}`;
+  }
+
+  function enviarMensagem() {
+    const texto = chatInput.value.trim();
+    if (!texto) return;
+    db.collection("chats_jogo_demo").add({
+      tipo: "mensagem",
+      jogoId,
+      timeId,
+      userId,
+      nome: nomeUsuario,
+      texto,
+      data: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    chatInput.value = "";
+  }
+
+  function exibirMensagem(dado) {
+    const msg = document.createElement("div");
+    msg.style.marginBottom = "5px";
+    msg.innerHTML = `<strong>${dado.nome}:</strong> ${dado.texto}`;
+    chatMensagens.appendChild(msg);
+    chatMensagens.scrollTop = chatMensagens.scrollHeight;
   }
 </script>
