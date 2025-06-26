@@ -1,81 +1,133 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <title>Painel da Partida</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f4f4f4; }
-    .header { background: #111; color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
-    .container { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 20px; padding: 20px; }
-    .box { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-    .campo { height: 300px; background: url('CAMPO_URL_AQUI') center/cover no-repeat; position: relative; border-radius: 10px; overflow: hidden; }
-    .placa { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
-    .placa img { height: 40px; border-radius: 5px; background: white; padding: 5px; }
-    .chat-box { height: 150px; overflow-y: auto; border: 1px solid #ccc; padding: 5px; margin-bottom: 5px; background: #fafafa; }
-    .chat-input { width: 100%; padding: 5px; }
-    .ranking-table, .perguntas-table { width: 100%; border-collapse: collapse; }
-    .ranking-table th, .ranking-table td, .perguntas-table th, .perguntas-table td { border: 1px solid #ddd; padding: 5px; text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div id="infoCasa">Time Casa</div>
-    <div id="infoHorario">00/00/0000 00:00</div>
-    <div id="infoFora">Time Visitante</div>
+<!-- pergunta-interativa.html -->
+<div id="perguntaContainer" style="display:none; padding: 20px; border: 2px solid #ddd; border-radius: 8px; background: #fff; max-width: 400px; margin: 20px auto;">
+  <h3 id="textoPergunta" style="font-weight: bold;"></h3>
+
+  <div id="botoesAlternativas" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;"></div>
+
+  <div style="margin-top: 15px;">
+    <div id="barraTempo" style="height: 10px; background: green; transition: width 0.1s linear;"></div>
   </div>
+</div>
 
-  <div class="container">
-    <div>
-      <div class="box">
-        <canvas id="graficoTorcida"></canvas>
-      </div>
-      <div class="box">
-        <canvas id="graficoPontuacao"></canvas>
-      </div>
-    </div>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, doc, getDoc, collection, query, where, onSnapshot, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    <div>
-      <div class="box campo" id="campo">
-        <div class="placa" id="placasPatrocinio"></div>
-      </div>
-      <div class="box">
-        <h3>Ranking ao Vivo</h3>
-        <table class="ranking-table" id="tabelaRanking">
-          <thead><tr><th>Usuário</th><th>Pontos</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
+  const firebaseConfig = {
+    // 🔒 insira suas credenciais aqui
+  };
 
-    <div>
-      <div class="box">
-        <h4>Chat Time Casa</h4>
-        <div class="chat-box" id="chatCasa"></div>
-        <input class="chat-input" id="inputCasa" placeholder="Digite uma mensagem...">
-      </div>
-      <div class="box">
-        <h4>Chat Time Visitante</h4>
-        <div class="chat-box" id="chatFora"></div>
-        <input class="chat-input" id="inputFora" placeholder="Digite uma mensagem...">
-      </div>
-      <div class="box">
-        <h4>Chat Geral</h4>
-        <div class="chat-box" id="chatGeral"></div>
-        <input class="chat-input" id="inputGeral" placeholder="Digite uma mensagem...">
-      </div>
-    </div>
-  </div>
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
 
-  <div class="box" style="margin: 20px">
-    <h3>Perguntas Recentes</h3>
-    <table class="perguntas-table" id="tabelaPerguntas">
-      <thead><tr><th>Texto</th><th>Automática</th><th>Status</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </div>
+  const jogoId = "SEU_JOGO_ID";
+  const timeId = "TIME_DO_USUARIO";
+  const userId = "USUARIO_ATUAL";
+  const container = document.getElementById("perguntaContainer");
+  const textoPergunta = document.getElementById("textoPergunta");
+  const botoesAlternativas = document.getElementById("botoesAlternativas");
+  const barraTempo = document.getElementById("barraTempo");
 
-  <script src="firebase-init.js"></script>
-  <script src="js/painel-jogo.js"></script>
-</body>
-</html>
+  let tempoTotal = 10; // padrão
+  let intervalId;
+  let perguntaRespondida = false;
+
+  // 🔄 Escuta por nova pergunta no chat do time
+  const q = query(
+    collection(db, "chats_jogo_demo"),
+    where("jogoId", "==", jogoId),
+    where("timeId", "==", timeId),
+    where("tipo", "==", "pergunta")
+  );
+
+  onSnapshot(q, async (snapshot) => {
+    snapshot.docChanges().forEach(async (change) => {
+      if (change.type === "added") {
+        const dados = change.doc.data();
+        const perguntaId = dados.perguntaId;
+
+        // busca a pergunta
+        const perguntaDoc = await getDoc(doc(db, "perguntas", perguntaId));
+        const perguntaData = perguntaDoc.data();
+
+        mostrarPergunta(perguntaData, perguntaId);
+      }
+    });
+  });
+
+  function mostrarPergunta(pergunta, perguntaId) {
+    perguntaRespondida = false;
+    container.style.display = "block";
+    textoPergunta.textContent = pergunta.pergunta;
+    botoesAlternativas.innerHTML = "";
+
+    const alternativas = ["A", "B", "C", "D"];
+    alternativas.forEach((letra) => {
+      const btn = document.createElement("button");
+      btn.textContent = `${letra}) ${pergunta.alternativas[letra]}`;
+      btn.style.padding = "10px";
+      btn.style.borderRadius = "5px";
+      btn.style.border = "1px solid #ccc";
+      btn.style.cursor = "pointer";
+      btn.onclick = () => responder(letra, pergunta.correta, pergunta.pontuacao, perguntaId, btn);
+      botoesAlternativas.appendChild(btn);
+    });
+
+    iniciarTempo();
+  }
+
+  function iniciarTempo() {
+    let tempoRestante = tempoTotal;
+    barraTempo.style.width = "100%";
+    barraTempo.style.background = "green";
+
+    intervalId = setInterval(() => {
+      tempoRestante--;
+      barraTempo.style.width = `${(tempoRestante / tempoTotal) * 100}%`;
+
+      if (tempoRestante <= 0) {
+        clearInterval(intervalId);
+        if (!perguntaRespondida) {
+          ocultarPergunta();
+        }
+      }
+    }, 1000);
+  }
+
+  async function responder(letraSelecionada, correta, pontos, perguntaId, botaoClicado) {
+    perguntaRespondida = true;
+    clearInterval(intervalId);
+
+    const botoes = botoesAlternativas.querySelectorAll("button");
+
+    botoes.forEach(btn => {
+      const letra = btn.textContent.charAt(0);
+      if (letra === correta) {
+        btn.style.background = "#4CAF50"; // verde
+        btn.style.color = "#fff";
+      } else if (btn === botaoClicado) {
+        btn.style.background = "#f44336"; // vermelho
+        btn.style.color = "#fff";
+      } else {
+        btn.disabled = true;
+      }
+    });
+
+    // salvar resposta no Firestore
+    await addDoc(collection(db, "respostas"), {
+      userId,
+      jogoId,
+      perguntaId,
+      pontos: letraSelecionada === correta ? pontos : 0,
+      data: serverTimestamp()
+    });
+
+    setTimeout(ocultarPergunta, 3000);
+  }
+
+  function ocultarPergunta() {
+    container.style.display = "none";
+    botoesAlternativas.innerHTML = "";
+    textoPergunta.textContent = "";
+  }
+</script>
