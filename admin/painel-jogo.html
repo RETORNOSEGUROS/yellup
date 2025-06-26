@@ -1,4 +1,4 @@
-<!-- pergunta-interativa.html -->
+<!-- painel-jogo.html -->
 <div id="perguntaContainer" style="display:none; padding: 20px; border: 2px solid #ddd; border-radius: 8px; background: #fff; max-width: 400px; margin: 20px auto;">
   <h3 id="textoPergunta" style="font-weight: bold;"></h3>
 
@@ -9,12 +9,18 @@
   </div>
 </div>
 
+<div id="rankingContainer" style="display:none; margin: 30px auto; max-width: 400px; background: #f8f8f8; padding: 20px; border-radius: 8px;">
+  <h4>🏆 Ranking ao Vivo</h4>
+  <ol id="listaRanking"></ol>
+  <p id="minhaPontuacao" style="margin-top: 10px; font-weight: bold;"></p>
+</div>
+
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, doc, getDoc, collection, query, where, onSnapshot, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, collection, query, where, onSnapshot, addDoc, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   const firebaseConfig = {
-    // 🔒 insira suas credenciais aqui
+    // 👉 insira suas credenciais aqui
   };
 
   const app = initializeApp(firebaseConfig);
@@ -23,16 +29,35 @@
   const jogoId = "SEU_JOGO_ID";
   const timeId = "TIME_DO_USUARIO";
   const userId = "USUARIO_ATUAL";
+
   const container = document.getElementById("perguntaContainer");
   const textoPergunta = document.getElementById("textoPergunta");
   const botoesAlternativas = document.getElementById("botoesAlternativas");
   const barraTempo = document.getElementById("barraTempo");
 
-  let tempoTotal = 10; // padrão
+  const rankingContainer = document.getElementById("rankingContainer");
+  const listaRanking = document.getElementById("listaRanking");
+  const minhaPontuacao = document.getElementById("minhaPontuacao");
+
+  let tempoTotal = 10;
   let intervalId;
   let perguntaRespondida = false;
 
-  // 🔄 Escuta por nova pergunta no chat do time
+  async function buscarCreditos(usuarioId) {
+    const userDoc = await getDoc(doc(db, "usuarios", usuarioId));
+    const dados = userDoc.data();
+    return dados.creditos || 0;
+  }
+
+  async function descontarCreditos(usuarioId, valor) {
+    const ref = doc(db, "usuarios", usuarioId);
+    const userDoc = await getDoc(ref);
+    const dados = userDoc.data();
+    const novosCreditos = (dados.creditos || 0) - valor;
+    await setDoc(ref, { ...dados, creditos: novosCreditos }, { merge: true });
+  }
+
+  // Escuta nova pergunta para o time do usuário
   const q = query(
     collection(db, "chats_jogo_demo"),
     where("jogoId", "==", jogoId),
@@ -46,7 +71,6 @@
         const dados = change.doc.data();
         const perguntaId = dados.perguntaId;
 
-        // busca a pergunta
         const perguntaDoc = await getDoc(doc(db, "perguntas", perguntaId));
         const perguntaData = perguntaDoc.data();
 
@@ -55,7 +79,7 @@
     });
   });
 
-  function mostrarPergunta(pergunta, perguntaId) {
+  async function mostrarPergunta(pergunta, perguntaId) {
     perguntaRespondida = false;
     container.style.display = "block";
     textoPergunta.textContent = pergunta.pergunta;
@@ -72,6 +96,14 @@
       btn.onclick = () => responder(letra, pergunta.correta, pergunta.pontuacao, perguntaId, btn);
       botoesAlternativas.appendChild(btn);
     });
+
+    const creditos = await buscarCreditos(userId);
+    if (creditos >= 5) {
+      tempoTotal = 15;
+      await descontarCreditos(userId, 5);
+    } else {
+      tempoTotal = 10;
+    }
 
     iniciarTempo();
   }
@@ -103,17 +135,16 @@
     botoes.forEach(btn => {
       const letra = btn.textContent.charAt(0);
       if (letra === correta) {
-        btn.style.background = "#4CAF50"; // verde
+        btn.style.background = "#4CAF50";
         btn.style.color = "#fff";
       } else if (btn === botaoClicado) {
-        btn.style.background = "#f44336"; // vermelho
+        btn.style.background = "#f44336";
         btn.style.color = "#fff";
       } else {
         btn.disabled = true;
       }
     });
 
-    // salvar resposta no Firestore
     await addDoc(collection(db, "respostas"), {
       userId,
       jogoId,
@@ -122,12 +153,42 @@
       data: serverTimestamp()
     });
 
-    setTimeout(ocultarPergunta, 3000);
+    setTimeout(() => {
+      ocultarPergunta();
+      carregarRanking();
+    }, 3000);
   }
 
   function ocultarPergunta() {
     container.style.display = "none";
     botoesAlternativas.innerHTML = "";
     textoPergunta.textContent = "";
+  }
+
+  async function carregarRanking() {
+    const respostasSnap = await getDocs(query(
+      collection(db, "respostas"),
+      where("jogoId", "==", jogoId)
+    ));
+
+    const pontuacoes = {};
+    respostasSnap.forEach(doc => {
+      const r = doc.data();
+      if (!pontuacoes[r.userId]) pontuacoes[r.userId] = 0;
+      pontuacoes[r.userId] += r.pontos;
+    });
+
+    const ranking = Object.entries(pontuacoes)
+      .map(([user, pontos]) => ({ user, pontos }))
+      .sort((a, b) => b.pontos - a.pontos);
+
+    const top10 = ranking.slice(0, 10);
+    listaRanking.innerHTML = top10.map((item, i) => `<li>${item.user}: ${item.pontos} pts</li>`).join("");
+
+    const minhaPosicao = ranking.findIndex(r => r.user === userId) + 1;
+    const meusPontos = pontuacoes[userId] || 0;
+    minhaPontuacao.textContent = `Sua posição: #${minhaPosicao} — ${meusPontos} pts`;
+
+    rankingContainer.style.display = "block";
   }
 </script>
