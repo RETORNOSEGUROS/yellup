@@ -1,5 +1,4 @@
 
-<!-- painel-jogo.html (versão completa com dados do jogo, chat e envio manual de pergunta) -->
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -8,109 +7,125 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; background: #f7f7f7; padding: 20px; }
-    .painel { background: white; border-radius: 8px; padding: 20px; max-width: 900px; margin: auto; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-    h1 { font-size: 22px; color: #222; }
-    .chat-area, .pergunta-area { margin-top: 30px; }
-    textarea { width: 100%; height: 120px; }
-    input[type="text"] { width: 80%; }
-    button { padding: 6px 12px; margin-top: 5px; }
-    .info-jogo { font-size: 18px; margin-bottom: 10px; }
+    body { font-family: Arial, sans-serif; background: #f8f8f8; }
+    .painel { background: white; max-width: 800px; margin: 30px auto; padding: 20px; border-radius: 10px; }
+    .titulo { font-size: 22px; font-weight: bold; margin-bottom: 10px; }
+    .info { margin-bottom: 20px; }
+    .chat-box { width: 100%; height: 150px; margin-bottom: 10px; }
+    .envio { display: flex; gap: 10px; margin-bottom: 20px; }
+    .envio input { flex: 1; padding: 8px; }
+    .pergunta { background: #fff7d7; padding: 10px; border-radius: 8px; margin-top: 20px; }
   </style>
 </head>
 <body>
-<div class="painel">
-  <h1>🎯 Painel do Jogo</h1>
-  <div class="info-jogo" id="dadosJogo">Carregando dados do jogo...</div>
+  <div class="painel">
+    <div class="titulo">📢 Painel do Jogo</div>
+    <div class="info" id="infoJogo">⌛ Carregando dados do jogo...</div>
 
-  <div class="chat-area">
-    <h3>💬 Chat da Torcida</h3>
-    <textarea id="chatMensagens" readonly></textarea><br>
-    <input type="text" id="mensagemInput" placeholder="Digite sua mensagem...">
-    <button onclick="enviarMensagem()">Enviar</button>
+    <div class="chat">
+      <div class="titulo">💬 Chat da Torcida</div>
+      <textarea class="chat-box" id="chatDisplay" readonly></textarea>
+      <div class="envio">
+        <input id="mensagemInput" placeholder="Digite sua mensagem..." />
+        <button onclick="enviarMensagem()">Enviar</button>
+      </div>
+    </div>
+
+    <div class="pergunta">
+      <div class="titulo">🎯 Envio Manual de Pergunta</div>
+      <button onclick="sortearEEnviar()">+ Sortear e Enviar Pergunta</button>
+    </div>
   </div>
 
-  <div class="pergunta-area">
-    <h3>🎯 Envio Manual de Pergunta</h3>
-    <button onclick="sortearEEnviarPergunta()">+ Sortear e Enviar Pergunta</button>
-  </div>
-</div>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8",
+      measurementId: "G-SYZ16X31KQ"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
 
-<script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
-    authDomain: "painel-yellup.firebaseapp.com",
-    projectId: "painel-yellup",
-    storageBucket: "painel-yellup.appspot.com",
-    messagingSenderId: "608347210297",
-    appId: "1:608347210297:web:75092713724e617c7203e8",
-    measurementId: "G-SYZ16X31KQ"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
+    const urlParams = new URLSearchParams(window.location.search);
+    const jogoId = urlParams.get("id");
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const jogoId = urlParams.get('id');
-  const campoJogo = document.getElementById('dadosJogo');
+    let idTimeA = "";
+    let idTimeB = "";
 
-  const chatTextarea = document.getElementById("chatMensagens");
-  const inputMensagem = document.getElementById("mensagemInput");
-
-  async function carregarJogo() {
-    const doc = await db.collection("jogos").doc(jogoId).get();
-    if (doc.exists) {
-      const jogo = doc.data();
-      campoJogo.innerHTML = `🏟️ <strong>${jogo.timeCasa?.nome || 'Time A'} vs ${jogo.timeVisitante?.nome || 'Time B'}</strong><br>⏰ Início: ${jogo.inicio?.toDate().toLocaleString() || '-'}<br>🎟️ Entrada: ${jogo.entrada || '0 créditos'}`;
-    } else {
-      campoJogo.innerHTML = "Jogo não encontrado.";
-    }
-  }
-
-  function enviarMensagem() {
-    const texto = inputMensagem.value.trim();
-    if (texto === "") return;
-    db.collection("chats_jogo_demo").add({
-      data: new Date(),
-      texto: texto,
-      jogoId: jogoId,
-      tipo: "chat"
-    });
-    inputMensagem.value = "";
-  }
-
-  function escutarChat() {
-    db.collection("chats_jogo_demo")
-      .where("jogoId", "==", jogoId)
-      .where("tipo", "==", "chat")
-      .orderBy("data", "asc")
-      .onSnapshot(snapshot => {
-        chatTextarea.value = snapshot.docs.map(doc => doc.data().texto).join("\n");
-        chatTextarea.scrollTop = chatTextarea.scrollHeight;
+    function carregarJogo() {
+      if (!jogoId) return;
+      db.collection("jogos").doc(jogoId).get().then(doc => {
+        if (doc.exists) {
+          const dados = doc.data();
+          idTimeA = dados.idTimeA;
+          idTimeB = dados.idTimeB;
+          const inicio = dados.inicio || "-";
+          const entrada = dados.entrada || "-";
+          const nomeCasa = dados.nomeTimeA || "Time A";
+          const nomeFora = dados.nomeTimeB || "Time B";
+          document.getElementById("infoJogo").innerText = `🏟️ ${nomeCasa} vs ${nomeFora}
+📅 Início: ${inicio}
+💳 Entrada: ${entrada}`;
+        } else {
+          document.getElementById("infoJogo").innerText = "❌ Jogo não encontrado.";
+        }
       });
-  }
-
-  async function sortearEEnviarPergunta() {
-    const perguntasSnap = await db.collection("perguntas")
-      .where("timeId", "!=", "")
-      .limit(1) // depois pode ser aleatório
-      .get();
-    if (!perguntasSnap.empty) {
-      const pergunta = perguntasSnap.docs[0].data();
-      await db.collection("chats_jogo_demo").add({
-        data: new Date(),
-        jogoId: jogoId,
-        timeId: pergunta.timeId || "",
-        perguntaId: perguntasSnap.docs[0].id,
-        tipo: "pergunta"
-      });
-      alert("Pergunta enviada!");
-    } else {
-      alert("Nenhuma pergunta encontrada.");
     }
-  }
 
-  carregarJogo();
-  escutarChat();
-</script>
+    function sortearEEnviar() {
+      if (!jogoId || !idTimeA || !idTimeB) return alert("Jogo ou times não carregados.");
+      const times = [idTimeA, idTimeB];
+      const sorteado = times[Math.floor(Math.random() * times.length)];
+      db.collection("perguntas")
+        .where("idTime", "==", sorteado)
+        .get()
+        .then(snapshot => {
+          const perguntas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const usadas = perguntas.filter(p => p.jogoId === jogoId);
+          const restantes = perguntas.filter(p => !usadas.some(u => u.id === p.id));
+          if (restantes.length === 0) return alert("Sem perguntas inéditas.");
+          const escolhida = restantes[Math.floor(Math.random() * restantes.length)];
+          db.collection("perguntas_jogo").add({
+            perguntaId: escolhida.id,
+            jogoId,
+            enviadaEm: new Date(),
+            tempoSegundos: 10
+          });
+          alert("Pergunta enviada!");
+        });
+    }
+
+    function enviarMensagem() {
+      const texto = document.getElementById("mensagemInput").value;
+      if (!texto || !jogoId) return;
+      db.collection("chats_jogo_demo").add({
+        jogoId,
+        mensagem: texto,
+        criadaEm: new Date()
+      });
+      document.getElementById("mensagemInput").value = "";
+    }
+
+    function escutarMensagens() {
+      db.collection("chats_jogo_demo")
+        .where("jogoId", "==", jogoId)
+        .orderBy("criadaEm")
+        .onSnapshot(snapshot => {
+          let chat = "";
+          snapshot.forEach(doc => {
+            const msg = doc.data();
+            chat += msg.mensagem + "\n";
+          });
+          document.getElementById("chatDisplay").value = chat;
+        });
+    }
+
+    carregarJogo();
+    escutarMensagens();
+  </script>
 </body>
 </html>
