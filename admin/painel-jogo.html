@@ -1,41 +1,44 @@
-<!-- 🔴 PERGUNTA INTERATIVA -->
-<div id="perguntaContainer" style="display:none; padding: 20px; border: 2px solid #ddd; border-radius: 8px; background: #fff; max-width: 400px; margin: 20px auto;">
-  <h3 id="textoPergunta" style="font-weight: bold;"></h3>
-  <div id="botoesAlternativas" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;"></div>
-  <div style="margin-top: 15px;"><div id="barraTempo" style="height: 10px; background: green; transition: width 0.1s linear;"></div></div>
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Painel do Jogo</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; }
+    #perguntaContainer, #chatContainer { margin-bottom: 20px; padding: 20px; background: white; border-radius: 8px; }
+    #botoesAlternativas button { display: block; margin-top: 10px; padding: 10px; width: 100%; }
+    #barraTempo { height: 10px; background: green; transition: width 0.2s; }
+    #chatMensagens { border: 1px solid #ccc; height: 200px; overflow-y: auto; padding: 10px; background: #fafafa; }
+    .chat-msg { margin: 5px 0; }
+  </style>
+</head>
+<body>
+
+<h2>📢 Painel do Jogo</h2>
+
+<div id="perguntaContainer" style="display:none;">
+  <h3 id="textoPergunta"></h3>
+  <div id="botoesAlternativas"></div>
+  <div style="margin-top: 10px;">
+    <div id="barraTempo" style="width: 100%;"></div>
+  </div>
 </div>
 
-<!-- 🔵 BOTÃO RANKING -->
-<div style="text-align: center; margin-top: 30px;">
-  <button onclick="carregarRanking()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
-    👀 Ver Ranking ao Vivo
-  </button>
-</div>
-
-<!-- 🟢 RANKING -->
-<div id="rankingContainer" style="display:none; margin: 30px auto; max-width: 400px; background: #f8f8f8; padding: 20px; border-radius: 8px; text-align: center;">
-  <h4>🏆 Ranking ao Vivo</h4>
-  <ol id="listaRanking" style="text-align: left;"></ol>
-  <p id="minhaPontuacao" style="margin-top: 10px; font-weight: bold;"></p>
-  <button onclick="fecharRanking()" style="margin-top: 10px; padding: 8px 15px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer;">
-    ✖️ Fechar
-  </button>
-</div>
-
-<!-- 🟡 CHAT DA TORCIDA -->
-<div id="chatContainer" style="margin: 40px auto; max-width: 500px; background: #eef2f5; padding: 15px; border-radius: 8px;">
+<div id="chatContainer">
   <h4>💬 Chat da Torcida</h4>
-  <div id="chatMensagens" style="height: 250px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: #fff; border-radius: 5px; margin-bottom: 10px;"></div>
-  <input type="text" id="chatInput" placeholder="Digite sua mensagem..." style="width: 75%; padding: 8px; border-radius: 5px; border: 1px solid #ccc;" />
-  <button onclick="enviarMensagem()" style="padding: 8px 12px; margin-left: 5px; background: #28a745; color: white; border: none; border-radius: 5px;">Enviar</button>
+  <div id="chatMensagens"></div>
+  <input type="text" id="inputChat" placeholder="Digite sua mensagem..." style="width:80%;" />
+  <button onclick="enviarChat()">Enviar</button>
 </div>
 
-<!-- 🔴 PAINEL ADMIN -->
-<div id="painelAdmin" style="display:none; margin: 40px auto; max-width: 400px; padding: 20px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px;">
+<div style="background: #fff3cd; padding: 15px; border-radius: 8px;">
   <h4>🎯 Envio Manual de Pergunta</h4>
-  <button onclick="enviarPerguntaParaTime()" style="padding: 10px 15px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">➕ Sortear e Enviar Pergunta</button>
-  <p id="ultimaPerguntaEnviada" style="margin-top: 15px; font-size: 14px;"></p>
+  <button onclick="sortearPergunta()">+ Sortear e Enviar Pergunta</button>
 </div>
+
+<!-- Firebase compat libraries -->
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 <script>
@@ -50,208 +53,109 @@
   };
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
-
-  // Variáveis dinâmicas do jogo
-  const jogoId = "SEU_JOGO_ID";
-  const timeId = "SEU_TIME_ID";
-  const userId = "SEU_USER_ID";
-  const nomeUsuario = "Fulano"; // Pode vir do login
-  const modoAdmin = true;
+</script>
+<script>
+  const urlParams = new URLSearchParams(window.location.search);
+  const jogoId = urlParams.get("id");
   const container = document.getElementById("perguntaContainer");
   const textoPergunta = document.getElementById("textoPergunta");
   const botoesAlternativas = document.getElementById("botoesAlternativas");
   const barraTempo = document.getElementById("barraTempo");
 
-  const rankingContainer = document.getElementById("rankingContainer");
-  const listaRanking = document.getElementById("listaRanking");
-  const minhaPontuacao = document.getElementById("minhaPontuacao");
+  let intervaloBarra, perguntaAtual;
 
-  const chatMensagens = document.getElementById("chatMensagens");
-  const chatInput = document.getElementById("chatInput");
-
-  let tempoTotal = 10;
-  let intervalId;
-  let perguntaRespondida = false;
-
-  if (modoAdmin) {
-    document.getElementById("painelAdmin").style.display = "block";
-    setInterval(() => enviarPerguntaParaTime(), 5 * 60 * 1000); // Auto a cada 5min
-  }
-
-  async function buscarCreditos(uid) {
-    const snap = await db.collection("usuarios").doc(uid).get();
-    return snap.exists ? (snap.data().creditos || 0) : 0;
-  }
-
-  async function descontarCreditos(uid, valor) {
-    const ref = db.collection("usuarios").doc(uid);
-    const docSnap = await ref.get();
-    const dados = docSnap.data();
-    await ref.set({ ...dados, creditos: (dados.creditos || 0) - valor }, { merge: true });
-  }
-
-  db.collection("chats_jogo_demo")
-    .where("jogoId", "==", jogoId)
-    .where("timeId", "==", timeId)
-    .onSnapshot(snapshot => {
-      snapshot.docChanges().forEach(async change => {
-        const d = change.doc.data();
-        if (d.tipo === "pergunta" && change.type === "added") {
-          const resp = await db.collection("respostas")
-            .where("userId", "==", userId)
-            .where("jogoId", "==", jogoId)
-            .where("perguntaId", "==", d.perguntaId)
-            .get();
-          if (!resp.empty) return;
-
-          const docPergunta = await db.collection("perguntas").doc(d.perguntaId).get();
-          if (docPergunta.exists) mostrarPergunta(docPergunta.data(), d.perguntaId);
-        }
-        if (d.tipo === "mensagem" && change.type === "added") {
-          exibirMensagem(d);
-        }
+  function sortearPergunta() {
+    db.collection("jogos").doc(jogoId).get().then(doc => {
+      const timeId = doc.data().timeCasaId;
+      db.collection("perguntas").where("timeId", "==", timeId).limit(1).get().then(snapshot => {
+        snapshot.forEach(doc => {
+          const pergunta = doc.data();
+          enviarPerguntaParaChat(pergunta, timeId, doc.id);
+        });
       });
     });
+  }
 
-  function mostrarPergunta(pergunta, perguntaId) {
-    perguntaRespondida = false;
-    container.style.display = "block";
-    textoPergunta.textContent = pergunta.pergunta;
-    botoesAlternativas.innerHTML = "";
-
-    ["A", "B", "C", "D"].forEach(letra => {
-      const btn = document.createElement("button");
-      btn.textContent = `${letra}) ${pergunta.alternativas[letra]}`;
-      btn.style.padding = "10px";
-      btn.style.borderRadius = "5px";
-      btn.style.border = "1px solid #ccc";
-      btn.style.cursor = "pointer";
-      btn.onclick = () => responder(letra, pergunta.correta, pergunta.pontuacao, perguntaId, btn);
-      botoesAlternativas.appendChild(btn);
-    });
-
-    buscarCreditos(userId).then(c => {
-      tempoTotal = c >= 5 ? 15 : 10;
-      if (c >= 5) descontarCreditos(userId, 5);
-      iniciarTempo();
+  function enviarPerguntaParaChat(pergunta, timeId, perguntaId) {
+    db.collection("chats_jogo_demo").add({
+      jogId: jogoId,
+      timeId: timeId,
+      perguntaId: perguntaId,
+      tipo: "pergunta",
+      data: new Date().toISOString()
     });
   }
 
-  function iniciarTempo() {
-    let restante = tempoTotal;
+  function iniciarBarraTempo(duracao = 10) {
+    let tempoRestante = duracao;
     barraTempo.style.width = "100%";
-    barraTempo.style.background = "green";
-
-    intervalId = setInterval(() => {
-      restante--;
-      barraTempo.style.width = `${(restante / tempoTotal) * 100}%`;
-      if (restante <= 0) {
-        clearInterval(intervalId);
-        if (!perguntaRespondida) ocultarPergunta();
+    clearInterval(intervaloBarra);
+    intervaloBarra = setInterval(() => {
+      tempoRestante--;
+      barraTempo.style.width = (tempoRestante * 10) + "%";
+      if (tempoRestante <= 0) {
+        clearInterval(intervaloBarra);
+        container.style.display = "none";
       }
     }, 1000);
   }
 
-  async function responder(letra, correta, pontos, perguntaId, btnClicado) {
-    perguntaRespondida = true;
-    clearInterval(intervalId);
-
-    botoesAlternativas.querySelectorAll("button").forEach(btn => {
-      const letraBtn = btn.textContent.charAt(0);
-      if (letraBtn === correta) btn.style.background = "#4CAF50";
-      else if (btn === btnClicado) btn.style.background = "#f44336";
-      else btn.disabled = true;
-      btn.style.color = "#fff";
+  db.collection("chats_jogo_demo")
+    .where("jogId", "==", jogoId)
+    .where("tipo", "==", "pergunta")
+    .orderBy("data", "desc")
+    .limit(1)
+    .onSnapshot(snapshot => {
+      snapshot.forEach(doc => {
+        const perguntaId = doc.data().perguntaId;
+        db.collection("perguntas").doc(perguntaId).get().then(pdoc => {
+          const p = pdoc.data();
+          textoPergunta.innerText = p.pergunta;
+          botoesAlternativas.innerHTML = "";
+          ["a", "b", "c", "d"].forEach(letra => {
+            const btn = document.createElement("button");
+            btn.textContent = letra.toUpperCase() + ") " + p[letra];
+            botoesAlternativas.appendChild(btn);
+          });
+          container.style.display = "block";
+          iniciarBarraTempo(10);
+        });
+      });
     });
 
-    await db.collection("respostas").add({
-      userId, jogoId, perguntaId,
-      pontos: letra === correta ? pontos : 0,
-      data: firebase.firestore.FieldValue.serverTimestamp()
-    });
+  // Chat da torcida
+  const chatMensagens = document.getElementById("chatMensagens");
+  const inputChat = document.getElementById("inputChat");
 
-    setTimeout(() => { ocultarPergunta(); carregarRanking(); }, 3000);
-  }
-
-  function ocultarPergunta() {
-    container.style.display = "none";
-    textoPergunta.textContent = "";
-    botoesAlternativas.innerHTML = "";
-  }
-
-  async function carregarRanking() {
-    const snap = await db.collection("respostas").where("jogoId", "==", jogoId).get();
-    const pontuacoes = {};
-    snap.forEach(doc => {
-      const r = doc.data();
-      if (!pontuacoes[r.userId]) pontuacoes[r.userId] = 0;
-      pontuacoes[r.userId] += r.pontos;
-    });
-
-    const ranking = Object.entries(pontuacoes)
-      .map(([user, pontos]) => ({ user, pontos }))
-      .sort((a, b) => b.pontos - a.pontos);
-
-    listaRanking.innerHTML = ranking.slice(0, 10)
-      .map(item => `<li>${item.user}: ${item.pontos} pts</li>`).join("");
-
-    const minhaPos = ranking.findIndex(r => r.user === userId) + 1;
-    minhaPontuacao.textContent = `Sua posição: #${minhaPos} — ${pontuacoes[userId] || 0} pts`;
-    rankingContainer.style.display = "block";
-  }
-
-  function fecharRanking() {
-    rankingContainer.style.display = "none";
-  }
-
-  async function enviarPerguntaParaTime() {
-    const usadasSnap = await db.collection("chats_jogo_demo")
-      .where("jogoId", "==", jogoId)
-      .where("timeId", "==", timeId)
-      .where("tipo", "==", "pergunta")
-      .get();
-    const usadas = usadasSnap.docs.map(d => d.data().perguntaId);
-
-    const todasSnap = await db.collection("perguntas").where("timeId", "==", timeId).get();
-    const candidatas = todasSnap.docs.filter(doc => !usadas.includes(doc.id));
-    if (candidatas.length === 0) {
-      alert("Sem perguntas inéditas.");
-      return;
+  function enviarChat() {
+    const texto = inputChat.value;
+    if (texto.trim() !== "") {
+      db.collection("chats_jogo_demo").add({
+        jogId: jogoId,
+        tipo: "chat",
+        mensagem: texto,
+        data: new Date().toISOString()
+      });
+      inputChat.value = "";
     }
+  }
 
-    const sorteada = candidatas[Math.floor(Math.random() * candidatas.length)];
-    await db.collection("chats_jogo_demo").add({
-      tipo: "pergunta",
-      jogoId,
-      timeId,
-      perguntaId: sorteada.id,
-      data: firebase.firestore.FieldValue.serverTimestamp()
+  db.collection("chats_jogo_demo")
+    .where("jogId", "==", jogoId)
+    .where("tipo", "==", "chat")
+    .orderBy("data", "desc")
+    .limit(50)
+    .onSnapshot(snapshot => {
+      chatMensagens.innerHTML = "";
+      snapshot.forEach(doc => {
+        const msg = document.createElement("div");
+        msg.className = "chat-msg";
+        msg.textContent = doc.data().mensagem;
+        chatMensagens.appendChild(msg);
+      });
     });
 
-    document.getElementById("ultimaPerguntaEnviada").textContent =
-      `Pergunta enviada: ${sorteada.id}`;
-  }
-
-  function enviarMensagem() {
-    const texto = chatInput.value.trim();
-    if (!texto) return;
-    db.collection("chats_jogo_demo").add({
-      tipo: "mensagem",
-      jogoId,
-      timeId,
-      userId,
-      nome: nomeUsuario,
-      texto,
-      data: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    chatInput.value = "";
-  }
-
-  function exibirMensagem(dado) {
-    const msg = document.createElement("div");
-    msg.style.marginBottom = "5px";
-    msg.innerHTML = `<strong>${dado.nome}:</strong> ${dado.texto}`;
-    chatMensagens.appendChild(msg);
-    chatMensagens.scrollTop = chatMensagens.scrollHeight;
-  }
+  setInterval(() => sortearPergunta(), 5 * 60 * 1000); // auto a cada 5 min
 </script>
+</body>
+</html>
