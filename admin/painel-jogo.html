@@ -15,20 +15,26 @@
   <p id="minhaPontuacao" style="margin-top: 10px; font-weight: bold;"></p>
 </div>
 
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, collection, query, where, onSnapshot, addDoc, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
+<!-- Firebase compat libraries -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<script>
   const firebaseConfig = {
-    // 👉 insira suas credenciais aqui
+    apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+    authDomain: "painel-yellup.firebaseapp.com",
+    projectId: "painel-yellup",
+    storageBucket: "painel-yellup.appspot.com",
+    messagingSenderId: "608347210297",
+    appId: "1:608347210297:web:75092713724e617c7203e8",
+    measurementId: "G-SYZ16X31KQ"
   };
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
 
   const jogoId = "SEU_JOGO_ID";
-  const timeId = "TIME_DO_USUARIO";
-  const userId = "USUARIO_ATUAL";
+  const timeId = "SEU_TIME_ID";
+  const userId = "SEU_USER_ID";
 
   const container = document.getElementById("perguntaContainer");
   const textoPergunta = document.getElementById("textoPergunta");
@@ -44,40 +50,37 @@
   let perguntaRespondida = false;
 
   async function buscarCreditos(usuarioId) {
-    const userDoc = await getDoc(doc(db, "usuarios", usuarioId));
-    const dados = userDoc.data();
-    return dados.creditos || 0;
+    const docRef = db.collection("usuarios").doc(usuarioId);
+    const docSnap = await docRef.get();
+    return docSnap.exists ? (docSnap.data().creditos || 0) : 0;
   }
 
   async function descontarCreditos(usuarioId, valor) {
-    const ref = doc(db, "usuarios", usuarioId);
-    const userDoc = await getDoc(ref);
-    const dados = userDoc.data();
+    const ref = db.collection("usuarios").doc(usuarioId);
+    const docSnap = await ref.get();
+    if (!docSnap.exists) return;
+    const dados = docSnap.data();
     const novosCreditos = (dados.creditos || 0) - valor;
-    await setDoc(ref, { ...dados, creditos: novosCreditos }, { merge: true });
+    await ref.set({ ...dados, creditos: novosCreditos }, { merge: true });
   }
 
-  // Escuta nova pergunta para o time do usuário
-  const q = query(
-    collection(db, "chats_jogo_demo"),
-    where("jogoId", "==", jogoId),
-    where("timeId", "==", timeId),
-    where("tipo", "==", "pergunta")
-  );
+  db.collection("chats_jogo_demo")
+    .where("jogoId", "==", jogoId)
+    .where("timeId", "==", timeId)
+    .where("tipo", "==", "pergunta")
+    .onSnapshot(async (snapshot) => {
+      snapshot.docChanges().forEach(async (change) => {
+        if (change.type === "added") {
+          const dados = change.doc.data();
+          const perguntaId = dados.perguntaId;
 
-  onSnapshot(q, async (snapshot) => {
-    snapshot.docChanges().forEach(async (change) => {
-      if (change.type === "added") {
-        const dados = change.doc.data();
-        const perguntaId = dados.perguntaId;
-
-        const perguntaDoc = await getDoc(doc(db, "perguntas", perguntaId));
-        const perguntaData = perguntaDoc.data();
-
-        mostrarPergunta(perguntaData, perguntaId);
-      }
+          const perguntaDoc = await db.collection("perguntas").doc(perguntaId).get();
+          if (perguntaDoc.exists) {
+            mostrarPergunta(perguntaDoc.data(), perguntaId);
+          }
+        }
+      });
     });
-  });
 
   async function mostrarPergunta(pergunta, perguntaId) {
     perguntaRespondida = false;
@@ -85,8 +88,7 @@
     textoPergunta.textContent = pergunta.pergunta;
     botoesAlternativas.innerHTML = "";
 
-    const alternativas = ["A", "B", "C", "D"];
-    alternativas.forEach((letra) => {
+    ["A", "B", "C", "D"].forEach((letra) => {
       const btn = document.createElement("button");
       btn.textContent = `${letra}) ${pergunta.alternativas[letra]}`;
       btn.style.padding = "10px";
@@ -145,12 +147,12 @@
       }
     });
 
-    await addDoc(collection(db, "respostas"), {
+    await db.collection("respostas").add({
       userId,
       jogoId,
       perguntaId,
       pontos: letraSelecionada === correta ? pontos : 0,
-      data: serverTimestamp()
+      data: firebase.firestore.FieldValue.serverTimestamp()
     });
 
     setTimeout(() => {
@@ -166,13 +168,10 @@
   }
 
   async function carregarRanking() {
-    const respostasSnap = await getDocs(query(
-      collection(db, "respostas"),
-      where("jogoId", "==", jogoId)
-    ));
-
+    const snap = await db.collection("respostas").where("jogoId", "==", jogoId).get();
     const pontuacoes = {};
-    respostasSnap.forEach(doc => {
+
+    snap.forEach(doc => {
       const r = doc.data();
       if (!pontuacoes[r.userId]) pontuacoes[r.userId] = 0;
       pontuacoes[r.userId] += r.pontos;
@@ -183,7 +182,7 @@
       .sort((a, b) => b.pontos - a.pontos);
 
     const top10 = ranking.slice(0, 10);
-    listaRanking.innerHTML = top10.map((item, i) => `<li>${item.user}: ${item.pontos} pts</li>`).join("");
+    listaRanking.innerHTML = top10.map(item => `<li>${item.user}: ${item.pontos} pts</li>`).join("");
 
     const minhaPosicao = ranking.findIndex(r => r.user === userId) + 1;
     const meusPontos = pontuacoes[userId] || 0;
