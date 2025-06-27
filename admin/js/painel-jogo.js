@@ -1,19 +1,16 @@
-// admin/js/painel-jogo.js
-
-const db = firebase.firestore();
+// painel-jogo.js
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 
 let timeCasaId = "";
 let timeForaId = "";
 
-// Dados do jogo
+// Carrega dados do jogo e times
 async function carregarJogo() {
-  const docRef = db.collection("jogos").doc(jogoId);
-  const snap = await docRef.get();
-  if (!snap.exists) return;
-  const jogo = snap.data();
+  const jogoDoc = await db.collection("jogos").doc(jogoId).get();
+  if (!jogoDoc.exists) return;
 
+  const jogo = jogoDoc.data();
   timeCasaId = jogo.timeCasaId;
   timeForaId = jogo.timeForaId;
 
@@ -23,45 +20,21 @@ async function carregarJogo() {
   const nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
   const nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
 
-  document.getElementById("tituloJogo").textContent = `${nomeCasa} vs ${nomeFora}`;
-  document.getElementById("nomeTimeCasa").textContent = nomeCasa;
-  document.getElementById("nomeTimeFora").textContent = nomeFora;
+  document.getElementById("titulo-jogo").textContent = `${nomeCasa} vs ${nomeFora}`;
+  document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
+  document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
 
-  document.getElementById("infoInicio").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
-  document.getElementById("infoEntrada").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
-
-  escutarChats();
+  escutarChats(nomeCasa, nomeFora);
 }
 
-function escutarChats() {
-  escutarChat("geral", `chats_jogo/${jogoId}/geral`, "chatGeral");
-  escutarChat("casa", `chats_jogo/${jogoId}/casa`, "chatCasa");
-  escutarChat("fora", `chats_jogo/${jogoId}/fora`, "chatFora");
-}
-
-function escutarChat(tipo, caminho, divId) {
-  db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
-    const div = document.getElementById(divId);
-    div.innerHTML = "";
-    snapshot.forEach(doc => {
-      const msg = doc.data();
-      const el = document.createElement("div");
-      el.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
-      div.appendChild(el);
-    });
-  });
-}
-
+// Envia mensagens para os chats corretos
 function enviarMensagem(tipo) {
-  const inputId = tipo === "geral" ? "msgGeral" : tipo === "casa" ? "msgCasa" : "msgFora";
-  const input = document.getElementById(inputId);
+  const input = document.getElementById(`input${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
   const texto = input.value.trim();
   if (!texto) return;
 
-  const caminho = tipo === "geral"
-    ? `chats_jogo/${jogoId}/geral`
-    : tipo === "casa"
-    ? `chats_jogo/${jogoId}/casa`
+  const caminho = tipo === "geral" ? `chats_jogo/${jogoId}/geral`
+    : tipo === "timeA" ? `chats_jogo/${jogoId}/casa`
     : `chats_jogo/${jogoId}/fora`;
 
   db.collection(caminho).add({
@@ -73,8 +46,28 @@ function enviarMensagem(tipo) {
   input.value = "";
 }
 
-function sortearEnviarPergunta() {
-  alert("Envio de pergunta ainda será implementado.");
+// Escuta os 3 chats em tempo real
+function escutarChats(nomeCasa, nomeFora) {
+  escutarChat(`chats_jogo/${jogoId}/geral`, "chatGeral");
+  escutarChat(`chats_jogo/${jogoId}/casa`, "chatTimeA", nomeCasa);
+  escutarChat(`chats_jogo/${jogoId}/fora`, "chatTimeB", nomeFora);
+}
+
+function escutarChat(caminho, divId, nome = "Torcida") {
+  db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
+    const div = document.getElementById(divId);
+    div.innerHTML = "";
+    snapshot.forEach(doc => {
+      const msg = doc.data();
+      const linha = document.createElement("div");
+      linha.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
+      div.appendChild(linha);
+    });
+  });
+}
+
+function sortearPergunta() {
+  alert("Função de sorteio ainda será implementada.");
 }
 
 carregarJogo();
