@@ -1,50 +1,54 @@
-document.addEventListener('DOMContentLoaded', async () => {
-  const db = firebase.firestore();
-  const urlParams = new URLSearchParams(window.location.search);
-  const jogoId = urlParams.get('id');
+// admin/js/painel-jogo.js
+import { db } from '../../firebase-init.js';
+import { doc, getDoc, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js';
 
-  if (!jogoId) {
-    alert("ID do jogo não fornecido.");
-    return;
-  }
+const urlParams = new URLSearchParams(window.location.search);
+const jogoId = urlParams.get("id");
 
-  try {
-    const doc = await db.collection("jogos").doc(jogoId).get();
-    if (!doc.exists) {
-      alert("Jogo não encontrado no banco de dados.");
-      return;
-    }
+const spanTitulo = document.getElementById("tituloJogo");
+const spanInicio = document.getElementById("dataInicio");
+const spanEntrada = document.getElementById("valorEntrada");
 
-    const jogo = doc.data();
+const chatBox = document.getElementById("chatBox");
+const inputMensagem = document.getElementById("inputMensagem");
+const btnEnviar = document.getElementById("btnEnviar");
 
-    // Busca nomes dos times
-    const [timeCasaDoc, timeForaDoc] = await Promise.all([
-      db.collection("times").doc(jogo.timeCasaId).get(),
-      db.collection("times").doc(jogo.timeForaId).get()
-    ]);
+// Dados do Jogo
+async function carregarJogo() {
+  const docRef = doc(db, "jogos", jogoId);
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) return;
+  const jogo = snap.data();
+  spanTitulo.innerText = `${jogo.timeCasa?.nome || 'Time A'} vs ${jogo.timeFora?.nome || 'Time B'}`;
+  spanInicio.innerText = new Date(jogo.dataInicio?.seconds * 1000).toLocaleString();
+  spanEntrada.innerText = `${jogo.valorEntrada || 0} crédito(s)`;
+}
 
-    const nomeCasa = timeCasaDoc.exists ? timeCasaDoc.data().nome : "Time A";
-    const nomeFora = timeForaDoc.exists ? timeForaDoc.data().nome : "Time B";
-    document.getElementById('tituloJogo').innerText = `${nomeCasa} vs ${nomeFora}`;
-
-    // Formata datas
-    const inicio = jogo.dataInicio?.toDate?.().toLocaleString("pt-BR") || "-";
-    document.getElementById('infoInicio').innerText = inicio;
-
-    // Formata entrada
-    const entrada = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
-    document.getElementById('infoEntrada').innerText = entrada;
-
-  } catch (error) {
-    console.error("Erro ao carregar dados do jogo:", error);
-    alert("Erro ao carregar dados.");
-  }
+// Enviar Mensagem
+btnEnviar.addEventListener("click", async () => {
+  const texto = inputMensagem.value.trim();
+  if (!texto) return;
+  await addDoc(collection(db, `chats_jogo/${jogoId}/geral`), {
+    texto,
+    admin: true,
+    criadoEm: serverTimestamp(),
+  });
+  inputMensagem.value = "";
 });
 
-function enviarMensagem() {
-  alert('Chat ainda não implementado.');
+// Ouvir mensagens do chat geral
+function ouvirChatGeral() {
+  const q = query(collection(db, `chats_jogo/${jogoId}/geral`), orderBy("criadoEm", "asc"));
+  onSnapshot(q, (snap) => {
+    chatBox.innerHTML = "";
+    snap.forEach(doc => {
+      const msg = doc.data();
+      const el = document.createElement("div");
+      el.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
+      chatBox.appendChild(el);
+    });
+  });
 }
 
-function sortearPergunta() {
-  alert('Sorteio de pergunta ainda não implementado.');
-}
+carregarJogo();
+ouvirChatGeral();
