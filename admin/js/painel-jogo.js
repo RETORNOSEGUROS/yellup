@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const db = firebase.firestore();
-
   const urlParams = new URLSearchParams(window.location.search);
   const jogoId = urlParams.get('id');
 
@@ -11,7 +10,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   try {
     const doc = await db.collection("jogos").doc(jogoId).get();
-
     if (!doc.exists) {
       alert("Jogo não encontrado no banco de dados.");
       return;
@@ -19,12 +17,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const jogo = doc.data();
 
-    document.getElementById('tituloJogo').innerText = `${jogo.timeCasa} vs ${jogo.timeFora}`;
-    document.getElementById('infoInicio').innerText = jogo.dataInicio || '-';
-    document.getElementById('infoEntrada').innerText = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : '-';
+    // Busca nomes dos times
+    const [timeCasaDoc, timeForaDoc] = await Promise.all([
+      db.collection("times").doc(jogo.timeCasaId).get(),
+      db.collection("times").doc(jogo.timeForaId).get()
+    ]);
+
+    const nomeCasa = timeCasaDoc.exists ? timeCasaDoc.data().nome : "Time A";
+    const nomeFora = timeForaDoc.exists ? timeForaDoc.data().nome : "Time B";
+    document.getElementById('tituloJogo').innerText = `${nomeCasa} vs ${nomeFora}`;
+
+    // Formata datas
+    const inicio = jogo.dataInicio?.toDate?.().toLocaleString("pt-BR") || "-";
+    document.getElementById('infoInicio').innerText = inicio;
+
+    // Formata entrada
+    const entrada = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
+    document.getElementById('infoEntrada').innerText = entrada;
+
   } catch (error) {
-    console.error("Erro ao buscar dados do jogo:", error);
-    alert("Erro ao carregar dados do jogo.");
+    console.error("Erro ao carregar dados do jogo:", error);
+    alert("Erro ao carregar dados.");
   }
 });
 
