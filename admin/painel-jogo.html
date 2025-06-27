@@ -2,245 +2,39 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <title>Painel do Jogo - Completo</title>
+  <title>Painel do Jogo</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-  <style>
-    body { font-family: Arial; background: #f4f4f4; padding: 20px; }
-    .painel { background: #fff; padding: 20px; border-radius: 10px; max-width: 900px; margin: auto; }
-    h2 { color: #c40064; }
-    .info, .chat, .ranking, .pergunta, .admin { margin-top: 30px; }
-    textarea { width: 100%; height: 100px; margin-bottom: 10px; }
-    input[type="text"] { width: 75%; padding: 8px; }
-    button { padding: 8px 12px; background: #c40064; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
-    button:hover { background: #a00050; }
-  </style>
 </head>
 <body>
-  <div class="painel">
-    <h2>🎯 Painel Interativo do Jogo</h2>
-    <div class="info" id="infoJogo">Carregando dados do jogo...</div>
+  <div id="infoJogo"></div>
 
-    <div class="pergunta" id="perguntaContainer" style="display:none;">
-      <h3 id="textoPergunta"></h3>
-      <div id="botoesAlternativas"></div>
-      <div><div id="barraTempo" style="height: 10px; background: green;"></div></div>
-    </div>
+  <div id="perguntaContainer" style="display:none;">
+    <h3 id="textoPergunta"></h3>
+    <div id="botoesAlternativas"></div>
+    <div><div id="barraTempo" style="height: 10px; background: green;"></div></div>
+  </div>
 
-    <div class="ranking">
-      <button onclick="carregarRanking()">👀 Ver Ranking</button>
-      <div id="rankingContainer" style="display:none;">
-        <ol id="listaRanking"></ol>
-        <p id="minhaPontuacao"></p>
-        <button onclick="fecharRanking()">✖️ Fechar</button>
-      </div>
-    </div>
-
-    <div class="chat">
-      <h3>💬 Chat da Torcida</h3>
-      <textarea id="chatMensagens" readonly></textarea><br />
-      <input type="text" id="mensagemInput" placeholder="Digite sua mensagem..." />
-      <button onclick="enviarMensagem()">Enviar</button>
-    </div>
-
-    <div class="admin" id="painelAdmin" style="display:none;">
-      <h3>⚙️ Painel Admin</h3>
-      <button onclick="enviarPerguntaParaTime()">+ Sortear e Enviar Pergunta</button>
-      <p id="ultimaPerguntaEnviada"></p>
+  <div>
+    <button onclick="carregarRanking()">Ver Ranking</button>
+    <div id="rankingContainer" style="display:none;">
+      <ol id="listaRanking"></ol>
+      <p id="minhaPontuacao"></p>
+      <button onclick="fecharRanking()">Fechar</button>
     </div>
   </div>
-<script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
-    authDomain: "painel-yellup.firebaseapp.com",
-    projectId: "painel-yellup",
-    storageBucket: "painel-yellup.appspot.com",
-    messagingSenderId: "608347210297",
-    appId: "1:608347210297:web:75092713724e617c7203e8"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const jogoId = urlParams.get("id");
-  const userId = "USUARIO_ATUAL"; // Defina dinamicamente após login
-  const timeId = "SEU_TIME_ID";   // Time do usuário neste jogo
-  const modoAdmin = true;
+  <div>
+    <textarea id="chatMensagens" readonly></textarea><br />
+    <input type="text" id="mensagemInput" placeholder="Digite sua mensagem..." />
+    <button onclick="enviarMensagem()">Enviar</button>
+  </div>
 
-  let tempoTotal = 10;
-  let perguntaRespondida = false;
-  let intervalId;
+  <div id="painelAdmin" style="display:none;">
+    <button onclick="enviarPerguntaParaTime()">Sortear e Enviar Pergunta</button>
+    <p id="ultimaPerguntaEnviada"></p>
+  </div>
 
-  const container = document.getElementById("perguntaContainer");
-  const textoPergunta = document.getElementById("textoPergunta");
-  const botoesAlternativas = document.getElementById("botoesAlternativas");
-  const barraTempo = document.getElementById("barraTempo");
-  const rankingContainer = document.getElementById("rankingContainer");
-  const listaRanking = document.getElementById("listaRanking");
-  const minhaPontuacao = document.getElementById("minhaPontuacao");
-
-  async function carregarJogo() {
-    const doc = await db.collection("jogos").doc(jogoId).get();
-    if (doc.exists) {
-      const dados = doc.data();
-      document.getElementById("infoJogo").innerHTML = `
-        🏟 ${dados.timeCasa} vs ${dados.timeVisitante}<br />
-        ⏰ Início: ${dados.inicio || "-"}<br />
-        💳 Entrada: ${dados.valorCreditos || "-"} créditos
-      `;
-    }
-  }
-
-  async function buscarCreditos(usuarioId) {
-    const snap = await db.collection("usuarios").doc(usuarioId).get();
-    return snap.exists ? (snap.data().creditos || 0) : 0;
-  }
-
-  async function descontarCreditos(usuarioId, valor) {
-    const ref = db.collection("usuarios").doc(usuarioId);
-    const docSnap = await ref.get();
-    const dados = docSnap.data();
-    const novosCreditos = (dados.creditos || 0) - valor;
-    await ref.set({ ...dados, creditos: novosCreditos }, { merge: true });
-  }
-  db.collection("chats_jogo_demo")
-    .where("jogoId", "==", jogoId)
-    .where("timeId", "==", timeId)
-    .where("tipo", "==", "pergunta")
-    .onSnapshot(async (snapshot) => {
-      snapshot.docChanges().forEach(async (change) => {
-        if (change.type === "added") {
-          const dados = change.doc.data();
-          const perguntaId = dados.perguntaId;
-
-          const jaResp = await db.collection("respostas")
-            .where("userId", "==", userId)
-            .where("jogoId", "==", jogoId)
-            .where("perguntaId", "==", perguntaId).get();
-          if (!jaResp.empty) return;
-
-          const pDoc = await db.collection("perguntas").doc(perguntaId).get();
-          if (pDoc.exists) mostrarPergunta(pDoc.data(), perguntaId);
-        }
-      });
-    });
-
-  function mostrarPergunta(pergunta, perguntaId) {
-    perguntaRespondida = false;
-    container.style.display = "block";
-    textoPergunta.textContent = pergunta.pergunta;
-    botoesAlternativas.innerHTML = "";
-
-    ["A", "B", "C", "D"].forEach(letra => {
-      const btn = document.createElement("button");
-      btn.textContent = `${letra}) ${pergunta.alternativas[letra]}`;
-      btn.onclick = () => responder(letra, pergunta.correta, pergunta.pontuacao, perguntaId, btn);
-      botoesAlternativas.appendChild(btn);
-    });
-
-    buscarCreditos(userId).then(cred => {
-      tempoTotal = cred >= 5 ? 15 : 10;
-      if (cred >= 5) descontarCreditos(userId, 5);
-      iniciarTempo();
-    });
-  }
-
-  function iniciarTempo() {
-    let restante = tempoTotal;
-    barraTempo.style.width = "100%";
-    clearInterval(intervalId);
-    intervalId = setInterval(() => {
-      restante--;
-      barraTempo.style.width = `${(restante / tempoTotal) * 100}%`;
-      if (restante <= 0 && !perguntaRespondida) {
-        clearInterval(intervalId);
-        ocultarPergunta();
-      }
-    }, 1000);
-  }
-
-  function ocultarPergunta() {
-    container.style.display = "none";
-    botoesAlternativas.innerHTML = "";
-    textoPergunta.textContent = "";
-  }
-
-  async function responder(letra, correta, pontos, perguntaId, botao) {
-    perguntaRespondida = true;
-    clearInterval(intervalId);
-
-    botoesAlternativas.querySelectorAll("button").forEach(btn => {
-      const l = btn.textContent.charAt(0);
-      if (l === correta) btn.style.background = "#4CAF50";
-      else if (btn === botao) btn.style.background = "#f44336";
-      btn.style.color = "#fff";
-    });
-
-    await db.collection("respostas").add({
-      userId, jogoId, perguntaId,
-      pontos: letra === correta ? pontos : 0,
-      data: firebase.firestore.FieldValue.serverTimestamp()
-    });
-
-    setTimeout(() => { ocultarPergunta(); carregarRanking(); }, 3000);
-  }
-  async function carregarRanking() {
-    const snap = await db.collection("respostas").where("jogoId", "==", jogoId).get();
-    const pontuacoes = {};
-    snap.forEach(doc => {
-      const r = doc.data();
-      pontuacoes[r.userId] = (pontuacoes[r.userId] || 0) + r.pontos;
-    });
-
-    const ranking = Object.entries(pontuacoes).map(([user, pontos]) => ({ user, pontos }))
-      .sort((a, b) => b.pontos - a.pontos);
-    listaRanking.innerHTML = ranking.slice(0, 10).map(i => `<li>${i.user}: ${i.pontos} pts</li>`).join("");
-    const pos = ranking.findIndex(r => r.user === userId) + 1;
-    minhaPontuacao.textContent = `Sua posição: #${pos} — ${pontuacoes[userId] || 0} pts`;
-    rankingContainer.style.display = "block";
-  }
-
-  function fecharRanking() {
-    rankingContainer.style.display = "none";
-  }
-
-  function enviarMensagem() {
-    const input = document.getElementById("mensagemInput");
-    const texto = input.value.trim();
-    if (!texto) return;
-    db.collection("chats_jogo_demo").add({ jogoId, timeId, texto, tipo: "mensagem", data: new Date() });
-    input.value = "";
-  }
-
-  function escutarChat() {
-    db.collection("chats_jogo_demo")
-      .where("jogoId", "==", jogoId)
-      .where("tipo", "==", "mensagem")
-      .orderBy("data")
-      .onSnapshot(snap => {
-        document.getElementById("chatMensagens").value = snap.docs.map(d => d.data().texto).join("\\n");
-      });
-  }
-
-  async function enviarPerguntaParaTime() {
-    const snap = await db.collection("perguntas").where("timeId", "==", timeId).get();
-    const perguntas = snap.docs;
-    if (perguntas.length === 0) return alert("Sem perguntas disponíveis.");
-    const aleatoria = perguntas[Math.floor(Math.random() * perguntas.length)];
-    await db.collection("chats_jogo_demo").add({
-      tipo: "pergunta",
-      jogoId,
-      timeId,
-      perguntaId: aleatoria.id,
-      data: new Date()
-    });
-    document.getElementById("ultimaPerguntaEnviada").textContent = `Pergunta enviada: ${aleatoria.id}`;
-  }
-
-  if (modoAdmin) document.getElementById("painelAdmin").style.display = "block";
-
-  carregarJogo();
-  escutarChat();
-</script>
+  <script src="js/painel-jogo.js"></script>
 </body>
 </html>
