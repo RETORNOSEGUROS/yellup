@@ -60,14 +60,47 @@ function escutarChat(caminho, divId, nome = "Torcida") {
     snapshot.forEach(doc => {
       const msg = doc.data();
       const linha = document.createElement("div");
-      linha.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
+      if (msg.tipo === "pergunta") {
+        linha.innerHTML = `<i>Pergunta enviada: ${msg.perguntaId}</i>`;
+      } else {
+        linha.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
+      }
       div.appendChild(linha);
     });
   });
 }
 
-function sortearPergunta() {
-  alert("Função de sorteio ainda será implementada.");
+// Sorteia pergunta e envia para os dois times
+async function sortearPergunta() {
+  try {
+    const perguntasCasaSnap = await db.collection("perguntas").where("timeId", "==", timeCasaId).get();
+    const perguntasForaSnap = await db.collection("perguntas").where("timeId", "==", timeForaId).get();
+
+    if (perguntasCasaSnap.empty || perguntasForaSnap.empty) {
+      alert("Uma das torcidas não possui perguntas cadastradas.");
+      return;
+    }
+
+    const aleatoriaCasa = perguntasCasaSnap.docs[Math.floor(Math.random() * perguntasCasaSnap.docs.length)];
+    const aleatoriaFora = perguntasForaSnap.docs[Math.floor(Math.random() * perguntasForaSnap.docs.length)];
+
+    await db.collection(`chats_jogo/${jogoId}/casa`).add({
+      tipo: "pergunta",
+      perguntaId: aleatoriaCasa.id,
+      dataEnvio: new Date()
+    });
+
+    await db.collection(`chats_jogo/${jogoId}/fora`).add({
+      tipo: "pergunta",
+      perguntaId: aleatoriaFora.id,
+      dataEnvio: new Date()
+    });
+
+    alert("Perguntas enviadas com sucesso!");
+  } catch (e) {
+    console.error("Erro ao sortear perguntas:", e);
+    alert("Erro ao sortear perguntas.");
+  }
 }
 
 carregarJogo();
