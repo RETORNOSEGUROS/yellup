@@ -1,101 +1,49 @@
-// Extrair ID do jogo da URL
+import { db } from '../../firebase/firebase-init.js';
+
+// Utilidade para formatar data
+function formatarData(dataFirestore) {
+  if (!dataFirestore || !dataFirestore.toDate) return '-';
+  const data = dataFirestore.toDate();
+  const dia = String(data.getDate()).padStart(2, '0');
+  const mes = String(data.getMonth() + 1).padStart(2, '0');
+  const ano = data.getFullYear();
+  const hora = String(data.getHours()).padStart(2, '0');
+  const minuto = String(data.getMinutes()).padStart(2, '0');
+  return `${dia}/${mes}/${ano}, ${hora}:${minuto}`;
+}
+
+// Extrai ID da URL
 const urlParams = new URLSearchParams(window.location.search);
-const jogoId = urlParams.get("id");
+const jogoId = urlParams.get('id');
 
-// Firestore já está inicializado pelo HTML
-const db = firebase.firestore();
+// Referência aos elementos do HTML
+const tituloJogoEl = document.getElementById('tituloJogo');
+const inicioEl = document.getElementById('inicio');
+const entradaEl = document.getElementById('entrada');
 
-// Elementos da página
-const tituloJogo = document.getElementById("tituloJogo");
-const inicioJogo = document.getElementById("inicioJogo");
-const entradaJogo = document.getElementById("entradaJogo");
-const chatInput = document.getElementById("chatInput");
-const chatMensagens = document.getElementById("chatMensagens");
-
-// Carregar dados do jogo + nomes dos times
-async function carregarJogo() {
+// Função principal para buscar dados
+async function carregarDadosJogo() {
   if (!jogoId) return;
 
-  const doc = await db.collection("jogos").doc(jogoId).get();
-  if (!doc.exists) return;
+  try {
+    const jogoSnap = await db.collection('jogos').doc(jogoId).get();
+    if (!jogoSnap.exists) return;
 
-  const dados = doc.data();
+    const jogo = jogoSnap.data();
 
-  // Buscar nomes reais dos times
-  const timeCasaDoc = await db.collection("times").doc(dados.timeCasaId).get();
-  const timeForaDoc = await db.collection("times").doc(dados.timeForaId).get();
+    const timeCasaSnap = await db.collection('times').doc(jogo.timeCasaId).get();
+    const timeForaSnap = await db.collection('times').doc(jogo.timeForaId).get();
 
-  const nomeCasa = timeCasaDoc.exists ? timeCasaDoc.data().nome : "Time A";
-  const nomeFora = timeForaDoc.exists ? timeForaDoc.data().nome : "Time B";
+    const nomeTimeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : 'Time A';
+    const nomeTimeFora = timeForaSnap.exists ? timeForaSnap.data().nome : 'Time B';
 
-  tituloJogo.textContent = `${nomeCasa} vs ${nomeFora}`;
-  inicioJogo.textContent = dados.dataInicio || "-";
-  entradaJogo.textContent = `${dados.valorEntrada || 0} créditos`;
-}
-carregarJogo();
+    tituloJogoEl.innerHTML = `<i class="fas fa-calendar-alt"></i> ${nomeTimeCasa} vs ${nomeTimeFora}`;
+    inicioEl.innerHTML = `<i class="fas fa-clock"></i> Início: ${formatarData(jogo.dataInicio)}`;
+    entradaEl.innerHTML = `<i class="fas fa-ticket-alt"></i> Entrada: ${jogo.valorEntrada || 0} créditos`;
 
-// Chat da torcida
-function enviarMensagem() {
-  const texto = chatInput.value.trim();
-  if (!texto || !jogoId) return;
-
-  db.collection("chats_jogo_demo").add({
-    jogoId,
-    mensagem: texto,
-    tipo: "chat",
-    data: new Date()
-  });
-
-  chatInput.value = "";
-}
-
-function escutarChat() {
-  db.collection("chats_jogo_demo")
-    .where("jogoId", "==", jogoId)
-    .where("tipo", "==", "chat")
-    .orderBy("data", "asc")
-    .onSnapshot(snapshot => {
-      chatMensagens.value = "";
-      snapshot.forEach(doc => {
-        const msg = doc.data().mensagem;
-        chatMensagens.value += msg + "\n";
-      });
-    });
-}
-escutarChat();
-
-// Envio de pergunta manual
-async function sortearPergunta() {
-  const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-  if (!jogoDoc.exists) return;
-
-  const jogo = jogoDoc.data();
-  const timeId = jogo.timeCasaId;
-
-  const perguntas = await db.collection("perguntas")
-    .where("timeId", "==", timeId)
-    .get();
-
-  if (perguntas.empty) {
-    alert("Nenhuma pergunta encontrada para este time.");
-    return;
+  } catch (e) {
+    console.error('Erro ao carregar dados do jogo:', e);
   }
-
-  const todas = perguntas.docs;
-  const aleatoria = todas[Math.floor(Math.random() * todas.length)];
-
-  await db.collection("chats_jogo_demo").add({
-    jogoId,
-    timeId,
-    perguntaId: aleatoria.id,
-    tipo: "pergunta",
-    data: new Date()
-  });
-
-  alert("Pergunta enviada com sucesso!");
 }
 
-// Redireciona para o ranking ao vivo
-function abrirRanking() {
-  window.open(`ranking.html?id=${jogoId}`, "_blank");
-}
+carregarDadosJogo();
