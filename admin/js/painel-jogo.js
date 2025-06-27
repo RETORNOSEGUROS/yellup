@@ -26,16 +26,28 @@ const barraTempo = document.getElementById("barraTempo");
 const rankingContainer = document.getElementById("rankingContainer");
 const listaRanking = document.getElementById("listaRanking");
 const minhaPontuacao = document.getElementById("minhaPontuacao");
+const infoJogo = document.getElementById("infoJogo");
 
 async function carregarJogo() {
-  const doc = await db.collection("jogos").doc(jogoId).get();
-  if (doc.exists) {
-    const dados = doc.data();
-    document.getElementById("infoJogo").innerHTML = `
-      🏟 ${dados.timeCasa} vs ${dados.timeVisitante}<br />
-      ⏰ Início: ${dados.inicio || "-"}<br />
-      💳 Entrada: ${dados.valorCreditos || "-"} créditos
-    `;
+  if (!jogoId) {
+    infoJogo.innerHTML = "⚠️ Jogo não identificado.";
+    return;
+  }
+  try {
+    const doc = await db.collection("jogos").doc(jogoId).get();
+    if (doc.exists) {
+      const dados = doc.data();
+      infoJogo.innerHTML = `
+        <h2>🏟 ${dados.timeCasa || "Time A"} vs ${dados.timeVisitante || "Time B"}</h2>
+        <p>⏰ Início: ${dados.inicio || "-"}<br />
+        💳 Entrada: ${dados.valorCreditos || 0} créditos</p>
+      `;
+    } else {
+      infoJogo.innerHTML = "⚠️ Jogo não encontrado.";
+    }
+  } catch (error) {
+    infoJogo.innerHTML = "❌ Erro ao buscar dados do jogo.";
+    console.error("Erro ao carregar jogo:", error);
   }
 }
 
@@ -114,4 +126,3 @@ async function enviarPerguntaParaTime() {
 
 if (modoAdmin) document.getElementById("painelAdmin").style.display = "block";
 carregarJogo();
-</script>
