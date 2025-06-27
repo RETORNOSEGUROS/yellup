@@ -1,54 +1,80 @@
 // admin/js/painel-jogo.js
-import { db } from '../../firebase-init.js';
-import { doc, getDoc, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js';
 
+const db = firebase.firestore();
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 
-const spanTitulo = document.getElementById("tituloJogo");
-const spanInicio = document.getElementById("dataInicio");
-const spanEntrada = document.getElementById("valorEntrada");
+let timeCasaId = "";
+let timeForaId = "";
 
-const chatBox = document.getElementById("chatBox");
-const inputMensagem = document.getElementById("inputMensagem");
-const btnEnviar = document.getElementById("btnEnviar");
-
-// Dados do Jogo
+// Dados do jogo
 async function carregarJogo() {
-  const docRef = doc(db, "jogos", jogoId);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) return;
+  const docRef = db.collection("jogos").doc(jogoId);
+  const snap = await docRef.get();
+  if (!snap.exists) return;
   const jogo = snap.data();
-  spanTitulo.innerText = `${jogo.timeCasa?.nome || 'Time A'} vs ${jogo.timeFora?.nome || 'Time B'}`;
-  spanInicio.innerText = new Date(jogo.dataInicio?.seconds * 1000).toLocaleString();
-  spanEntrada.innerText = `${jogo.valorEntrada || 0} crédito(s)`;
+
+  timeCasaId = jogo.timeCasaId;
+  timeForaId = jogo.timeForaId;
+
+  const timeCasaSnap = await db.collection("times").doc(timeCasaId).get();
+  const timeForaSnap = await db.collection("times").doc(timeForaId).get();
+
+  const nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
+  const nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
+
+  document.getElementById("tituloJogo").textContent = `${nomeCasa} vs ${nomeFora}`;
+  document.getElementById("nomeTimeCasa").textContent = nomeCasa;
+  document.getElementById("nomeTimeFora").textContent = nomeFora;
+
+  document.getElementById("infoInicio").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
+  document.getElementById("infoEntrada").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
+
+  escutarChats();
 }
 
-// Enviar Mensagem
-btnEnviar.addEventListener("click", async () => {
-  const texto = inputMensagem.value.trim();
-  if (!texto) return;
-  await addDoc(collection(db, `chats_jogo/${jogoId}/geral`), {
-    texto,
-    admin: true,
-    criadoEm: serverTimestamp(),
-  });
-  inputMensagem.value = "";
-});
+function escutarChats() {
+  escutarChat("geral", `chats_jogo/${jogoId}/geral`, "chatGeral");
+  escutarChat("casa", `chats_jogo/${jogoId}/casa`, "chatCasa");
+  escutarChat("fora", `chats_jogo/${jogoId}/fora`, "chatFora");
+}
 
-// Ouvir mensagens do chat geral
-function ouvirChatGeral() {
-  const q = query(collection(db, `chats_jogo/${jogoId}/geral`), orderBy("criadoEm", "asc"));
-  onSnapshot(q, (snap) => {
-    chatBox.innerHTML = "";
-    snap.forEach(doc => {
+function escutarChat(tipo, caminho, divId) {
+  db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
+    const div = document.getElementById(divId);
+    div.innerHTML = "";
+    snapshot.forEach(doc => {
       const msg = doc.data();
       const el = document.createElement("div");
       el.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
-      chatBox.appendChild(el);
+      div.appendChild(el);
     });
   });
 }
 
+function enviarMensagem(tipo) {
+  const inputId = tipo === "geral" ? "msgGeral" : tipo === "casa" ? "msgCasa" : "msgFora";
+  const input = document.getElementById(inputId);
+  const texto = input.value.trim();
+  if (!texto) return;
+
+  const caminho = tipo === "geral"
+    ? `chats_jogo/${jogoId}/geral`
+    : tipo === "casa"
+    ? `chats_jogo/${jogoId}/casa`
+    : `chats_jogo/${jogoId}/fora`;
+
+  db.collection(caminho).add({
+    texto,
+    admin: true,
+    criadoEm: new Date()
+  });
+
+  input.value = "";
+}
+
+function sortearEnviarPergunta() {
+  alert("Envio de pergunta ainda será implementado.");
+}
+
 carregarJogo();
-ouvirChatGeral();
