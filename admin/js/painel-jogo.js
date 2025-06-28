@@ -1,4 +1,3 @@
-// painel-jogo.js
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 
@@ -70,19 +69,44 @@ function escutarChat(caminho, divId, nome = "Torcida") {
   });
 }
 
+// Função debug para buscar perguntas por timeId
+async function buscarPerguntasPorTimeId(timeId) {
+  try {
+    console.log("🔍 Buscando perguntas para timeId:", timeId);
+    const snapshot = await db.collection("perguntas").where("timeId", "==", timeId).get();
+
+    if (snapshot.empty) {
+      console.warn(`⚠️ Nenhuma pergunta encontrada para timeId: ${timeId}`);
+      return [];
+    }
+
+    const perguntas = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      console.log("✅ Pergunta encontrada:", data.pergunta);
+      perguntas.push({ id: doc.id, ...data });
+    });
+
+    return perguntas;
+  } catch (error) {
+    console.error("❌ Erro ao buscar perguntas:", error);
+    return [];
+  }
+}
+
 // Sorteia pergunta e envia para os dois times
 async function sortearPergunta() {
   try {
-    const perguntasCasaSnap = await db.collection("perguntas").where("timeId", "==", timeCasaId).get();
-    const perguntasForaSnap = await db.collection("perguntas").where("timeId", "==", timeForaId).get();
+    const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
+    const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
 
-    if (perguntasCasaSnap.empty || perguntasForaSnap.empty) {
+    if (perguntasCasa.length === 0 || perguntasFora.length === 0) {
       alert("Uma das torcidas não possui perguntas cadastradas.");
       return;
     }
 
-    const aleatoriaCasa = perguntasCasaSnap.docs[Math.floor(Math.random() * perguntasCasaSnap.docs.length)];
-    const aleatoriaFora = perguntasForaSnap.docs[Math.floor(Math.random() * perguntasForaSnap.docs.length)];
+    const aleatoriaCasa = perguntasCasa[Math.floor(Math.random() * perguntasCasa.length)];
+    const aleatoriaFora = perguntasFora[Math.floor(Math.random() * perguntasFora.length)];
 
     await db.collection(`chats_jogo/${jogoId}/casa`).add({
       tipo: "pergunta",
