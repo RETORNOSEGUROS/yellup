@@ -1,3 +1,4 @@
+// painel-jogo.js atualizado para usar timeId ao buscar perguntas
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 
@@ -26,14 +27,15 @@ async function carregarJogo() {
   escutarChats(nomeCasa, nomeFora);
 }
 
-// Envia mensagens para os chats corretos
 function enviarMensagem(tipo) {
   const input = document.getElementById(`input${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
   const texto = input.value.trim();
   if (!texto) return;
 
-  const caminho = tipo === "geral" ? `chats_jogo/${jogoId}/geral`
-    : tipo === "timeA" ? `chats_jogo/${jogoId}/casa`
+  const caminho = tipo === "geral"
+    ? `chats_jogo/${jogoId}/geral`
+    : tipo === "timeA"
+    ? `chats_jogo/${jogoId}/casa`
     : `chats_jogo/${jogoId}/fora`;
 
   db.collection(caminho).add({
@@ -45,7 +47,6 @@ function enviarMensagem(tipo) {
   input.value = "";
 }
 
-// Escuta os 3 chats em tempo real
 function escutarChats(nomeCasa, nomeFora) {
   escutarChat(`chats_jogo/${jogoId}/geral`, "chatGeral");
   escutarChat(`chats_jogo/${jogoId}/casa`, "chatTimeA", nomeCasa);
@@ -69,24 +70,20 @@ function escutarChat(caminho, divId, nome = "Torcida") {
   });
 }
 
-// Função debug para buscar perguntas por timeId
 async function buscarPerguntasPorTimeId(timeId) {
   try {
     console.log("🔍 Buscando perguntas para timeId:", timeId);
     const snapshot = await db.collection("perguntas").where("timeId", "==", timeId).get();
-
     if (snapshot.empty) {
       console.warn(`⚠️ Nenhuma pergunta encontrada para timeId: ${timeId}`);
       return [];
     }
-
     const perguntas = [];
     snapshot.forEach(doc => {
       const data = doc.data();
       console.log("✅ Pergunta encontrada:", data.pergunta);
       perguntas.push({ id: doc.id, ...data });
     });
-
     return perguntas;
   } catch (error) {
     console.error("❌ Erro ao buscar perguntas:", error);
@@ -94,7 +91,6 @@ async function buscarPerguntasPorTimeId(timeId) {
   }
 }
 
-// Sorteia pergunta e envia para os dois times
 async function sortearPergunta() {
   try {
     const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
