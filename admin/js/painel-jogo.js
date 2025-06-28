@@ -95,36 +95,43 @@ async function buscarPerguntasPorTimeId(timeId) {
 }
 
 // Sorteia pergunta e envia para os dois times
-async function sortearPergunta() {
-  try {
-    const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
-    const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
+function sortearEnviarPergunta(time) {
+    const idTime = time === 'A' ? jogo.timeCasa.id : jogo.timeVisitante.id;
+    const nomeTime = time === 'A' ? jogo.timeCasa.nome : jogo.timeVisitante.nome;
 
-    if (perguntasCasa.length === 0 || perguntasFora.length === 0) {
-      alert("Uma das torcidas não possui perguntas cadastradas.");
-      return;
-    }
+    console.log("🔍 Buscando perguntas para timeId:", idTime);
 
-    const aleatoriaCasa = perguntasCasa[Math.floor(Math.random() * perguntasCasa.length)];
-    const aleatoriaFora = perguntasFora[Math.floor(Math.random() * perguntasFora.length)];
+    db.collection("perguntas")
+        .where("timeId", "==", idTime)
+        .get()
+        .then(snapshot => {
+            const perguntas = [];
+            snapshot.forEach(doc => {
+                perguntas.push({ id: doc.id, ...doc.data() });
+            });
 
-    await db.collection(`chats_jogo/${jogoId}/casa`).add({
-      tipo: "pergunta",
-      perguntaId: aleatoriaCasa.id,
-      dataEnvio: new Date()
-    });
+            if (perguntas.length === 0) {
+                alert(`Nenhuma pergunta encontrada para o time: ${nomeTime}`);
+                return;
+            }
 
-    await db.collection(`chats_jogo/${jogoId}/fora`).add({
-      tipo: "pergunta",
-      perguntaId: aleatoriaFora.id,
-      dataEnvio: new Date()
-    });
+            const perguntaSorteada = perguntas[Math.floor(Math.random() * perguntas.length)];
+            console.log("✅ Pergunta encontrada:", perguntaSorteada.pergunta);
 
-    alert("Perguntas enviadas com sucesso!");
-  } catch (e) {
-    console.error("Erro ao sortear perguntas:", e);
-    alert("Erro ao sortear perguntas.");
-  }
+            const perguntaData = {
+                ...perguntaSorteada,
+                enviadaEm: firebase.firestore.FieldValue.serverTimestamp(),
+                jogoId: jogoId,
+                enviadaPorAdmin: true
+            };
+
+            db.collection("perguntasEnviadas").add(perguntaData);
+        })
+        .catch(error => {
+            console.error("Erro ao buscar perguntas:", error);
+            alert("Erro ao buscar perguntas.");
+        });
 }
+
 
 carregarJogo();
