@@ -103,12 +103,28 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
   const bloco = document.createElement("div");
   bloco.className = "pergunta-bloco";
 
+  const texto = pergunta.pergunta || pergunta.texto || "Pergunta sem texto";
+
+  // Convertendo alternativas caso estejam como objeto { A: "...", B: "..." }
+  let alternativas = [];
+  if (Array.isArray(pergunta.alternativas)) {
+    alternativas = pergunta.alternativas;
+  } else if (typeof pergunta.alternativas === "object") {
+    alternativas = Object.keys(pergunta.alternativas).map(letra => pergunta.alternativas[letra]);
+  }
+
+  const correta = typeof pergunta.correta === "number"
+    ? pergunta.correta
+    : (typeof pergunta.correta === "string"
+        ? ["A", "B", "C", "D", "E"].indexOf(pergunta.correta.toUpperCase())
+        : -1);
+
   const perguntaEl = document.createElement("p");
-  perguntaEl.innerHTML = `<b>❓ ${pergunta.pergunta || pergunta.texto}</b>`;
+  perguntaEl.innerHTML = `<b>❓ ${texto}</b>`;
   bloco.appendChild(perguntaEl);
 
   const lista = document.createElement("ul");
-  pergunta.alternativas.forEach((alt, i) => {
+  alternativas.forEach((alt, i) => {
     const item = document.createElement("li");
     item.textContent = `${String.fromCharCode(65 + i)}) ${alt}`;
     item.style.marginBottom = "5px";
@@ -117,7 +133,7 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
   bloco.appendChild(lista);
   div.appendChild(bloco);
 
-  if (animar) {
+  if (animar && alternativas.length) {
     let tempo = 7;
     const timer = document.createElement("p");
     timer.textContent = `⏳ ${tempo}s`;
@@ -129,10 +145,10 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
 
       if (tempo <= 0) {
         clearInterval(intervalo);
-        bloco.innerHTML = `<b>❓ ${pergunta.pergunta || pergunta.texto}</b><br><br>`;
-        pergunta.alternativas.forEach((alt, i) => {
+        bloco.innerHTML = `<b>❓ ${texto}</b><br><br>`;
+        alternativas.forEach((alt, i) => {
           const item = document.createElement("div");
-          item.style.color = (i === pergunta.correta ? "gray" : "#ccc");
+          item.style.color = (i === correta ? "gray" : "#ccc");
           item.innerHTML = `${String.fromCharCode(65 + i)}) ${alt}`;
           bloco.appendChild(item);
         });
