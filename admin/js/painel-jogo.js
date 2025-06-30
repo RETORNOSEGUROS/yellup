@@ -57,7 +57,6 @@ function escutarChats() {
 function escutarChat(caminho, divId) {
   db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
     const div = document.getElementById(divId);
-    div.innerHTML = "";
     snapshot.forEach(doc => {
       const msg = doc.data();
       if (msg.tipo === "pergunta" && msg.perguntaId && msg.alternativas) {
@@ -65,8 +64,11 @@ function escutarChat(caminho, divId) {
           const agora = new Date();
           const segundos = (agora - msg.criadoEm.toDate()) / 1000;
           const animar = segundos < 2;
-          div.innerHTML = ""; // Garante apenas um bloco de pergunta visível
-          exibirPerguntaNoChat(div, msg, animar);
+
+          const existe = div.querySelector(`[data-id="${msg.perguntaId}"]`);
+          if (!existe) {
+            exibirPerguntaNoChat(div, msg, animar);
+          }
         }
       } else {
         const linha = document.createElement("div");
@@ -74,7 +76,7 @@ function escutarChat(caminho, divId) {
         div.appendChild(linha);
       }
     });
-    div.scrollTop = div.scrollHeight; // Rolagem automática
+    div.scrollTop = div.scrollHeight;
   });
 }
 
@@ -113,6 +115,7 @@ async function sortearPerguntaTime(lado) {
 function exibirPerguntaNoChat(div, pergunta, animar = false) {
   const bloco = document.createElement("div");
   bloco.className = "pergunta-bloco";
+  bloco.setAttribute("data-id", pergunta.perguntaId || pergunta.id || "");
 
   const texto = pergunta.pergunta || pergunta.texto || "Pergunta sem texto";
 
@@ -123,11 +126,15 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
     alternativas = Object.keys(pergunta.alternativas).map(letra => pergunta.alternativas[letra]);
   }
 
-  const correta = typeof pergunta.correta === "number"
-    ? pergunta.correta
-    : (typeof pergunta.correta === "string"
-        ? ["A", "B", "C", "D", "E"].indexOf(pergunta.correta.toUpperCase())
-        : -1);
+  // Converte correta: aceita 'A', 'B', 'C', ..., ou índice numérico
+  const correta = (() => {
+    if (typeof pergunta.correta === "number") return pergunta.correta;
+    if (typeof pergunta.correta === "string") {
+      const letra = pergunta.correta.toUpperCase();
+      return ["A", "B", "C", "D", "E"].indexOf(letra);
+    }
+    return -1;
+  })();
 
   const perguntaEl = document.createElement("p");
   perguntaEl.innerHTML = `<b>❓ ${texto}</b>`;
@@ -195,7 +202,6 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
       }
     }, 1000);
 
-    // Clique nas opções durante os 9s
     const items = lista.querySelectorAll("li");
     items.forEach((el, idx) => {
       el.style.cursor = "pointer";
