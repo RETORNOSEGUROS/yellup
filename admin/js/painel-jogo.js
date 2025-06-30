@@ -1,130 +1,93 @@
-const urlParams = new URLSearchParams(window.location.search);
-const jogoId = urlParams.get("id");
+document.addEventListener("DOMContentLoaded", async () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const jogoId = urlParams.get("id");
 
-let timeCasaId = "";
-let timeForaId = "";
-
-// Carrega dados do jogo e times
-async function carregarJogo() {
-  const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-  if (!jogoDoc.exists) return;
-
-  const jogo = jogoDoc.data();
-  timeCasaId = jogo.timeCasaId;
-  timeForaId = jogo.timeForaId;
-
-  const timeCasaSnap = await db.collection("times").doc(timeCasaId).get();
-  const timeForaSnap = await db.collection("times").doc(timeForaId).get();
-
-  const nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
-  const nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
-
-  document.getElementById("titulo-jogo").textContent = `${nomeCasa} vs ${nomeFora}`;
-  document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
-  document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
-
-  escutarChats(nomeCasa, nomeFora);
-}
-
-// Envia mensagens para os chats corretos
-function enviarMensagem(tipo) {
-  const input = document.getElementById(`input${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
-  const texto = input.value.trim();
-  if (!texto) return;
-
-  const caminho = tipo === "geral" ? `chats_jogo/${jogoId}/geral`
-    : tipo === "timeA" ? `chats_jogo/${jogoId}/casa`
-    : `chats_jogo/${jogoId}/fora`;
-
-  db.collection(caminho).add({
-    texto,
-    admin: true,
-    criadoEm: new Date()
-  });
-
-  input.value = "";
-}
-
-// Escuta os 3 chats em tempo real
-function escutarChats(nomeCasa, nomeFora) {
-  escutarChat(`chats_jogo/${jogoId}/geral`, "chatGeral");
-  escutarChat(`chats_jogo/${jogoId}/casa`, "chatTimeA", nomeCasa);
-  escutarChat(`chats_jogo/${jogoId}/fora`, "chatTimeB", nomeFora);
-}
-
-function escutarChat(caminho, divId, nome = "Torcida") {
-  db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
-    const div = document.getElementById(divId);
-    div.innerHTML = "";
-    snapshot.forEach(doc => {
-      const msg = doc.data();
-      const linha = document.createElement("div");
-      if (msg.tipo === "pergunta") {
-        linha.innerHTML = `<i>Pergunta enviada: ${msg.perguntaId}</i>`;
-      } else {
-        linha.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
-      }
-      div.appendChild(linha);
-    });
-  });
-}
-
-// Função debug para buscar perguntas por timeId
-async function buscarPerguntasPorTimeId(timeId) {
-  try {
-    console.log("🔍 Buscando perguntas para timeId:", timeId);
-    const snapshot = await db.collection("perguntas").where("timeId", "==", timeId).get();
-
-    if (snapshot.empty) {
-      console.warn(`⚠️ Nenhuma pergunta encontrada para timeId: ${timeId}`);
-      return [];
+    if (!jogoId) {
+        alert("ID do jogo não encontrado na URL.");
+        return;
     }
 
-    const perguntas = [];
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      console.log("✅ Pergunta encontrada:", data.pergunta);
-      perguntas.push({ id: doc.id, ...data });
-    });
+    const firebaseConfig = {
+        apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+        authDomain: "painel-yellup.firebaseapp.com",
+        projectId: "painel-yellup",
+        storageBucket: "painel-yellup.appspot.com",
+        messagingSenderId: "608347210297",
+        appId: "1:608347210297:web:75092713724e617c7203e8",
+        measurementId: "G-SYZ16X31KQ"
+    };
 
-    return perguntas;
-  } catch (error) {
-    console.error("❌ Erro ao buscar perguntas:", error);
-    return [];
-  }
-}
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
 
-// Sorteia pergunta e envia para os dois times
-async function sortearPergunta() {
-  try {
-    const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
-    const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
-
-    if (perguntasCasa.length === 0 || perguntasFora.length === 0) {
-      alert("Uma das torcidas não possui perguntas cadastradas.");
-      return;
+    const doc = await db.collection("jogos").doc(jogoId).get();
+    if (!doc.exists) {
+        alert("Jogo não encontrado.");
+        return;
     }
 
-    const aleatoriaCasa = perguntasCasa[Math.floor(Math.random() * perguntasCasa.length)];
-    const aleatoriaFora = perguntasFora[Math.floor(Math.random() * perguntasFora.length)];
+    const jogo = doc.data();
+    document.getElementById("titulo").innerText = `${jogo.timeCasa} vs ${jogo.timeFora}`;
+    document.getElementById("inicio").innerText = `Início: ${jogo.inicio}`;
+    document.getElementById("entrada").innerText = `Entrada: ${jogo.creditos} crédito(s)`;
 
-    await db.collection(`chats_jogo/${jogoId}/casa`).add({
-      tipo: "pergunta",
-      perguntaId: aleatoriaCasa.id,
-      dataEnvio: new Date()
-    });
+    let perguntasTimeA = [];
+    let perguntasTimeB = [];
 
-    await db.collection(`chats_jogo/${jogoId}/fora`).add({
-      tipo: "pergunta",
-      perguntaId: aleatoriaFora.id,
-      dataEnvio: new Date()
-    });
+    const carregarPerguntas = async () => {
+        console.log("Buscando perguntas para timeId A:", jogo.timeIdCasa);
+        console.log("Buscando perguntas para timeId B:", jogo.timeIdFora);
 
-    alert("Perguntas enviadas com sucesso!");
-  } catch (e) {
-    console.error("Erro ao sortear perguntas:", e);
-    alert("Erro ao sortear perguntas.");
-  }
-}
+        const queryA = await db.collection("perguntas").where("timeId", "==", jogo.timeIdCasa).get();
+        perguntasTimeA = queryA.docs.map(doc => doc.data());
 
-carregarJogo();
+        const queryB = await db.collection("perguntas").where("timeId", "==", jogo.timeIdFora).get();
+        perguntasTimeB = queryB.docs.map(doc => doc.data());
+
+        if (perguntasTimeA.length === 0 && perguntasTimeB.length === 0) {
+            alert("Nenhuma das torcidas possui perguntas cadastradas.");
+        }
+    };
+
+    await carregarPerguntas();
+
+    const sortearPergunta = (lista) => {
+        const index = Math.floor(Math.random() * lista.length);
+        return lista[index];
+    };
+
+    const enviarPergunta = async (pergunta, chatPath) => {
+        const mensagem = `[PERGUNTA] ${pergunta.pergunta}`;
+        await db.collection("chats_jogo").add({
+            jogoId: jogoId,
+            mensagem,
+            criadoEm: new Date().toISOString(),
+            tipo: "pergunta",
+            timeId: pergunta.timeId,
+            timeNome: pergunta.timeNome,
+            chat: chatPath
+        });
+    };
+
+    document.getElementById("sortearTimeA").onclick = async () => {
+        if (perguntasTimeA.length === 0) {
+            alert("Nenhuma pergunta disponível para o Time A.");
+            return;
+        }
+        const pergunta = sortearPergunta(perguntasTimeA);
+        console.log("Pergunta sorteada A:", pergunta.pergunta);
+        await enviarPergunta(pergunta, "torcida_A");
+        alert("Pergunta enviada para torcida do Time A.");
+    };
+
+    document.getElementById("sortearTimeB").onclick = async () => {
+        if (perguntasTimeB.length === 0) {
+            alert("Nenhuma pergunta disponível para o Time B.");
+            return;
+        }
+        const pergunta = sortearPergunta(perguntasTimeB);
+        console.log("Pergunta sorteada B:", pergunta.pergunta);
+        await enviarPergunta(pergunta, "torcida_B");
+        alert("Pergunta enviada para torcida do Time B.");
+    };
+});
