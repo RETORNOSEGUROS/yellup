@@ -56,7 +56,12 @@ function escutarChat(caminho, divId) {
     snapshot.forEach(doc => {
       const msg = doc.data();
       if (msg.tipo === "pergunta" && msg.perguntaId && msg.alternativas) {
-        exibirPerguntaNoChat(divId, msg);
+        if (msg.criadoEm && msg.criadoEm.toDate) {
+          const agora = new Date();
+          const segundos = (agora - msg.criadoEm.toDate()) / 1000;
+          const animar = segundos < 2; // só anima pergunta recém-enviada
+          exibirPerguntaNoChat(divId, msg, animar);
+        }
       } else {
         const linha = document.createElement("div");
         linha.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
@@ -105,7 +110,6 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
 
   const texto = pergunta.pergunta || pergunta.texto || "Pergunta sem texto";
 
-  // Convertendo alternativas caso estejam como objeto { A: "...", B: "..." }
   let alternativas = [];
   if (Array.isArray(pergunta.alternativas)) {
     alternativas = pergunta.alternativas;
@@ -135,25 +139,42 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
 
   if (animar && alternativas.length) {
     let tempo = 7;
+    let selecionado = -1;
     const timer = document.createElement("p");
-    timer.textContent = `⏳ ${tempo}s`;
+    timer.textContent = `⏳ ${tempo}s restantes`;
     bloco.appendChild(timer);
 
     const intervalo = setInterval(() => {
       tempo--;
-      timer.textContent = `⏳ ${tempo}s`;
-
+      timer.textContent = `⏳ ${tempo}s restantes`;
       if (tempo <= 0) {
         clearInterval(intervalo);
         bloco.innerHTML = `<b>❓ ${texto}</b><br><br>`;
         alternativas.forEach((alt, i) => {
           const item = document.createElement("div");
-          item.style.color = (i === correta ? "gray" : "#ccc");
           item.innerHTML = `${String.fromCharCode(65 + i)}) ${alt}`;
+          item.style.color = (i === correta ? "gray" : "#ccc");
+          if (i === selecionado && i !== correta) {
+            item.style.fontWeight = "bold";
+            item.style.textDecoration = "line-through";
+          }
           bloco.appendChild(item);
         });
       }
     }, 1000);
+
+    // Clique durante contagem
+    const items = lista.querySelectorAll("li");
+    items.forEach((el, idx) => {
+      el.style.cursor = "pointer";
+      el.onclick = () => {
+        if (tempo > 0) {
+          selecionado = idx;
+          items.forEach(li => li.style.fontWeight = "normal");
+          el.style.fontWeight = "bold";
+        }
+      };
+    });
   }
 }
 
