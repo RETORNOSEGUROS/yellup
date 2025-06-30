@@ -59,7 +59,7 @@ function escutarChat(caminho, divId) {
         if (msg.criadoEm && msg.criadoEm.toDate) {
           const agora = new Date();
           const segundos = (agora - msg.criadoEm.toDate()) / 1000;
-          const animar = segundos < 2; // só anima pergunta recém-enviada
+          const animar = segundos < 2;
           exibirPerguntaNoChat(divId, msg, animar);
         }
       } else {
@@ -128,12 +128,24 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
   bloco.appendChild(perguntaEl);
 
   const lista = document.createElement("ul");
+  lista.style.display = "flex";
+  lista.style.flexWrap = "wrap";
+  lista.style.gap = "15px";
+  lista.style.listStyleType = "none";
+  lista.style.padding = "0";
+  lista.style.marginTop = "10px";
+
   alternativas.forEach((alt, i) => {
     const item = document.createElement("li");
     item.textContent = `${String.fromCharCode(65 + i)}) ${alt}`;
-    item.style.marginBottom = "5px";
+    item.style.border = "1px solid #ccc";
+    item.style.padding = "8px 12px";
+    item.style.borderRadius = "8px";
+    item.style.background = "#f9f9f9";
+    item.style.cursor = "default";
     lista.appendChild(item);
   });
+
   bloco.appendChild(lista);
   div.appendChild(bloco);
 
@@ -147,13 +159,21 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
     const intervalo = setInterval(() => {
       tempo--;
       timer.textContent = `⏳ ${tempo}s restantes`;
+
       if (tempo <= 0) {
         clearInterval(intervalo);
         bloco.innerHTML = `<b>❓ ${texto}</b><br><br>`;
+
         alternativas.forEach((alt, i) => {
           const item = document.createElement("div");
           item.innerHTML = `${String.fromCharCode(65 + i)}) ${alt}`;
-          item.style.color = (i === correta ? "gray" : "#ccc");
+          item.style.display = "inline-block";
+          item.style.margin = "5px";
+          item.style.padding = "8px 12px";
+          item.style.border = "1px solid #ccc";
+          item.style.borderRadius = "8px";
+          item.style.background = (i === correta ? "#eee" : "#f9f9f9");
+          item.style.color = (i === correta ? "gray" : "#999");
           if (i === selecionado && i !== correta) {
             item.style.fontWeight = "bold";
             item.style.textDecoration = "line-through";
@@ -163,7 +183,7 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
       }
     }, 1000);
 
-    // Clique durante contagem
+    // Clique nas opções durante o tempo
     const items = lista.querySelectorAll("li");
     items.forEach((el, idx) => {
       el.style.cursor = "pointer";
