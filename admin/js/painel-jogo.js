@@ -3,6 +3,8 @@ const jogoId = urlParams.get("id");
 
 let timeCasaId = "";
 let timeForaId = "";
+let nomeCasa = "Time A";
+let nomeFora = "Time B";
 
 async function carregarJogo() {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
@@ -15,14 +17,17 @@ async function carregarJogo() {
   const timeCasaSnap = await db.collection("times").doc(timeCasaId).get();
   const timeForaSnap = await db.collection("times").doc(timeForaId).get();
 
-  const nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
-  const nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
+  nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
+  nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
 
   document.getElementById("titulo-jogo").textContent = `${nomeCasa} vs ${nomeFora}`;
   document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
   document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
 
-  escutarChats(nomeCasa, nomeFora);
+  document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
+  document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
+
+  escutarChats();
 }
 
 function enviarMensagem(tipo) {
@@ -43,7 +48,7 @@ function enviarMensagem(tipo) {
   input.value = "";
 }
 
-function escutarChats(nomeCasa, nomeFora) {
+function escutarChats() {
   escutarChat(`chats_jogo/${jogoId}/geral`, "chatGeral");
   escutarChat(`chats_jogo/${jogoId}/casa`, "chatTimeA");
   escutarChat(`chats_jogo/${jogoId}/fora`, "chatTimeB");
@@ -60,7 +65,8 @@ function escutarChat(caminho, divId) {
           const agora = new Date();
           const segundos = (agora - msg.criadoEm.toDate()) / 1000;
           const animar = segundos < 2;
-          exibirPerguntaNoChat(divId, msg, animar);
+          div.innerHTML = ""; // Garante apenas um bloco de pergunta visível
+          exibirPerguntaNoChat(div, msg, animar);
         }
       } else {
         const linha = document.createElement("div");
@@ -68,6 +74,7 @@ function escutarChat(caminho, divId) {
         div.appendChild(linha);
       }
     });
+    div.scrollTop = div.scrollHeight; // Rolagem automática
   });
 }
 
@@ -100,11 +107,10 @@ async function sortearPerguntaTime(lado) {
     criadoEm: new Date()
   });
 
-  exibirPerguntaNoChat(divId, pergunta, true);
+  exibirPerguntaNoChat(document.getElementById(divId), pergunta, true);
 }
 
-function exibirPerguntaNoChat(divId, pergunta, animar = false) {
-  const div = document.getElementById(divId);
+function exibirPerguntaNoChat(div, pergunta, animar = false) {
   const bloco = document.createElement("div");
   bloco.className = "pergunta-bloco";
 
@@ -148,9 +154,10 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
 
   bloco.appendChild(lista);
   div.appendChild(bloco);
+  div.scrollTop = div.scrollHeight;
 
   if (animar && alternativas.length) {
-    let tempo = 7;
+    let tempo = 9;
     let selecionado = -1;
     const timer = document.createElement("p");
     timer.textContent = `⏳ ${tempo}s restantes`;
@@ -162,28 +169,33 @@ function exibirPerguntaNoChat(divId, pergunta, animar = false) {
 
       if (tempo <= 0) {
         clearInterval(intervalo);
-        bloco.innerHTML = `<b>❓ ${texto}</b><br><br>`;
+        timer.remove();
 
-        alternativas.forEach((alt, i) => {
-          const item = document.createElement("div");
-          item.innerHTML = `${String.fromCharCode(65 + i)}) ${alt}`;
-          item.style.display = "inline-block";
-          item.style.margin = "5px";
-          item.style.padding = "8px 12px";
-          item.style.border = "1px solid #ccc";
-          item.style.borderRadius = "8px";
-          item.style.background = (i === correta ? "#eee" : "#f9f9f9");
-          item.style.color = (i === correta ? "gray" : "#999");
-          if (i === selecionado && i !== correta) {
-            item.style.fontWeight = "bold";
-            item.style.textDecoration = "line-through";
+        const items = lista.querySelectorAll("li");
+        items.forEach((el, i) => {
+          el.style.cursor = "default";
+          el.style.color = "#999";
+          el.style.fontWeight = "normal";
+          el.style.textDecoration = "none";
+
+          if (i === correta) {
+            el.style.background = "#d4edda";
+            el.style.color = "#155724";
+            el.style.borderColor = "#c3e6cb";
+            el.style.fontWeight = "bold";
           }
-          bloco.appendChild(item);
+
+          if (i === selecionado && i !== correta) {
+            el.style.background = "#f8d7da";
+            el.style.color = "#721c24";
+            el.style.borderColor = "#f5c6cb";
+            el.style.textDecoration = "line-through";
+          }
         });
       }
     }, 1000);
 
-    // Clique nas opções durante o tempo
+    // Clique nas opções durante os 9s
     const items = lista.querySelectorAll("li");
     items.forEach((el, idx) => {
       el.style.cursor = "pointer";
