@@ -4,7 +4,6 @@ const jogoId = urlParams.get("id");
 let timeCasaId = "";
 let timeForaId = "";
 
-// Carrega dados do jogo e times
 async function carregarJogo() {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
   if (!jogoDoc.exists) return;
@@ -26,7 +25,6 @@ async function carregarJogo() {
   escutarChats(nomeCasa, nomeFora);
 }
 
-// Envia mensagens para os chats corretos
 function enviarMensagem(tipo) {
   const input = document.getElementById(`input${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
   const texto = input.value.trim();
@@ -45,85 +43,101 @@ function enviarMensagem(tipo) {
   input.value = "";
 }
 
-// Escuta os 3 chats em tempo real
 function escutarChats(nomeCasa, nomeFora) {
   escutarChat(`chats_jogo/${jogoId}/geral`, "chatGeral");
-  escutarChat(`chats_jogo/${jogoId}/casa`, "chatTimeA", nomeCasa);
-  escutarChat(`chats_jogo/${jogoId}/fora`, "chatTimeB", nomeFora);
+  escutarChat(`chats_jogo/${jogoId}/casa`, "chatTimeA");
+  escutarChat(`chats_jogo/${jogoId}/fora`, "chatTimeB");
 }
 
-function escutarChat(caminho, divId, nome = "Torcida") {
+function escutarChat(caminho, divId) {
   db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
     const div = document.getElementById(divId);
     div.innerHTML = "";
     snapshot.forEach(doc => {
       const msg = doc.data();
-      const linha = document.createElement("div");
-      if (msg.tipo === "pergunta") {
-        linha.innerHTML = `<i>Pergunta enviada: ${msg.perguntaId}</i>`;
+      if (msg.tipo === "pergunta" && msg.perguntaId && msg.alternativas) {
+        exibirPerguntaNoChat(divId, msg);
       } else {
+        const linha = document.createElement("div");
         linha.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
+        div.appendChild(linha);
       }
-      div.appendChild(linha);
     });
   });
 }
 
-// Função debug para buscar perguntas por timeId
 async function buscarPerguntasPorTimeId(timeId) {
-  try {
-    console.log("🔍 Buscando perguntas para timeId:", timeId);
-    const snapshot = await db.collection("perguntas").where("timeId", "==", timeId).get();
-
-    if (snapshot.empty) {
-      console.warn(`⚠️ Nenhuma pergunta encontrada para timeId: ${timeId}`);
-      return [];
-    }
-
-    const perguntas = [];
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      console.log("✅ Pergunta encontrada:", data.pergunta);
-      perguntas.push({ id: doc.id, ...data });
-    });
-
-    return perguntas;
-  } catch (error) {
-    console.error("❌ Erro ao buscar perguntas:", error);
-    return [];
-  }
+  const snapshot = await db.collection("perguntas").where("timeId", "==", timeId).get();
+  const perguntas = [];
+  snapshot.forEach(doc => perguntas.push({ id: doc.id, ...doc.data() }));
+  return perguntas;
 }
 
-// Sorteia pergunta e envia para os dois times
-async function sortearPergunta() {
-  try {
-    const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
-    const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
+async function sortearPerguntaTime(lado) {
+  const timeId = lado === "casa" ? timeCasaId : timeForaId;
+  const chatRef = `chats_jogo/${jogoId}/${lado}`;
+  const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
 
-    if (perguntasCasa.length === 0 || perguntasFora.length === 0) {
-      alert("Uma das torcidas não possui perguntas cadastradas.");
-      return;
-    }
+  const perguntas = await buscarPerguntasPorTimeId(timeId);
+  if (perguntas.length === 0) {
+    alert("Esse time não possui perguntas cadastradas.");
+    return;
+  }
 
-    const aleatoriaCasa = perguntasCasa[Math.floor(Math.random() * perguntasCasa.length)];
-    const aleatoriaFora = perguntasFora[Math.floor(Math.random() * perguntasFora.length)];
+  const pergunta = perguntas[Math.floor(Math.random() * perguntas.length)];
 
-    await db.collection(`chats_jogo/${jogoId}/casa`).add({
-      tipo: "pergunta",
-      perguntaId: aleatoriaCasa.id,
-      dataEnvio: new Date()
-    });
+  await db.collection(chatRef).add({
+    tipo: "pergunta",
+    perguntaId: pergunta.id,
+    texto: pergunta.pergunta,
+    alternativas: pergunta.alternativas,
+    correta: pergunta.correta,
+    criadoEm: new Date()
+  });
 
-    await db.collection(`chats_jogo/${jogoId}/fora`).add({
-      tipo: "pergunta",
-      perguntaId: aleatoriaFora.id,
-      dataEnvio: new Date()
-    });
+  exibirPerguntaNoChat(divId, pergunta, true);
+}
 
-    alert("Perguntas enviadas com sucesso!");
-  } catch (e) {
-    console.error("Erro ao sortear perguntas:", e);
-    alert("Erro ao sortear perguntas.");
+function exibirPerguntaNoChat(divId, pergunta, animar = false) {
+  const div = document.getElementById(divId);
+  const bloco = document.createElement("div");
+  bloco.className = "pergunta-bloco";
+
+  const perguntaEl = document.createElement("p");
+  perguntaEl.innerHTML = `<b>❓ ${pergunta.pergunta || pergunta.texto}</b>`;
+  bloco.appendChild(perguntaEl);
+
+  const lista = document.createElement("ul");
+  pergunta.alternativas.forEach((alt, i) => {
+    const item = document.createElement("li");
+    item.textContent = `${String.fromCharCode(65 + i)}) ${alt}`;
+    item.style.marginBottom = "5px";
+    lista.appendChild(item);
+  });
+  bloco.appendChild(lista);
+  div.appendChild(bloco);
+
+  if (animar) {
+    let tempo = 7;
+    const timer = document.createElement("p");
+    timer.textContent = `⏳ ${tempo}s`;
+    bloco.appendChild(timer);
+
+    const intervalo = setInterval(() => {
+      tempo--;
+      timer.textContent = `⏳ ${tempo}s`;
+
+      if (tempo <= 0) {
+        clearInterval(intervalo);
+        bloco.innerHTML = `<b>❓ ${pergunta.pergunta || pergunta.texto}</b><br><br>`;
+        pergunta.alternativas.forEach((alt, i) => {
+          const item = document.createElement("div");
+          item.style.color = (i === pergunta.correta ? "gray" : "#ccc");
+          item.innerHTML = `${String.fromCharCode(65 + i)}) ${alt}`;
+          bloco.appendChild(item);
+        });
+      }
+    }, 1000);
   }
 }
 
