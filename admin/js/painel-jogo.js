@@ -5,11 +5,9 @@ let timeCasaId = "";
 let timeForaId = "";
 let nomeCasa = "Time A";
 let nomeFora = "Time B";
-
-let pontosPorTime = {
-  casa: 0,
-  fora: 0
-};
+let bloqueioChat = false;
+const filaMensagens = { geral: [], timeA: [], timeB: [] };
+let pontosPorTime = { casa: 0, fora: 0 };
 
 async function carregarJogo() {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
@@ -29,15 +27,27 @@ async function carregarJogo() {
   document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
   document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
 
+  document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
+  document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
+
   escutarChats();
   atualizarPlacar();
 }
-
 function enviarMensagem(tipo) {
   const input = document.getElementById(`input${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
   const texto = input.value.trim();
   if (!texto) return;
 
+  if (bloqueioChat) {
+    filaMensagens[tipo].push(texto);
+  } else {
+    enviaMsgAgora(tipo, texto);
+  }
+
+  input.value = "";
+}
+
+function enviaMsgAgora(tipo, texto) {
   const caminho = tipo === "geral" ? `chats_jogo/${jogoId}/geral`
     : tipo === "timeA" ? `chats_jogo/${jogoId}/casa`
     : `chats_jogo/${jogoId}/fora`;
@@ -47,8 +57,6 @@ function enviarMensagem(tipo) {
     admin: true,
     criadoEm: new Date()
   });
-
-  input.value = "";
 }
 
 function escutarChats() {
@@ -60,22 +68,17 @@ function escutarChats() {
 function escutarChat(caminho, divId) {
   db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
     const div = document.getElementById(divId);
+    div.innerHTML = ""; // limpa o chat
     snapshot.forEach(doc => {
       const msg = doc.data();
-      if (msg.tipo === "pergunta" && msg.perguntaId && msg.alternativas) {
-        if (msg.criadoEm && msg.criadoEm.toDate) {
-          const agora = new Date();
-          const segundos = (agora - msg.criadoEm.toDate()) / 1000;
-          const animar = segundos < 2;
 
-          const existe = div.querySelector(`[data-id="${msg.perguntaId}"]`);
-          if (!existe) {
-            exibirPerguntaNoChat(div, msg, animar, divId.includes("TimeA") ? "casa" : "fora");
-          }
-        }
+      if (msg.tipo === "pergunta" && msg.perguntaId && msg.alternativas) {
+        div.innerHTML = ""; // mostra só a última pergunta
+        exibirPerguntaNoChat(div, msg, false, divId.includes("TimeA") ? "casa" : "fora");
       } else {
         const linha = document.createElement("div");
-        linha.textContent = (msg.admin ? "[ADMIN] " : "") + msg.texto;
+        const hora = msg.criadoEm?.toDate()?.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' }) || "--:--";
+        linha.textContent = `[${hora}] ${msg.admin ? "[ADMIN] " : ""}${msg.texto}`;
         div.appendChild(linha);
       }
     });
@@ -115,7 +118,6 @@ async function sortearPerguntaTime(lado) {
 
   exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
 }
-
 function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
   const bloco = document.createElement("div");
   bloco.className = "pergunta-bloco";
@@ -151,10 +153,12 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
   });
 
   bloco.appendChild(lista);
+  div.innerHTML = ""; // limpa qualquer pergunta anterior
   div.appendChild(bloco);
   div.scrollTop = div.scrollHeight;
 
   if (animar && alternativas.length) {
+    bloqueioChat = true;
     let tempo = 9;
     let selecionadoLetra = null;
     const timer = document.createElement("p");
@@ -191,10 +195,8 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
           }
         });
 
-        // Grava a resposta simulada do admin no Firestore
         if (selecionadoLetra && !bloco.getAttribute("data-respondido")) {
           bloco.setAttribute("data-respondido", "true");
-
           const acertou = selecionadoLetra === corretaLetra;
           const pontos = acertou ? pontuacao : 0;
 
@@ -212,6 +214,14 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
           pontosPorTime[lado] += pontos;
           atualizarPlacar();
         }
+
+        bloqueioChat = false;
+
+        // Envia mensagens pendentes
+        ["geral", "timeA", "timeB"].forEach(tipo => {
+          filaMensagens[tipo].forEach(msg => enviaMsgAgora(tipo, msg));
+          filaMensagens[tipo] = [];
+        });
       }
     }, 1000);
 
