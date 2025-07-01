@@ -1,11 +1,3 @@
-
-function atualizarNomesDasTabelas() {
-  document.getElementById("nome-time-casa").textContent = nomeCasa;
-  document.getElementById("nome-time-fora").textContent = nomeFora;
-  document.getElementById("nome-casa-tabela").textContent = nomeCasa;
-  document.getElementById("nome-fora-tabela").textContent = nomeFora;
-}
-
 // [INÍCIO DO ARQUIVO]
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
@@ -45,10 +37,6 @@ async function carregarJogo() {
   escutarChats();
   await carregarPontosDoFirestore();
   atualizarPlacar();
-  
-  atualizarNomesDasTabelas();
-  carregarTodasPerguntasNaTabela('casa');
-  carregarTodasPerguntasNaTabela('fora');
 }
 
 async function carregarPontosDoFirestore() {
@@ -257,10 +245,6 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
 
           pontosPorTime[lado] += pontos;
           atualizarPlacar();
-  
-  atualizarNomesDasTabelas();
-  carregarTodasPerguntasNaTabela('casa');
-  carregarTodasPerguntasNaTabela('fora');
         }
 
         bloqueioChat = false;
@@ -353,30 +337,19 @@ function exibirOrdemNaTabela(lado) {
 
 async function enviarProximaPergunta(lado) {
   const lista = ordemPerguntas[lado];
-  if (!lista || lista.length === 0) {
-    alert("Todas as perguntas já foram usadas.");
-    return;
-  }
-
   const idx = indiceAtual[lado];
-  if (idx >= lista.length) {
+
+  if (!lista || idx >= lista.length) {
     alert("Todas as perguntas já foram usadas.");
     return;
   }
 
   const pergunta = lista[idx];
   indiceAtual[lado]++;
-
   exibirOrdemNaTabela(lado);
 
   const chatRef = `chats_jogo/${jogoId}/${lado}`;
   const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
-
-  // Marcar no Firestore como sorteada
-  await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).doc(pergunta.id).set({
-    timeId: lado === "casa" ? timeCasaId : timeForaId,
-    sorteadaEm: new Date()
-  });
 
   await db.collection(chatRef).add({
     tipo: "pergunta",
@@ -390,41 +363,6 @@ async function enviarProximaPergunta(lado) {
 
   exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
 }
-}
 
 carregarJogo();
-
-// Desativa botão de embaralhar (removido do HTML)
-// Ordem será carregada ou criada automaticamente no carregarJogo
 // [FIM DO ARQUIVO]
-
-
-async function carregarTodasPerguntasNaTabela(lado) {
-  const timeId = lado === "casa" ? timeCasaId : timeForaId;
-  const container = document.getElementById(`tabela-${lado}`);
-  if (!container) return;
-
-  const todas = await buscarPerguntasPorTimeId(timeId);
-  const usadasSnap = await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).get();
-  const usadasIds = usadasSnap.docs.map(doc => doc.id);
-
-  container.innerHTML = '';
-  todas.forEach(p => {
-    const linha = document.createElement("tr");
-    const texto = document.createElement("td");
-    const correta = document.createElement("td");
-    const pontos = document.createElement("td");
-    const status = document.createElement("td");
-
-    texto.textContent = p.pergunta;
-    correta.textContent = p.alternativas[p.correta] || '-';
-    pontos.textContent = p.pontuacao || 1;
-    status.textContent = usadasIds.includes(p.id) ? '✔' : '';
-
-    linha.appendChild(texto);
-    linha.appendChild(correta);
-    linha.appendChild(pontos);
-    linha.appendChild(status);
-    container.appendChild(linha);
-  });
-}
