@@ -1,4 +1,6 @@
 let perguntasUsadas = { casa: [], fora: [] };
+let ordemTravada = false;
+let perguntasUsadas = { casa: [], fora: [] };
 // [INÍCIO DO ARQUIVO]
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
@@ -420,7 +422,7 @@ async function salvarOrdemNoFirestore() {
 }
 
 
-async function carregarOrdemSalva() {
+async function carregarOrdemSalva()  {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
   if (!jogoDoc.exists) return false;
 
