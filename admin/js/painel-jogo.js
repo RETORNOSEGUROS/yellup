@@ -30,8 +30,28 @@ async function carregarJogo() {
   document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
   document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
 
+  // Atualizar nomes dos botões de sorteio
+  document.getElementById("btnPerguntaCasa").textContent = `+ Sortear Pergunta ${nomeCasa}`;
+  document.getElementById("btnPerguntaFora").textContent = `+ Sortear Pergunta ${nomeFora}`;
+
   escutarChats();
+  await carregarPontosDoFirestore();
   atualizarPlacar();
+}
+
+async function carregarPontosDoFirestore() {
+  const snapshot = await db.collection("respostas")
+    .where("jogoId", "==", jogoId)
+    .where("correta", "==", true)
+    .get();
+
+  pontosPorTime = { casa: 0, fora: 0 };
+
+  snapshot.forEach(doc => {
+    const r = doc.data();
+    if (r.timeTorcida === timeCasaId) pontosPorTime.casa += r.pontos || 0;
+    if (r.timeTorcida === timeForaId) pontosPorTime.fora += r.pontos || 0;
+  });
 }
 function enviarMensagem(tipo) {
   const input = document.getElementById(`input${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
@@ -216,8 +236,6 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
         }
 
         bloqueioChat = false;
-
-        // Envia mensagens pendentes
         ["geral", "timeA", "timeB"].forEach(tipo => {
           filaMensagens[tipo].forEach(msg => enviaMsgAgora(tipo, msg));
           filaMensagens[tipo] = [];
