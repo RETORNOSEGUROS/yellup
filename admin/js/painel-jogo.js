@@ -37,6 +37,7 @@ async function carregarJogo() {
   escutarChats();
   await carregarPontosDoFirestore();
   atualizarPlacar();
+  await carregarOuCriarOrdem();
 }
 
 async function carregarPontosDoFirestore() {
@@ -245,6 +246,7 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
 
           pontosPorTime[lado] += pontos;
           atualizarPlacar();
+  await carregarOuCriarOrdem();
         }
 
         bloqueioChat = false;
@@ -365,4 +367,7 @@ async function enviarProximaPergunta(lado) {
 }
 
 carregarJogo();
+
+// Desativa botão de embaralhar (removido do HTML)
+// Ordem será carregada ou criada automaticamente no carregarJogo
 // [FIM DO ARQUIVO]
