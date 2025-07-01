@@ -120,21 +120,11 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
   const texto = pergunta.pergunta || pergunta.texto || "Pergunta sem texto";
 
   let alternativas = [];
-  if (Array.isArray(pergunta.alternativas)) {
-    alternativas = pergunta.alternativas;
-  } else if (typeof pergunta.alternativas === "object") {
-    alternativas = Object.keys(pergunta.alternativas).map(letra => pergunta.alternativas[letra]);
+  if (typeof pergunta.alternativas === "object") {
+    alternativas = Object.entries(pergunta.alternativas); // [["A", "texto1"], ["B", "texto2"], ...]
   }
 
-  // Converte correta: aceita 'A', 'B', 'C', ..., ou índice numérico
-  const correta = (() => {
-    if (typeof pergunta.correta === "number") return pergunta.correta;
-    if (typeof pergunta.correta === "string") {
-      const letra = pergunta.correta.toUpperCase();
-      return ["A", "B", "C", "D", "E"].indexOf(letra);
-    }
-    return -1;
-  })();
+  const corretaLetra = (pergunta.correta || "").toUpperCase();
 
   const perguntaEl = document.createElement("p");
   perguntaEl.innerHTML = `<b>❓ ${texto}</b>`;
@@ -148,9 +138,10 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
   lista.style.padding = "0";
   lista.style.marginTop = "10px";
 
-  alternativas.forEach((alt, i) => {
+  alternativas.forEach(([letra, texto]) => {
     const item = document.createElement("li");
-    item.textContent = `${String.fromCharCode(65 + i)}) ${alt}`;
+    item.textContent = `${letra}) ${texto}`;
+    item.dataset.letra = letra;
     item.style.border = "1px solid #ccc";
     item.style.padding = "8px 12px";
     item.style.borderRadius = "8px";
@@ -165,7 +156,7 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
 
   if (animar && alternativas.length) {
     let tempo = 9;
-    let selecionado = -1;
+    let selecionadoLetra = null;
     const timer = document.createElement("p");
     timer.textContent = `⏳ ${tempo}s restantes`;
     bloco.appendChild(timer);
@@ -179,20 +170,20 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
         timer.remove();
 
         const items = lista.querySelectorAll("li");
-        items.forEach((el, i) => {
+        items.forEach(el => {
           el.style.cursor = "default";
           el.style.color = "#999";
           el.style.fontWeight = "normal";
           el.style.textDecoration = "none";
 
-          if (i === correta) {
+          if (el.dataset.letra === corretaLetra) {
             el.style.background = "#d4edda";
             el.style.color = "#155724";
             el.style.borderColor = "#c3e6cb";
             el.style.fontWeight = "bold";
           }
 
-          if (i === selecionado && i !== correta) {
+          if (el.dataset.letra === selecionadoLetra && el.dataset.letra !== corretaLetra) {
             el.style.background = "#f8d7da";
             el.style.color = "#721c24";
             el.style.borderColor = "#f5c6cb";
@@ -203,11 +194,11 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
     }, 1000);
 
     const items = lista.querySelectorAll("li");
-    items.forEach((el, idx) => {
+    items.forEach(el => {
       el.style.cursor = "pointer";
       el.onclick = () => {
         if (tempo > 0) {
-          selecionado = idx;
+          selecionadoLetra = el.dataset.letra;
           items.forEach(li => li.style.fontWeight = "normal");
           el.style.fontWeight = "bold";
         }
