@@ -4,6 +4,7 @@ let perguntasUsadas = { casa: [], fora: [] };
 // [INÍCIO DO ARQUIVO]
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
+console.log("jogoId:", jogoId);
 
 let timeCasaId = "";
 let timeForaId = "";
