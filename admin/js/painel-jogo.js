@@ -1,3 +1,4 @@
+let perguntasUsadas = { casa: [], fora: [] };
 // [INÍCIO DO ARQUIVO]
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
@@ -326,7 +327,7 @@ function exibirOrdemNaTabela(lado) {
     texto.textContent = p.pergunta;
     correta.textContent = p.alternativas[p.correta] || '-';
     pontos.textContent = p.pontuacao || 1;
-    status.textContent = index < indiceAtual[lado] ? '✔' : '';
+    status.textContent = perguntasUsadas[lado].includes(p.id) ? '✔' : '';
 
     linha.appendChild(texto);
     linha.appendChild(correta);
@@ -385,7 +386,7 @@ async function registrarPerguntaComoUsada(lado, perguntaId) {
 }
 
 
-async function carregarPerguntasEnviadas() {
+async function carregarPerguntasEnviadas()  {
   const snapCasa = await db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc("casa").get();
   const snapFora = await db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc("fora").get();
 
