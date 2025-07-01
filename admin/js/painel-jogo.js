@@ -47,6 +47,8 @@ async function carregarJogo() {
   atualizarPlacar();
   
   atualizarNomesDasTabelas();
+  await carregarTodasPerguntasNaTabela('casa');
+  await carregarTodasPerguntasNaTabela('fora');
 }
 
 async function carregarPontosDoFirestore() {
@@ -257,6 +259,8 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
           atualizarPlacar();
   
   atualizarNomesDasTabelas();
+  await carregarTodasPerguntasNaTabela('casa');
+  await carregarTodasPerguntasNaTabela('fora');
         }
 
         bloqueioChat = false;
@@ -381,3 +385,34 @@ carregarJogo();
 // Desativa botão de embaralhar (removido do HTML)
 // Ordem será carregada ou criada automaticamente no carregarJogo
 // [FIM DO ARQUIVO]
+
+
+async function carregarTodasPerguntasNaTabela(lado) {
+  const timeId = lado === "casa" ? timeCasaId : timeForaId;
+  const container = document.getElementById(`tabela-${lado}`);
+  if (!container) return;
+
+  const todas = await buscarPerguntasPorTimeId(timeId);
+  const usadasSnap = await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).get();
+  const usadasIds = usadasSnap.docs.map(doc => doc.id);
+
+  container.innerHTML = '';
+  todas.forEach(p => {
+    const linha = document.createElement("tr");
+    const texto = document.createElement("td");
+    const correta = document.createElement("td");
+    const pontos = document.createElement("td");
+    const status = document.createElement("td");
+
+    texto.textContent = p.pergunta;
+    correta.textContent = p.alternativas[p.correta] || '-';
+    pontos.textContent = p.pontuacao || 1;
+    status.textContent = usadasIds.includes(p.id) ? '✔' : '';
+
+    linha.appendChild(texto);
+    linha.appendChild(correta);
+    linha.appendChild(pontos);
+    linha.appendChild(status);
+    container.appendChild(linha);
+  });
+}
