@@ -1,3 +1,11 @@
+
+function atualizarNomesDasTabelas() {
+  document.getElementById("nome-time-casa").textContent = nomeCasa;
+  document.getElementById("nome-time-fora").textContent = nomeFora;
+  document.getElementById("nome-casa-tabela").textContent = nomeCasa;
+  document.getElementById("nome-fora-tabela").textContent = nomeFora;
+}
+
 // [INÍCIO DO ARQUIVO]
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
@@ -37,7 +45,8 @@ async function carregarJogo() {
   escutarChats();
   await carregarPontosDoFirestore();
   atualizarPlacar();
-  await carregarOuCriarOrdem();
+  
+  atualizarNomesDasTabelas();
 }
 
 async function carregarPontosDoFirestore() {
@@ -246,7 +255,8 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
 
           pontosPorTime[lado] += pontos;
           atualizarPlacar();
-  await carregarOuCriarOrdem();
+  
+  atualizarNomesDasTabelas();
         }
 
         bloqueioChat = false;
