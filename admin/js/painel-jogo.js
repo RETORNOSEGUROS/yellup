@@ -13,7 +13,7 @@ let bloqueioChat = false;
 const filaMensagens = { geral: [], timeA: [], timeB: [] };
 let pontosPorTime = { casa: 0, fora: 0 };
 
-async function carregarJogo() {
+async function carregarJogo()  {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
   if (!jogoDoc.exists) return;
 
