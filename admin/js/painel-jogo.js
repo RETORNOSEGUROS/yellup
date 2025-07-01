@@ -121,7 +121,7 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
 
   let alternativas = [];
   if (typeof pergunta.alternativas === "object") {
-    alternativas = Object.entries(pergunta.alternativas); // [["A", "texto1"], ["B", "texto2"], ...]
+    alternativas = Object.entries(pergunta.alternativas);
   }
 
   const corretaLetra = (pergunta.correta || "").toUpperCase();
@@ -140,7 +140,7 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
 
   alternativas.forEach(([letra, texto]) => {
     const item = document.createElement("li");
-    item.textContent = `${letra}) ${texto}`;
+    item.textContent = `${texto}`; // <- Aqui removemos a letra
     item.dataset.letra = letra;
     item.style.border = "1px solid #ccc";
     item.style.padding = "8px 12px";
