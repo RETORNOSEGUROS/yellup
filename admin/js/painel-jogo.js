@@ -6,6 +6,11 @@ let timeForaId = "";
 let nomeCasa = "Time A";
 let nomeFora = "Time B";
 
+let pontosPorTime = {
+  casa: 0,
+  fora: 0
+};
+
 async function carregarJogo() {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
   if (!jogoDoc.exists) return;
@@ -24,10 +29,8 @@ async function carregarJogo() {
   document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
   document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
 
-  document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
-  document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
-
   escutarChats();
+  atualizarPlacar();
 }
 
 function enviarMensagem(tipo) {
@@ -67,7 +70,7 @@ function escutarChat(caminho, divId) {
 
           const existe = div.querySelector(`[data-id="${msg.perguntaId}"]`);
           if (!existe) {
-            exibirPerguntaNoChat(div, msg, animar);
+            exibirPerguntaNoChat(div, msg, animar, divId.includes("TimeA") ? "casa" : "fora");
           }
         }
       } else {
@@ -106,25 +109,22 @@ async function sortearPerguntaTime(lado) {
     texto: pergunta.pergunta,
     alternativas: pergunta.alternativas,
     correta: pergunta.correta,
+    pontuacao: pergunta.pontuacao || 1,
     criadoEm: new Date()
   });
 
-  exibirPerguntaNoChat(document.getElementById(divId), pergunta, true);
+  exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
 }
 
-function exibirPerguntaNoChat(div, pergunta, animar = false) {
+function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
   const bloco = document.createElement("div");
   bloco.className = "pergunta-bloco";
   bloco.setAttribute("data-id", pergunta.perguntaId || pergunta.id || "");
 
   const texto = pergunta.pergunta || pergunta.texto || "Pergunta sem texto";
-
-  let alternativas = [];
-  if (typeof pergunta.alternativas === "object") {
-    alternativas = Object.entries(pergunta.alternativas);
-  }
-
+  let alternativas = Object.entries(pergunta.alternativas || {});
   const corretaLetra = (pergunta.correta || "").toUpperCase();
+  const pontuacao = pergunta.pontuacao || 1;
 
   const perguntaEl = document.createElement("p");
   perguntaEl.innerHTML = `<b>❓ ${texto}</b>`;
@@ -140,7 +140,7 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
 
   alternativas.forEach(([letra, texto]) => {
     const item = document.createElement("li");
-    item.textContent = `${texto}`; // <- Aqui removemos a letra
+    item.textContent = texto;
     item.dataset.letra = letra;
     item.style.border = "1px solid #ccc";
     item.style.padding = "8px 12px";
@@ -190,6 +190,28 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
             el.style.textDecoration = "line-through";
           }
         });
+
+        // Grava a resposta simulada do admin no Firestore
+        if (selecionadoLetra && !bloco.getAttribute("data-respondido")) {
+          bloco.setAttribute("data-respondido", "true");
+
+          const acertou = selecionadoLetra === corretaLetra;
+          const pontos = acertou ? pontuacao : 0;
+
+          db.collection("respostas").add({
+            jogoId,
+            perguntaId: pergunta.perguntaId || pergunta.id,
+            userId: "admin_teste",
+            timeTorcida: lado === "casa" ? timeCasaId : timeForaId,
+            resposta: selecionadoLetra,
+            correta: acertou,
+            pontos,
+            data: new Date()
+          });
+
+          pontosPorTime[lado] += pontos;
+          atualizarPlacar();
+        }
       }
     }, 1000);
 
@@ -205,6 +227,24 @@ function exibirPerguntaNoChat(div, pergunta, animar = false) {
       };
     });
   }
+}
+
+function atualizarPlacar() {
+  const total = pontosPorTime.casa + pontosPorTime.fora;
+  const pctCasa = total > 0 ? Math.round((pontosPorTime.casa / total) * 100) : 0;
+  const pctFora = total > 0 ? 100 - pctCasa : 0;
+
+  let placarEl = document.getElementById("placar-times");
+  if (!placarEl) {
+    placarEl = document.createElement("div");
+    placarEl.id = "placar-times";
+    placarEl.style.fontWeight = "bold";
+    placarEl.style.marginBottom = "10px";
+    placarEl.style.fontSize = "16px";
+    document.body.insertBefore(placarEl, document.body.children[3]);
+  }
+
+  placarEl.textContent = `🏆 ${nomeCasa}: ${pontosPorTime.casa} pts (${pctCasa}%) | ${nomeFora}: ${pontosPorTime.fora} pts (${pctFora}%)`;
 }
 
 carregarJogo();
