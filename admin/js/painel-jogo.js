@@ -1,10 +1,7 @@
 let perguntasUsadas = { casa: [], fora: [] };
-let ordemTravada = false;
-let perguntasUsadas = { casa: [], fora: [] };
 // [INÍCIO DO ARQUIVO]
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
-console.log("jogoId:", jogoId);
 
 let timeCasaId = "";
 let timeForaId = "";
@@ -14,7 +11,7 @@ let bloqueioChat = false;
 const filaMensagens = { geral: [], timeA: [], timeB: [] };
 let pontosPorTime = { casa: 0, fora: 0 };
 
-async function carregarJogo()  {
+async function carregarJogo() {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
   if (!jogoDoc.exists) return;
 
@@ -423,7 +420,7 @@ async function salvarOrdemNoFirestore() {
 }
 
 
-async function carregarOrdemSalva()  {
+async function carregarOrdemSalva() {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
   if (!jogoDoc.exists) return false;
 
