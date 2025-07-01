@@ -41,21 +41,6 @@ async function carregarJogo() {
   escutarChats();
 }
 
-async function carregarPontosDoFirestore() {
-  const snapshot = await db.collection("respostas")
-    .where("jogoId", "==", jogoId)
-    .where("correta", "==", true)
-    .get();
-
-  pontosPorTime = { casa: 0, fora: 0 };
-
-  snapshot.forEach(doc => {
-    const r = doc.data();
-    if (r.timeTorcida === timeCasaId) pontosPorTime.casa += r.pontos || 0;
-    if (r.timeTorcida === timeForaId) pontosPorTime.fora += r.pontos || 0;
-  });
-}
-
 function enviarMensagem(tipo) {
   const input = document.getElementById(`input${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
   const texto = input.value.trim();
@@ -91,30 +76,64 @@ function escutarChats() {
 function escutarChat(caminho, divId) {
   db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
     const div = document.getElementById(divId);
-    snapshot.forEach(doc => {
-      const msg = doc.data();
-
-      if (msg.tipo === "pergunta" && msg.perguntaId && msg.alternativas) {
-        exibirPerguntaNoChat(div, msg, false, divId.includes("TimeA") ? "casa" : "fora");
-      } else {
-        const linha = document.createElement("div");
-        const hora = msg.criadoEm?.toDate()?.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' }) || "--:--";
-        linha.textContent = `[${hora}] ${msg.admin ? "[ADMIN] " : ""}${msg.texto}`;
-        div.appendChild(linha);
+    snapshot.docChanges().forEach(change => {
+      if (change.type === "added") {
+        const msg = change.doc.data();
+        if (msg.tipo === "pergunta" && msg.perguntaId && msg.alternativas) {
+          exibirPerguntaNoChat(div, msg, false, divId.includes("TimeA") ? "casa" : "fora");
+        } else {
+          const linha = document.createElement("div");
+          const hora = msg.criadoEm?.toDate()?.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' }) || "--:--";
+          linha.textContent = `[${hora}] ${msg.admin ? "[ADMIN] " : ""}${msg.texto}`;
+          div.appendChild(linha);
+        }
+        div.scrollTop = div.scrollHeight;
       }
     });
-    div.scrollTop = div.scrollHeight;
   });
 }
+async function carregarPontosDoFirestore() {
+  const snapshot = await db.collection("respostas")
+    .where("jogoId", "==", jogoId)
+    .where("correta", "==", true)
+    .get();
+
+  pontosPorTime = { casa: 0, fora: 0 };
+
+  snapshot.forEach(doc => {
+    const r = doc.data();
+    if (r.timeTorcida === timeCasaId) pontosPorTime.casa += r.pontos || 0;
+    if (r.timeTorcida === timeForaId) pontosPorTime.fora += r.pontos || 0;
+  });
+}
+
+function atualizarPlacar() {
+  const total = pontosPorTime.casa + pontosPorTime.fora;
+  const pctCasa = total > 0 ? Math.round((pontosPorTime.casa / total) * 100) : 0;
+  const pctFora = total > 0 ? 100 - pctCasa : 0;
+
+  let placarEl = document.getElementById("placar-times");
+  if (!placarEl) {
+    placarEl = document.createElement("div");
+    placarEl.id = "placar-times";
+    placarEl.style.fontWeight = "bold";
+    placarEl.style.marginBottom = "10px";
+    placarEl.style.fontSize = "16px";
+    document.body.insertBefore(placarEl, document.body.children[3]);
+  }
+
+  placarEl.textContent = `🏆 ${nomeCasa}: ${pontosPorTime.casa} pts (${pctCasa}%) | ${nomeFora}: ${pontosPorTime.fora} pts (${pctFora}%)`;
+}
+
+function embaralhar(lista) {
+  return lista.sort(() => Math.random() - 0.5);
+}
+
 async function buscarPerguntasPorTimeId(timeId) {
   const snapshot = await db.collection("perguntas").where("timeId", "==", timeId).get();
   const perguntas = [];
   snapshot.forEach(doc => perguntas.push({ id: doc.id, ...doc.data() }));
   return perguntas;
-}
-
-function embaralhar(lista) {
-  return lista.sort(() => Math.random() - 0.5);
 }
 
 async function embaralharOrdemPerguntas() {
@@ -141,7 +160,10 @@ async function travarOrdemPerguntas() {
   ordemTravada = true;
 
   const btn = document.querySelector("button[onclick='embaralharOrdemPerguntas()']");
-  if (btn) btn.disabled = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "✅ Ordem Travada";
+  }
 
   alert("✅ Ordem de perguntas travada.");
 }
@@ -169,6 +191,19 @@ function exibirOrdemNaTabela(lado) {
     linha.appendChild(status);
     container.appendChild(linha);
   });
+}
+
+async function registrarPerguntaComoUsada(lado, perguntaId) {
+  const ref = db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc(lado);
+  const docSnap = await ref.get();
+  let ids = [];
+  if (docSnap.exists) {
+    ids = docSnap.data().ids || [];
+  }
+  if (!ids.includes(perguntaId)) {
+    ids.push(perguntaId);
+    await ref.set({ ids });
+  }
 }
 
 async function enviarProximaPergunta(lado) {
@@ -319,17 +354,33 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
   }
 }
 
-async function registrarPerguntaComoUsada(lado, perguntaId) {
-  const ref = db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc(lado);
-  const docSnap = await ref.get();
-  let ids = [];
-  if (docSnap.exists) {
-    ids = docSnap.data().ids || [];
+async function carregarOrdemSalva() {
+  const jogoDoc = await db.collection("jogos").doc(jogoId).get();
+  if (!jogoDoc.exists) return false;
+
+  const dados = jogoDoc.data();
+  if (dados.ordemPerguntasCasa && dados.ordemPerguntasFora) {
+    const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
+    const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
+
+    ordemPerguntas.casa = dados.ordemPerguntasCasa.map(id => perguntasCasa.find(p => p.id === id)).filter(Boolean);
+    ordemPerguntas.fora = dados.ordemPerguntasFora.map(id => perguntasFora.find(p => p.id === id)).filter(Boolean);
+
+    indiceAtual.casa = dados.indicePerguntaCasa || 0;
+    indiceAtual.fora = dados.indicePerguntaFora || 0;
+
+    ordemTravada = true;
+
+    const btn = document.querySelector("button[onclick='embaralharOrdemPerguntas()']");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "✅ Ordem Travada";
+    }
+
+    return true;
   }
-  if (!ids.includes(perguntaId)) {
-    ids.push(perguntaId);
-    await ref.set({ ids });
-  }
+
+  return false;
 }
 
 async function carregarPerguntasEnviadas() {
@@ -368,53 +419,13 @@ async function salvarOrdemNoFirestore() {
   });
 }
 
-async function carregarOrdemSalva() {
-  const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-  if (!jogoDoc.exists) return false;
-
-  const dados = jogoDoc.data();
-  if (dados.ordemPerguntasCasa && dados.ordemPerguntasFora) {
-    const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
-    const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
-
-    ordemPerguntas.casa = dados.ordemPerguntasCasa.map(id => perguntasCasa.find(p => p.id === id)).filter(Boolean);
-    ordemPerguntas.fora = dados.ordemPerguntasFora.map(id => perguntasFora.find(p => p.id === id)).filter(Boolean);
-
-    indiceAtual.casa = dados.indicePerguntaCasa || 0;
-    indiceAtual.fora = dados.indicePerguntaFora || 0;
-
-    ordemTravada = true;
-
-    const btn = document.querySelector("button[onclick='embaralharOrdemPerguntas()']");
-    if (btn) btn.disabled = true;
-
-    await carregarPerguntasEnviadas();
-    return true;
-  }
-
-  return false;
+// ✅ Função principal com ordem correta
+async function iniciarSistema() {
+  await carregarJogo();                        // 1. Pega dados do jogo e times
+  await carregarOrdemSalva();                 // 2. Carrega ordem travada (se houver)
+  await carregarPerguntasEnviadas();          // 3. Marca ✔ perguntas já usadas
+  await carregarPontosDoFirestore();          // 4. Recupera pontos dos times
+  atualizarPlacar();                          // 5. Mostra na tela
 }
 
-function atualizarPlacar() {
-  const total = pontosPorTime.casa + pontosPorTime.fora;
-  const pctCasa = total > 0 ? Math.round((pontosPorTime.casa / total) * 100) : 0;
-  const pctFora = total > 0 ? 100 - pctCasa : 0;
-
-  let placarEl = document.getElementById("placar-times");
-  if (!placarEl) {
-    placarEl = document.createElement("div");
-    placarEl.id = "placar-times";
-    placarEl.style.fontWeight = "bold";
-    placarEl.style.marginBottom = "10px";
-    placarEl.style.fontSize = "16px";
-    document.body.insertBefore(placarEl, document.body.children[3]);
-  }
-
-  placarEl.textContent = `🏆 ${nomeCasa}: ${pontosPorTime.casa} pts (${pctCasa}%) | ${nomeFora}: ${pontosPorTime.fora} pts (${pctFora}%)`;
-}
-
-carregarJogo().then(async () => {
-  await carregarOrdemSalva();
-  await carregarPontosDoFirestore();
-  atualizarPlacar();
-});
+iniciarSistema();
