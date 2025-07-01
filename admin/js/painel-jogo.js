@@ -327,7 +327,7 @@ function exibirOrdemNaTabela(lado) {
     texto.textContent = p.pergunta;
     correta.textContent = p.alternativas[p.correta] || '-';
     pontos.textContent = p.pontuacao || 1;
-    status.textContent = perguntasUsadas[lado].includes(p.id) ? '✔' : '';
+    status.textContent = perguntasUsadas[lado] && perguntasUsadas[lado].includes(p.id) ? '✔' : '';
 
     linha.appendChild(texto);
     linha.appendChild(correta);
@@ -367,7 +367,7 @@ async function enviarProximaPergunta(lado)  {
   exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
 }
 
-carregarJogo();
+carregarJogo().then(() => carregarOrdemSalva());
 // [FIM DO ARQUIVO]
 
 
