@@ -47,8 +47,8 @@ async function carregarJogo() {
   atualizarPlacar();
   
   atualizarNomesDasTabelas();
-  await carregarTodasPerguntasNaTabela('casa');
-  await carregarTodasPerguntasNaTabela('fora');
+  carregarTodasPerguntasNaTabela('casa');
+  carregarTodasPerguntasNaTabela('fora');
 }
 
 async function carregarPontosDoFirestore() {
@@ -259,8 +259,8 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
           atualizarPlacar();
   
   atualizarNomesDasTabelas();
-  await carregarTodasPerguntasNaTabela('casa');
-  await carregarTodasPerguntasNaTabela('fora');
+  carregarTodasPerguntasNaTabela('casa');
+  carregarTodasPerguntasNaTabela('fora');
         }
 
         bloqueioChat = false;
