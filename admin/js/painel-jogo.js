@@ -1,5 +1,4 @@
 let perguntasUsadas = { casa: [], fora: [] };
-// [INÍCIO DO ARQUIVO]
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 
@@ -10,6 +9,10 @@ let nomeFora = "Time B";
 let bloqueioChat = false;
 const filaMensagens = { geral: [], timeA: [], timeB: [] };
 let pontosPorTime = { casa: 0, fora: 0 };
+let ordemTravada = false;
+
+let ordemPerguntas = { casa: [], fora: [] };
+let indiceAtual = { casa: 0, fora: 0 };
 
 async function carregarJogo() {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
@@ -114,29 +117,81 @@ async function buscarPerguntasPorTimeId(timeId) {
   snapshot.forEach(doc => perguntas.push({ id: doc.id, ...doc.data() }));
   return perguntas;
 }
+function embaralhar(lista) {
+  return lista.sort(() => Math.random() - 0.5);
+}
 
-async function sortearPerguntaTime(lado) {
-  const timeId = lado === "casa" ? timeCasaId : timeForaId;
-  const chatRef = `chats_jogo/${jogoId}/${lado}`;
-  const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
-
-  const todas = await buscarPerguntasPorTimeId(timeId);
-  const usadasSnap = await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).get();
-  const usadasIds = usadasSnap.docs.map(doc => doc.id);
-
-  const disponiveis = todas.filter(p => !usadasIds.includes(p.id));
-  if (disponiveis.length === 0) {
-    alert("Todas as perguntas desse time já foram usadas neste jogo.");
+async function embaralharOrdemPerguntas() {
+  if (ordemTravada) {
+    alert("A ordem já foi travada e não pode mais ser alterada.");
     return;
   }
 
-  const pergunta = disponiveis[Math.floor(Math.random() * disponiveis.length)];
+  const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
+  const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
 
-  // Marca como usada no jogo atual
-  await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).doc(pergunta.id).set({
-    timeId,
-    sorteadaEm: new Date()
+  ordemPerguntas.casa = embaralhar(perguntasCasa);
+  ordemPerguntas.fora = embaralhar(perguntasFora);
+
+  indiceAtual.casa = 0;
+  indiceAtual.fora = 0;
+
+  exibirOrdemNaTabela('casa');
+  exibirOrdemNaTabela('fora');
+}
+
+async function travarOrdemPerguntas() {
+  await salvarOrdemNoFirestore();
+  ordemTravada = true;
+
+  const btn = document.querySelector("button[onclick='embaralharOrdemPerguntas()']");
+  if (btn) btn.disabled = true;
+
+  alert("✅ Ordem de perguntas travada.");
+}
+
+function exibirOrdemNaTabela(lado) {
+  const container = document.getElementById(`tabela-${lado}`);
+  if (!container) return;
+
+  container.innerHTML = '';
+  ordemPerguntas[lado].forEach((p, index) => {
+    const linha = document.createElement("tr");
+    const texto = document.createElement("td");
+    const correta = document.createElement("td");
+    const pontos = document.createElement("td");
+    const status = document.createElement("td");
+
+    texto.textContent = p.pergunta;
+    correta.textContent = p.alternativas[p.correta] || '-';
+    pontos.textContent = p.pontuacao || 1;
+    status.textContent = perguntasUsadas[lado] && perguntasUsadas[lado].includes(p.id) ? '✔' : '';
+
+    linha.appendChild(texto);
+    linha.appendChild(correta);
+    linha.appendChild(pontos);
+    linha.appendChild(status);
+    container.appendChild(linha);
   });
+}
+
+async function enviarProximaPergunta(lado) {
+  const lista = ordemPerguntas[lado];
+  const idx = indiceAtual[lado];
+
+  if (!lista || idx >= lista.length) {
+    alert("Todas as perguntas já foram usadas.");
+    return;
+  }
+
+  const pergunta = lista[idx];
+  await registrarPerguntaComoUsada(lado, pergunta.id);
+  perguntasUsadas[lado].push(pergunta.id);
+  indiceAtual[lado]++;
+  exibirOrdemNaTabela(lado);
+
+  const chatRef = `chats_jogo/${jogoId}/${lado}`;
+  const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
 
   await db.collection(chatRef).add({
     tipo: "pergunta",
@@ -269,109 +324,6 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
     });
   }
 }
-
-function atualizarPlacar() {
-  const total = pontosPorTime.casa + pontosPorTime.fora;
-  const pctCasa = total > 0 ? Math.round((pontosPorTime.casa / total) * 100) : 0;
-  const pctFora = total > 0 ? 100 - pctCasa : 0;
-
-  let placarEl = document.getElementById("placar-times");
-  if (!placarEl) {
-    placarEl = document.createElement("div");
-    placarEl.id = "placar-times";
-    placarEl.style.fontWeight = "bold";
-    placarEl.style.marginBottom = "10px";
-    placarEl.style.fontSize = "16px";
-    document.body.insertBefore(placarEl, document.body.children[3]);
-  }
-
-  placarEl.textContent = `🏆 ${nomeCasa}: ${pontosPorTime.casa} pts (${pctCasa}%) | ${nomeFora}: ${pontosPorTime.fora} pts (${pctFora}%)`;
-}
-
-
-// NOVAS VARIÁVEIS DE CONTROLE DE ORDEM
-let ordemPerguntas = { casa: [], fora: [] };
-let indiceAtual = { casa: 0, fora: 0 };
-
-function embaralhar(lista) {
-  return lista.sort(() => Math.random() - 0.5);
-}
-
-async function embaralharOrdemPerguntas()  {
-  const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
-  const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
-
-  ordemPerguntas.casa = embaralhar(perguntasCasa);
-  ordemPerguntas.fora = embaralhar(perguntasFora);
-
-  indiceAtual.casa = 0;
-  indiceAtual.fora = 0;
-  await carregarPerguntasEnviadas();
-
-  exibirOrdemNaTabela('casa');
-  exibirOrdemNaTabela('fora');
-}
-
-function exibirOrdemNaTabela(lado) {
-  const container = document.getElementById(`tabela-${lado}`);
-  if (!container) return;
-
-  container.innerHTML = '';
-  ordemPerguntas[lado].forEach((p, index) => {
-    const linha = document.createElement("tr");
-    const texto = document.createElement("td");
-    const correta = document.createElement("td");
-    const pontos = document.createElement("td");
-    const status = document.createElement("td");
-
-    texto.textContent = p.pergunta;
-    correta.textContent = p.alternativas[p.correta] || '-';
-    pontos.textContent = p.pontuacao || 1;
-    status.textContent = perguntasUsadas[lado] && perguntasUsadas[lado].includes(p.id) ? '✔' : '';
-
-    linha.appendChild(texto);
-    linha.appendChild(correta);
-    linha.appendChild(pontos);
-    linha.appendChild(status);
-    container.appendChild(linha);
-  });
-}
-
-async function enviarProximaPergunta(lado)  {
-  const lista = ordemPerguntas[lado];
-  const idx = indiceAtual[lado];
-
-  if (!lista || idx >= lista.length) {
-    alert("Todas as perguntas já foram usadas.");
-    return;
-  }
-
-  const pergunta = lista[idx];
-  await registrarPerguntaComoUsada(lado, pergunta.id);
-  indiceAtual[lado]++;
-  exibirOrdemNaTabela(lado);
-
-  const chatRef = `chats_jogo/${jogoId}/${lado}`;
-  const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
-
-  await db.collection(chatRef).add({
-    tipo: "pergunta",
-    perguntaId: pergunta.id,
-    texto: pergunta.pergunta,
-    alternativas: pergunta.alternativas,
-    correta: pergunta.correta,
-    pontuacao: pergunta.pontuacao || 1,
-    criadoEm: new Date()
-  });
-
-  exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
-}
-
-carregarJogo().then(() => carregarOrdemSalva());
-// [FIM DO ARQUIVO]
-
-
-
 async function registrarPerguntaComoUsada(lado, perguntaId) {
   const ref = db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc(lado);
   const docSnap = await ref.get();
@@ -385,13 +337,13 @@ async function registrarPerguntaComoUsada(lado, perguntaId) {
   }
 }
 
-
-async function carregarPerguntasEnviadas()  {
+async function carregarPerguntasEnviadas() {
   const snapCasa = await db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc("casa").get();
   const snapFora = await db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc("fora").get();
 
   if (snapCasa.exists) {
     const usados = snapCasa.data().ids || [];
+    perguntasUsadas.casa = usados;
     usados.forEach(id => {
       const index = ordemPerguntas.casa.findIndex(p => p.id === id);
       if (index >= 0) indiceAtual.casa = Math.max(indiceAtual.casa, index + 1);
@@ -400,14 +352,13 @@ async function carregarPerguntasEnviadas()  {
 
   if (snapFora.exists) {
     const usados = snapFora.data().ids || [];
+    perguntasUsadas.fora = usados;
     usados.forEach(id => {
       const index = ordemPerguntas.fora.findIndex(p => p.id === id);
       if (index >= 0) indiceAtual.fora = Math.max(indiceAtual.fora, index + 1);
     });
   }
 }
-
-
 
 async function salvarOrdemNoFirestore() {
   const jogoRef = db.collection("jogos").doc(jogoId);
@@ -418,7 +369,6 @@ async function salvarOrdemNoFirestore() {
     indicePerguntaFora: 0
   });
 }
-
 
 async function carregarOrdemSalva() {
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
@@ -439,12 +389,32 @@ async function carregarOrdemSalva() {
     exibirOrdemNaTabela("casa");
     exibirOrdemNaTabela("fora");
 
-    // desabilita botão
     const btn = document.querySelector("button[onclick='embaralharOrdemPerguntas()']");
     if (btn) btn.disabled = true;
 
+    ordemTravada = true;
     return true;
   }
 
   return false;
 }
+
+function atualizarPlacar() {
+  const total = pontosPorTime.casa + pontosPorTime.fora;
+  const pctCasa = total > 0 ? Math.round((pontosPorTime.casa / total) * 100) : 0;
+  const pctFora = total > 0 ? 100 - pctCasa : 0;
+
+  let placarEl = document.getElementById("placar-times");
+  if (!placarEl) {
+    placarEl = document.createElement("div");
+    placarEl.id = "placar-times";
+    placarEl.style.fontWeight = "bold";
+    placarEl.style.marginBottom = "10px";
+    placarEl.style.fontSize = "16px";
+    document.body.insertBefore(placarEl, document.body.children[3]);
+  }
+
+  placarEl.textContent = `🏆 ${nomeCasa}: ${pontosPorTime.casa} pts (${pctCasa}%) | ${nomeFora}: ${pontosPorTime.fora} pts (${pctFora}%)`;
+}
+
+carregarJogo().then(() => carregarOrdemSalva());
