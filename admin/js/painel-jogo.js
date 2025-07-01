@@ -31,8 +31,8 @@ async function carregarJogo() {
   document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
   document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
 
-  const btnCasa = document.getElementById("btnPerguntaCasa"); if (btnCasa) btnCasa.textContent = `+ Sortear Pergunta ${nomeCasa}`;
-  const btnFora = document.getElementById("btnPerguntaFora"); if (btnFora) btnFora.textContent = `+ Sortear Pergunta ${nomeFora}`;
+  document.getElementById("btnPerguntaCasa").textContent = `+ Sortear Pergunta ${nomeCasa}`;
+  document.getElementById("btnPerguntaFora").textContent = `+ Sortear Pergunta ${nomeFora}`;
 
   escutarChats();
   await carregarPontosDoFirestore();
@@ -305,6 +305,7 @@ async function embaralharOrdemPerguntas() {
 
   indiceAtual.casa = 0;
   indiceAtual.fora = 0;
+  await carregarPerguntasEnviadas();
 
   exibirOrdemNaTabela('casa');
   exibirOrdemNaTabela('fora');
@@ -345,6 +346,7 @@ async function enviarProximaPergunta(lado) {
   }
 
   const pergunta = lista[idx];
+  await registrarPerguntaComoUsada(lado, pergunta.id);
   indiceAtual[lado]++;
   exibirOrdemNaTabela(lado);
 
@@ -366,3 +368,40 @@ async function enviarProximaPergunta(lado) {
 
 carregarJogo();
 // [FIM DO ARQUIVO]
+
+
+
+async function registrarPerguntaComoUsada(lado, perguntaId) {
+  const ref = db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc(lado);
+  const docSnap = await ref.get();
+  let ids = [];
+  if (docSnap.exists) {
+    ids = docSnap.data().ids || [];
+  }
+  if (!ids.includes(perguntaId)) {
+    ids.push(perguntaId);
+    await ref.set({ ids });
+  }
+}
+
+
+async function carregarPerguntasEnviadas() {
+  const snapCasa = await db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc("casa").get();
+  const snapFora = await db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc("fora").get();
+
+  if (snapCasa.exists) {
+    const usados = snapCasa.data().ids || [];
+    usados.forEach(id => {
+      const index = ordemPerguntas.casa.findIndex(p => p.id === id);
+      if (index >= 0) indiceAtual.casa = Math.max(indiceAtual.casa, index + 1);
+    });
+  }
+
+  if (snapFora.exists) {
+    const usados = snapFora.data().ids || [];
+    usados.forEach(id => {
+      const index = ordemPerguntas.fora.findIndex(p => p.id === id);
+      if (index >= 0) indiceAtual.fora = Math.max(indiceAtual.fora, index + 1);
+    });
+  }
+}
