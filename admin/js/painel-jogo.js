@@ -1,3 +1,4 @@
+// [INÍCIO DO ARQUIVO]
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 
@@ -30,7 +31,6 @@ async function carregarJogo() {
   document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
   document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
 
-  // Atualizar nomes dos botões de sorteio
   document.getElementById("btnPerguntaCasa").textContent = `+ Sortear Pergunta ${nomeCasa}`;
   document.getElementById("btnPerguntaFora").textContent = `+ Sortear Pergunta ${nomeFora}`;
 
@@ -53,6 +53,7 @@ async function carregarPontosDoFirestore() {
     if (r.timeTorcida === timeForaId) pontosPorTime.fora += r.pontos || 0;
   });
 }
+
 function enviarMensagem(tipo) {
   const input = document.getElementById(`input${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
   const texto = input.value.trim();
@@ -88,12 +89,12 @@ function escutarChats() {
 function escutarChat(caminho, divId) {
   db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
     const div = document.getElementById(divId);
-    div.innerHTML = ""; // limpa o chat
+    div.innerHTML = "";
     snapshot.forEach(doc => {
       const msg = doc.data();
 
       if (msg.tipo === "pergunta" && msg.perguntaId && msg.alternativas) {
-        div.innerHTML = ""; // mostra só a última pergunta
+        div.innerHTML = "";
         exibirPerguntaNoChat(div, msg, false, divId.includes("TimeA") ? "casa" : "fora");
       } else {
         const linha = document.createElement("div");
@@ -118,13 +119,23 @@ async function sortearPerguntaTime(lado) {
   const chatRef = `chats_jogo/${jogoId}/${lado}`;
   const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
 
-  const perguntas = await buscarPerguntasPorTimeId(timeId);
-  if (perguntas.length === 0) {
-    alert("Esse time não possui perguntas cadastradas.");
+  const todas = await buscarPerguntasPorTimeId(timeId);
+  const usadasSnap = await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).get();
+  const usadasIds = usadasSnap.docs.map(doc => doc.id);
+
+  const disponiveis = todas.filter(p => !usadasIds.includes(p.id));
+  if (disponiveis.length === 0) {
+    alert("Todas as perguntas desse time já foram usadas neste jogo.");
     return;
   }
 
-  const pergunta = perguntas[Math.floor(Math.random() * perguntas.length)];
+  const pergunta = disponiveis[Math.floor(Math.random() * disponiveis.length)];
+
+  // Marca como usada no jogo atual
+  await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).doc(pergunta.id).set({
+    timeId,
+    sorteadaEm: new Date()
+  });
 
   await db.collection(chatRef).add({
     tipo: "pergunta",
@@ -138,6 +149,7 @@ async function sortearPerguntaTime(lado) {
 
   exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
 }
+
 function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
   const bloco = document.createElement("div");
   bloco.className = "pergunta-bloco";
@@ -173,7 +185,7 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
   });
 
   bloco.appendChild(lista);
-  div.innerHTML = ""; // limpa qualquer pergunta anterior
+  div.innerHTML = "";
   div.appendChild(bloco);
   div.scrollTop = div.scrollHeight;
 
@@ -276,3 +288,4 @@ function atualizarPlacar() {
 }
 
 carregarJogo();
+// [FIM DO ARQUIVO]
