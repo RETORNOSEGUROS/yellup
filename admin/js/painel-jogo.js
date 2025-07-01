@@ -39,8 +39,6 @@ async function carregarJogo() {
   document.getElementById("btnPerguntaFora").textContent = `+ Sortear Pergunta ${nomeFora}`;
 
   escutarChats();
-  await carregarPontosDoFirestore();
-  atualizarPlacar();
 }
 
 async function carregarPontosDoFirestore() {
@@ -93,12 +91,10 @@ function escutarChats() {
 function escutarChat(caminho, divId) {
   db.collection(caminho).orderBy("criadoEm").onSnapshot(snapshot => {
     const div = document.getElementById(divId);
-    div.innerHTML = "";
     snapshot.forEach(doc => {
       const msg = doc.data();
 
       if (msg.tipo === "pergunta" && msg.perguntaId && msg.alternativas) {
-        div.innerHTML = "";
         exibirPerguntaNoChat(div, msg, false, divId.includes("TimeA") ? "casa" : "fora");
       } else {
         const linha = document.createElement("div");
@@ -110,13 +106,13 @@ function escutarChat(caminho, divId) {
     div.scrollTop = div.scrollHeight;
   });
 }
-
 async function buscarPerguntasPorTimeId(timeId) {
   const snapshot = await db.collection("perguntas").where("timeId", "==", timeId).get();
   const perguntas = [];
   snapshot.forEach(doc => perguntas.push({ id: doc.id, ...doc.data() }));
   return perguntas;
 }
+
 function embaralhar(lista) {
   return lista.sort(() => Math.random() - 0.5);
 }
@@ -205,7 +201,6 @@ async function enviarProximaPergunta(lado) {
 
   exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
 }
-
 function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
   const bloco = document.createElement("div");
   bloco.className = "pergunta-bloco";
@@ -241,7 +236,6 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
   });
 
   bloco.appendChild(lista);
-  div.innerHTML = "";
   div.appendChild(bloco);
   div.scrollTop = div.scrollHeight;
 
@@ -324,6 +318,7 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
     });
   }
 }
+
 async function registrarPerguntaComoUsada(lado, perguntaId) {
   const ref = db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc(lado);
   const docSnap = await ref.get();
@@ -358,6 +353,9 @@ async function carregarPerguntasEnviadas() {
       if (index >= 0) indiceAtual.fora = Math.max(indiceAtual.fora, index + 1);
     });
   }
+
+  exibirOrdemNaTabela("casa");
+  exibirOrdemNaTabela("fora");
 }
 
 async function salvarOrdemNoFirestore() {
@@ -385,14 +383,12 @@ async function carregarOrdemSalva() {
     indiceAtual.casa = dados.indicePerguntaCasa || 0;
     indiceAtual.fora = dados.indicePerguntaFora || 0;
 
-    await carregarPerguntasEnviadas();
-    exibirOrdemNaTabela("casa");
-    exibirOrdemNaTabela("fora");
+    ordemTravada = true;
 
     const btn = document.querySelector("button[onclick='embaralharOrdemPerguntas()']");
     if (btn) btn.disabled = true;
 
-    ordemTravada = true;
+    await carregarPerguntasEnviadas();
     return true;
   }
 
@@ -417,4 +413,8 @@ function atualizarPlacar() {
   placarEl.textContent = `🏆 ${nomeCasa}: ${pontosPorTime.casa} pts (${pctCasa}%) | ${nomeFora}: ${pontosPorTime.fora} pts (${pctFora}%)`;
 }
 
-carregarJogo().then(() => carregarOrdemSalva());
+carregarJogo().then(async () => {
+  await carregarOrdemSalva();
+  await carregarPontosDoFirestore();
+  atualizarPlacar();
+});
