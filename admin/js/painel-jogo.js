@@ -297,7 +297,7 @@ function embaralhar(lista) {
   return lista.sort(() => Math.random() - 0.5);
 }
 
-async function embaralharOrdemPerguntas() {
+async function embaralharOrdemPerguntas()  {
   const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
   const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
 
@@ -337,7 +337,7 @@ function exibirOrdemNaTabela(lado) {
   });
 }
 
-async function enviarProximaPergunta(lado) {
+async function enviarProximaPergunta(lado)  {
   const lista = ordemPerguntas[lado];
   const idx = indiceAtual[lado];
 
@@ -405,4 +405,46 @@ async function carregarPerguntasEnviadas()  {
       if (index >= 0) indiceAtual.fora = Math.max(indiceAtual.fora, index + 1);
     });
   }
+}
+
+
+
+async function salvarOrdemNoFirestore() {
+  const jogoRef = db.collection("jogos").doc(jogoId);
+  await jogoRef.update({
+    ordemPerguntasCasa: ordemPerguntas.casa.map(p => p.id),
+    ordemPerguntasFora: ordemPerguntas.fora.map(p => p.id),
+    indicePerguntaCasa: 0,
+    indicePerguntaFora: 0
+  });
+}
+
+
+async function carregarOrdemSalva() {
+  const jogoDoc = await db.collection("jogos").doc(jogoId).get();
+  if (!jogoDoc.exists) return false;
+
+  const dados = jogoDoc.data();
+  if (dados.ordemPerguntasCasa && dados.ordemPerguntasFora) {
+    const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
+    const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
+
+    ordemPerguntas.casa = dados.ordemPerguntasCasa.map(id => perguntasCasa.find(p => p.id === id)).filter(Boolean);
+    ordemPerguntas.fora = dados.ordemPerguntasFora.map(id => perguntasFora.find(p => p.id === id)).filter(Boolean);
+
+    indiceAtual.casa = dados.indicePerguntaCasa || 0;
+    indiceAtual.fora = dados.indicePerguntaFora || 0;
+
+    await carregarPerguntasEnviadas();
+    exibirOrdemNaTabela("casa");
+    exibirOrdemNaTabela("fora");
+
+    // desabilita botão
+    const btn = document.querySelector("button[onclick='embaralharOrdemPerguntas()']");
+    if (btn) btn.disabled = true;
+
+    return true;
+  }
+
+  return false;
 }
