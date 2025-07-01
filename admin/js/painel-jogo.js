@@ -28,15 +28,20 @@ async function carregarJogo() {
   nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
   nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
 
-  document.getElementById("titulo-jogo").textContent = `${nomeCasa} vs ${nomeFora}`;
-  document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
-  document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
+  const el_titulo-jogo = document.getElementById("titulo-jogo");
+if (el_titulo-jogo) el_titulo-jogo.textContent = `${nomeCasa} vs ${nomeFora}`;
+  const el_inicio-jogo = document.getElementById("inicio-jogo");
+if (el_inicio-jogo) el_inicio-jogo.textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
+  const el_entrada-jogo = document.getElementById("entrada-jogo");
+if (el_entrada-jogo) el_entrada-jogo.textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
 
   document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
   document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
 
-  document.getElementById("btnPerguntaCasa").textContent = `+ Sortear Pergunta ${nomeCasa}`;
-  document.getElementById("btnPerguntaFora").textContent = `+ Sortear Pergunta ${nomeFora}`;
+  const el_btnPerguntaCasa = document.getElementById("btnPerguntaCasa");
+if (el_btnPerguntaCasa) el_btnPerguntaCasa.textContent = `+ Sortear Pergunta ${nomeCasa}`;
+  const el_btnPerguntaFora = document.getElementById("btnPerguntaFora");
+if (el_btnPerguntaFora) el_btnPerguntaFora.textContent = `+ Sortear Pergunta ${nomeFora}`;
 
   escutarChats();
 }
@@ -428,4 +433,13 @@ async function iniciarSistema() {
   atualizarPlacar();                          // 5. Mostra na tela
 }
 
+iniciarSistema();
+
+async function iniciarSistema() {
+  await carregarJogo();
+  await carregarOrdemSalva();
+  await carregarPerguntasEnviadas();
+  await carregarPontosDoFirestore();
+  atualizarPlacar();
+}
 iniciarSistema();
