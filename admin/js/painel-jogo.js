@@ -353,19 +353,30 @@ function exibirOrdemNaTabela(lado) {
 
 async function enviarProximaPergunta(lado) {
   const lista = ordemPerguntas[lado];
-  const idx = indiceAtual[lado];
+  if (!lista || lista.length === 0) {
+    alert("Todas as perguntas já foram usadas.");
+    return;
+  }
 
-  if (!lista || idx >= lista.length) {
+  const idx = indiceAtual[lado];
+  if (idx >= lista.length) {
     alert("Todas as perguntas já foram usadas.");
     return;
   }
 
   const pergunta = lista[idx];
   indiceAtual[lado]++;
+
   exibirOrdemNaTabela(lado);
 
   const chatRef = `chats_jogo/${jogoId}/${lado}`;
   const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
+
+  // Marcar no Firestore como sorteada
+  await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).doc(pergunta.id).set({
+    timeId: lado === "casa" ? timeCasaId : timeForaId,
+    sorteadaEm: new Date()
+  });
 
   await db.collection(chatRef).add({
     tipo: "pergunta",
@@ -378,6 +389,7 @@ async function enviarProximaPergunta(lado) {
   });
 
   exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
+}
 }
 
 carregarJogo();
