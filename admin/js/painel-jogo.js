@@ -31,8 +31,8 @@ async function carregarJogo() {
   document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
   document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
 
-  document.getElementById("btnPerguntaCasa").textContent = `+ Sortear Pergunta ${nomeCasa}`;
-  document.getElementById("btnPerguntaFora").textContent = `+ Sortear Pergunta ${nomeFora}`;
+  const btnCasa = document.getElementById("btnPerguntaCasa"); if (btnCasa) btnCasa.textContent = `+ Sortear Pergunta ${nomeCasa}`;
+  const btnFora = document.getElementById("btnPerguntaFora"); if (btnFora) btnFora.textContent = `+ Sortear Pergunta ${nomeFora}`;
 
   escutarChats();
   await carregarPontosDoFirestore();
@@ -287,41 +287,82 @@ function atualizarPlacar() {
   placarEl.textContent = `🏆 ${nomeCasa}: ${pontosPorTime.casa} pts (${pctCasa}%) | ${nomeFora}: ${pontosPorTime.fora} pts (${pctFora}%)`;
 }
 
-carregarJogo();
-// [FIM DO ARQUIVO]
 
-async function carregarPerguntasEnviadas() {
-  const snapCasa = await db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc("casa").get();
-  const snapFora = await db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc("fora").get();
+// NOVAS VARIÁVEIS DE CONTROLE DE ORDEM
+let ordemPerguntas = { casa: [], fora: [] };
+let indiceAtual = { casa: 0, fora: 0 };
+
+function embaralhar(lista) {
+  return lista.sort(() => Math.random() - 0.5);
+}
+
+async function embaralharOrdemPerguntas() {
+  const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
+  const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
+
+  ordemPerguntas.casa = embaralhar(perguntasCasa);
+  ordemPerguntas.fora = embaralhar(perguntasFora);
 
   indiceAtual.casa = 0;
   indiceAtual.fora = 0;
-  await carregarPerguntasEnviadas();
 
-  if (snapCasa.exists) {
-    const usados = snapCasa.data().ids || [];
-    ordemPerguntas.casa.forEach((p, i) => {
-      if (usados.includes(p.id)) indiceAtual.casa++;
-    });
-  }
-
-  if (snapFora.exists) {
-    const usados = snapFora.data().ids || [];
-    ordemPerguntas.fora.forEach((p, i) => {
-      if (usados.includes(p.id)) indiceAtual.fora++;
-    });
-  }
+  exibirOrdemNaTabela('casa');
+  exibirOrdemNaTabela('fora');
 }
 
-async function registrarPerguntaComoUsada(lado, perguntaId) {
-  const ref = db.collection("jogos").doc(jogoId).collection("perguntas_enviadas").doc(lado);
-  const docSnap = await ref.get();
-  let ids = [];
-  if (docSnap.exists) {
-    ids = docSnap.data().ids || [];
-  }
-  if (!ids.includes(perguntaId)) {
-    ids.push(perguntaId);
-    await ref.set({ ids });
-  }
+function exibirOrdemNaTabela(lado) {
+  const container = document.getElementById(`tabela-${lado}`);
+  if (!container) return;
+
+  container.innerHTML = '';
+  ordemPerguntas[lado].forEach((p, index) => {
+    const linha = document.createElement("tr");
+    const texto = document.createElement("td");
+    const correta = document.createElement("td");
+    const pontos = document.createElement("td");
+    const status = document.createElement("td");
+
+    texto.textContent = p.pergunta;
+    correta.textContent = p.alternativas[p.correta] || '-';
+    pontos.textContent = p.pontuacao || 1;
+    status.textContent = index < indiceAtual[lado] ? '✔' : '';
+
+    linha.appendChild(texto);
+    linha.appendChild(correta);
+    linha.appendChild(pontos);
+    linha.appendChild(status);
+    container.appendChild(linha);
+  });
 }
+
+async function enviarProximaPergunta(lado) {
+  const lista = ordemPerguntas[lado];
+  const idx = indiceAtual[lado];
+
+  if (!lista || idx >= lista.length) {
+    alert("Todas as perguntas já foram usadas.");
+    return;
+  }
+
+  const pergunta = lista[idx];
+  indiceAtual[lado]++;
+  exibirOrdemNaTabela(lado);
+
+  const chatRef = `chats_jogo/${jogoId}/${lado}`;
+  const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
+
+  await db.collection(chatRef).add({
+    tipo: "pergunta",
+    perguntaId: pergunta.id,
+    texto: pergunta.pergunta,
+    alternativas: pergunta.alternativas,
+    correta: pergunta.correta,
+    pontuacao: pergunta.pontuacao || 1,
+    criadoEm: new Date()
+  });
+
+  exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
+}
+
+carregarJogo();
+// [FIM DO ARQUIVO]
