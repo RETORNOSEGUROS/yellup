@@ -10,21 +10,48 @@ let bloqueioChat = false;
 const filaMensagens = { geral: [], timeA: [], timeB: [] };
 let pontosPorTime = { casa: 0, fora: 0 };
 
+
 async function carregarJogo() {
-  const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-  if (!jogoDoc.exists) return;
+  console.log("🟢 Iniciando painel do jogo...");
+  try {
+    const jogoDoc = await db.collection("jogos").doc(jogoId).get();
+    console.log("📄 Buscando jogo ID:", jogoId);
 
-  const jogo = jogoDoc.data();
-  timeCasaId = jogo.timeCasaId;
-  timeForaId = jogo.timeForaId;
+    if (!jogoDoc.exists) {
+      console.warn("⚠️ Jogo não encontrado no Firestore.");
+      return;
+    }
 
-  const timeCasaSnap = await db.collection("times").doc(timeCasaId).get();
-  const timeForaSnap = await db.collection("times").doc(timeForaId).get();
+    const jogo = jogoDoc.data();
+    timeCasaId = jogo.timeCasaId;
+    timeForaId = jogo.timeForaId;
+    console.log("✅ Time Casa ID:", timeCasaId);
+    console.log("✅ Time Fora ID:", timeForaId);
 
-  nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
-  nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
+    const timeCasaSnap = await db.collection("times").doc(timeCasaId).get();
+    const timeForaSnap = await db.collection("times").doc(timeForaId).get();
 
-  document.getElementById("titulo-jogo").textContent = `${nomeCasa} vs ${nomeFora}`;
+    nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
+    nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
+
+    document.getElementById("titulo-jogo").textContent = `${nomeCasa} vs ${nomeFora}`;
+    document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
+    document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
+
+    document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
+    document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
+
+    escutarChats();
+    await carregarPontosDoFirestore();
+    await carregarOuCriarOrdemDePerguntas();
+    atualizarPlacar();
+
+    console.log("✅ Painel carregado com sucesso.");
+  } catch (e) {
+    console.error("❌ Erro ao carregar painel:", e);
+  }
+}
+ vs ${nomeFora}`;
   document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
   document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
 
