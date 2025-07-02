@@ -36,6 +36,7 @@ async function carregarJogo() {
 
   escutarChats();
   await carregarPontosDoFirestore();
+  
   await carregarOuCriarOrdemDePerguntas();
   atualizarPlacar();
 }
@@ -245,7 +246,8 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
           });
 
           pontosPorTime[lado] += pontos;
-          atualizarPlacar();
+          await carregarOuCriarOrdemDePerguntas();
+  atualizarPlacar();
         }
 
         bloqueioChat = false;
