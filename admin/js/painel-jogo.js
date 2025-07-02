@@ -34,12 +34,12 @@ async function carregarJogo() {
     nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
     nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
 
-    document.getElementById("titulo-jogo").textContent = `${nomeCasa} vs ${nomeFora}`;
+    document.getElementById("titulo-jogo").textContent = `{nomeCasa} vs {nomeFora}`;
     document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
-    document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
+    document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `{jogo.valorEntrada} crédito(s)` : "-";
 
-    document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
-    document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
+    document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do {nomeCasa}`;
+    document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do {nomeFora}`;
 
     escutarChats();
     await carregarPontosDoFirestore();
@@ -51,15 +51,15 @@ async function carregarJogo() {
     console.error("❌ Erro ao carregar painel:", e);
   }
 }
- vs ${nomeFora}`;
+ vs {nomeFora}`;
   document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
-  document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
+  document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `{jogo.valorEntrada} crédito(s)` : "-";
 
-  document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
-  document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
+  document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do {nomeCasa}`;
+  document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do {nomeFora}`;
 
-  document.getElementById("btnPerguntaCasa").textContent = `+ Sortear Pergunta ${nomeCasa}`;
-  document.getElementById("btnPerguntaFora").textContent = `+ Sortear Pergunta ${nomeFora}`;
+  document.getElementById("btnPerguntaCasa").textContent = `+ Sortear Pergunta {nomeCasa}`;
+  document.getElementById("btnPerguntaFora").textContent = `+ Sortear Pergunta {nomeFora}`;
 
   escutarChats();
   await carregarPontosDoFirestore();
@@ -84,7 +84,7 @@ async function carregarPontosDoFirestore() {
 }
 
 function enviarMensagem(tipo) {
-  const input = document.getElementById(`input${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
+  const input = document.getElementById(`input{tipo.charAt(0).toUpperCase() + tipo.slice(1)}`);
   const texto = input.value.trim();
   if (!texto) return;
 
@@ -98,9 +98,9 @@ function enviarMensagem(tipo) {
 }
 
 function enviaMsgAgora(tipo, texto) {
-  const caminho = tipo === "geral" ? `chats_jogo/${jogoId}/geral`
-    : tipo === "timeA" ? `chats_jogo/${jogoId}/casa`
-    : `chats_jogo/${jogoId}/fora`;
+  const caminho = tipo === "geral" ? `chats_jogo/{jogoId}/geral`
+    : tipo === "timeA" ? `chats_jogo/{jogoId}/casa`
+    : `chats_jogo/{jogoId}/fora`;
 
   db.collection(caminho).add({
     texto,
@@ -110,9 +110,9 @@ function enviaMsgAgora(tipo, texto) {
 }
 
 function escutarChats() {
-  escutarChat(`chats_jogo/${jogoId}/geral`, "chatGeral");
-  escutarChat(`chats_jogo/${jogoId}/casa`, "chatTimeA");
-  escutarChat(`chats_jogo/${jogoId}/fora`, "chatTimeB");
+  escutarChat(`chats_jogo/{jogoId}/geral`, "chatGeral");
+  escutarChat(`chats_jogo/{jogoId}/casa`, "chatTimeA");
+  escutarChat(`chats_jogo/{jogoId}/fora`, "chatTimeB");
 }
 
 function escutarChat(caminho, divId) {
@@ -128,7 +128,7 @@ function escutarChat(caminho, divId) {
       } else {
         const linha = document.createElement("div");
         const hora = msg.criadoEm?.toDate()?.toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit' }) || "--:--";
-        linha.textContent = `[${hora}] ${msg.admin ? "[ADMIN] " : ""}${msg.texto}`;
+        linha.textContent = `[{hora}] {msg.admin ? "[ADMIN] " : ""}{msg.texto}`;
         div.appendChild(linha);
       }
     });
@@ -145,11 +145,11 @@ async function buscarPerguntasPorTimeId(timeId) {
 
 async function sortearPerguntaTime(lado) {
   const timeId = lado === "casa" ? timeCasaId : timeForaId;
-  const chatRef = `chats_jogo/${jogoId}/${lado}`;
+  const chatRef = `chats_jogo/{jogoId}/{lado}`;
   const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
 
   const todas = await buscarPerguntasPorTimeId(timeId);
-  const usadasSnap = await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).get();
+  const usadasSnap = await db.collection(`jogos/{jogoId}/perguntas_sorteadas`).get();
   const usadasIds = usadasSnap.docs.map(doc => doc.id);
 
   const disponiveis = todas.filter(p => !usadasIds.includes(p.id));
@@ -161,7 +161,7 @@ async function sortearPerguntaTime(lado) {
   const pergunta = disponiveis[Math.floor(Math.random() * disponiveis.length)];
 
   // Marca como usada no jogo atual
-  await db.collection(`jogos/${jogoId}/perguntas_sorteadas`).doc(pergunta.id).set({
+  await db.collection(`jogos/{jogoId}/perguntas_sorteadas`).doc(pergunta.id).set({
     timeId,
     sorteadaEm: new Date()
   });
@@ -190,7 +190,7 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
   const pontuacao = pergunta.pontuacao || 1;
 
   const perguntaEl = document.createElement("p");
-  perguntaEl.innerHTML = `<b>❓ ${texto}</b>`;
+  perguntaEl.innerHTML = `<b>❓ {texto}</b>`;
   bloco.appendChild(perguntaEl);
 
   const lista = document.createElement("ul");
@@ -223,12 +223,12 @@ function exibirPerguntaNoChat(div, pergunta, animar = false, lado = "casa") {
     let tempo = 9;
     let selecionadoLetra = null;
     const timer = document.createElement("p");
-    timer.textContent = `⏳ ${tempo}s restantes`;
+    timer.textContent = `⏳ {tempo}s restantes`;
     bloco.appendChild(timer);
 
     const intervalo = setInterval(() => {
       tempo--;
-      timer.textContent = `⏳ ${tempo}s restantes`;
+      timer.textContent = `⏳ {tempo}s restantes`;
 
       if (tempo <= 0) {
         clearInterval(intervalo);
@@ -314,7 +314,7 @@ function atualizarPlacar() {
     document.body.insertBefore(placarEl, document.body.children[3]);
   }
 
-  placarEl.textContent = `🏆 ${nomeCasa}: ${pontosPorTime.casa} pts (${pctCasa}%) | ${nomeFora}: ${pontosPorTime.fora} pts (${pctFora}%)`;
+  placarEl.textContent = `🏆 {nomeCasa}: {pontosPorTime.casa} pts ({pctCasa}%) | {nomeFora}: {pontosPorTime.fora} pts ({pctFora}%)`;
 }
 
 
@@ -341,7 +341,7 @@ async function embaralharOrdemPerguntas() {
 }
 
 function exibirOrdemNaTabela(lado) {
-  const container = document.getElementById(`tabela-${lado}`);
+  const container = document.getElementById(`tabela-{lado}`);
   if (!container) return;
 
   container.innerHTML = '';
@@ -378,7 +378,7 @@ async function enviarProximaPergunta(lado) {
   indiceAtual[lado]++;
   exibirOrdemNaTabela(lado);
 
-  const chatRef = `chats_jogo/${jogoId}/${lado}`;
+  const chatRef = `chats_jogo/{jogoId}/{lado}`;
   const divId = lado === "casa" ? "chatTimeA" : "chatTimeB";
 
   await db.collection(chatRef).add({
@@ -400,7 +400,7 @@ carregarJogo();
 
 
 async function carregarOuCriarOrdemDePerguntas() {
-  const ref = db.collection(`jogos/${jogoId}/perguntas_ordenadas`);
+  const ref = db.collection(`jogos/{jogoId}/perguntas_ordenadas`);
   const snap = await ref.get();
 
   if (!snap.empty) {
@@ -422,7 +422,7 @@ async function carregarOuCriarOrdemDePerguntas() {
     }
   }
 
-  const enviadasSnap = await db.collection(`jogos/${jogoId}/perguntas_enviadas`).get();
+  const enviadasSnap = await db.collection(`jogos/{jogoId}/perguntas_enviadas`).get();
   const enviadas = { casa: new Set(), fora: new Set() };
   enviadasSnap.forEach(doc => {
     const data = doc.data();
@@ -439,9 +439,9 @@ async function carregarOuCriarOrdemDePerguntas() {
 
 async function salvarOrdemNoFirestore(lado, lista) {
   const batch = db.batch();
-  const ref = db.collection(`jogos/${jogoId}/perguntas_ordenadas`);
+  const ref = db.collection(`jogos/{jogoId}/perguntas_ordenadas`);
   lista.forEach((p, i) => {
-    const docRef = ref.doc(`${lado}_${i}`);
+    const docRef = ref.doc(`{lado}_{i}`);
     batch.set(docRef, {
       time: lado,
       perguntaId: p.id,
