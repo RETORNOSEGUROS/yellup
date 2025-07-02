@@ -1,30 +1,43 @@
 
-document.getElementById("cadastroForm").addEventListener("submit", async function(e) {
+document.getElementById("cadastroForm").addEventListener("submit", function (e) {
   e.preventDefault();
+
   const nome = document.getElementById("nome").value;
   const email = document.getElementById("email").value;
   const senha = document.getElementById("senha").value;
-  const usuarioUnico = email.split('@')[0];
+  const celular = document.getElementById("celular").value;
+  const cidade = document.getElementById("cidade").value;
+  const estado = document.getElementById("estado").value;
+  const pais = document.getElementById("pais").value;
+  const dataNascimento = document.getElementById("dataNascimento").value;
+  const timeId = document.getElementById("timeId").value;
 
-  try {
-    const cred = await auth.createUserWithEmailAndPassword(email, senha);
-    await db.collection("usuarios").doc(usuarioUnico).set({
-      nome: nome,
-      email: email,
-      usuario: usuarioUnico,
-      usuarioUnico: usuarioUnico,
-      status: "ativo",
-      creditos: 0,
-      timeId: "",
-      pais: "",
-      estado: "",
-      cidade: "",
-      celular: "",
-      dataCadastro: new Date()
+  firebase.auth().createUserWithEmailAndPassword(email, senha)
+    .then((userCredential) => {
+      const uid = userCredential.user.uid;
+      const agora = new Date();
+      return db.collection("usuarios").doc(uid).set({
+        nome: nome,
+        email: email,
+        celular: celular,
+        cidade: cidade,
+        estado: estado,
+        pais: pais,
+        dataNascimento: dataNascimento,
+        timeId: timeId,
+        dataCadastro: agora,
+        status: "ativo",
+        creditos: 0,
+        indicadoPor: "-",
+        usuario: email.split("@")[0],
+        usuarioUnico: email.split("@")[0]
+      });
+    })
+    .then(() => {
+      alert("Usuário criado com sucesso!");
+      window.location.href = "index.html";
+    })
+    .catch((error) => {
+      alert("Erro: " + error.message);
     });
-    alert("Conta criada com sucesso!");
-    window.location.href = "index.html";
-  } catch (error) {
-    alert("Erro: " + error.message);
-  }
 });
