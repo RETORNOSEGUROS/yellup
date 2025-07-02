@@ -308,15 +308,50 @@ async function embaralharOrdemPerguntas() {
   const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
   const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
 
-  ordemPerguntas.casa = embaralhar(perguntasCasa);
-  ordemPerguntas.fora = embaralhar(perguntasFora);
+  ordemPerguntas.casa = perguntasCasa.sort(() => Math.random() - 0.5);
+  ordemPerguntas.fora = perguntasFora.sort(() => Math.random() - 0.5);
 
   indiceAtual.casa = 0;
   indiceAtual.fora = 0;
 
+  const ref = db.collection(`jogos/${jogoId}/perguntas_ordenadas`);
+  const batch = db.batch();
+
+  ordemPerguntas.casa.forEach((p, index) => {
+    const docRef = ref.doc(`${p.id}_casa`);
+    batch.set(docRef, {
+      time: "casa",
+      perguntaId: p.id,
+      pergunta: p.pergunta,
+      alternativas: p.alternativas,
+      correta: p.correta,
+      pontuacao: p.pontuacao || 1,
+      ordem: index
+    });
+  });
+
+  ordemPerguntas.fora.forEach((p, index) => {
+    const docRef = ref.doc(`${p.id}_fora`);
+    batch.set(docRef, {
+      time: "fora",
+      perguntaId: p.id,
+      pergunta: p.pergunta,
+      alternativas: p.alternativas,
+      correta: p.correta,
+      pontuacao: p.pontuacao || 1,
+      ordem: index
+    });
+  });
+
+  await batch.commit();
+
+  ordemJaSalva = true;
+  document.getElementById("btnEmbaralhar").style.display = "none";
+
   exibirOrdemNaTabela('casa');
   exibirOrdemNaTabela('fora');
 }
+
 
 function exibirOrdemNaTabela(lado) {
   const container = document.getElementById(`tabela-${lado}`);
