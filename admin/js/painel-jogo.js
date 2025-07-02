@@ -369,3 +369,77 @@ async function enviarProximaPergunta(lado) {
 
 carregarJogo();
 // [FIM DO ARQUIVO]
+
+
+
+async function carregarOuCriarOrdemDePerguntas() {
+  const ref = db.collection(`jogos/${jogoId}/perguntas_ordenadas`);
+  const snap = await ref.get();
+
+  if (!snap.empty) {
+    const perguntas = { casa: [], fora: [] };
+    snap.forEach(doc => {
+      const data = doc.data();
+      if (data.time === 'casa') perguntas.casa.push(data);
+      if (data.time === 'fora') perguntas.fora.push(data);
+    });
+    ordemPerguntas.casa = perguntas.casa;
+    ordemPerguntas.fora = perguntas.fora;
+
+    if (document.getElementById("btnEmbaralhar")) {
+      document.getElementById("btnEmbaralhar").style.display = "none";
+    }
+  } else {
+    if (document.getElementById("btnEmbaralhar")) {
+      document.getElementById("btnEmbaralhar").style.display = "inline-block";
+    }
+  }
+
+  const enviadasSnap = await db.collection(`jogos/${jogoId}/perguntas_enviadas`).get();
+  const enviadas = { casa: new Set(), fora: new Set() };
+  enviadasSnap.forEach(doc => {
+    const data = doc.data();
+    if (data.time === 'casa') enviadas.casa.add(data.perguntaId);
+    if (data.time === 'fora') enviadas.fora.add(data.perguntaId);
+  });
+
+  indiceAtual.casa = ordemPerguntas.casa.findIndex(p => !enviadas.casa.has(p.perguntaId)) || ordemPerguntas.casa.length;
+  indiceAtual.fora = ordemPerguntas.fora.findIndex(p => !enviadas.fora.has(p.perguntaId)) || ordemPerguntas.fora.length;
+
+  exibirOrdemNaTabela('casa');
+  exibirOrdemNaTabela('fora');
+}
+
+async function salvarOrdemNoFirestore(lado, lista) {
+  const batch = db.batch();
+  const ref = db.collection(`jogos/${jogoId}/perguntas_ordenadas`);
+  lista.forEach((p, i) => {
+    const docRef = ref.doc(`${lado}_${i}`);
+    batch.set(docRef, {
+      time: lado,
+      perguntaId: p.id,
+      pergunta: p.pergunta,
+      alternativas: p.alternativas,
+      correta: p.correta,
+      pontuacao: p.pontuacao || 1
+    });
+  });
+  await batch.commit();
+}
+
+async function embaralharOrdemPerguntas() {
+  const perguntasCasa = await buscarPerguntasPorTimeId(timeCasaId);
+  const perguntasFora = await buscarPerguntasPorTimeId(timeForaId);
+
+  ordemPerguntas.casa = perguntasCasa.sort(() => Math.random() - 0.5);
+  ordemPerguntas.fora = perguntasFora.sort(() => Math.random() - 0.5);
+
+  await salvarOrdemNoFirestore('casa', ordemPerguntas.casa);
+  await salvarOrdemNoFirestore('fora', ordemPerguntas.fora);
+
+  indiceAtual.casa = 0;
+  indiceAtual.fora = 0;
+
+  exibirOrdemNaTabela('casa');
+  exibirOrdemNaTabela('fora');
+}
