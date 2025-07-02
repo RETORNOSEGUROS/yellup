@@ -373,3 +373,44 @@ async function enviarProximaPergunta(lado) {
 
 carregarJogo();
 // [FIM DO ARQUIVO]
+
+
+async function carregarOuCriarOrdemDePerguntas() {
+  const ref = db.collection(`jogos/${jogoId}/perguntas_ordenadas`);
+  const snap = await ref.get();
+
+  if (!snap.empty) {
+    const perguntas = { casa: [], fora: [] };
+    snap.forEach(doc => {
+      const data = doc.data();
+      if (data.time === 'casa') perguntas.casa.push(data);
+      if (data.time === 'fora') perguntas.fora.push(data);
+    });
+    ordemPerguntas.casa = perguntas.casa;
+    ordemPerguntas.fora = perguntas.fora;
+
+    if (document.getElementById("btnEmbaralhar")) {
+      document.getElementById("btnEmbaralhar").style.display = "none";
+    }
+  } else {
+    if (document.getElementById("btnEmbaralhar")) {
+      document.getElementById("btnEmbaralhar").style.display = "inline-block";
+    }
+  }
+
+  const enviadasSnap = await db.collection(`jogos/${jogoId}/perguntas_enviadas`).get();
+  const enviadas = { casa: new Set(), fora: new Set() };
+  enviadasSnap.forEach(doc => {
+    const data = doc.data();
+    if (data.time === 'casa') enviadas.casa.add(data.perguntaId);
+    if (data.time === 'fora') enviadas.fora.add(data.perguntaId);
+  });
+
+  indiceAtual.casa = ordemPerguntas.casa.findIndex(p => !enviadas.casa.has(p.perguntaId));
+  indiceAtual.fora = ordemPerguntas.fora.findIndex(p => !enviadas.fora.has(p.perguntaId));
+  if (indiceAtual.casa === -1) indiceAtual.casa = ordemPerguntas.casa.length;
+  if (indiceAtual.fora === -1) indiceAtual.fora = ordemPerguntas.fora.length;
+
+  exibirOrdemNaTabela('casa');
+  exibirOrdemNaTabela('fora');
+}
