@@ -36,6 +36,7 @@ async function carregarJogo() {
 
   escutarChats();
   await carregarPontosDoFirestore();
+  await carregarOuCriarOrdemDePerguntas();
   atualizarPlacar();
 }
 
