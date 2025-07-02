@@ -13,6 +13,7 @@ let pontosPorTime = { casa: 0, fora: 0 };
 
 async function carregarJogo() {
   console.log("🟢 Iniciando painel do jogo...");
+
   try {
     const jogoDoc = await db.collection("jogos").doc(jogoId).get();
     console.log("📄 Buscando jogo ID:", jogoId);
@@ -34,12 +35,12 @@ async function carregarJogo() {
     nomeCasa = timeCasaSnap.exists ? timeCasaSnap.data().nome : "Time A";
     nomeFora = timeForaSnap.exists ? timeForaSnap.data().nome : "Time B";
 
-    document.getElementById("titulo-jogo").textContent = `{nomeCasa} vs {nomeFora}`;
+    document.getElementById("titulo-jogo").textContent = `${nomeCasa} vs ${nomeFora}`;
     document.getElementById("inicio-jogo").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
-    document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `{jogo.valorEntrada} crédito(s)` : "-";
+    document.getElementById("entrada-jogo").textContent = jogo.valorEntrada ? `${jogo.valorEntrada} crédito(s)` : "-";
 
-    document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do {nomeCasa}`;
-    document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do {nomeFora}`;
+    document.querySelector("h3[data-time='A']").textContent = `🔵 Torcida do ${nomeCasa}`;
+    document.querySelector("h3[data-time='B']").textContent = `🔴 Torcida do ${nomeFora}`;
 
     escutarChats();
     await carregarPontosDoFirestore();
