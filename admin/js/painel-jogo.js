@@ -146,12 +146,18 @@ async function sortearPerguntaTime(lado) {
 
   await db.collection(chatRef).add({
     tipo: "pergunta",
-    perguntaId: pergunta.id,
+    perguntaId: pergunta.perguntaId || pergunta.id,
     texto: pergunta.pergunta,
     alternativas: pergunta.alternativas,
     correta: pergunta.correta,
     pontuacao: pergunta.pontuacao || 1,
     criadoEm: new Date()
+  });
+
+  await db.collection(`jogos/${jogoId}/perguntas_enviadas`).doc(pergunta.perguntaId || pergunta.id).set({
+    perguntaId: pergunta.perguntaId || pergunta.id,
+    time: lado,
+    enviadaEm: new Date()
   });
 
   exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
@@ -396,12 +402,18 @@ async function enviarProximaPergunta(lado) {
 
   await db.collection(chatRef).add({
     tipo: "pergunta",
-    perguntaId: pergunta.id,
+    perguntaId: pergunta.perguntaId || pergunta.id,
     texto: pergunta.pergunta,
     alternativas: pergunta.alternativas,
     correta: pergunta.correta,
     pontuacao: pergunta.pontuacao || 1,
     criadoEm: new Date()
+  });
+
+  await db.collection(`jogos/${jogoId}/perguntas_enviadas`).doc(pergunta.perguntaId || pergunta.id).set({
+    perguntaId: pergunta.perguntaId || pergunta.id,
+    time: lado,
+    enviadaEm: new Date()
   });
 
   exibirPerguntaNoChat(document.getElementById(divId), pergunta, true, lado);
