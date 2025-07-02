@@ -297,6 +297,7 @@ function atualizarPlacar() {
 
 // NOVAS VARIÁVEIS DE CONTROLE DE ORDEM
 let ordemPerguntas = { casa: [], fora: [] };
+let ordemJaSalva = false;
 let indiceAtual = { casa: 0, fora: 0 };
 
 function embaralhar(lista) {
@@ -380,6 +381,7 @@ async function carregarOuCriarOrdemDePerguntas() {
   const snap = await ref.get();
 
   if (!snap.empty) {
+    ordemJaSalva = true;
     const perguntas = { casa: [], fora: [] };
     snap.forEach(doc => {
       const data = doc.data();
