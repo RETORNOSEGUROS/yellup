@@ -3,7 +3,7 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8" />
-  <title>Painel do Jogo</title>
+  <title>Painel Interativo - Jogo</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
@@ -15,7 +15,7 @@
       text-align: center;
     }
     .painel {
-      background: #fff;
+      background: white;
       border-radius: 10px;
       padding: 20px;
       max-width: 700px;
@@ -36,10 +36,15 @@
     }
     .correta { background: #4caf50 !important; color: white; }
     .errada { background: #f44336 !important; color: white; }
-    #tempo {
-      font-size: 24px;
-      font-weight: bold;
-      margin-bottom: 10px;
+    #tempo { font-size: 22px; font-weight: bold; margin: 10px 0; }
+    #proximaBtn {
+      display: none;
+      padding: 8px 20px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      margin-top: 20px;
     }
   </style>
 </head>
@@ -53,6 +58,7 @@
     <button class="alternativa" id="altC"></button>
     <button class="alternativa" id="altD"></button>
     <p id="statusResposta"></p>
+    <button id="proximaBtn" onclick="proximaPergunta()">Próxima Pergunta</button>
   </div>
 
   <script>
@@ -67,45 +73,69 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    let jogoId = new URLSearchParams(location.search).get("jogo");
+    const params = new URLSearchParams(window.location.search);
+    const jogoId = params.get("jogo");
+
     let perguntaAtual = null;
     let tempo = 10;
     let intervalo;
+    let ordemPerguntas = [];
+    let perguntaIndex = 0;
+    let usuarioTimeId = null;
 
-    async function carregarJogo() {
+    const btns = {
+      A: document.getElementById("altA"),
+      B: document.getElementById("altB"),
+      C: document.getElementById("altC"),
+      D: document.getElementById("altD")
+    };
+
+    firebase.auth().onAuthStateChanged(async user => {
+      if (!user) return location.href = "index.html";
+      const uid = user.uid;
+
+      const userDoc = await db.collection("usuarios").doc(uid).get();
+      usuarioTimeId = userDoc.data().timeId;
+
       const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-      if (!jogoDoc.exists) return;
-
       const jogo = jogoDoc.data();
+
       const timeA = await db.collection("times").doc(jogo.timeCasaId).get();
       const timeB = await db.collection("times").doc(jogo.timeForaId).get();
+
       document.getElementById("nomeJogo").textContent = `${timeA.data().nome} x ${timeB.data().nome}`;
 
-      await carregarPergunta(timeA.id);
-    }
+      const ordemDoc = await db.collection("jogos").doc(jogoId).get();
+      const ordem = ordemDoc.data();
+      ordemPerguntas = usuarioTimeId === jogo.timeCasaId
+        ? ordem.ordemPerguntasCasa
+        : ordem.ordemPerguntasFora;
 
-    async function carregarPergunta(timeId) {
-      const snap = await db.collection("perguntas")
-        .where("timeId", "==", timeId)
-        .limit(1)
-        .get();
-
-      if (!snap.empty) {
-        perguntaAtual = snap.docs[0].data();
-        exibirPergunta(perguntaAtual);
-        iniciarContador();
+      if (!ordemPerguntas || ordemPerguntas.length === 0) {
+        document.getElementById("perguntaTexto").textContent = "Sem perguntas disponíveis.";
+        return;
       }
-    }
 
-    function exibirPergunta(p) {
-      document.getElementById("perguntaTexto").textContent = p.texto;
+      carregarPergunta();
+    });
+
+    async function carregarPergunta() {
+      const id = ordemPerguntas[perguntaIndex];
+      const pDoc = await db.collection("perguntas").doc(id).get();
+      perguntaAtual = pDoc.data();
+
+      document.getElementById("perguntaTexto").textContent = perguntaAtual.texto;
       ["A", "B", "C", "D"].forEach(letra => {
-        const btn = document.getElementById("alt" + letra);
-        btn.textContent = letra + ") " + p["alt" + letra];
-        btn.disabled = false;
+        const btn = btns[letra];
+        btn.textContent = letra + ") " + perguntaAtual["alt" + letra];
         btn.className = "alternativa";
+        btn.disabled = false;
         btn.onclick = () => responder(letra);
       });
+
+      document.getElementById("statusResposta").textContent = "";
+      document.getElementById("proximaBtn").style.display = "none";
+      iniciarContador();
     }
 
     function iniciarContador() {
@@ -116,7 +146,7 @@
         document.getElementById("contador").textContent = tempo;
         if (tempo <= 0) {
           clearInterval(intervalo);
-          mostrarRespostaCorreta(null); // não respondeu
+          mostrarRespostaCorreta(null);
         }
       }, 1000);
     }
@@ -125,18 +155,18 @@
       clearInterval(intervalo);
       const correta = perguntaAtual.correta;
       mostrarRespostaCorreta(resp);
-
       if (resp === correta) {
         registrarPontuacao(perguntaAtual.pontos || 10);
         document.getElementById("statusResposta").textContent = "Você acertou!";
       } else {
         document.getElementById("statusResposta").textContent = "Você errou.";
       }
+      document.getElementById("proximaBtn").style.display = "inline-block";
     }
 
     function mostrarRespostaCorreta(respUsuario) {
       ["A", "B", "C", "D"].forEach(letra => {
-        const btn = document.getElementById("alt" + letra);
+        const btn = btns[letra];
         btn.disabled = true;
         if (letra === perguntaAtual.correta) {
           btn.classList.add("correta");
@@ -144,6 +174,18 @@
           btn.classList.add("errada");
         }
       });
+    }
+
+    function proximaPergunta() {
+      perguntaIndex++;
+      if (perguntaIndex < ordemPerguntas.length) {
+        carregarPergunta();
+      } else {
+        document.getElementById("perguntaTexto").textContent = "Você concluiu todas as perguntas!";
+        Object.values(btns).forEach(b => b.style.display = "none");
+        document.getElementById("tempo").style.display = "none";
+        document.getElementById("proximaBtn").style.display = "none";
+      }
     }
 
     async function registrarPontuacao(pontos) {
@@ -159,10 +201,7 @@
         data: agora
       };
       if (!doc.exists) {
-        await ref.set({
-          pontuacaoTotal: pontos,
-          partidas: [partida]
-        });
+        await ref.set({ pontuacaoTotal: pontos, partidas: [partida] });
       } else {
         await ref.update({
           pontuacaoTotal: firebase.firestore.FieldValue.increment(pontos),
@@ -170,11 +209,6 @@
         });
       }
     }
-
-    firebase.auth().onAuthStateChanged(user => {
-      if (user) carregarJogo();
-      else location.href = "index.html";
-    });
   </script>
 </body>
 </html>
