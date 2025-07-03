@@ -2,40 +2,57 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Painel do Jogo</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
+      background: #f2f2f2;
       padding: 30px;
-      background-color: #f2f2f2;
       text-align: center;
     }
-    .jogo {
-      background: white;
-      padding: 20px;
+    .painel {
+      background: #fff;
       border-radius: 10px;
-      max-width: 600px;
-      margin: 0 auto;
+      padding: 20px;
+      max-width: 700px;
+      margin: auto;
       box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
-    h1 {
-      margin-bottom: 20px;
+    .alternativa {
+      display: block;
+      margin: 10px auto;
+      padding: 10px 20px;
+      border-radius: 5px;
+      width: 90%;
+      max-width: 400px;
+      font-size: 16px;
+      cursor: pointer;
+      background: #e0e0e0;
+      border: none;
     }
-    #status {
-      margin-top: 10px;
+    .correta { background: #4caf50 !important; color: white; }
+    .errada { background: #f44336 !important; color: white; }
+    #tempo {
+      font-size: 24px;
       font-weight: bold;
+      margin-bottom: 10px;
     }
   </style>
 </head>
 <body>
-  <div class="jogo">
-    <h1 id="nomeJogo">Carregando...</h1>
-    <p><strong>Início:</strong> <span id="inicio"></span></p>
-    <p><strong>Término:</strong> <span id="fim"></span></p>
-    <p><strong>Status:</strong> <span id="status"></span></p>
+  <div class="painel">
+    <h2 id="nomeJogo">Carregando jogo...</h2>
+    <p id="tempo">Tempo: <span id="contador">10</span>s</p>
+    <h3 id="perguntaTexto">Carregando pergunta...</h3>
+    <button class="alternativa" id="altA"></button>
+    <button class="alternativa" id="altB"></button>
+    <button class="alternativa" id="altC"></button>
+    <button class="alternativa" id="altD"></button>
+    <p id="statusResposta"></p>
   </div>
 
   <script>
@@ -50,31 +67,114 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const jogoId = urlParams.get("jogo");
+    let jogoId = new URLSearchParams(location.search).get("jogo");
+    let perguntaAtual = null;
+    let tempo = 10;
+    let intervalo;
 
     async function carregarJogo() {
-      if (!jogoId) return document.getElementById("nomeJogo").textContent = "Jogo não encontrado";
-
       const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-      if (!jogoDoc.exists) {
-        return document.getElementById("nomeJogo").textContent = "Jogo inválido.";
-      }
+      if (!jogoDoc.exists) return;
 
       const jogo = jogoDoc.data();
       const timeA = await db.collection("times").doc(jogo.timeCasaId).get();
       const timeB = await db.collection("times").doc(jogo.timeForaId).get();
+      document.getElementById("nomeJogo").textContent = `${timeA.data().nome} x ${timeB.data().nome}`;
 
-      const nomeA = timeA.exists ? timeA.data().nome : "Time A";
-      const nomeB = timeB.exists ? timeB.data().nome : "Time B";
-
-      document.getElementById("nomeJogo").textContent = nomeA + " x " + nomeB;
-      document.getElementById("inicio").textContent = jogo.dataInicio?.toDate().toLocaleString("pt-BR") || "-";
-      document.getElementById("fim").textContent = jogo.dataFim?.toDate().toLocaleString("pt-BR") || "-";
-      document.getElementById("status").textContent = jogo.status || "indefinido";
+      await carregarPergunta(timeA.id);
     }
 
-    carregarJogo();
+    async function carregarPergunta(timeId) {
+      const snap = await db.collection("perguntas")
+        .where("timeId", "==", timeId)
+        .limit(1)
+        .get();
+
+      if (!snap.empty) {
+        perguntaAtual = snap.docs[0].data();
+        exibirPergunta(perguntaAtual);
+        iniciarContador();
+      }
+    }
+
+    function exibirPergunta(p) {
+      document.getElementById("perguntaTexto").textContent = p.texto;
+      ["A", "B", "C", "D"].forEach(letra => {
+        const btn = document.getElementById("alt" + letra);
+        btn.textContent = letra + ") " + p["alt" + letra];
+        btn.disabled = false;
+        btn.className = "alternativa";
+        btn.onclick = () => responder(letra);
+      });
+    }
+
+    function iniciarContador() {
+      tempo = 10;
+      document.getElementById("contador").textContent = tempo;
+      intervalo = setInterval(() => {
+        tempo--;
+        document.getElementById("contador").textContent = tempo;
+        if (tempo <= 0) {
+          clearInterval(intervalo);
+          mostrarRespostaCorreta(null); // não respondeu
+        }
+      }, 1000);
+    }
+
+    function responder(resp) {
+      clearInterval(intervalo);
+      const correta = perguntaAtual.correta;
+      mostrarRespostaCorreta(resp);
+
+      if (resp === correta) {
+        registrarPontuacao(perguntaAtual.pontos || 10);
+        document.getElementById("statusResposta").textContent = "Você acertou!";
+      } else {
+        document.getElementById("statusResposta").textContent = "Você errou.";
+      }
+    }
+
+    function mostrarRespostaCorreta(respUsuario) {
+      ["A", "B", "C", "D"].forEach(letra => {
+        const btn = document.getElementById("alt" + letra);
+        btn.disabled = true;
+        if (letra === perguntaAtual.correta) {
+          btn.classList.add("correta");
+        } else if (letra === respUsuario) {
+          btn.classList.add("errada");
+        }
+      });
+    }
+
+    async function registrarPontuacao(pontos) {
+      const user = firebase.auth().currentUser;
+      if (!user) return;
+      const uid = user.uid;
+      const agora = new Date();
+      const ref = db.collection("usuarios").doc(uid).collection("desempenho").doc("dados");
+      const doc = await ref.get();
+      const partida = {
+        jogo: document.getElementById("nomeJogo").textContent,
+        pontos: pontos,
+        data: agora
+      };
+      if (!doc.exists) {
+        await ref.set({
+          pontuacaoTotal: pontos,
+          partidas: [partida]
+        });
+      } else {
+        await ref.update({
+          pontuacaoTotal: firebase.firestore.FieldValue.increment(pontos),
+          partidas: firebase.firestore.FieldValue.arrayUnion(partida)
+        });
+      }
+    }
+
+    firebase.auth().onAuthStateChanged(user => {
+      if (user) carregarJogo();
+      else location.href = "index.html";
+    });
   </script>
 </body>
 </html>
