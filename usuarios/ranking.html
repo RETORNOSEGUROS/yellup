@@ -1,0 +1,107 @@
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Ranking de Usuários</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 40px;
+      background: #f2f2f2;
+      text-align: center;
+    }
+    table {
+      width: 100%;
+      max-width: 800px;
+      margin: 0 auto;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 12px;
+      border: 1px solid #ddd;
+    }
+    th {
+      background-color: #007bff;
+      color: white;
+    }
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    h1 {
+      margin-bottom: 30px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🏆 Ranking Geral dos Usuários</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>Posição</th>
+        <th>Usuário</th>
+        <th>Time</th>
+        <th>Pontuação</th>
+      </tr>
+    </thead>
+    <tbody id="rankingBody">
+      <tr><td colspan="4">Carregando ranking...</td></tr>
+    </tbody>
+  </table>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    async function carregarRanking() {
+      const usuarios = await db.collection("usuarios").get();
+      const dados = [];
+
+      for (const doc of usuarios.docs) {
+        const uid = doc.id;
+        const u = doc.data();
+        const desempenho = await db.collection("usuarios").doc(uid).collection("desempenho").doc("dados").get();
+        const pontos = desempenho.exists ? (desempenho.data().pontuacaoTotal || 0) : 0;
+
+        const timeSnap = await db.collection("times").doc(u.timeId).get();
+        const timeNome = timeSnap.exists ? timeSnap.data().nome : "-";
+
+        dados.push({
+          nome: u.nome || "(sem nome)",
+          usuarioUnico: u.usuarioUnico || "",
+          time: timeNome,
+          pontos: pontos
+        });
+      }
+
+      dados.sort((a, b) => b.pontos - a.pontos);
+
+      const tbody = document.getElementById("rankingBody");
+      tbody.innerHTML = "";
+      dados.forEach((u, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${i + 1}</td>
+          <td>${u.usuarioUnico}</td>
+          <td>${u.time}</td>
+          <td>${u.pontos}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    carregarRanking();
+  </script>
+</body>
+</html>
