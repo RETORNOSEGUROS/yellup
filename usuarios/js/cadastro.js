@@ -1,7 +1,7 @@
+
 document.addEventListener("DOMContentLoaded", async () => {
   const db = firebase.firestore();
 
-  // Carregar times no dropdown
   const timeSelect = document.getElementById("timeId");
   const timesSnap = await db.collection("times").orderBy("nome").get();
   timesSnap.forEach(doc => {
@@ -11,11 +11,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     timeSelect.appendChild(option);
   });
 
-  // Cadastrar usuário
   document.getElementById("cadastroForm").addEventListener("submit", async (e) => {
     e.preventDefault();
 
     const nome = document.getElementById("nome").value.trim();
+    const usuarioUnico = document.getElementById("usuarioUnico").value.trim();
     const email = document.getElementById("email").value.trim();
     const senha = document.getElementById("senha").value;
     const celular = document.getElementById("celular").value.trim();
@@ -24,7 +24,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     const pais = document.getElementById("pais").value.trim();
     const timeId = document.getElementById("timeId").value;
 
-    if (!nome || !email || !senha || !timeId) return alert("Preencha todos os campos obrigatórios.");
+    if (!nome || !usuarioUnico || !email || !senha || !timeId) return alert("Preencha todos os campos obrigatórios.");
+
+    const existente = await db.collection("usuarios").where("usuarioUnico", "==", usuarioUnico).get();
+    if (!usuarioUnico || existente.size > 0) {
+      return alert("Nome de usuário já está em uso. Escolha outro.");
+    }
 
     try {
       const cred = await firebase.auth().createUserWithEmailAndPassword(email, senha);
@@ -37,8 +42,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         status: "ativo",
         dataCadastro: agora,
         creditos: 0,
-        usuario: email.split("@")[0],
-        usuarioUnico: uid
+        usuarioUnico
       });
 
       alert("Usuário cadastrado com sucesso!");
