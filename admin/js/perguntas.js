@@ -111,7 +111,7 @@ function carregarPerguntas(filtro = '') {
     ref = ref.where("timeId", "==", filtro);
   }
 
-  ref.orderBy("criadoEm", "desc").get().then(snapshot => {
+  ref.get().then(snapshot => {
     snapshot.forEach(doc => {
       const dados = doc.data();
       const linha = document.createElement('tr');
