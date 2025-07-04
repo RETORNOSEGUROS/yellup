@@ -87,7 +87,7 @@ function carregarPerguntasFiltradas() {
         const linha = document.createElement('tr');
         linha.innerHTML = `
           <td>${dados.pergunta}</td>
-          <td>${dados.correta} - ${dados.alternativas[dados.correta]}</td>
+          <td>${dados.correta || "-"} - ${dados.alternativas?.[dados.correta] || "-"}</td>
           <td>${dados.timeNome}</td>
           <td>${dados.pontuacao}</td>
           <td class="acoes">
