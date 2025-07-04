@@ -86,10 +86,10 @@ function carregarPerguntasFiltradas() {
       if (!filtro || nomeTime.includes(filtro)) {
         const linha = document.createElement('tr');
         linha.innerHTML = `
-          <td>${dados.pergunta}</td>
+          <td>${dados.pergunta || "-"}</td>
           <td>${dados.correta || "-"} - ${dados.alternativas?.[dados.correta] || "-"}</td>
-          <td>${dados.timeNome}</td>
-          <td>${dados.pontuacao}</td>
+          <td>${dados.timeNome || "-"}</td>
+          <td>${dados.pontuacao || 0}</td>
           <td class="acoes">
             <button onclick='editarPergunta("${doc.id}", ${JSON.stringify(dados).replace(/"/g, '&quot;')})'>Editar</button>
             <button onclick="excluirPergunta('${doc.id}')">Excluir</button>
@@ -110,10 +110,10 @@ function carregarPerguntas() {
       const dados = doc.data();
       const linha = document.createElement('tr');
       linha.innerHTML = `
-        <td>${dados.pergunta}</td>
-        <td>${dados.correta} - ${dados.alternativas[dados.correta]}</td>
-        <td>${dados.timeNome}</td>
-        <td>${dados.pontuacao}</td>
+        <td>${dados.pergunta || "-"}</td>
+        <td>${dados.correta || "-"} - ${dados.alternativas?.[dados.correta] || "-"}</td>
+        <td>${dados.timeNome || "-"}</td>
+        <td>${dados.pontuacao || 0}</td>
         <td class="acoes">
           <button onclick='editarPergunta("${doc.id}", ${JSON.stringify(dados).replace(/"/g, '&quot;')})'>Editar</button>
           <button onclick="excluirPergunta('${doc.id}')">Excluir</button>
@@ -127,10 +127,10 @@ function carregarPerguntas() {
 function editarPergunta(id, dados) {
   document.getElementById('perguntaId').value = id;
   document.getElementById('pergunta').value = dados.pergunta;
-  document.getElementById('altA').value = dados.alternativas.A;
-  document.getElementById('altB').value = dados.alternativas.B;
-  document.getElementById('altC').value = dados.alternativas.C;
-  document.getElementById('altD').value = dados.alternativas.D;
+  document.getElementById('altA').value = dados.alternativas?.A || "";
+  document.getElementById('altB').value = dados.alternativas?.B || "";
+  document.getElementById('altC').value = dados.alternativas?.C || "";
+  document.getElementById('altD').value = dados.alternativas?.D || "";
   document.getElementById('correta').value = dados.correta;
   document.getElementById('pontuacao').value = dados.pontuacao;
   document.getElementById('timeId').value = dados.timeId;
