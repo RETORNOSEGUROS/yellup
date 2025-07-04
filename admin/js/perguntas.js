@@ -1,4 +1,3 @@
-
 firebase.auth().onAuthStateChanged(user => {
   if (!user) {
     window.location.href = "/admin/login.html";
@@ -19,7 +18,7 @@ function carregarTimes() {
       option.textContent = dados.pais ? `${dados.nome} - ${dados.pais}` : dados.nome;
       option.setAttribute("data-nome", dados.nome);
       select.appendChild(option);
-      console.log("✅ Time carregado:", dados.nome, doc.id); // LOG para debug
+      console.log("✅ Time carregado:", dados.nome, doc.id);
     });
   });
 }
@@ -80,7 +79,7 @@ function carregarPerguntasFiltradas() {
   const lista = document.getElementById('listaPerguntas');
   lista.innerHTML = '';
 
-  db.collection("perguntas").orderBy("criadoEm", "desc").get().then(snapshot => {
+  db.collection("perguntas").get().then(snapshot => {
     snapshot.forEach(doc => {
       const dados = doc.data();
       const nomeTime = dados.timeNome?.toLowerCase() || '';
@@ -102,16 +101,11 @@ function carregarPerguntasFiltradas() {
   });
 }
 
-function carregarPerguntas(filtro = '') {
+function carregarPerguntas() {
   const lista = document.getElementById('listaPerguntas');
   lista.innerHTML = '';
 
-  let ref = db.collection("perguntas");
-  if (filtro) {
-    ref = ref.where("timeId", "==", filtro);
-  }
-
-  ref.orderBy("criadoEm", "desc").get().then(snapshot => {
+  db.collection("perguntas").get().then(snapshot => {
     snapshot.forEach(doc => {
       const dados = doc.data();
       const linha = document.createElement('tr');
@@ -142,17 +136,16 @@ function editarPergunta(id, dados) {
   document.getElementById('timeId').value = dados.timeId;
   document.getElementById('timeNome').value = dados.timeNome;
 
- setTimeout(() => {
-  const select = document.getElementById('selectTime');
-  const option = [...select.options].find(opt => opt.value === dados.timeId);
-  if (option) {
-    select.value = option.value;
-    console.log("🎯 Select preenchido com:", option.textContent, option.value);
-  } else {
-    console.warn("⚠️ Time não encontrado no select:", dados.timeId);
-  }
-}, 300);
-
+  setTimeout(() => {
+    const select = document.getElementById('selectTime');
+    const option = [...select.options].find(opt => opt.value === dados.timeId);
+    if (option) {
+      select.value = option.value;
+      console.log("🎯 Select preenchido com:", option.textContent, option.value);
+    } else {
+      console.warn("⚠️ Time não encontrado no select:", dados.timeId);
+    }
+  }, 300);
 }
 
 function excluirPergunta(id) {
