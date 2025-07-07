@@ -1,4 +1,4 @@
-
+// Inicialização Firebase compatível com v9.22.2 + compat
 const firebaseConfig = {
   apiKey: "SUA_API_KEY",
   authDomain: "painel-yellup.firebaseapp.com",
@@ -9,5 +9,6 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
+
+// Use firebase.auth() diretamente (v9 compat usa o mesmo padrão do v8)
 const db = firebase.firestore();
