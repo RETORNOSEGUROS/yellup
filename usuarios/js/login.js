@@ -1,4 +1,3 @@
-
 document.getElementById("loginForm").addEventListener("submit", async function(e) {
   e.preventDefault();
 
@@ -10,18 +9,21 @@ document.getElementById("loginForm").addEventListener("submit", async function(e
   }
 
   try {
-    const doc = await db.collection("usuarios").doc(usuarioUnico).get();
-    if (!doc.exists) {
+    const querySnapshot = await db.collection("usuarios")
+      .where("usuarioUnico", "==", usuarioUnico)
+      .limit(1)
+      .get();
+
+    if (querySnapshot.empty) {
       return alert("Usuário não encontrado.");
     }
 
-    const userData = doc.data();
-    const email = userData.email;
+    const doc = querySnapshot.docs[0];
+    const email = doc.data().email;
 
     await firebase.auth().signInWithEmailAndPassword(email, senha);
 
-    // Salva o usuarioId (document ID) para o painel
-    localStorage.setItem("usuarioId", usuarioUnico);
+    localStorage.setItem("usuarioId", doc.id); // <- ID real do documento aleatório
     window.location.href = "painel.html";
   } catch (error) {
     alert("Erro no login: " + error.message);
