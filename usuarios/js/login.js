@@ -1,24 +1,28 @@
 
-document.getElementById("loginForm").addEventListener("submit", async function(e) {
-  e.preventDefault();
-  const usuarioUnico = document.getElementById("usuarioUnico").value;
-  const senha = document.getElementById("senha").value;
-
-  try {
-    const snap = await firebase.firestore().collection("usuarios")
-      .where("usuarioUnico", "==", usuarioUnico)
-      .limit(1)
-      .get();
-
-    if (snap.empty) return alert("Usuário não encontrado");
-
-    const userData = snap.docs[0].data();
-    const email = userData.email;
-
-    await firebase.auth().signInWithEmailAndPassword(email, senha);
-    alert("Login realizado com sucesso!");
-    window.location.href = "/usuarios/painel.html";
-  } catch (error) {
-    alert("Erro: " + error.message);
+firebase.auth().onAuthStateChanged(async function(user) {
+  if (user) {
+    const email = user.email;
+    const snapshot = await db.collection("usuarios").where("email", "==", email).get();
+    if (!snapshot.empty) {
+      const doc = snapshot.docs[0];
+      const usuarioId = doc.id;
+      localStorage.setItem("usuarioId", usuarioId);
+      window.location.href = "painel.html";
+    } else {
+      alert("Usuário não encontrado no banco de dados.");
+      firebase.auth().signOut();
+    }
   }
+});
+
+document.getElementById("loginBtn").addEventListener("click", function() {
+  const email = document.getElementById("email").value.trim();
+  const senha = document.getElementById("senha").value.trim();
+
+  if (!email || !senha) return alert("Preencha e-mail e senha.");
+
+  firebase.auth().signInWithEmailAndPassword(email, senha)
+    .catch(function(error) {
+      alert("Erro no login: " + error.message);
+    });
 });
