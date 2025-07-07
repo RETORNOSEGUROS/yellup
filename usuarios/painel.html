@@ -2,187 +2,116 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-  <meta charset="UTF-8">
-  <title>Painel do Usuário</title>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <meta charset="UTF-8" />
+  <title>Painel do Usuário - Yellup</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="css/style.css">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 40px;
-      background: #f2f2f2;
-    }
+    body { background: #f5f6fa; font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+    .container { max-width: 1100px; margin: auto; }
+
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+    .user-info { display: flex; align-items: center; gap: 15px; }
+    .avatar { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; }
+    h1 { margin: 0; font-size: 24px; }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+
     .card {
-      background: #fff;
+      background: white;
       padding: 20px;
-      border-radius: 10px;
-      max-width: 600px;
-      margin: 0 auto;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
     }
-    h1, h2, h3 {
-      color: #333;
+
+    .card h2 {
+      margin-top: 0;
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #2c3e50;
     }
-    button {
-      margin-top: 10px;
-      padding: 8px 16px;
-      background-color: #007bff;
+
+    .highlight {
+      font-size: 32px;
+      font-weight: bold;
+      color: #2980b9;
+    }
+
+    .history ul { padding-left: 20px; }
+    .history li { margin-bottom: 5px; }
+
+    .btn {
+      margin-top: 15px;
+      padding: 10px;
+      background: #3498db;
       color: white;
       border: none;
-      border-radius: 5px;
+      border-radius: 6px;
+      font-weight: bold;
       cursor: pointer;
-    }
-    #editarForm input, #editarForm select {
       width: 100%;
-      padding: 8px;
-      margin: 6px 0;
     }
-    .sair {
-      background-color: #dc3545;
+
+    .btn:hover {
+      background: #2d80bd;
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Bem-vindo ao Yellup!</h1>
-    <p><strong>Usuário:</strong> <span id="nomeUsuario"></span></p>
-    <p><strong>Time do Coração:</strong> <span id="timeNome"></span></p>
-    <p><strong>Créditos:</strong> <span id="creditos"></span></p>
-    <hr>
-    <h2>Desempenho</h2>
-    <p><strong>Pontuação Acumulada:</strong> <span id="pontuacao"></span></p>
-    <div id="historico">
-      <h3>Histórico de Partidas</h3>
-      <ul id="listaPartidas" style="text-align:left;"></ul>
+
+<div class="container">
+  <div class="header">
+    <div class="user-info">
+      <img id="avatar" class="avatar" src="https://www.gravatar.com/avatar/?d=mp" alt="Avatar">
+      <div>
+        <h1 id="nomeUsuario">Bem-vindo!</h1>
+        <div id="timeUsuario" style="color:#666;font-size:14px;"></div>
+      </div>
     </div>
-    
-    <hr>
-    <h2>Troféus e Conquistas</h2>
-    <div id="trofeus">
-      <ul id="listaTrofeus" style="text-align:left;"></ul>
-    </div>
-    <hr>
-    <h2>Editar Perfil</h2>
-    
-    <form id="editarForm">
-      <input type="text" id="nome" placeholder="Nome completo" required/>
-      <input type="text" id="celular" placeholder="Celular" />
-      <input type="text" id="cidade" placeholder="Cidade" />
-      <input type="text" id="estado" placeholder="Estado" />
-      <input type="text" id="pais" placeholder="País" />
-      <label for="timeId">Time do coração:</label>
-      <select id="timeId"></select>
-      <button type="submit">Salvar Alterações</button>
-    </form>
-    <button class="sair" onclick="logout()">Sair</button>
-    <p id="status"></p>
+    <button onclick="window.location.href='editar-perfil.html'" class="btn" style="width:auto;padding:10px 18px;">Editar Perfil</button>
   </div>
 
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
-      authDomain: "painel-yellup.firebaseapp.com",
-      projectId: "painel-yellup",
-      storageBucket: "painel-yellup.appspot.com",
-      messagingSenderId: "608347210297",
-      appId: "1:608347210297:web:75092713724e617c7203e8"
-    };
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-    const auth = firebase.auth();
+  <div class="cards">
 
-    let usuarioRef = null;
+    <div class="card">
+      <h2>Créditos Disponíveis</h2>
+      <div class="highlight" id="creditosUsuario">0</div>
+    </div>
 
-    auth.onAuthStateChanged(async user => {
-      if (!user) return window.location.href = "index.html";
-      const uid = user.uid;
-      usuarioRef = db.collection("usuarios").doc(uid);
+    <div class="card">
+      <h2>Desempenho</h2>
+      <p>Pontuação acumulada:</p>
+      <div class="highlight" id="pontuacaoAcumulada">0</div>
+      <p style="font-size:13px;color:#999;">* média e partidas futuras podem ser mostradas aqui</p>
+    </div>
 
-      const doc = await usuarioRef.get();
-      const dados = doc.data();
-      document.getElementById("nomeUsuario").textContent = dados.nome;
-      document.getElementById("creditos").textContent = dados.creditos ?? 0;
+    <div class="card">
+      <h2>Troféus e Conquistas</h2>
+      <ul id="trofeusUsuario">
+        <li>Nenhum troféu ainda.</li>
+      </ul>
+    </div>
 
-      // Popular formulário
-      document.getElementById("nome").value = dados.nome || "";
-      document.getElementById("celular").value = dados.celular || "";
-      document.getElementById("cidade").value = dados.cidade || "";
-      document.getElementById("estado").value = dados.estado || "";
-      document.getElementById("pais").value = dados.pais || "";
+    <div class="card history">
+      <h2>Histórico de Partidas</h2>
+      <ul id="historicoPartidas">
+        <li>Nenhuma partida registrada.</li>
+      </ul>
+    </div>
 
-      // Carregar times
-      const timesSelect = document.getElementById("timeId");
-      const snap = await db.collection("times").orderBy("nome").get();
-      snap.forEach(doc => {
-        const opt = document.createElement("option");
-        opt.value = doc.id;
-        opt.textContent = doc.data().nome;
-        timesSelect.appendChild(opt);
-      });
-      document.getElementById("timeId").value = dados.timeId;
-      const timeNomeSnap = await db.collection("times").doc(dados.timeId).get();
-      document.getElementById("timeNome").textContent = timeNomeSnap.exists ? timeNomeSnap.data().nome : "Desconhecido";
+    <div class="card">
+      <h2>Indique Amigos</h2>
+      <p>Copie o link abaixo e compartilhe:</p>
+      <input type="text" id="linkIndicacao" readonly style="width:100%;padding:10px;">
+      <button class="btn" onclick="copiarLink()">Copiar Link</button>
+    </div>
 
-      
-    // Buscar conquistas (trofeus)
-    const conquistasRef = await usuarioRef.collection("conquistas").get();
-    const listaTrofeus = document.getElementById("listaTrofeus");
-    if (!conquistasRef.empty) {
-      conquistasRef.forEach(doc => {
-        const li = document.createElement("li");
-        const dados = doc.data();
-        li.textContent = `${dados.nome} - ${new Date(dados.data?.toDate()).toLocaleDateString()}`;
-        listaTrofeus.appendChild(li);
-      });
-    } else {
-      listaTrofeus.innerHTML = "<li>Nenhum troféu ainda.</li>";
-    }
+  </div>
+</div>
 
-    // Buscar pontuação e histórico
-    
-      const pontDoc = await usuarioRef.collection("desempenho").doc("dados").get();
-      if (pontDoc.exists) {
-        const d = pontDoc.data();
-        document.getElementById("pontuacao").textContent = d.pontuacaoTotal ?? 0;
-        const lista = document.getElementById("listaPartidas");
-        if (d.partidas && d.partidas.length > 0) {
-          d.partidas.slice().reverse().forEach(p => {
-            const li = document.createElement("li");
-            const data = p.data?.toDate ? p.data.toDate() : new Date();
-            li.textContent = `Jogo: ${p.jogo} | Pontos: ${p.pontos} | Data: ${data.toLocaleDateString()}`;
-            lista.appendChild(li);
-          });
-        } else {
-          lista.innerHTML = "<li>Nenhuma partida registrada.</li>";
-        }
-      } else {
-        document.getElementById("pontuacao").textContent = "0";
-        document.getElementById("listaPartidas").innerHTML = "<li>Nenhuma partida registrada.</li>";
-      }
-    });
-
-    function logout() {
-      auth.signOut().then(() => window.location.href = "index.html");
-    }
-
-    document.getElementById("editarForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const nome = document.getElementById("nome").value;
-      const celular = document.getElementById("celular").value;
-      const cidade = document.getElementById("cidade").value;
-      const estado = document.getElementById("estado").value;
-      const pais = document.getElementById("pais").value;
-      const timeId = document.getElementById("timeId").value;
-
-      try {
-        await usuarioRef.update({ nome, celular, cidade, estado, pais, timeId });
-        document.getElementById("status").textContent = "Perfil atualizado com sucesso!";
-        location.reload();
-      } catch (err) {
-        alert("Erro ao atualizar: " + err.message);
-      }
-    });
-  </script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+<script src="js/firebase-init.js"></script>
+<script src="js/painel.js"></script>
 </body>
 </html>
