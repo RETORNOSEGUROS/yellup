@@ -4,8 +4,38 @@ let uid = null;
 let timeTorcida = null;
 let perguntaAtual = null;
 let respostaEnviada = false;
+let perguntaLiberada = null;
+let tempoLimite = null;
+
+
 
 auth.onAuthStateChanged(async (user) => {
+  const perguntasRef = db.collection("jogos").doc(jogoId).collection("perguntas_enviadas")
+    .orderBy("timestamp", "desc").limit(1);
+
+  perguntasRef.onSnapshot(async (snap) => {
+    if (snap.empty) return;
+    const envio = snap.docs[0].data();
+    const perguntaDoc = await db.collection("perguntas").doc(envio.perguntaId).get();
+    const pergunta = perguntaDoc.data();
+    pergunta.id = perguntaDoc.id;
+    perguntaLiberada = pergunta;
+    respostaEnviada = false;
+    tempoLimite = envio.timestamp.toDate().getTime() + (envio.duracao || 10) * 1000;
+    mostrarPergunta(pergunta, envio.duracao || 10);
+
+    // Enviar para o chat geral
+    db.collection("chat").add({
+      jogoId,
+      tipo: "geral",
+      texto: `📢 Nova pergunta: ${pergunta.texto}`,
+      nome: "Sistema",
+      timestamp: new Date(),
+      timeId: null,
+      userId: "sistema"
+    });
+  });
+
   if (!user) return (window.location.href = "index.html");
   uid = user.uid;
 
