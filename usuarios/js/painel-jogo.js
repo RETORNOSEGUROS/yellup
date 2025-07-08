@@ -1,4 +1,3 @@
-// painel-jogo.js atualizado
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 let uid = null;
@@ -16,6 +15,7 @@ auth.onAuthStateChanged(async (user) => {
 
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
   const jogo = jogoDoc.data();
+
   const timeA = await db.collection("times").doc(jogo.timeCasaId).get();
   const timeB = await db.collection("times").doc(jogo.timeForaId).get();
 
@@ -30,9 +30,10 @@ auth.onAuthStateChanged(async (user) => {
 
   calcularTorcida(jogo);
   calcularPontuacao(jogo);
-  carregarPerguntaLiberada(jogo);
   iniciarChat(jogo);
   montarRanking(jogo);
+
+  escutarLiberacaoDePerguntas();
 });
 
 function formatarData(data) {
@@ -64,52 +65,40 @@ async function calcularTorcida(jogo) {
   document.getElementById("porcentagemB").innerText = `${pb}%`;
 }
 
-async function calcularPontuacao(jogo) {
-  const respostas = await db.collection("respostas").where("jogoId", "==", jogoId).get();
-  let a = 0, b = 0;
-  respostas.forEach(doc => {
-    const r = doc.data();
-    if (!r.acertou) return;
-    if (r.timeId === jogo.timeCasaId) a += r.pontuacao || 1;
-    if (r.timeId === jogo.timeForaId) b += r.pontuacao || 1;
-  });
-  const total = a + b;
-  const pa = total ? Math.round((a / total) * 100) : 0;
-  const pb = total ? 100 - pa : 0;
-  document.getElementById("pontosA").innerText = a;
-  document.getElementById("pontosB").innerText = b;
-  document.getElementById("porcentagemPontosA").innerText = `${pa}%`;
-  document.getElementById("porcentagemPontosB").innerText = `${pb}%`;
-}
-
-async function carregarPerguntaLiberada(jogo) {
-  const snap = await db.collection("perguntasLiberadas")
+function escutarLiberacaoDePerguntas() {
+  db.collection("perguntasLiberadas")
     .where("jogoId", "==", jogoId)
     .orderBy("ordem", "desc")
     .limit(1)
-    .get();
+    .onSnapshot(async (snap) => {
+      if (snap.empty) {
+        document.getElementById("textoPergunta").innerText = "Aguardando próxima pergunta...";
+        return;
+      }
+      const refPergunta = snap.docs[0].data().perguntaId;
+      const doc = await db.collection("perguntas").doc(refPergunta).get();
+      if (!doc.exists) return;
 
-  if (snap.empty) return document.getElementById("textoPergunta").innerText = "Aguardando próxima pergunta...";
+      perguntaAtual = doc;
+      const p = doc.data();
+      respostaEnviada = false;
 
-  const refPergunta = snap.docs[0].data().perguntaId;
-  const doc = await db.collection("perguntas").doc(refPergunta).get();
-  if (!doc.exists) return;
+      // Enviar pergunta para o chat automaticamente
+      enviarMensagemAutomaticaPergunta(p.texto);
 
-  perguntaAtual = doc;
-  const p = doc.data();
-
-  document.getElementById("textoPergunta").innerText = p.texto;
-  const lista = document.getElementById("opcoesRespostas");
-  lista.innerHTML = "";
-  ["A", "B", "C", "D"].forEach(letra => {
-    const btn = document.createElement("button");
-    btn.className = "list-group-item list-group-item-action";
-    btn.innerText = `${letra}) ${p[letra]}`;
-    btn.onclick = () => responder(letra, p.correta, p.pontuacao || 1);
-    lista.appendChild(btn);
-  });
-  iniciarContagem();
-  atualizarEstatisticasPergunta(refPergunta);
+      document.getElementById("textoPergunta").innerText = p.texto;
+      const lista = document.getElementById("opcoesRespostas");
+      lista.innerHTML = "";
+      ["A", "B", "C", "D"].forEach(letra => {
+        const btn = document.createElement("button");
+        btn.className = "list-group-item list-group-item-action";
+        btn.innerText = `${letra}) ${p[letra]}`;
+        btn.onclick = () => responder(letra, p.correta, p.pontuacao || 1);
+        lista.appendChild(btn);
+      });
+      iniciarContagem();
+      atualizarEstatisticasPergunta(refPergunta);
+    });
 }
 
 function iniciarContagem() {
@@ -118,7 +107,9 @@ function iniciarContagem() {
   void barra.offsetWidth;
   barra.classList.add("barra-tempo");
   setTimeout(() => {
-    if (!respostaEnviada) document.getElementById("mensagemResultado").innerText = "⏰ Tempo esgotado.";
+    if (!respostaEnviada) {
+      document.getElementById("mensagemResultado").innerText = "⏰ Tempo esgotado.";
+    }
   }, 10000);
 }
 
@@ -127,6 +118,7 @@ function responder(letra, correta, pontuacao) {
   respostaEnviada = true;
   const acertou = letra === correta;
   document.getElementById("mensagemResultado").innerText = acertou ? "✅ Resposta correta!" : "❌ Resposta incorreta.";
+
   db.collection("respostas").add({
     userId: uid,
     jogoId,
@@ -138,9 +130,34 @@ function responder(letra, correta, pontuacao) {
     pontuacao,
     timestamp: new Date()
   });
+
   db.collection("usuarios").doc(uid).update({
-    xp: firebase.firestore.FieldValue.increment(pontuacao)
+    xp: firebase.firestore.FieldValue.increment(pontuacao),
+    creditos: firebase.firestore.FieldValue.increment(-1)
   });
+
+  calcularPontuacao(); // Atualiza em tempo real
+  montarRanking();     // Atualiza em tempo real
+}
+
+async function calcularPontuacao() {
+  const respostas = await db.collection("respostas").where("jogoId", "==", jogoId).get();
+  let a = 0, b = 0;
+  respostas.forEach(doc => {
+    const r = doc.data();
+    if (!r.acertou) return;
+    if (r.timeId === timeTorcida) {
+      if (r.timeId === timeA) a += r.pontuacao || 1;
+      else if (r.timeId === timeB) b += r.pontuacao || 1;
+    }
+  });
+  const total = a + b;
+  const pa = total ? Math.round((a / total) * 100) : 0;
+  const pb = total ? 100 - pa : 0;
+  document.getElementById("pontosA").innerText = a;
+  document.getElementById("pontosB").innerText = b;
+  document.getElementById("porcentagemPontosA").innerText = `${pa}%`;
+  document.getElementById("porcentagemPontosB").innerText = `${pb}%`;
 }
 
 function iniciarChat(jogo) {
@@ -188,7 +205,22 @@ function enviarMensagem(tipo) {
   });
 }
 
-async function montarRanking(jogo) {
+function enviarMensagemAutomaticaPergunta(texto) {
+  db.collection("usuarios").doc(uid).get().then(doc => {
+    const nome = "Sistema";
+    db.collection("chat").add({
+      jogoId,
+      timeId: timeTorcida,
+      tipo: "geral",
+      userId: "sistema",
+      nome,
+      texto: `❓ ${texto}`,
+      timestamp: new Date()
+    });
+  });
+}
+
+async function montarRanking() {
   const snap = await db.collection("respostas")
     .where("jogoId", "==", jogoId)
     .where("acertou", "==", true).get();
