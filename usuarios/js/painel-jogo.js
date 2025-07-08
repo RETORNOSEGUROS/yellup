@@ -1,86 +1,102 @@
+const urlParams = new URLSearchParams(window.location.search);
+const jogoId = urlParams.get("id");
 
-const params = new URLSearchParams(window.location.search);
-const jogoId = params.get("id");
-const usuarioId = localStorage.getItem("usuarioId");
+let perguntaAtual = null;
+let respostaEnviada = false;
 
-if (!jogoId || !usuarioId) {
-  alert("Erro: Jogo ou usuário não identificado.");
-}
-
-async function carregarPainelJogo() {
-  try {
-    const userDoc = await db.collection("usuarios").doc(usuarioId).get();
-    const user = userDoc.data();
-    document.getElementById("nomeUsuario").textContent = user?.nome || "Usuário";
-
-    const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-    if (!jogoDoc.exists) return alert("Jogo não encontrado.");
-    const jogo = jogoDoc.data();
-
-    const timeCasaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
-    const timeForaDoc = await db.collection("times").doc(jogo.timeForaId).get();
-
-    const nomeA = timeCasaDoc.exists ? timeCasaDoc.data().nome : "Time A";
-    const nomeB = timeForaDoc.exists ? timeForaDoc.data().nome : "Time B";
-
-    document.getElementById("tituloJogo").textContent = `${nomeA} x ${nomeB}`;
-    document.getElementById("btnTimeA").textContent = `Torcer por ${nomeA}`;
-    document.getElementById("btnTimeB").textContent = `Torcer por ${nomeB}`;
-
-    document.getElementById("btnTimeA").onclick = () => escolherTorcida(jogoId, jogo.timeCasaId, nomeA, jogo.creditoTorcida);
-    document.getElementById("btnTimeB").onclick = () => escolherTorcida(jogoId, jogo.timeForaId, nomeB, jogo.creditoTorcida);
-
-    // Verificar se usuário já torce
-    const torcidaDoc = await db.collection("torcidas").doc(jogoId)
-      .collection("torcedores").doc(usuarioId).get();
-
-    if (torcidaDoc.exists) {
-      const timeId = torcidaDoc.data().timeId;
-      const timeEscolhido = (timeId === jogo.timeCasaId) ? nomeA : nomeB;
-      document.getElementById("torcidaStatus").innerHTML = `Você está torcendo por <strong>${timeEscolhido}</strong>`;
-    } else {
-      document.getElementById("torcidaStatus").textContent = "Escolha seu time para participar:";
-      document.getElementById("botoesTorcida").style.display = "block";
-    }
-
-  } catch (e) {
-    console.error("Erro ao carregar painel:", e);
-    alert("Erro ao carregar painel do jogo.");
+auth.onAuthStateChanged(async (user) => {
+  if (!user) {
+    window.location.href = "index.html";
+    return;
   }
-}
 
-async function escolherTorcida(jogoId, timeId, nomeTime, custo) {
-  try {
-    const userRef = db.collection("usuarios").doc(usuarioId);
-    const userDoc = await userRef.get();
-    const creditos = userDoc.data().creditos || 0;
+  const uid = user.uid;
 
-    if (creditos < custo) {
-      alert("Créditos insuficientes para torcer neste jogo.");
-      return;
-    }
+  // Buscar dados do jogo
+  const jogo = await db.collection("jogos").doc(jogoId).get();
+  if (!jogo.exists) {
+    document.getElementById("tituloJogo").innerText = "Jogo não encontrado";
+    return;
+  }
 
-    await userRef.update({ creditos: creditos - custo });
-  await adicionarXP(usuarioId, 3);
-  await db.collection("usuarios").doc(usuarioId).collection("extrato").add({
-    tipo: "saida",
-    valor: custo,
-    descricao: "Torcida no jogo",
-    data: firebase.firestore.Timestamp.now()
+  const dadosJogo = jogo.data();
+
+  // Buscar nomes dos times
+  const casa = await db.collection("times").doc(dadosJogo.timeCasaId).get();
+  const fora = await db.collection("times").doc(dadosJogo.timeForaId).get();
+  const nomeJogo = `${casa.exists ? casa.data().nome : "Time A"} x ${fora.exists ? fora.data().nome : "Time B"}`;
+  document.getElementById("tituloJogo").innerText = nomeJogo;
+
+  // Buscar time do usuário para filtrar pergunta
+  const usuarioDoc = await db.collection("usuarios").doc(uid).get();
+  const timeId = usuarioDoc.data().torcidas?.[jogoId];
+
+  if (!timeId) {
+    alert("Você ainda não escolheu um time para torcer.");
+    window.location.href = "painel.html";
+    return;
+  }
+
+  // Buscar 1 pergunta aleatória do time escolhido
+  const perguntas = await db.collection("perguntas")
+    .where("timeId", "==", timeId)
+    .limit(1)
+    .get();
+
+  if (perguntas.empty) {
+    document.getElementById("textoPergunta").innerText = "Nenhuma pergunta disponível.";
+    return;
+  }
+
+  perguntaAtual = perguntas.docs[0];
+  const dadosPergunta = perguntaAtual.data();
+
+  document.getElementById("textoPergunta").innerText = dadosPergunta.texto;
+
+  const opcoes = ["A", "B", "C", "D"];
+  const lista = document.getElementById("opcoesRespostas");
+  lista.innerHTML = "";
+
+  opcoes.forEach((letra) => {
+    const item = document.createElement("button");
+    item.className = "list-group-item list-group-item-action";
+    item.innerText = `${letra}) ${dadosPergunta[letra]}`;
+    item.onclick = () => responder(letra, dadosPergunta.correta, uid);
+    lista.appendChild(item);
   });
 
-    await db.collection("torcidas").doc(jogoId)
-      .collection("torcedores").doc(usuarioId).set({
-        timeId: timeId,
-        data: firebase.firestore.Timestamp.now()
-      });
+  // Iniciar cronômetro
+  iniciarContagem(dadosPergunta.correta);
+});
 
-    alert(`Você está torcendo por ${nomeTime}!`);
-    window.location.reload();
-  } catch (e) {
-    alert("Erro ao registrar sua torcida.");
-    console.error(e);
-  }
+function iniciarContagem(correta) {
+  const barra = document.getElementById("barra");
+  barra.classList.remove("barra-tempo");
+  void barra.offsetWidth; // reinicia animação
+  barra.classList.add("barra-tempo");
+
+  setTimeout(() => {
+    if (!respostaEnviada) {
+      document.getElementById("mensagemResultado").innerText = "Tempo esgotado!";
+    }
+  }, 10000);
 }
 
-document.addEventListener("DOMContentLoaded", carregarPainelJogo);
+function responder(letra, correta, uid) {
+  if (respostaEnviada) return;
+  respostaEnviada = true;
+
+  const acertou = letra === correta;
+  const mensagem = acertou ? "✅ Resposta correta!" : "❌ Resposta incorreta.";
+  document.getElementById("mensagemResultado").innerText = mensagem;
+
+  db.collection("respostas").add({
+    userId: uid,
+    perguntaId: perguntaAtual.id,
+    jogoId: jogoId,
+    alternativa: letra,
+    correta: correta,
+    acertou: acertou,
+    timestamp: new Date()
+  });
+}
