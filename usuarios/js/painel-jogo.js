@@ -1,4 +1,4 @@
-// painel-jogo.js
+// painel-jogo.js atualizado
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 let uid = null;
@@ -6,7 +6,6 @@ let timeTorcida = null;
 let perguntaAtual = null;
 let respostaEnviada = false;
 
-// Início
 auth.onAuthStateChanged(async (user) => {
   if (!user) return (window.location.href = "index.html");
   uid = user.uid;
@@ -31,8 +30,9 @@ auth.onAuthStateChanged(async (user) => {
 
   calcularTorcida(jogo);
   calcularPontuacao(jogo);
-  carregarPergunta(timeTorcida);
+  carregarPerguntaLiberada(jogo);
   iniciarChat(jogo);
+  montarRanking(jogo);
 });
 
 function formatarData(data) {
@@ -82,12 +82,21 @@ async function calcularPontuacao(jogo) {
   document.getElementById("porcentagemPontosB").innerText = `${pb}%`;
 }
 
-async function carregarPergunta(timeId) {
-  const snap = await db.collection("perguntas").where("timeId", "==", timeId).limit(1).get();
-  if (snap.empty) return document.getElementById("textoPergunta").innerText = "Sem perguntas.";
+async function carregarPerguntaLiberada(jogo) {
+  const snap = await db.collection("perguntasLiberadas")
+    .where("jogoId", "==", jogoId)
+    .orderBy("ordem", "desc")
+    .limit(1)
+    .get();
 
-  perguntaAtual = snap.docs[0];
-  const p = perguntaAtual.data();
+  if (snap.empty) return document.getElementById("textoPergunta").innerText = "Aguardando próxima pergunta...";
+
+  const refPergunta = snap.docs[0].data().perguntaId;
+  const doc = await db.collection("perguntas").doc(refPergunta).get();
+  if (!doc.exists) return;
+
+  perguntaAtual = doc;
+  const p = doc.data();
 
   document.getElementById("textoPergunta").innerText = p.texto;
   const lista = document.getElementById("opcoesRespostas");
@@ -100,6 +109,7 @@ async function carregarPergunta(timeId) {
     lista.appendChild(btn);
   });
   iniciarContagem();
+  atualizarEstatisticasPergunta(refPergunta);
 }
 
 function iniciarContagem() {
@@ -128,6 +138,9 @@ function responder(letra, correta, pontuacao) {
     pontuacao,
     timestamp: new Date()
   });
+  db.collection("usuarios").doc(uid).update({
+    xp: firebase.firestore.FieldValue.increment(pontuacao)
+  });
 }
 
 function iniciarChat(jogo) {
@@ -147,6 +160,13 @@ function iniciarChat(jogo) {
       chatGeral.scrollTop = chatGeral.scrollHeight;
       chatTime.scrollTop = chatTime.scrollHeight;
     });
+
+  document.getElementById("mensagemGeral").addEventListener("keypress", e => {
+    if (e.key === "Enter") enviarMensagem("geral");
+  });
+  document.getElementById("mensagemTime").addEventListener("keypress", e => {
+    if (e.key === "Enter") enviarMensagem("time");
+  });
 }
 
 function enviarMensagem(tipo) {
@@ -166,4 +186,37 @@ function enviarMensagem(tipo) {
       timestamp: new Date()
     });
   });
+}
+
+async function montarRanking(jogo) {
+  const snap = await db.collection("respostas")
+    .where("jogoId", "==", jogoId)
+    .where("acertou", "==", true).get();
+
+  const ranking = {};
+  snap.forEach(doc => {
+    const r = doc.data();
+    if (!ranking[r.userId]) ranking[r.userId] = 0;
+    ranking[r.userId] += r.pontuacao || 1;
+  });
+
+  const lista = Object.entries(ranking).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const container = document.getElementById("rankingPontuacao");
+  container.innerHTML = "";
+  for (const [userId, pontos] of lista) {
+    const user = await db.collection("usuarios").doc(userId).get();
+    const nome = user.exists ? user.data().usuario : "Torcedor";
+    container.innerHTML += `<li class='list-group-item'>${nome} - ${pontos} pts</li>`;
+  }
+}
+
+async function atualizarEstatisticasPergunta(perguntaId) {
+  const snap = await db.collection("respostas")
+    .where("jogoId", "==", jogoId)
+    .where("perguntaId", "==", perguntaId).get();
+
+  const total = snap.size;
+  const acertos = snap.docs.filter(d => d.data().acertou).length;
+  const texto = total ? `${acertos} de ${total} acertaram.` : "Ninguém respondeu ainda.";
+  document.getElementById("estatisticasPergunta").innerText = texto;
 }
