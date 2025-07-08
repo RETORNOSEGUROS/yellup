@@ -1,13 +1,12 @@
-// js/painel-jogo.js
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 let uid = null;
 let timeTorcida = null;
-let perguntaAtual = null;
 let respostaEnviada = false;
+let perguntaAtual = null;
 
-auth.onAuthStateChanged(async (user) => {
-  if (!user) return (window.location.href = "index.html");
+firebase.auth().onAuthStateChanged(async (user) => {
+  if (!user) return (window.location.href = "/usuarios/index.html");
   uid = user.uid;
 
   const userDoc = await db.collection("usuarios").doc(uid).get();
@@ -31,8 +30,8 @@ auth.onAuthStateChanged(async (user) => {
 
   calcularTorcida(jogo);
   calcularPontuacao(jogo);
-  iniciarChat(jogo);
-  montarRanking(jogo);
+  iniciarChat();
+  montarRanking();
 });
 
 function formatarData(data) {
@@ -64,49 +63,39 @@ async function calcularTorcida(jogo) {
   document.getElementById("porcentagemB").innerText = `${pb}%`;
 }
 
-async function responder(letra, correta, pontos, perguntaId) {
-  if (respostaEnviada) return;
-  respostaEnviada = true;
+async function responderPergunta() {
+  const snap = await db.collection("perguntas").where("timeId", "==", timeTorcida).get();
+  if (snap.empty) return alert("Nenhuma pergunta disponível para seu time.");
+  const perguntas = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const pergunta = perguntas[Math.floor(Math.random() * perguntas.length)];
+  mostrarPergunta(pergunta);
+}
 
-  const acertou = letra === correta;
-  document.getElementById("mensagemResultado").innerText = acertou
-    ? "✅ Resposta correta!"
-    : `❌ Errado. Correta: ${correta}`;
+function mostrarPergunta(p) {
+  perguntaAtual = p;
+  respostaEnviada = false;
+  document.getElementById("textoPergunta").innerText = p.pergunta || p.texto || "Pergunta não encontrada";
+  document.getElementById("opcoesRespostas").innerHTML = "";
+  document.getElementById("mensagemResultado").innerText = "";
 
-  await db.collection("respostas").add({
-    jogoId,
-    perguntaId,
-    userId: uid,
-    timeId: timeTorcida,
-    resposta: letra,
-    correta,
-    acertou,
-    pontuacao: acertou ? pontos : 0,
-    criadoEm: new Date()
+  const alternativas = p.alternativas || {}; // suporte padrão
+
+  ["A", "B", "C", "D"].forEach(letra => {
+    const textoAlt = alternativas[letra] || "Indefinido";
+    const btn = document.createElement("button");
+    btn.className = "list-group-item list-group-item-action";
+    btn.innerText = `${letra}) ${textoAlt}`;
+    btn.onclick = () => responder(letra, p.correta, p.pontuacao || 1, p.id);
+    document.getElementById("opcoesRespostas").appendChild(btn);
   });
 
-  if (acertou) {
-    await db.collection("usuarios").doc(uid).update({
-      [`pontuacoes.${jogoId}`]: firebase.firestore.FieldValue.increment(pontos),
-      xp: firebase.firestore.FieldValue.increment(pontos)
-    });
-  }
-
-  await db.collection("usuarios").doc(uid).update({
-    creditos: firebase.firestore.FieldValue.increment(-1)
-  });
-
-  calcularPontuacao();
-  montarRanking();
+  iniciarContador();
 }
 
 function iniciarContador() {
   const barra = document.getElementById("barra");
   barra.style.setProperty('--duracao', '9s');
-  barra.classList.remove("d-none");
-  barra.classList.remove("encerrada");
   barra.style.animation = "barraTempo 9s linear forwards";
-
   setTimeout(() => {
     if (!respostaEnviada) {
       document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
@@ -119,48 +108,47 @@ function desabilitarOpcoes() {
   document.querySelectorAll("#opcoesRespostas button").forEach(btn => btn.disabled = true);
 }
 
-async function responderPergunta() {
-  if (!uid || !timeTorcida) return alert("Erro ao identificar usuário ou time.");
-
-  const snap = await db.collection("perguntas").where("timeId", "==", timeTorcida).get();
-  if (snap.empty) return alert("Nenhuma pergunta cadastrada para seu time.");
-  const perguntas = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  const pergunta = perguntas[Math.floor(Math.random() * perguntas.length)];
-  mostrarPergunta(pergunta);
-}
-
-function mostrarPergunta(p) {
-  perguntaAtual = p;
-  respostaEnviada = false;
-  document.getElementById("textoPergunta").innerText = p.texto;
-  document.getElementById("opcoesRespostas").innerHTML = "";
-  document.getElementById("mensagemResultado").innerText = "";
-
-  ["A", "B", "C", "D"].forEach(letra => {
-    const el = document.createElement("button");
-    el.className = "list-group-item list-group-item-action";
-    el.innerText = `${letra}) ${p[letra]}`;
-    el.onclick = () => responder(letra, p.correta, p.pontuacao || 1, p.id);
-    document.getElementById("opcoesRespostas").appendChild(el);
+async function responder(letra, correta, pontos, perguntaId) {
+  if (respostaEnviada) return;
+  respostaEnviada = true;
+  const acertou = letra === correta;
+  document.getElementById("mensagemResultado").innerText = acertou
+    ? "✅ Resposta correta!"
+    : `❌ Errado. Correta: ${correta}`;
+  await db.collection("respostas").add({
+    jogoId,
+    perguntaId,
+    userId: uid,
+    timeId: timeTorcida,
+    resposta: letra,
+    correta,
+    acertou,
+    pontuacao: acertou ? pontos : 0,
+    criadoEm: new Date()
   });
-
-  iniciarContador();
+  if (acertou) {
+    await db.collection("usuarios").doc(uid).update({
+      [`pontuacoes.${jogoId}`]: firebase.firestore.FieldValue.increment(pontos),
+      xp: firebase.firestore.FieldValue.increment(pontos)
+    });
+  }
+  await db.collection("usuarios").doc(uid).update({
+    creditos: firebase.firestore.FieldValue.increment(-1)
+  });
+  calcularPontuacao();
+  montarRanking();
 }
 
 async function calcularPontuacao() {
   const respostas = await db.collection("respostas").where("jogoId", "==", jogoId).get();
+  const jogo = (await db.collection("jogos").doc(jogoId).get()).data();
   let a = 0, b = 0;
-
-  const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-  const jogo = jogoDoc.data();
-
   respostas.forEach(doc => {
     const r = doc.data();
     if (!r.acertou) return;
     if (r.timeId === jogo.timeCasaId) a += r.pontuacao || 1;
     if (r.timeId === jogo.timeForaId) b += r.pontuacao || 1;
   });
-
   const total = a + b;
   const pa = total ? Math.round((a / total) * 100) : 0;
   const pb = total ? 100 - pa : 0;
@@ -170,7 +158,7 @@ async function calcularPontuacao() {
   document.getElementById("porcentagemPontosB").innerText = `${pb}%`;
 }
 
-function iniciarChat(jogo) {
+function iniciarChat() {
   db.collection("chat").where("jogoId", "==", jogoId)
     .orderBy("timestamp", "asc")
     .onSnapshot(snapshot => {
@@ -201,7 +189,6 @@ function enviarMensagem(tipo) {
   const texto = input.value.trim();
   if (!texto) return;
   input.value = "";
-
   db.collection("usuarios").doc(uid).get().then(doc => {
     const nome = doc.data().usuario || "Torcedor";
     db.collection("chat").add({
@@ -216,7 +203,7 @@ function enviarMensagem(tipo) {
   });
 }
 
-function montarRanking(jogo) {
+function montarRanking() {
   db.collection("respostas")
     .where("jogoId", "==", jogoId)
     .where("acertou", "==", true)
@@ -228,7 +215,6 @@ function montarRanking(jogo) {
         if (!ranking[r.userId]) ranking[r.userId] = 0;
         ranking[r.userId] += r.pontuacao || 1;
       });
-
       const lista = Object.entries(ranking).sort((a, b) => b[1] - a[1]).slice(0, 5);
       const container = document.getElementById("rankingPontuacao");
       container.innerHTML = "";
