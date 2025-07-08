@@ -178,10 +178,10 @@ function iniciarChat(jogo) {
       chatTime.scrollTop = chatTime.scrollHeight;
     });
 
-  document.getElementById("mensagemGeral").addEventListener("keypress", e => {
+  document.getElementById("mensagemGeral").addEventListener("keydown", e => {
     if (e.key === "Enter") enviarMensagem("geral");
   });
-  document.getElementById("mensagemTime").addEventListener("keypress", e => {
+  document.getElementById("mensagemTime").addEventListener("keydown", e => {
     if (e.key === "Enter") enviarMensagem("time");
   });
 }
@@ -311,4 +311,27 @@ async function responder(letra, correta, pontos, perguntaId) {
   await db.collection("usuarios").doc(uid).update({
     creditos: firebase.firestore.FieldValue.increment(-1)
   });
+}
+
+
+
+let cronometro = null;
+
+function iniciarContador() {
+  clearTimeout(cronometro);
+  const barra = document.getElementById("barra");
+  barra.style.setProperty('--duracao', '9s');
+  barra.classList.remove("d-none");
+  barra.classList.remove("encerrada");
+  barra.style.animation = "barraTempo 9s linear forwards";
+
+  cronometro = setTimeout(() => {
+    desabilitarOpcoes();
+    document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
+  }, 9000);
+}
+
+function desabilitarOpcoes() {
+  const botoes = document.querySelectorAll("#opcoesRespostas button");
+  botoes.forEach(btn => btn.disabled = true);
 }
