@@ -1,5 +1,6 @@
-// Substitua com suas credenciais reais
-const firebaseConfig = {
+
+// Firebase versão 8 - via namespace global
+var firebaseConfig = {
   apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
   authDomain: "painel-yellup.firebaseapp.com",
   projectId: "painel-yellup",
