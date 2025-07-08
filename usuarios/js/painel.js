@@ -1,6 +1,6 @@
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
-    window.location.href = "index.html"; // redireciona para login se não estiver logado
+    window.location.href = "index.html";
     return;
   }
 
@@ -14,33 +14,28 @@ auth.onAuthStateChanged(async (user) => {
 
   const dados = doc.data();
 
-  document.getElementById("boasVindas").innerText = `Bem-vindo, ${dados.nome}!`;
+  document.getElementById("nomeUsuario").innerText = dados.nome || "Usuário";
   document.getElementById("creditos").innerText = dados.creditos || 0;
+  document.getElementById("pontuacao").innerText = dados.pontuacao || 0;
 
-  // Carrega nome do time do coração a partir do timeId
+  // Carregar nome do time do coração
   if (dados.timeId) {
     try {
       const timeDoc = await db.collection("times").doc(dados.timeId).get();
-      if (timeDoc.exists) {
-        const time = timeDoc.data();
-        document.getElementById("timeCoracao").innerText = time.nome || "Time não encontrado";
-      } else {
-        document.getElementById("timeCoracao").innerText = "Time não encontrado";
-      }
-    } catch (erro) {
-      console.error("Erro ao buscar time:", erro);
-      document.getElementById("timeCoracao").innerText = "Erro ao carregar";
+      const time = timeDoc.exists ? timeDoc.data().nome : "Desconhecido";
+      document.getElementById("timeCoracao").innerText = time;
+    } catch (e) {
+      document.getElementById("timeCoracao").innerText = "Erro";
     }
   }
 
-  // Link de indicação
+  // Link de convite
   const link = `https://yellup.vercel.app/usuarios/cadastro.html?indicador=${uid}`;
-  document.getElementById("linkIndicacao").value = link;
+  document.getElementById("linkConvite").value = link;
 });
 
-// Copiar link de indicação
 function copiarLink() {
-  const input = document.getElementById("linkIndicacao");
+  const input = document.getElementById("linkConvite");
   input.select();
   document.execCommand("copy");
   alert("Link copiado!");
