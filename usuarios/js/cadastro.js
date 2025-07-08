@@ -1,60 +1,56 @@
-
 const urlParams = new URLSearchParams(window.location.search);
-const refId = urlParams.get("ref");
+const indicadoPor = urlParams.get('indicador') || "-";
 
-async function cadastrarUsuario() {
-  const email = document.getElementById("email").value.trim();
-  const senha = document.getElementById("senha").value;
-  const nome = document.getElementById("nome").value.trim();
+async function cadastrar() {
+  const nome = document.getElementById('nome').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const senha = document.getElementById('senha').value.trim();
+  const usuario = document.getElementById('usuario').value.trim().toLowerCase();
+  const celular = document.getElementById('celular').value.trim();
+  const cidade = document.getElementById('cidade').value.trim();
+  const estado = document.getElementById('estado').value.trim();
+  const pais = document.getElementById('pais').value.trim();
+  const dataNascimento = document.getElementById('dataNascimento').value;
+  const timeId = document.getElementById('timeId').value;
+  const mensagem = document.getElementById('mensagem');
 
-  if (!email || !senha || !nome) {
-    alert("Preencha todos os campos!");
+  if (!nome || !email || !senha || !usuario || !celular || !cidade || !estado || !pais || !dataNascimento || !timeId) {
+    mensagem.innerText = "Preencha todos os campos.";
+    return;
+  }
+
+  // Verifica se já existe esse nome de usuário
+  const snapshot = await db.collection("usuarios").where("usuarioUnico", "==", usuario).get();
+  if (!snapshot.empty) {
+    mensagem.innerText = "Nome de usuário já existe. Escolha outro.";
     return;
   }
 
   try {
-    const userCred = await firebase.auth().createUserWithEmailAndPassword(email, senha);
-    const uid = userCred.user.uid;
+    const userCredential = await auth.createUserWithEmailAndPassword(email, senha);
+    const uid = userCredential.user.uid;
 
-    const usuario = {
+    await db.collection("usuarios").doc(uid).set({
       nome,
       email,
-      creditos: 30,  // bônus de boas-vindas
+      celular,
+      cidade,
+      estado,
+      pais,
+      dataNascimento,
+      timeId,
+      usuario,
+      usuarioUnico: usuario,
+      indicadoPor,
       status: "ativo",
-      dataCadastro: firebase.firestore.Timestamp.now()
-    };
+      avatarUrl: "", // futuro
+      creditos: 30,
+      dataCadastro: new Date()
+    });
 
-    if (refId) {
-      usuario.indicadorId = refId;
-    }
-
-    await db.collection("usuarios").doc(uid).set(usuario);
-    localStorage.setItem("usuarioId", uid);
-    localStorage.setItem("nomeUsuario", nome);
-
-    // Recompensar o indicador com 10 créditos
-    if (refId) {
-      const indicadorRef = db.collection("usuarios").doc(refId);
-      const indicadorDoc = await indicadorRef.get();
-      if (indicadorDoc.exists) {
-        const creditosAtuais = indicadorDoc.data().creditos || 0;
-        await indicadorRef.update({ creditos: creditosAtuais + 10 });
-
-        await adicionarXP(refId, 10);
-  await indicadorRef.collection("extrato").add({
-          tipo: "entrada",
-          valor: 10,
-          descricao: "Indicação de novo usuário",
-          data: firebase.firestore.Timestamp.now()
-        });
-      }
-    }
-
-    alert("Cadastro realizado com sucesso!");
     window.location.href = "painel.html";
-
-  } catch (e) {
-    console.error("Erro no cadastro:", e);
-    alert("Erro ao cadastrar: " + e.message);
+  } catch (error) {
+    console.error("Erro:", error);
+    mensagem.innerText = "Erro ao cadastrar: " + error.message;
   }
 }
