@@ -1,31 +1,23 @@
-document.getElementById("loginForm").addEventListener("submit", async function(e) {
-  e.preventDefault();
+function login() {
+  const email = document.getElementById('email').value;
+  const senha = document.getElementById('senha').value;
+  const mensagemErro = document.getElementById('mensagem-erro');
 
-  const usuarioUnico = document.getElementById("usuarioUnico").value.trim();
-  const senha = document.getElementById("senha").value.trim();
-
-  if (!usuarioUnico || !senha) {
-    return alert("Preencha todos os campos.");
+  if (!email || !senha) {
+    mensagemErro.innerText = 'Preencha todos os campos.';
+    return;
   }
 
-  try {
-    const querySnapshot = await db.collection("usuarios")
-      .where("usuarioUnico", "==", usuarioUnico)
-      .limit(1)
-      .get();
-
-    if (querySnapshot.empty) {
-      return alert("Usuário não encontrado.");
-    }
-
-    const doc = querySnapshot.docs[0];
-    const email = doc.data().email;
-
-    await firebase.auth().signInWithEmailAndPassword(email, senha);
-
-    localStorage.setItem("usuarioId", doc.id); // <- ID real do documento aleatório
-    window.location.href = "painel.html";
-  } catch (error) {
-    alert("Erro no login: " + error.message);
-  }
-});
+  auth.signInWithEmailAndPassword(email, senha)
+    .then((userCredential) => {
+      const user = userCredential.user;
+      window.location.href = 'painel.html';
+    })
+    .catch((error) => {
+      let msg = 'Erro ao entrar.';
+      if (error.code === 'auth/user-not-found') msg = 'Usuário não encontrado.';
+      if (error.code === 'auth/wrong-password') msg = 'Senha incorreta.';
+      if (error.code === 'auth/invalid-email') msg = 'E-mail inválido.';
+      mensagemErro.innerText = msg;
+    });
+}
