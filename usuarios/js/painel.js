@@ -21,24 +21,17 @@ auth.onAuthStateChanged(async (user) => {
   // Carregar nome do time do coração
   if (dados.timeId) {
     try {
-      const timeRef = db.collection("times").doc(dados.timeId);
-      const timeSnap = await timeRef.get();
-      if (timeSnap.exists) {
-        const timeData = timeSnap.data();
-        const nomeTime = timeData.nome || "(sem nome cadastrado)";
-        document.getElementById("timeCoracao").innerText = nomeTime;
-      } else {
-        document.getElementById("timeCoracao").innerText = "Time não encontrado";
-      }
+      const timeRef = await db.collection("times").doc(dados.timeId).get();
+      const timeNome = timeRef.exists ? timeRef.data().nome : "Desconhecido";
+      document.getElementById("timeCoracao").innerText = timeNome;
     } catch (e) {
-      console.error("Erro ao buscar time:", e);
-      document.getElementById("timeCoracao").innerText = "Erro ao carregar";
+      document.getElementById("timeCoracao").innerText = "Erro";
     }
   } else {
     document.getElementById("timeCoracao").innerText = "---";
   }
 
-  // Link de convite
+  // Link de indicação
   const link = `https://yellup.vercel.app/usuarios/cadastro.html?indicador=${uid}`;
   document.getElementById("linkConvite").value = link;
 });
