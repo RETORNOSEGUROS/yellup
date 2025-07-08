@@ -9,7 +9,7 @@ async function cadastrar() {
   const celular = document.getElementById('celular').value.trim();
   const cidade = document.getElementById('cidade').value.trim();
   const estado = document.getElementById('estado').value.trim();
-  const pais = document.getElementById('pais').value.trim();
+  const pais = document.getElementById('pais').value;
   const dataNascimento = document.getElementById('dataNascimento').value;
   const timeId = document.getElementById('timeId').value;
   const mensagem = document.getElementById('mensagem');
@@ -54,3 +54,31 @@ async function cadastrar() {
     mensagem.innerText = "Erro ao cadastrar: " + error.message;
   }
 }
+
+// Carregar países da coleção Firestore
+async function carregarPaises() {
+  const select = document.getElementById("pais");
+  const snapshot = await db.collection("paises").orderBy("nome").get();
+  select.innerHTML = '<option value="">Selecione o país</option>';
+  snapshot.forEach(doc => {
+    const nome = doc.data().nome || doc.id;
+    select.innerHTML += `<option value="${nome}">${nome}</option>`;
+  });
+}
+
+// Carregar times da coleção Firestore
+async function carregarTimes() {
+  const select = document.getElementById("timeId");
+  const snapshot = await db.collection("times").orderBy("nome").get();
+  select.innerHTML = '<option value="">Selecione o time</option>';
+  snapshot.forEach(doc => {
+    const nome = doc.data().nome || doc.id;
+    select.innerHTML += `<option value="${doc.id}">${nome}</option>`;
+  });
+}
+
+// Inicia carregamento ao abrir a página
+window.onload = () => {
+  carregarPaises();
+  carregarTimes();
+};
