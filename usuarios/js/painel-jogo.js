@@ -65,40 +65,16 @@ async function calcularTorcida(jogo) {
   document.getElementById("porcentagemB").innerText = `${pb}%`;
 }
 
-
 function escutarLiberacaoDePerguntas() {
-  db.collection("jogos").doc(jogoId).onSnapshot(async (docJogo) => {
-    const jogoData = docJogo.data();
-    const campo = (timeTorcida === jogoData.timeCasaId) ? "perguntaAtualCasa" : "perguntaAtualFora";
-    const refPergunta = jogoData[campo];
-    if (!refPergunta) {
-      document.getElementById("textoPergunta").innerText = "Aguardando próxima pergunta...";
-      return;
-    }
-    const doc = await db.collection("perguntas").doc(refPergunta).get();
-    if (!doc.exists) return;
-
-    perguntaAtual = doc;
-    const p = doc.data();
-    respostaEnviada = false;
-
-    enviarMensagemAutomaticaPergunta(p.texto);
-
-    document.getElementById("textoPergunta").innerText = p.texto;
-    const lista = document.getElementById("opcoesRespostas");
-    lista.innerHTML = "";
-    ["A", "B", "C", "D"].forEach(letra => {
-      const btn = document.createElement("button");
-      btn.className = "list-group-item list-group-item-action";
-      btn.innerText = `${letra}) ${p[letra]}`;
-      btn.onclick = () => responder(letra, p.correta, p.pontuacao || 1);
-      lista.appendChild(btn);
-    });
-    iniciarContagem();
-    atualizarEstatisticasPergunta(doc.id);
-  });
-}
-
+  db.collection("perguntasLiberadas")
+    .where("jogoId", "==", jogoId)
+    .orderBy("ordem", "desc")
+    .limit(1)
+    .onSnapshot(async (snap) => {
+      if (snap.empty) {
+        document.getElementById("textoPergunta").innerText = "Aguardando próxima pergunta...";
+        return;
+      }
       const refPergunta = snap.docs[0].data().perguntaId;
       const doc = await db.collection("perguntas").doc(refPergunta).get();
       if (!doc.exists) return;
@@ -275,4 +251,64 @@ async function atualizarEstatisticasPergunta(perguntaId) {
   const acertos = snap.docs.filter(d => d.data().acertou).length;
   const texto = total ? `${acertos} de ${total} acertaram.` : "Ninguém respondeu ainda.";
   document.getElementById("estatisticasPergunta").innerText = texto;
+}
+
+
+
+
+document.getElementById("btnProximaPergunta").addEventListener("click", async () => {
+  if (!uid || !timeTorcida) return alert("Usuário não carregado.");
+
+  const snap = await db.collection("perguntas").where("timeId", "==", timeTorcida).get();
+  if (snap.empty) return alert("Nenhuma pergunta encontrada para seu time.");
+
+  const perguntas = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const aleatoria = perguntas[Math.floor(Math.random() * perguntas.length)];
+  mostrarPergunta(aleatoria);
+});
+
+function mostrarPergunta(pergunta) {
+  respostaEnviada = false;
+  document.getElementById("textoPergunta").innerText = pergunta.texto;
+  document.getElementById("opcoesRespostas").innerHTML = "";
+  document.getElementById("mensagemResultado").innerText = "";
+
+  ["A", "B", "C", "D"].forEach(letra => {
+    const el = document.createElement("button");
+    el.className = "list-group-item list-group-item-action";
+    el.innerText = `${letra}) ${pergunta[letra]}`;
+    el.onclick = () => responder(letra, pergunta.correta, pergunta.pontuacao || 1, pergunta.id);
+    document.getElementById("opcoesRespostas").appendChild(el);
+  });
+}
+
+async function responder(letra, correta, pontos, perguntaId) {
+  if (respostaEnviada) return;
+  respostaEnviada = true;
+
+  const acertou = letra === correta;
+  document.getElementById("mensagemResultado").innerText = acertou
+    ? "✅ Resposta correta!"
+    : `❌ Errado. Correta: ${correta}`;
+
+  await db.collection("respostas").add({
+    jogoId,
+    uid,
+    perguntaId,
+    acertou,
+    pontuacao: acertou ? pontos : 0,
+    timeId: timeTorcida,
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp()
+  });
+
+  if (acertou) {
+    await db.collection("usuarios").doc(uid).update({
+      [`pontuacoes.${jogoId}`]: firebase.firestore.FieldValue.increment(pontos),
+      xp: firebase.firestore.FieldValue.increment(pontos)
+    });
+  }
+
+  await db.collection("usuarios").doc(uid).update({
+    creditos: firebase.firestore.FieldValue.increment(-1)
+  });
 }
