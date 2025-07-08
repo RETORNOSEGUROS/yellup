@@ -65,16 +65,40 @@ async function calcularTorcida(jogo) {
   document.getElementById("porcentagemB").innerText = `${pb}%`;
 }
 
+
 function escutarLiberacaoDePerguntas() {
-  db.collection("perguntasLiberadas")
-    .where("jogoId", "==", jogoId)
-    .orderBy("ordem", "desc")
-    .limit(1)
-    .onSnapshot(async (snap) => {
-      if (snap.empty) {
-        document.getElementById("textoPergunta").innerText = "Aguardando próxima pergunta...";
-        return;
-      }
+  db.collection("jogos").doc(jogoId).onSnapshot(async (docJogo) => {
+    const jogoData = docJogo.data();
+    const campo = (timeTorcida === jogoData.timeCasaId) ? "perguntaAtualCasa" : "perguntaAtualFora";
+    const refPergunta = jogoData[campo];
+    if (!refPergunta) {
+      document.getElementById("textoPergunta").innerText = "Aguardando próxima pergunta...";
+      return;
+    }
+    const doc = await db.collection("perguntas").doc(refPergunta).get();
+    if (!doc.exists) return;
+
+    perguntaAtual = doc;
+    const p = doc.data();
+    respostaEnviada = false;
+
+    enviarMensagemAutomaticaPergunta(p.texto);
+
+    document.getElementById("textoPergunta").innerText = p.texto;
+    const lista = document.getElementById("opcoesRespostas");
+    lista.innerHTML = "";
+    ["A", "B", "C", "D"].forEach(letra => {
+      const btn = document.createElement("button");
+      btn.className = "list-group-item list-group-item-action";
+      btn.innerText = `${letra}) ${p[letra]}`;
+      btn.onclick = () => responder(letra, p.correta, p.pontuacao || 1);
+      lista.appendChild(btn);
+    });
+    iniciarContagem();
+    atualizarEstatisticasPergunta(doc.id);
+  });
+}
+
       const refPergunta = snap.docs[0].data().perguntaId;
       const doc = await db.collection("perguntas").doc(refPergunta).get();
       if (!doc.exists) return;
