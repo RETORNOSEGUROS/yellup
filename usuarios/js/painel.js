@@ -21,12 +21,21 @@ auth.onAuthStateChanged(async (user) => {
   // Carregar nome do time do coração
   if (dados.timeId) {
     try {
-      const timeDoc = await db.collection("times").doc(dados.timeId).get();
-      const time = timeDoc.exists ? timeDoc.data().nome : "Desconhecido";
-      document.getElementById("timeCoracao").innerText = time;
+      const timeRef = db.collection("times").doc(dados.timeId);
+      const timeSnap = await timeRef.get();
+      if (timeSnap.exists) {
+        const timeData = timeSnap.data();
+        const nomeTime = timeData.nome || "(sem nome cadastrado)";
+        document.getElementById("timeCoracao").innerText = nomeTime;
+      } else {
+        document.getElementById("timeCoracao").innerText = "Time não encontrado";
+      }
     } catch (e) {
-      document.getElementById("timeCoracao").innerText = "Erro";
+      console.error("Erro ao buscar time:", e);
+      document.getElementById("timeCoracao").innerText = "Erro ao carregar";
     }
+  } else {
+    document.getElementById("timeCoracao").innerText = "---";
   }
 
   // Link de convite
