@@ -1,6 +1,5 @@
-
-// Firebase versão 8 - via namespace global
-var firebaseConfig = {
+// firebase-init.js (versão compatível com Firebase compat v9)
+const firebaseConfig = {
   apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
   authDomain: "painel-yellup.firebaseapp.com",
   projectId: "painel-yellup",
