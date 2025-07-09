@@ -78,7 +78,7 @@ function mostrarPergunta(p) {
   document.getElementById("opcoesRespostas").innerHTML = "";
   document.getElementById("mensagemResultado").innerText = "";
 
-  const alternativas = p.alternativas || {};
+  const alternativas = p.alternativas || {}; // suporte padrão
 
   ["A", "B", "C", "D"].forEach(letra => {
     const textoAlt = alternativas[letra] || "Indefinido";
@@ -94,11 +94,8 @@ function mostrarPergunta(p) {
 
 function iniciarContador() {
   const barra = document.getElementById("barra");
-  barra.style.display = "block";
-  barra.style.animation = "none";
-  barra.offsetHeight; // forçar reflow
+  barra.style.setProperty('--duracao', '9s');
   barra.style.animation = "barraTempo 9s linear forwards";
-
   setTimeout(() => {
     if (!respostaEnviada) {
       document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
@@ -127,7 +124,7 @@ async function responder(letra, correta, pontos, perguntaId) {
     correta,
     acertou,
     pontuacao: acertou ? pontos : 0,
-    timestamp: new Date()
+    criadoEm: new Date()
   });
   if (acertou) {
     await db.collection("usuarios").doc(uid).update({
@@ -142,10 +139,28 @@ async function responder(letra, correta, pontos, perguntaId) {
   montarRanking();
 }
 
+async function calcularPontuacao() {
+  const respostas = await db.collection("respostas").where("jogoId", "==", jogoId).get();
+  const jogo = (await db.collection("jogos").doc(jogoId).get()).data();
+  let a = 0, b = 0;
+  respostas.forEach(doc => {
+    const r = doc.data();
+    if (!r.acertou) return;
+    if (r.timeId === jogo.timeCasaId) a += r.pontuacao || 1;
+    if (r.timeId === jogo.timeForaId) b += r.pontuacao || 1;
+  });
+  const total = a + b;
+  const pa = total ? Math.round((a / total) * 100) : 0;
+  const pb = total ? 100 - pa : 0;
+  document.getElementById("pontosA").innerText = a;
+  document.getElementById("pontosB").innerText = b;
+  document.getElementById("porcentagemPontosA").innerText = `${pa}%`;
+  document.getElementById("porcentagemPontosB").innerText = `${pb}%`;
+}
+
 function iniciarChat() {
-  db.collection("chat")
-    .where("jogoId", "==", jogoId)
-    .orderBy("timestamp")
+  db.collection("chat").where("jogoId", "==", jogoId)
+    .orderBy("timestamp", "asc")
     .onSnapshot(snapshot => {
       const chatGeral = document.getElementById("chatGeral");
       const chatTime = document.getElementById("chatTime");
