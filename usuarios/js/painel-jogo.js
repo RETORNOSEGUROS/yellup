@@ -4,15 +4,20 @@ let uid = null;
 let timeTorcida = null;
 let respostaEnviada = false;
 let perguntaAtual = null;
-let jogo = null; // 👈 CORRIGIDO para acesso global
+let jogo = null;
 
 firebase.auth().onAuthStateChanged(async (user) => {
   if (!user) return (window.location.href = "/usuarios/index.html");
   uid = user.uid;
 
   const userDoc = await db.collection("usuarios").doc(uid).get();
-  timeTorcida = userDoc.data().torcidas?.[jogoId];
+  const dados = userDoc.data();
+  const nome = dados.usuario || "Torcedor";
+  const creditos = dados.creditos ?? 0;
+  timeTorcida = dados.torcidas?.[jogoId];
   if (!timeTorcida) return alert("Você não escolheu um time para torcer.");
+
+  document.getElementById("infoUsuario").innerText = `👤 ${nome} | 💳 Créditos: ${creditos}`;
 
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
   jogo = jogoDoc.data();
