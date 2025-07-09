@@ -47,6 +47,11 @@ if (timeRef.exists) {
 
   // Carrega jogos do dia
   carregarJogosDoDia();
+    // Força o plano de fundo com a cor da variável CSS (garantia visual)
+  setTimeout(() => {
+    const corFinal = getComputedStyle(document.documentElement).getPropertyValue('--cor-terciaria');
+    document.body.style.backgroundColor = corFinal;
+  }, 100);
 });
 
 function copiarLink() {
