@@ -35,7 +35,7 @@ auth.onAuthStateChanged(async (user) => {
   const link = `https://yellup.vercel.app/usuarios/cadastro.html?indicador=${uid}`;
   document.getElementById("linkConvite").value = link;
 
-  // Chamar jogos do dia
+  // Carrega jogos do dia
   carregarJogosDoDia();
 });
 
@@ -67,6 +67,11 @@ async function carregarJogosDoDia() {
 
   container.innerHTML = "";
 
+  const user = auth.currentUser;
+  const userDoc = await db.collection("usuarios").doc(user.uid).get();
+  const dados = userDoc.data();
+  const torcidas = dados.torcidas || {};
+
   for (const doc of snapshot.docs) {
     const jogo = doc.data();
     const jogoId = doc.id;
@@ -77,19 +82,33 @@ async function carregarJogosDoDia() {
     const nomeCasa = timeCasa.exists ? timeCasa.data().nome : "Time A";
     const nomeFora = timeFora.exists ? timeFora.data().nome : "Time B";
     const status = jogo.status || "indefinido";
+    const horario = jogo.dataInicio.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     const card = document.createElement("div");
     card.className = "col";
 
-    card.innerHTML = `
+    let html = `
       <div class="card h-100 p-3">
         <h5>${nomeCasa} x ${nomeFora}</h5>
+        <p>Horário: <strong>${horario}</strong></p>
         <p>Status: <strong>${status}</strong></p>
-        <button class="btn btn-success mb-2" onclick="torcer('${jogoId}', '${jogo.timeCasaId}')">Torcer pelo ${nomeCasa}</button>
-        <button class="btn btn-primary" onclick="torcer('${jogoId}', '${jogo.timeForaId}')">Torcer pelo ${nomeFora}</button>
-      </div>
     `;
 
+    const torcidaId = torcidas[jogoId];
+    if (torcidaId) {
+      const timeTorcidaDoc = await db.collection("times").doc(torcidaId).get();
+      const nomeTorcida = timeTorcidaDoc.exists ? timeTorcidaDoc.data().nome : "Time escolhido";
+      html += `<p class="text-success">Você está torcendo para: <strong>${nomeTorcida}</strong></p>
+               <a href="painel-jogo.html?id=${jogoId}" class="btn btn-outline-success">Acessar Partida</a>`;
+    } else {
+      html += `
+        <button class="btn btn-success mb-2" onclick="torcer('${jogoId}', '${jogo.timeCasaId}')">Torcer pelo ${nomeCasa}</button>
+        <button class="btn btn-primary" onclick="torcer('${jogoId}', '${jogo.timeForaId}')">Torcer pelo ${nomeFora}</button>
+      `;
+    }
+
+    html += `</div>`;
+    card.innerHTML = html;
     container.appendChild(card);
   }
 }
@@ -102,12 +121,16 @@ async function torcer(jogoId, timeEscolhidoId) {
   const doc = await userRef.get();
   const dados = doc.data();
 
+  if (dados.torcidas && dados.torcidas[jogoId]) {
+    alert("Você já escolheu seu time para este jogo.");
+    return;
+  }
+
   if ((dados.creditos || 0) < 1) {
     alert("Você não tem créditos suficientes para torcer.");
     return;
   }
 
-  // Desconta 1 crédito e salva o time escolhido
   await userRef.update({
     creditos: (dados.creditos || 0) - 1,
     [`torcidas.${jogoId}`]: timeEscolhidoId
