@@ -4,6 +4,7 @@ let uid = null;
 let timeTorcida = null;
 let respostaEnviada = false;
 let perguntaAtual = null;
+let jogo = null; // 👈 CORRIGIDO para acesso global
 
 firebase.auth().onAuthStateChanged(async (user) => {
   if (!user) return (window.location.href = "/usuarios/index.html");
@@ -14,7 +15,7 @@ firebase.auth().onAuthStateChanged(async (user) => {
   if (!timeTorcida) return alert("Você não escolheu um time para torcer.");
 
   const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-  const jogo = jogoDoc.data();
+  jogo = jogoDoc.data();
 
   const timeA = await db.collection("times").doc(jogo.timeCasaId).get();
   const timeB = await db.collection("times").doc(jogo.timeForaId).get();
@@ -28,8 +29,8 @@ firebase.auth().onAuthStateChanged(async (user) => {
   atualizarTempoRestante(jogo.dataFim.toDate());
   setInterval(() => atualizarTempoRestante(jogo.dataFim.toDate()), 1000);
 
-  calcularTorcida(jogo);
-  calcularPontuacao(jogo);
+  calcularTorcida();
+  calcularPontuacao();
   iniciarChat();
   montarRanking();
 });
@@ -46,7 +47,7 @@ function atualizarTempoRestante(fim) {
   document.getElementById("tempoRestante").innerText = `${min}m ${sec}s`;
 }
 
-async function calcularTorcida(jogo) {
+async function calcularTorcida() {
   const usuarios = await db.collection("usuarios").get();
   let a = 0, b = 0;
   usuarios.forEach(doc => {
@@ -78,8 +79,7 @@ function mostrarPergunta(p) {
   document.getElementById("opcoesRespostas").innerHTML = "";
   document.getElementById("mensagemResultado").innerText = "";
 
-  const alternativas = p.alternativas || {}; // suporte padrão
-
+  const alternativas = p.alternativas || {};
   ["A", "B", "C", "D"].forEach(letra => {
     const textoAlt = alternativas[letra] || "Indefinido";
     const btn = document.createElement("button");
@@ -94,8 +94,11 @@ function mostrarPergunta(p) {
 
 function iniciarContador() {
   const barra = document.getElementById("barra");
-  barra.style.setProperty('--duracao', '9s');
+  barra.style.display = "block";
+  barra.style.animation = "none";
+  barra.offsetHeight; // força reflow
   barra.style.animation = "barraTempo 9s linear forwards";
+
   setTimeout(() => {
     if (!respostaEnviada) {
       document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
@@ -124,7 +127,7 @@ async function responder(letra, correta, pontos, perguntaId) {
     correta,
     acertou,
     pontuacao: acertou ? pontos : 0,
-    criadoEm: new Date()
+    timestamp: new Date()
   });
   if (acertou) {
     await db.collection("usuarios").doc(uid).update({
@@ -141,7 +144,6 @@ async function responder(letra, correta, pontos, perguntaId) {
 
 async function calcularPontuacao() {
   const respostas = await db.collection("respostas").where("jogoId", "==", jogoId).get();
-  const jogo = (await db.collection("jogos").doc(jogoId).get()).data();
   let a = 0, b = 0;
   respostas.forEach(doc => {
     const r = doc.data();
@@ -159,8 +161,9 @@ async function calcularPontuacao() {
 }
 
 function iniciarChat() {
-  db.collection("chat").where("jogoId", "==", jogoId)
-    .orderBy("timestamp", "asc")
+  db.collection("chat")
+    .where("jogoId", "==", jogoId)
+    .orderBy("timestamp")
     .onSnapshot(snapshot => {
       const chatGeral = document.getElementById("chatGeral");
       const chatTime = document.getElementById("chatTime");
