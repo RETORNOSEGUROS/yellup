@@ -21,9 +21,19 @@ auth.onAuthStateChanged(async (user) => {
   // Carrega nome do time do coração
   if (dados.timeId) {
     try {
-      const timeRef = await db.collection("times").doc(dados.timeId).get();
-      const timeNome = timeRef.exists ? timeRef.data().nome : "Desconhecido";
-      document.getElementById("timeCoracao").innerText = timeNome;
+const timeRef = await db.collection("times").doc(dados.timeId).get();
+if (timeRef.exists) {
+  const timeData = timeRef.data();
+  document.getElementById("timeCoracao").innerText = timeData.nome;
+
+  // Aplica cores no CSS dinâmico do painel
+  document.documentElement.style.setProperty('--cor-primaria', timeData.corPrimaria || '#004aad');
+  document.documentElement.style.setProperty('--cor-secundaria', timeData.corSecundaria || '#007bff');
+  document.documentElement.style.setProperty('--cor-terciaria', timeData.corTerciaria || '#d9ecff');
+} else {
+  document.getElementById("timeCoracao").innerText = "Desconhecido";
+}
+
     } catch (e) {
       document.getElementById("timeCoracao").innerText = "Erro";
     }
