@@ -108,12 +108,11 @@ function mostrarPergunta(p) {
 }
 
 function iniciarContador() {
-  pararContador(); // sempre limpa o anterior
-
+  pararContador();
   const barra = document.getElementById("barra");
   barra.style.display = "block";
   barra.style.animation = "none";
-  barra.offsetHeight; // reflow
+  barra.offsetHeight;
   barra.style.animation = "barraTempo 9s linear forwards";
 
   temporizadorResposta = setTimeout(() => {
@@ -172,7 +171,6 @@ async function responder(letra, correta, pontos, perguntaId) {
     creditos: firebase.firestore.FieldValue.increment(-1)
   });
 
-  // Atualizar créditos no topo em tempo real
   const infoUsuario = document.getElementById("infoUsuario");
   const regex = /💳 Créditos: (\d+)/;
   const atual = parseInt(infoUsuario.innerText.match(regex)?.[1] || "0", 10);
@@ -181,24 +179,6 @@ async function responder(letra, correta, pontos, perguntaId) {
   calcularPontuacao();
   montarRanking();
   desabilitarOpcoes();
-}
-
-async function calcularPontuacao() {
-  const respostas = await db.collection("respostas").where("jogoId", "==", jogoId).get();
-  let a = 0, b = 0;
-  respostas.forEach(doc => {
-    const r = doc.data();
-    if (!r.acertou) return;
-    if (r.timeId === jogo.timeCasaId) a += r.pontuacao || 1;
-    if (r.timeId === jogo.timeForaId) b += r.pontuacao || 1;
-  });
-  const total = a + b;
-  const pa = total ? Math.round((a / total) * 100) : 0;
-  const pb = total ? 100 - pa : 0;
-  document.getElementById("pontosA").innerText = a;
-  document.getElementById("pontosB").innerText = b;
-  document.getElementById("porcentagemPontosA").innerText = `${pa}%`;
-  document.getElementById("porcentagemPontosB").innerText = `${pb}%`;
 }
 
 function iniciarChat() {
@@ -210,12 +190,30 @@ function iniciarChat() {
       const chatTime = document.getElementById("chatTime");
       chatGeral.innerHTML = "";
       chatTime.innerHTML = "";
-      snapshot.forEach(doc => {
-        const msg = doc.data();
-        const el = `<div class='chat-message'><strong>${msg.nome}:</strong> ${msg.texto}</div>`;
-        if (msg.tipo === "geral") chatGeral.innerHTML += el;
-        if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
+
+      const mensagens = [];
+      snapshot.forEach(doc => mensagens.push(doc.data()));
+
+      mensagens.forEach(async msg => {
+        const userSnap = await db.collection("usuarios").doc(msg.userId).get();
+        const user = userSnap.exists ? userSnap.data() : {};
+        const avatar = user.avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
+        const nome = user.usuario || "Torcedor";
+        const isMe = msg.userId === uid;
+
+        const balao = document.createElement("div");
+        balao.className = `chat-balao ${isMe ? 'chat-direita' : 'chat-esquerda'}`;
+        balao.innerHTML = `
+          <img src="${avatar}" class="avatar-chat">
+          <div class="chat-msg ${isMe ? 'me' : ''}">
+            <strong>${nome}:</strong><br>${msg.texto}
+          </div>
+        `;
+
+        if (msg.tipo === "geral") chatGeral.appendChild(balao);
+        if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.appendChild(balao);
       });
+
       chatGeral.scrollTop = chatGeral.scrollHeight;
       chatTime.scrollTop = chatTime.scrollHeight;
     });
@@ -259,13 +257,40 @@ function montarRanking() {
         if (!ranking[r.userId]) ranking[r.userId] = 0;
         ranking[r.userId] += r.pontuacao || 1;
       });
-      const lista = Object.entries(ranking).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+      const lista = Object.entries(ranking).sort((a, b) => b[1] - a[1]).slice(0, 10);
       const container = document.getElementById("rankingPontuacao");
       container.innerHTML = "";
-      for (const [userId, pontos] of lista) {
-        const user = await db.collection("usuarios").doc(userId).get();
-        const nome = user.exists ? user.data().usuario : "Torcedor";
-        container.innerHTML += `<li class='list-group-item'>${nome} - ${pontos} pts</li>`;
+
+      for (let i = 0; i < lista.length; i++) {
+        const [userId, pontos] = lista[i];
+        const userDoc = await db.collection("usuarios").doc(userId).get();
+        const user = userDoc.exists ? userDoc.data() : {};
+        const avatar = user.avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
+        const nome = user.usuario || "Torcedor";
+        const timeIdUser = user.torcidas?.[jogoId];
+
+        let timeNome = "";
+        let cor = "#999";
+
+        if (timeIdUser) {
+          const timeDoc = await db.collection("times").doc(timeIdUser).get();
+          if (timeDoc.exists) {
+            timeNome = timeDoc.data().nome;
+            cor = timeDoc.data().corPrimaria || "#006eff";
+          }
+        }
+
+        container.innerHTML += `
+          <li class="list-group-item ranking-linha">
+            <span class="pos">${i + 1}º</span>
+            <img src="${avatar}" class="avatar-ranking">
+            <span><strong>${nome}</strong> - 
+              <span class="badge-time" style="background:${cor}">${timeNome}</span> 
+              - ${pontos} pts
+            </span>
+          </li>
+        `;
       }
     });
 }
