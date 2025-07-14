@@ -96,10 +96,10 @@ function mostrarPergunta(p) {
 
   const alternativas = p.alternativas || {};
   ["A", "B", "C", "D"].forEach(letra => {
-    const textoAlt = alternativas[letra] || "Indefinido";
+    const textoAlt = alternativas[letra] || "";
     const btn = document.createElement("button");
     btn.className = "list-group-item list-group-item-action";
-    btn.innerText = `${letra}) ${textoAlt}`;
+    btn.innerText = textoAlt; // Remove letra A), B), etc.
     btn.onclick = () => responder(letra, p.correta, p.pontuacao || 1, p.id);
     document.getElementById("opcoesRespostas").appendChild(btn);
   });
@@ -191,10 +191,8 @@ function iniciarChat() {
       chatGeral.innerHTML = "";
       chatTime.innerHTML = "";
 
-      const mensagens = [];
-      snapshot.forEach(doc => mensagens.push(doc.data()));
-
-      mensagens.forEach(async msg => {
+      snapshot.forEach(async doc => {
+        const msg = doc.data();
         const userSnap = await db.collection("usuarios").doc(msg.userId).get();
         const user = userSnap.exists ? userSnap.data() : {};
         const avatar = user.avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
@@ -229,7 +227,7 @@ function iniciarChat() {
 function enviarMensagem(tipo) {
   const input = document.getElementById(tipo === "geral" ? "mensagemGeral" : "mensagemTime");
   const texto = input.value.trim();
-  if (!texto) return;
+  if (!texto || !uid) return;
   input.value = "";
   db.collection("usuarios").doc(uid).get().then(doc => {
     const nome = doc.data().usuario || "Torcedor";
