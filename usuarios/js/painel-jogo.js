@@ -70,10 +70,19 @@ async function calcularTorcida() {
 }
 
 async function responderPergunta() {
+  const respondidasSnap = await db.collection("respostas")
+    .where("jogoId", "==", jogoId)
+    .where("userId", "==", uid)
+    .get();
+  const respondidasIds = respondidasSnap.docs.map(doc => doc.data().perguntaId);
+
   const snap = await db.collection("perguntas").where("timeId", "==", timeTorcida).get();
-  if (snap.empty) return alert("Nenhuma pergunta disponível para seu time.");
-  const perguntas = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  const pergunta = perguntas[Math.floor(Math.random() * perguntas.length)];
+  const todas = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+  const filtradas = todas.filter(p => !respondidasIds.includes(p.id));
+  if (filtradas.length === 0) return alert("Você já respondeu todas as perguntas.");
+
+  const pergunta = filtradas[Math.floor(Math.random() * filtradas.length)];
   mostrarPergunta(pergunta);
 }
 
@@ -108,8 +117,16 @@ function iniciarContador() {
     if (!respostaEnviada) {
       document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
       desabilitarOpcoes();
+      pararContador();
     }
   }, 9000);
+}
+
+function pararContador() {
+  const barra = document.getElementById("barra");
+  barra.style.animation = "none";
+  barra.offsetHeight;
+  barra.style.display = "none";
 }
 
 function desabilitarOpcoes() {
@@ -119,10 +136,12 @@ function desabilitarOpcoes() {
 async function responder(letra, correta, pontos, perguntaId) {
   if (respostaEnviada) return;
   respostaEnviada = true;
+  pararContador();
   const acertou = letra === correta;
   document.getElementById("mensagemResultado").innerText = acertou
     ? "✅ Resposta correta!"
     : `❌ Errado. Correta: ${correta}`;
+
   await db.collection("respostas").add({
     jogoId,
     perguntaId,
@@ -134,17 +153,27 @@ async function responder(letra, correta, pontos, perguntaId) {
     pontuacao: acertou ? pontos : 0,
     timestamp: new Date()
   });
+
   if (acertou) {
     await db.collection("usuarios").doc(uid).update({
       [`pontuacoes.${jogoId}`]: firebase.firestore.FieldValue.increment(pontos),
       xp: firebase.firestore.FieldValue.increment(pontos)
     });
   }
+
   await db.collection("usuarios").doc(uid).update({
     creditos: firebase.firestore.FieldValue.increment(-1)
   });
+
+  // Atualizar créditos na interface em tempo real
+  const infoUsuario = document.getElementById("infoUsuario");
+  const regex = /💳 Créditos: (\d+)/;
+  const atual = parseInt(infoUsuario.innerText.match(regex)?.[1] || "0", 10);
+  infoUsuario.innerText = infoUsuario.innerText.replace(regex, `💳 Créditos: ${atual - 1}`);
+
   calcularPontuacao();
   montarRanking();
+  desabilitarOpcoes();
 }
 
 async function calcularPontuacao() {
