@@ -5,6 +5,7 @@ let timeTorcida = null;
 let respostaEnviada = false;
 let perguntaAtual = null;
 let jogo = null;
+let temporizadorResposta = null;
 
 firebase.auth().onAuthStateChanged(async (user) => {
   if (!user) return (window.location.href = "/usuarios/index.html");
@@ -107,13 +108,15 @@ function mostrarPergunta(p) {
 }
 
 function iniciarContador() {
+  pararContador(); // sempre limpa o anterior
+
   const barra = document.getElementById("barra");
   barra.style.display = "block";
   barra.style.animation = "none";
-  barra.offsetHeight; // força reflow
+  barra.offsetHeight; // reflow
   barra.style.animation = "barraTempo 9s linear forwards";
 
-  setTimeout(() => {
+  temporizadorResposta = setTimeout(() => {
     if (!respostaEnviada) {
       document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
       desabilitarOpcoes();
@@ -123,6 +126,10 @@ function iniciarContador() {
 }
 
 function pararContador() {
+  if (temporizadorResposta) {
+    clearTimeout(temporizadorResposta);
+    temporizadorResposta = null;
+  }
   const barra = document.getElementById("barra");
   barra.style.animation = "none";
   barra.offsetHeight;
@@ -165,7 +172,7 @@ async function responder(letra, correta, pontos, perguntaId) {
     creditos: firebase.firestore.FieldValue.increment(-1)
   });
 
-  // Atualizar créditos na interface em tempo real
+  // Atualizar créditos no topo em tempo real
   const infoUsuario = document.getElementById("infoUsuario");
   const regex = /💳 Créditos: (\d+)/;
   const atual = parseInt(infoUsuario.innerText.match(regex)?.[1] || "0", 10);
