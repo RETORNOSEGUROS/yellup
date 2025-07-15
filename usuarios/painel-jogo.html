@@ -1,267 +1,153 @@
-const urlParams = new URLSearchParams(window.location.search);
-const jogoId = urlParams.get("id");
-let uid = null;
-let timeTorcida = null;
-let respostaEnviada = false;
-let perguntaAtual = null;
-let jogo = null;
-let temporizadorResposta = null;
-
-firebase.auth().onAuthStateChanged(async (user) => {
-  if (!user) return (window.location.href = "/usuarios/index.html");
-  uid = user.uid;
-
-  const userDoc = await db.collection("usuarios").doc(uid).get();
-  const dados = userDoc.data();
-  const nome = dados.usuario || "Torcedor";
-  const creditos = dados.creditos ?? 0;
-  timeTorcida = dados.torcidas?.[jogoId];
-  if (!timeTorcida) return alert("Você não escolheu um time para torcer.");
-
-  document.getElementById("infoUsuario").innerText = `👤 ${nome} | 💳 Créditos: ${creditos}`;
-
-  const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-  jogo = jogoDoc.data();
-
-  const timeA = await db.collection("times").doc(jogo.timeCasaId).get();
-  const timeB = await db.collection("times").doc(jogo.timeForaId).get();
-
-  document.getElementById("tituloJogo").innerText = `${timeA.data().nome} x ${timeB.data().nome}`;
-  document.getElementById("timeA").innerText = timeA.data().nome;
-  document.getElementById("timeB").innerText = timeB.data().nome;
-  document.getElementById("inicioJogo").innerText = formatarData(jogo.dataInicio.toDate());
-  document.getElementById("fimJogo").innerText = formatarData(jogo.dataFim.toDate());
-
-  atualizarTempoRestante(jogo.dataFim.toDate());
-  setInterval(() => atualizarTempoRestante(jogo.dataFim.toDate()), 1000);
-
-  calcularTorcida();
-  calcularPontuacao();
-  iniciarChat();
-  montarRanking();
-});
-
-function formatarData(data) {
-  return data.toLocaleString("pt-BR", { hour: '2-digit', minute: '2-digit' });
-}
-
-function atualizarTempoRestante(fim) {
-  const agora = new Date();
-  const diff = Math.max(0, fim - agora);
-  const min = Math.floor(diff / 60000);
-  const sec = Math.floor((diff % 60000) / 1000);
-  document.getElementById("tempoRestante").innerText = `${min}m ${sec}s`;
-}
-
-async function calcularTorcida() {
-  const usuarios = await db.collection("usuarios").get();
-  let a = 0, b = 0;
-  usuarios.forEach(doc => {
-    const t = doc.data().torcidas?.[jogoId];
-    if (t === jogo.timeCasaId) a++;
-    if (t === jogo.timeForaId) b++;
-  });
-  const total = a + b;
-  const pa = total ? Math.round((a / total) * 100) : 0;
-  const pb = total ? 100 - pa : 0;
-  document.getElementById("torcidaA").innerText = a;
-  document.getElementById("torcidaB").innerText = b;
-  document.getElementById("porcentagemA").innerText = `${pa}%`;
-  document.getElementById("porcentagemB").innerText = `${pb}%`;
-}
-
-async function responderPergunta() {
-  const respondidasSnap = await db.collection("respostas")
-    .where("jogoId", "==", jogoId)
-    .where("userId", "==", uid)
-    .get();
-  const respondidasIds = respondidasSnap.docs.map(doc => doc.data().perguntaId);
-
-  const snap = await db.collection("perguntas").where("timeId", "==", timeTorcida).get();
-  const todas = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-  const filtradas = todas.filter(p => !respondidasIds.includes(p.id));
-  if (filtradas.length === 0) return alert("Você já respondeu todas as perguntas.");
-
-  const pergunta = filtradas[Math.floor(Math.random() * filtradas.length)];
-  mostrarPergunta(pergunta);
-}
-
-function mostrarPergunta(p) {
-  perguntaAtual = p;
-  respostaEnviada = false;
-  document.getElementById("textoPergunta").innerText = p.pergunta || p.texto || "Pergunta não encontrada";
-  document.getElementById("opcoesRespostas").innerHTML = "";
-  document.getElementById("mensagemResultado").innerText = "";
-
-  const alternativas = p.alternativas || {};
-  ["A", "B", "C", "D"].forEach(letra => {
-    const textoAlt = alternativas[letra] || "Indefinido";
-    const btn = document.createElement("button");
-    btn.className = "list-group-item list-group-item-action";
-    btn.innerText = textoAlt;  // Removido A), B), etc.
-    btn.onclick = () => responder(letra, p.correta, p.pontuacao || 1, p.id);
-    document.getElementById("opcoesRespostas").appendChild(btn);
-  });
-
-  iniciarContador();
-}
-
-function iniciarContador() {
-  const barra = document.getElementById("barra");
-  barra.style.display = "block";
-  barra.style.animation = "none";
-  barra.offsetHeight; // força reflow
-  barra.style.animation = "barraTempo 9s linear forwards";
-
-  temporizadorResposta = setTimeout(() => {
-    if (!respostaEnviada) {
-      document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
-      desabilitarOpcoes();
-      pararContador();
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Jogo ao Vivo</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <link rel="stylesheet" href="/usuarios/css/style.css" />
+  <link rel="stylesheet" href="/usuarios/css/tema-time.css" />
+  <style>
+    .barra-tempo {
+      height: 8px;
+      background-color: #28a745;
+      width: 100%;
+      display: none;
+      animation: barraTempo var(--duracao, 9s) linear forwards;
     }
-  }, 9000);
-}
+    @keyframes barraTempo {
+      from { width: 100%; }
+      to { width: 0%; }
+    }
 
-function pararContador() {
-  if (temporizadorResposta) { clearTimeout(temporizadorResposta); temporizadorResposta = null; }
-  const barra = document.getElementById("barra");
-  barra.style.animation = "none";
-  barra.offsetHeight;
-  barra.style.display = "none";
-}
+    /* Estilos adicionais visuais */
+    .avatar-chat, .avatar-ranking {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
 
-function desabilitarOpcoes() {
-  document.querySelectorAll("#opcoesRespostas button").forEach(btn => btn.disabled = true);
-}
+    .chat-balao {
+      display: flex;
+      align-items: flex-start;
+      margin-bottom: 8px;
+      gap: 6px;
+      max-width: 90%;
+    }
 
-async function responder(letra, correta, pontos, perguntaId) {
-  if (respostaEnviada) return;
-  respostaEnviada = true;
-  pararContador();
-  const acertou = letra === correta;
-  document.getElementById("mensagemResultado").innerText = acertou
-    ? "✅ Resposta correta!"
-    : `❌ Errado. Correta: ${correta}`;
+    .chat-esquerda {
+      flex-direction: row;
+    }
 
-  await db.collection("respostas").add({
-    jogoId,
-    perguntaId,
-    userId: uid,
-    timeId: timeTorcida,
-    resposta: letra,
-    correta,
-    acertou,
-    pontuacao: acertou ? pontos : 0,
-    timestamp: new Date()
-  });
+    .chat-direita {
+      flex-direction: row-reverse;
+      align-self: flex-end;
+    }
 
-  if (acertou) {
-    await db.collection("usuarios").doc(uid).update({
-      [`pontuacoes.${jogoId}`]: firebase.firestore.FieldValue.increment(pontos),
-      xp: firebase.firestore.FieldValue.increment(pontos)
-    });
-  }
+    .chat-msg {
+      background-color: #f1f0f0;
+      padding: 6px 10px;
+      border-radius: 12px;
+      max-width: 100%;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
 
-  await db.collection("usuarios").doc(uid).update({
-    creditos: firebase.firestore.FieldValue.increment(-1)
-  });
+    .chat-msg.me {
+      background-color: #d4edda;
+      font-weight: bold;
+    }
 
-  // Atualizar créditos na interface em tempo real
-  const infoUsuario = document.getElementById("infoUsuario");
-  const regex = /💳 Créditos: (\d+)/;
-  const atual = parseInt(infoUsuario.innerText.match(regex)?.[1] || "0", 10);
-  infoUsuario.innerText = infoUsuario.innerText.replace(regex, `💳 Créditos: ${atual - 1}`);
+    .ranking-linha {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
 
-  calcularPontuacao();
-  montarRanking();
-  desabilitarOpcoes();
-}
+    .ranking-linha .pos {
+      font-weight: bold;
+      width: 24px;
+    }
 
-async function calcularPontuacao() {
-  const respostas = await db.collection("respostas").where("jogoId", "==", jogoId).get();
-  let a = 0, b = 0;
-  respostas.forEach(doc => {
-    const r = doc.data();
-    if (!r.acertou) return;
-    if (r.timeId === jogo.timeCasaId) a += r.pontuacao || 1;
-    if (r.timeId === jogo.timeForaId) b += r.pontuacao || 1;
-  });
-  const total = a + b;
-  const pa = total ? Math.round((a / total) * 100) : 0;
-  const pb = total ? 100 - pa : 0;
-  document.getElementById("pontosA").innerText = a;
-  document.getElementById("pontosB").innerText = b;
-  document.getElementById("porcentagemPontosA").innerText = `${pa}%`;
-  document.getElementById("porcentagemPontosB").innerText = `${pb}%`;
-}
+    .badge-time {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: white;
+    }
 
-function iniciarChat() {
-  db.collection("chat")
-    .where("jogoId", "==", jogoId)
-    .orderBy("timestamp")
-    .onSnapshot(snapshot => {
-      const chatGeral = document.getElementById("chatGeral");
-      const chatTime = document.getElementById("chatTime");
-      chatGeral.innerHTML = "";
-      chatTime.innerHTML = "";
-      snapshot.forEach(doc => {
-        const msg = doc.data();
-        const el = `<div class='chat-message'><strong>${msg.nome}:</strong> ${msg.texto}</div>`;
-        if (msg.tipo === "geral") chatGeral.innerHTML += el;
-        if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
-      });
-      chatGeral.scrollTop = chatGeral.scrollHeight;
-      chatTime.scrollTop = chatTime.scrollHeight;
-    });
+    .chat-box {
+      max-height: 500px;
+      min-height: 300px;
+      overflow-y: auto;
+      background: #f8f9fa;
+      padding: 10px;
+      border: 1px solid #ddd;
+    }
 
-  document.getElementById("mensagemGeral").addEventListener("keydown", e => {
-    if (e.key === "Enter") enviarMensagem("geral");
-  });
-  document.getElementById("mensagemTime").addEventListener("keydown", e => {
-    if (e.key === "Enter") enviarMensagem("time");
-  });
-}
+  </style>
+</head>
+<body class="container py-4">
 
-function enviarMensagem(tipo) {
-  const input = document.getElementById(tipo === "geral" ? "mensagemGeral" : "mensagemTime");
-  const texto = input.value.trim();
-  if (!texto) return;
-  input.value = "";
-  db.collection("usuarios").doc(uid).get().then(doc => {
-    const nome = doc.data().usuario || "Torcedor";
-    db.collection("chat").add({
-      jogoId,
-      timeId: timeTorcida,
-      tipo,
-      userId: uid,
-      nome,
-      texto,
-      timestamp: new Date()
-    });
-  });
-}
+  <!-- Bloco com nome do usuário e créditos -->
+  <div class="d-flex justify-content-end mb-2">
+    <div id="infoUsuario" class="text-end small text-muted"></div>
+  </div>
 
-function montarRanking() {
-  db.collection("respostas")
-    .where("jogoId", "==", jogoId)
-    .where("acertou", "==", true)
-    .get()
-    .then(async snap => {
-      const ranking = {};
-      snap.forEach(doc => {
-        const r = doc.data();
-        if (!ranking[r.userId]) ranking[r.userId] = 0;
-        ranking[r.userId] += r.pontuacao || 1;
-      });
-      const lista = Object.entries(ranking).sort((a, b) => b[1] - a[1]).slice(0, 5);
-      const container = document.getElementById("rankingPontuacao");
-      container.innerHTML = "";
-      for (const [userId, pontos] of lista) {
-        const user = await db.collection("usuarios").doc(userId).get();
-        const nome = user.exists ? user.data().usuario : "Torcedor";
-        const avatar = user.exists && user.data().avatarUrl ? user.data().avatarUrl : 'https://i.imgur.com/DefaultAvatar.png';
-container.innerHTML += `<li class='list-group-item d-flex align-items-center gap-2'><img src='${avatar}' class='avatar-ranking' style='width:24px;height:24px;border-radius:50%;object-fit:cover;'><span>${nome} - ${pontos} pts</span></li>`;
-      }
-    });
-}
+  <h3 id="tituloJogo">Jogo ao Vivo</h3>
+  <p>
+    <strong>Início:</strong> <span id="inicioJogo"></span> |
+    <strong>Fim previsto:</strong> <span id="fimJogo"></span> |
+    <strong>Tempo restante:</strong> <span id="tempoRestante"></span>
+  </p>
+
+  <div class="row mb-4">
+    <div class="col-md-6 text-center">
+      <h5 id="timeA">Time A</h5>
+      <p><span id="torcidaA">0</span> torcedores - <span id="porcentagemA">0%</span></p>
+      <p>Pontos: <span id="pontosA">0</span> (<span id="porcentagemPontosA">0%</span>)</p>
+    </div>
+    <div class="col-md-6 text-center">
+      <h5 id="timeB">Time B</h5>
+      <p><span id="torcidaB">0</span> torcedores - <span id="porcentagemB">0%</span></p>
+      <p>Pontos: <span id="pontosB">0</span> (<span id="porcentagemPontosB">0%</span>)</p>
+    </div>
+  </div>
+
+  <div class="mb-4">
+    <button class="btn btn-success mb-3" onclick="responderPergunta()">🎯 Responder Pergunta</button>
+    <div id="barra" class="barra-tempo mb-2"></div>
+    <h5 id="textoPergunta">Aguardando pergunta...</h5>
+    <div class="list-group mt-3" id="opcoesRespostas"></div>
+    <div id="mensagemResultado" class="mt-3 fw-bold"></div>
+    <div id="estatisticasPergunta" class="mt-2 small text-muted"></div>
+  </div>
+
+  <div class="row mb-4">
+    <div class="col-md-8">
+      <h6>Chat da Torcida</h6>
+      <div class="chat-box d-flex flex-column align-items-start" id="chatTime"></div>
+      <input type="text" id="mensagemTime" class="form-control mt-2" placeholder="Mensagem...">
+      <button onclick="enviarMensagem('time')" class="btn btn-primary mt-1 w-100">Enviar</button>
+    </div>
+    <div class="col-md-4">
+      <h6>Chat Geral</h6>
+      <div class="chat-box d-flex flex-column align-items-start" id="chatGeral"></div>
+      <input type="text" id="mensagemGeral" class="form-control mt-2" placeholder="Mensagem...">
+      <button onclick="enviarMensagem('geral')" class="btn btn-secondary mt-1 w-100">Enviar</button>
+    </div>
+  </div>
+
+  <div class="mt-5">
+    <h5>Ranking dos Torcedores</h5>
+    <ul id="rankingPontuacao" class="list-group"></ul>
+  </div>
+
+  <script src="/usuarios/js/firebase-init.js"></script>
+  <script src="/usuarios/js/painel-jogo.js"></script>
+</body>
+</html>
