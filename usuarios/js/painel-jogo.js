@@ -22,30 +22,28 @@ async function montarEscalacao() {
   containerCasa.innerHTML = "";
   containerFora.innerHTML = "";
 
+  let index = 1;
   for (const [userId, pontos] of escalacao.casa) {
     const userDoc = await db.collection("usuarios").doc(userId).get();
     const nome = userDoc.data().usuario || "Torcedor";
     const avatar = userDoc.data().avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
-    containerCasa.innerHTML += `
-      <div class="jogador-campo">
-        <img src="${avatar}">
-        <div>${nome}</div>
-        <small>${pontos} pts</small>
-      </div>
-    `;
+    const div = document.createElement("div");
+    div.className = `jogador-campo pos${index}`;
+    div.innerHTML = `<img src="${avatar}"><div>${nome}</div><small>${pontos} pts</small>`;
+    containerCasa.appendChild(div);
+    index++;
   }
 
+  index = 1;
   for (const [userId, pontos] of escalacao.fora) {
     const userDoc = await db.collection("usuarios").doc(userId).get();
     const nome = userDoc.data().usuario || "Torcedor";
     const avatar = userDoc.data().avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
-    containerFora.innerHTML += `
-      <div class="jogador-campo">
-        <img src="${avatar}">
-        <div>${nome}</div>
-        <small>${pontos} pts</small>
-      </div>
-    `;
+    const div = document.createElement("div");
+    div.className = `jogador-campo pos${index}`;
+    div.innerHTML = `<img src="${avatar}"><div>${nome}</div><small>${pontos} pts</small>`;
+    containerFora.appendChild(div);
+    index++;
   }
 }
 
