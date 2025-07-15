@@ -36,7 +36,6 @@ firebase.auth().onAuthStateChanged(async (user) => {
   setInterval(() => atualizarTempoRestante(jogo.dataFim.toDate()), 1000);
 
   calcularTorcida();
-  calcularPontuacaoTimes();
   calcularPontuacao();
   iniciarChat();
   montarRanking();
@@ -54,29 +53,21 @@ function atualizarTempoRestante(fim) {
   document.getElementById("tempoRestante").innerText = `${min}m ${sec}s`;
 }
 
-async 
-function calcularTorcida() {
-  db.collection("usuarios").get().then(snapshot => {
-    let a = 0, b = 0;
-    snapshot.forEach(doc => {
-      const t = doc.data().torcidas?.[jogoId];
-      if (t === jogo.timeCasaId) a++;
-      if (t === jogo.timeForaId) b++;
-    });
-    const total = a + b;
-    const pa = total ? Math.round((a / total) * 100) : 0;
-    const pb = 100 - pa;
-
-    document.getElementById("torcidaA").innerText = a;
-    document.getElementById("torcidaB").innerText = b;
-    document.getElementById("porcentagemA").innerText = `${pa}%`;
-    document.getElementById("porcentagemB").innerText = `${pb}%`;
-
-    document.getElementById("barraTorcidaA").style.width = pa + "%";
-    document.getElementById("barraTorcidaB").style.width = pb + "%";
-    document.getElementById("percentualA").innerText = `${pa}% ${jogo.timeCasaNome}`;
-    document.getElementById("percentualB").innerText = `${pb}% ${jogo.timeForaNome}`;
+async function calcularTorcida() {
+  const usuarios = await db.collection("usuarios").get();
+  let a = 0, b = 0;
+  usuarios.forEach(doc => {
+    const t = doc.data().torcidas?.[jogoId];
+    if (t === jogo.timeCasaId) a++;
+    if (t === jogo.timeForaId) b++;
   });
+  const total = a + b;
+  const pa = total ? Math.round((a / total) * 100) : 0;
+  const pb = total ? 100 - pa : 0;
+  document.getElementById("torcidaA").innerText = a;
+  document.getElementById("torcidaB").innerText = b;
+  document.getElementById("porcentagemA").innerText = `${pa}%`;
+  document.getElementById("porcentagemB").innerText = `${pb}%`;
 }
 
 async function responderPergunta() {
@@ -272,28 +263,5 @@ function montarRanking() {
         const avatar = user.exists && user.data().avatarUrl ? user.data().avatarUrl : 'https://i.imgur.com/DefaultAvatar.png';
 container.innerHTML += `<li class='list-group-item d-flex align-items-center gap-2'><img src='${avatar}' class='avatar-ranking' style='width:24px;height:24px;border-radius:50%;object-fit:cover;'><span>${nome} - ${pontos} pts</span></li>`;
       }
-    });
-}
-
-function calcularPontuacaoTimes() {
-  db.collection("respostas")
-    .where("jogoId", "==", jogoId)
-    .where("acertou", "==", true)
-    .get()
-    .then(snapshot => {
-      let pontosA = 0, pontosB = 0;
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        if (data.timeId === jogo.timeCasaId) pontosA += data.pontuacao || 0;
-        if (data.timeId === jogo.timeForaId) pontosB += data.pontuacao || 0;
-      });
-      const total = pontosA + pontosB;
-      const pa = total ? Math.round((pontosA / total) * 100) : 0;
-      const pb = 100 - pa;
-
-      document.getElementById("barraPontosA").style.width = pa + "%";
-      document.getElementById("barraPontosB").style.width = pb + "%";
-      document.getElementById("percentualPontosA").innerText = `${pa}% ${jogo.timeCasaNome}`;
-      document.getElementById("percentualPontosB").innerText = `${pb}% ${jogo.timeForaNome}`;
     });
 }
