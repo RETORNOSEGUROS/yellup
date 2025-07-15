@@ -1,3 +1,54 @@
+async function montarEscalacao() {
+  const respostas = await db.collection("respostas")
+    .where("jogoId", "==", jogoId)
+    .where("acertou", "==", true)
+    .get();
+
+  const pontosPorTime = {};
+  respostas.forEach(doc => {
+    const r = doc.data();
+    if (!pontosPorTime[r.timeId]) pontosPorTime[r.timeId] = {};
+    if (!pontosPorTime[r.timeId][r.userId]) pontosPorTime[r.timeId][r.userId] = 0;
+    pontosPorTime[r.timeId][r.userId] += r.pontuacao || 1;
+  });
+
+  const escalacao = {
+    casa: Object.entries(pontosPorTime[jogo.timeCasaId] || {}).sort((a,b) => b[1] - a[1]).slice(0,11),
+    fora: Object.entries(pontosPorTime[jogo.timeForaId] || {}).sort((a,b) => b[1] - a[1]).slice(0,11)
+  };
+
+  const containerCasa = document.getElementById("escalacaoCasa");
+  const containerFora = document.getElementById("escalacaoFora");
+  containerCasa.innerHTML = "";
+  containerFora.innerHTML = "";
+
+  for (const [userId, pontos] of escalacao.casa) {
+    const userDoc = await db.collection("usuarios").doc(userId).get();
+    const nome = userDoc.data().usuario || "Torcedor";
+    const avatar = userDoc.data().avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
+    containerCasa.innerHTML += `
+      <div class="jogador-campo">
+        <img src="${avatar}">
+        <div>${nome}</div>
+        <small>${pontos} pts</small>
+      </div>
+    `;
+  }
+
+  for (const [userId, pontos] of escalacao.fora) {
+    const userDoc = await db.collection("usuarios").doc(userId).get();
+    const nome = userDoc.data().usuario || "Torcedor";
+    const avatar = userDoc.data().avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
+    containerFora.innerHTML += `
+      <div class="jogador-campo">
+        <img src="${avatar}">
+        <div>${nome}</div>
+        <small>${pontos} pts</small>
+      </div>
+    `;
+  }
+}
+
 const urlParams = new URLSearchParams(window.location.search);
 const jogoId = urlParams.get("id");
 let uid = null;
@@ -39,6 +90,8 @@ firebase.auth().onAuthStateChanged(async (user) => {
   calcularPontuacao();
   iniciarChat();
   montarRanking();
+  montarEscalacao();
+  setInterval(montarEscalacao, 10000);
 });
 
 function formatarData(data) {
@@ -175,6 +228,8 @@ async function responder(letra, correta, pontos, perguntaId) {
 
   calcularPontuacao();
   montarRanking();
+  montarEscalacao();
+  setInterval(montarEscalacao, 10000);
   desabilitarOpcoes();
 }
 
