@@ -107,48 +107,23 @@ function mostrarPergunta(p) {
   iniciarContador();
 }
 
-
 function iniciarContador() {
-  pararContador();
   const barra = document.getElementById("barra");
-  const tempoTexto = document.getElementById("contadorTempo");
-  let segundos = 9;
-
   barra.style.display = "block";
   barra.style.animation = "none";
-  barra.offsetHeight;
+  barra.offsetHeight; // força reflow
   barra.style.animation = "barraTempo 9s linear forwards";
 
-  tempoTexto.innerText = `⏱ ${segundos}s`;
-  tempoTexto.style.color = "green";
-
-  temporizadorResposta = setInterval(() => {
-    segundos--;
-    tempoTexto.innerText = `⏱ ${segundos}s`;
-
-    if (segundos <= 3) {
-      tempoTexto.style.color = "red";
-    } else if (segundos <= 6) {
-      tempoTexto.style.color = "orange";
+  temporizadorResposta = setTimeout(() => {
+    if (!respostaEnviada) {
+      document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
+      desabilitarOpcoes();
+      pararContador();
     }
-
-    if (segundos <= 0) {
-      clearInterval(temporizadorResposta);
-      tempoTexto.innerText = "";
-      if (!respostaEnviada) {
-        document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
-        desabilitarOpcoes();
-        pararContador();
-      }
-    }
-  }, 1000);
-}
-
   }, 9000);
 }
 
 function pararContador() {
-  if (temporizadorResposta) { clearInterval(temporizadorResposta); temporizadorResposta = null; }
   if (temporizadorResposta) { clearTimeout(temporizadorResposta); temporizadorResposta = null; }
   const barra = document.getElementById("barra");
   barra.style.animation = "none";
