@@ -5,6 +5,7 @@ let timeTorcida = null;
 let respostaEnviada = false;
 let perguntaAtual = null;
 let jogo = null;
+let temporizadorResposta = null;
 
 firebase.auth().onAuthStateChanged(async (user) => {
   if (!user) return (window.location.href = "/usuarios/index.html");
@@ -98,7 +99,7 @@ function mostrarPergunta(p) {
     const textoAlt = alternativas[letra] || "Indefinido";
     const btn = document.createElement("button");
     btn.className = "list-group-item list-group-item-action";
-    btn.innerText = textoAlt;  // Alterado: removido A), B), etc.
+    btn.innerText = textoAlt;  // Removido A), B), etc.
     btn.onclick = () => responder(letra, p.correta, p.pontuacao || 1, p.id);
     document.getElementById("opcoesRespostas").appendChild(btn);
   });
@@ -113,7 +114,7 @@ function iniciarContador() {
   barra.offsetHeight; // força reflow
   barra.style.animation = "barraTempo 9s linear forwards";
 
-  setTimeout(() => {
+  temporizadorResposta = setTimeout(() => {
     if (!respostaEnviada) {
       document.getElementById("mensagemResultado").innerText = "⏱️ Tempo esgotado!";
       desabilitarOpcoes();
@@ -123,6 +124,7 @@ function iniciarContador() {
 }
 
 function pararContador() {
+  if (temporizadorResposta) { clearTimeout(temporizadorResposta); temporizadorResposta = null; }
   const barra = document.getElementById("barra");
   barra.style.animation = "none";
   barra.offsetHeight;
@@ -258,7 +260,8 @@ function montarRanking() {
       for (const [userId, pontos] of lista) {
         const user = await db.collection("usuarios").doc(userId).get();
         const nome = user.exists ? user.data().usuario : "Torcedor";
-        container.innerHTML += `<li class='list-group-item'>${nome} - ${pontos} pts</li>`;
+        const avatar = user.exists && user.data().avatarUrl ? user.data().avatarUrl : 'https://i.imgur.com/DefaultAvatar.png';
+container.innerHTML += `<li class='list-group-item d-flex align-items-center gap-2'><img src='${avatar}' class='avatar-ranking' style='width:24px;height:24px;border-radius:50%;object-fit:cover;'><span>${nome} - ${pontos} pts</span></li>`;
       }
     });
 }
