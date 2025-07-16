@@ -30,18 +30,19 @@ firebase.auth().onAuthStateChanged(async (user) => {
   const corA = timeA.data().corPrimaria || "#28a745";
   const corB = timeB.data().corPrimaria || "#dc3545";
 
-  // Aplica nomes e cores
   document.getElementById("tituloJogo").innerText = `${nomeA} x ${nomeB}`;
-const timeAEl = document.getElementById("timeA");
-const timeBEl = document.getElementById("timeB");
-timeAEl.innerText = nomeA;
-timeBEl.innerText = nomeB;
-document.documentElement.style.setProperty("--cor-timeA", corA);
-document.documentElement.style.setProperty("--cor-timeB", corB);
-timeAEl.style.backgroundColor = corA;
-timeBEl.style.backgroundColor = corB;
+
+  const timeAEl = document.getElementById("timeA");
+  const timeBEl = document.getElementById("timeB");
+
+  timeAEl.innerText = nomeA;
+  timeBEl.innerText = nomeB;
+
   document.documentElement.style.setProperty("--cor-timeA", corA);
   document.documentElement.style.setProperty("--cor-timeB", corB);
+
+  timeAEl.style.backgroundColor = corA;
+  timeBEl.style.backgroundColor = corB;
 
   document.getElementById("inicioJogo").innerText = formatarData(jogo.dataInicio.toDate());
   document.getElementById("fimJogo").innerText = formatarData(jogo.dataFim.toDate());
@@ -128,7 +129,7 @@ function iniciarContador() {
   const barra = document.getElementById("barra");
   barra.style.display = "block";
   barra.style.animation = "none";
-  barra.offsetHeight; // força reflow
+  barra.offsetHeight;
   barra.style.animation = "barraTempo 9s linear forwards";
 
   temporizadorResposta = setTimeout(() => {
@@ -185,7 +186,6 @@ async function responder(letra, correta, pontos, perguntaId) {
     creditos: firebase.firestore.FieldValue.increment(-1)
   });
 
-  // Atualizar créditos em tempo real
   const infoUsuario = document.getElementById("infoUsuario");
   const regex = /💳 Créditos: (\d+)/;
   const atual = parseInt(infoUsuario.innerText.match(regex)?.[1] || "0", 10);
