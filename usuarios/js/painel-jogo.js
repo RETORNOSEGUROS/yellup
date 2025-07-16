@@ -30,19 +30,12 @@ firebase.auth().onAuthStateChanged(async (user) => {
   const corA = timeA.data().corPrimaria || "#28a745";
   const corB = timeB.data().corPrimaria || "#dc3545";
 
+  // Aplica nomes e cores
   document.getElementById("tituloJogo").innerText = `${nomeA} x ${nomeB}`;
-
-  const timeAEl = document.getElementById("timeA");
-  const timeBEl = document.getElementById("timeB");
-
-  timeAEl.innerText = nomeA;
-  timeBEl.innerText = nomeB;
-
+  document.getElementById("timeA").innerText = nomeA;
+  document.getElementById("timeB").innerText = nomeB;
   document.documentElement.style.setProperty("--cor-timeA", corA);
   document.documentElement.style.setProperty("--cor-timeB", corB);
-
-  timeAEl.style.backgroundColor = corA;
-  timeBEl.style.backgroundColor = corB;
 
   document.getElementById("inicioJogo").innerText = formatarData(jogo.dataInicio.toDate());
   document.getElementById("fimJogo").innerText = formatarData(jogo.dataFim.toDate());
@@ -55,6 +48,7 @@ firebase.auth().onAuthStateChanged(async (user) => {
   iniciarChat();
   montarRanking();
 });
+
 function formatarData(data) {
   return data.toLocaleString("pt-BR", { hour: '2-digit', minute: '2-digit' });
 }
@@ -82,9 +76,11 @@ async function calcularTorcida() {
   document.getElementById("torcidaB").innerText = b;
   document.getElementById("porcentagemA").innerText = `${pa}%`;
   document.getElementById("porcentagemB").innerText = `${pb}%`;
+
   document.getElementById("barraTorcidaA").style.width = `${pa}%`;
   document.getElementById("barraTorcidaB").style.width = `${pb}%`;
 }
+
 async function responderPergunta() {
   const respondidasSnap = await db.collection("respostas")
     .where("jogoId", "==", jogoId)
@@ -126,7 +122,7 @@ function iniciarContador() {
   const barra = document.getElementById("barra");
   barra.style.display = "block";
   barra.style.animation = "none";
-  barra.offsetHeight;
+  barra.offsetHeight; // força reflow
   barra.style.animation = "barraTempo 9s linear forwards";
 
   temporizadorResposta = setTimeout(() => {
@@ -150,6 +146,7 @@ function pararContador() {
 function desabilitarOpcoes() {
   document.querySelectorAll("#opcoesRespostas button").forEach(btn => btn.disabled = true);
 }
+
 async function responder(letra, correta, pontos, perguntaId) {
   if (respostaEnviada) return;
   respostaEnviada = true;
@@ -182,6 +179,7 @@ async function responder(letra, correta, pontos, perguntaId) {
     creditos: firebase.firestore.FieldValue.increment(-1)
   });
 
+  // Atualizar créditos em tempo real
   const infoUsuario = document.getElementById("infoUsuario");
   const regex = /💳 Créditos: (\d+)/;
   const atual = parseInt(infoUsuario.innerText.match(regex)?.[1] || "0", 10);
@@ -212,6 +210,7 @@ async function calcularPontuacao() {
   document.getElementById("barraPontosA").style.width = `${pa}%`;
   document.getElementById("barraPontosB").style.width = `${pb}%`;
 }
+
 function iniciarChat() {
   db.collection("chat")
     .where("jogoId", "==", jogoId)
