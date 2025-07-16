@@ -32,8 +32,14 @@ firebase.auth().onAuthStateChanged(async (user) => {
 
   // Aplica nomes e cores
   document.getElementById("tituloJogo").innerText = `${nomeA} x ${nomeB}`;
-  document.getElementById("timeA").innerText = nomeA;
-  document.getElementById("timeB").innerText = nomeB;
+const timeAEl = document.getElementById("timeA");
+const timeBEl = document.getElementById("timeB");
+timeAEl.innerText = nomeA;
+timeBEl.innerText = nomeB;
+document.documentElement.style.setProperty("--cor-timeA", corA);
+document.documentElement.style.setProperty("--cor-timeB", corB);
+timeAEl.style.backgroundColor = corA;
+timeBEl.style.backgroundColor = corB;
   document.documentElement.style.setProperty("--cor-timeA", corA);
   document.documentElement.style.setProperty("--cor-timeB", corB);
 
