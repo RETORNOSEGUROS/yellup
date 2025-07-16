@@ -55,7 +55,6 @@ firebase.auth().onAuthStateChanged(async (user) => {
   iniciarChat();
   montarRanking();
 });
-
 function formatarData(data) {
   return data.toLocaleString("pt-BR", { hour: '2-digit', minute: '2-digit' });
 }
@@ -83,11 +82,9 @@ async function calcularTorcida() {
   document.getElementById("torcidaB").innerText = b;
   document.getElementById("porcentagemA").innerText = `${pa}%`;
   document.getElementById("porcentagemB").innerText = `${pb}%`;
-
   document.getElementById("barraTorcidaA").style.width = `${pa}%`;
   document.getElementById("barraTorcidaB").style.width = `${pb}%`;
 }
-
 async function responderPergunta() {
   const respondidasSnap = await db.collection("respostas")
     .where("jogoId", "==", jogoId)
@@ -153,7 +150,6 @@ function pararContador() {
 function desabilitarOpcoes() {
   document.querySelectorAll("#opcoesRespostas button").forEach(btn => btn.disabled = true);
 }
-
 async function responder(letra, correta, pontos, perguntaId) {
   if (respostaEnviada) return;
   respostaEnviada = true;
@@ -216,7 +212,6 @@ async function calcularPontuacao() {
   document.getElementById("barraPontosA").style.width = `${pa}%`;
   document.getElementById("barraPontosB").style.width = `${pb}%`;
 }
-
 function iniciarChat() {
   db.collection("chat")
     .where("jogoId", "==", jogoId)
