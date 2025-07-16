@@ -32,17 +32,29 @@ firebase.auth().onAuthStateChanged(async (user) => {
 
   document.getElementById("tituloJogo").innerText = `${nomeA} x ${nomeB}`;
 
-  const timeAEl = document.getElementById("timeA");
-  const timeBEl = document.getElementById("timeB");
+const corA = timeA.data().corPrimaria || "#28a745";
+const corB = timeB.data().corPrimaria || "#dc3545";
 
-  timeAEl.innerText = nomeA;
-  timeBEl.innerText = nomeB;
+// Força visual e funcional com CSS customizado + fallback
+document.documentElement.style.setProperty("--cor-timeA", corA);
+document.documentElement.style.setProperty("--cor-timeB", corB);
 
-  document.documentElement.style.setProperty("--cor-timeA", corA);
-  document.documentElement.style.setProperty("--cor-timeB", corB);
+const timeAEl = document.getElementById("timeA");
+const timeBEl = document.getElementById("timeB");
 
-  timeAEl.style.backgroundColor = corA;
-  timeBEl.style.backgroundColor = corB;
+document.getElementById("tituloJogo").innerText = `${nomeA} x ${nomeB}`;
+timeAEl.innerText = nomeA;
+timeBEl.innerText = nomeB;
+
+timeAEl.style.backgroundColor = corA;
+timeBEl.style.backgroundColor = corB;
+
+// Aplica cor nas barras também
+document.getElementById("barraTorcidaA").style.backgroundColor = corA;
+document.getElementById("barraTorcidaB").style.backgroundColor = corB;
+document.getElementById("barraPontosA").style.backgroundColor = corA;
+document.getElementById("barraPontosB").style.backgroundColor = corB;
+
 
   document.getElementById("inicioJogo").innerText = formatarData(jogo.dataInicio.toDate());
   document.getElementById("fimJogo").innerText = formatarData(jogo.dataFim.toDate());
