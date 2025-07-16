@@ -25,10 +25,18 @@ firebase.auth().onAuthStateChanged(async (user) => {
 
   const timeA = await db.collection("times").doc(jogo.timeCasaId).get();
   const timeB = await db.collection("times").doc(jogo.timeForaId).get();
+  const nomeA = timeA.data().nome;
+  const nomeB = timeB.data().nome;
+  const corA = timeA.data().corPrimaria || "#28a745";
+  const corB = timeB.data().corPrimaria || "#dc3545";
 
-  document.getElementById("tituloJogo").innerText = `${timeA.data().nome} x ${timeB.data().nome}`;
-  document.getElementById("timeA").innerText = timeA.data().nome;
-  document.getElementById("timeB").innerText = timeB.data().nome;
+  // Aplica nomes e cores
+  document.getElementById("tituloJogo").innerText = `${nomeA} x ${nomeB}`;
+  document.getElementById("timeA").innerText = nomeA;
+  document.getElementById("timeB").innerText = nomeB;
+  document.documentElement.style.setProperty("--cor-timeA", corA);
+  document.documentElement.style.setProperty("--cor-timeB", corB);
+
   document.getElementById("inicioJogo").innerText = formatarData(jogo.dataInicio.toDate());
   document.getElementById("fimJogo").innerText = formatarData(jogo.dataFim.toDate());
 
@@ -68,6 +76,9 @@ async function calcularTorcida() {
   document.getElementById("torcidaB").innerText = b;
   document.getElementById("porcentagemA").innerText = `${pa}%`;
   document.getElementById("porcentagemB").innerText = `${pb}%`;
+
+  document.getElementById("barraTorcidaA").style.width = `${pa}%`;
+  document.getElementById("barraTorcidaB").style.width = `${pb}%`;
 }
 
 async function responderPergunta() {
@@ -99,7 +110,7 @@ function mostrarPergunta(p) {
     const textoAlt = alternativas[letra] || "Indefinido";
     const btn = document.createElement("button");
     btn.className = "list-group-item list-group-item-action";
-    btn.innerText = textoAlt;  // Removido A), B), etc.
+    btn.innerText = textoAlt;
     btn.onclick = () => responder(letra, p.correta, p.pontuacao || 1, p.id);
     document.getElementById("opcoesRespostas").appendChild(btn);
   });
@@ -124,7 +135,8 @@ function iniciarContador() {
 }
 
 function pararContador() {
-  if (temporizadorResposta) { clearTimeout(temporizadorResposta); temporizadorResposta = null; }
+  if (temporizadorResposta) clearTimeout(temporizadorResposta);
+  temporizadorResposta = null;
   const barra = document.getElementById("barra");
   barra.style.animation = "none";
   barra.offsetHeight;
@@ -167,7 +179,7 @@ async function responder(letra, correta, pontos, perguntaId) {
     creditos: firebase.firestore.FieldValue.increment(-1)
   });
 
-  // Atualizar créditos na interface em tempo real
+  // Atualizar créditos em tempo real
   const infoUsuario = document.getElementById("infoUsuario");
   const regex = /💳 Créditos: (\d+)/;
   const atual = parseInt(infoUsuario.innerText.match(regex)?.[1] || "0", 10);
@@ -194,6 +206,9 @@ async function calcularPontuacao() {
   document.getElementById("pontosB").innerText = b;
   document.getElementById("porcentagemPontosA").innerText = `${pa}%`;
   document.getElementById("porcentagemPontosB").innerText = `${pb}%`;
+
+  document.getElementById("barraPontosA").style.width = `${pa}%`;
+  document.getElementById("barraPontosB").style.width = `${pb}%`;
 }
 
 function iniciarChat() {
@@ -205,12 +220,25 @@ function iniciarChat() {
       const chatTime = document.getElementById("chatTime");
       chatGeral.innerHTML = "";
       chatTime.innerHTML = "";
-      snapshot.forEach(doc => {
+
+      snapshot.forEach(async doc => {
         const msg = doc.data();
-        const el = `<div class='chat-message'><strong>${msg.nome}:</strong> ${msg.texto}</div>`;
+        const user = await db.collection("usuarios").doc(msg.userId).get();
+        const nome = user.exists ? user.data().usuario : "Torcedor";
+        const avatar = user.exists && user.data().avatarUrl
+          ? user.data().avatarUrl
+          : "https://i.imgur.com/DefaultAvatar.png";
+
+        const el = `
+          <div class='chat-message'>
+            <img src="${avatar}" alt="avatar">
+            <strong>${nome}:</strong> ${msg.texto}
+          </div>
+        `;
         if (msg.tipo === "geral") chatGeral.innerHTML += el;
         if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
       });
+
       chatGeral.scrollTop = chatGeral.scrollHeight;
       chatTime.scrollTop = chatTime.scrollHeight;
     });
@@ -228,6 +256,7 @@ function enviarMensagem(tipo) {
   const texto = input.value.trim();
   if (!texto) return;
   input.value = "";
+
   db.collection("usuarios").doc(uid).get().then(doc => {
     const nome = doc.data().usuario || "Torcedor";
     db.collection("chat").add({
@@ -260,8 +289,14 @@ function montarRanking() {
       for (const [userId, pontos] of lista) {
         const user = await db.collection("usuarios").doc(userId).get();
         const nome = user.exists ? user.data().usuario : "Torcedor";
-        const avatar = user.exists && user.data().avatarUrl ? user.data().avatarUrl : 'https://i.imgur.com/DefaultAvatar.png';
-container.innerHTML += `<li class='list-group-item d-flex align-items-center gap-2'><img src='${avatar}' class='avatar-ranking' style='width:24px;height:24px;border-radius:50%;object-fit:cover;'><span>${nome} - ${pontos} pts</span></li>`;
+        const avatar = user.exists && user.data().avatarUrl
+          ? user.data().avatarUrl
+          : "https://i.imgur.com/DefaultAvatar.png";
+        container.innerHTML += `
+          <li class='list-group-item d-flex align-items-center gap-2'>
+            <img src='${avatar}' class='avatar-ranking'>
+            <span>${nome} - ${pontos} pts</span>
+          </li>`;
       }
     });
 }
