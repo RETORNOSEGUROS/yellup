@@ -27,8 +27,14 @@ firebase.auth().onAuthStateChanged(async (user) => {
   const timeB = await db.collection("times").doc(jogo.timeForaId).get();
   const nomeA = timeA.data().nome;
   const nomeB = timeB.data().nome;
-  const corA = timeA.data().corPrimaria || "#28a745";
-  const corB = timeB.data().corPrimaria || "#dc3545";
+document.getElementById("timeA").style.backgroundColor = corA;
+document.getElementById("timeB").style.backgroundColor = corB;
+
+document.getElementById("barraTorcidaA").style.backgroundColor = corA;
+document.getElementById("barraTorcidaB").style.backgroundColor = corB;
+document.getElementById("barraPontosA").style.backgroundColor = corA;
+document.getElementById("barraPontosB").style.backgroundColor = corB;
+
 
   document.getElementById("tituloJogo").innerText = `${nomeA} x ${nomeB}`;
 
