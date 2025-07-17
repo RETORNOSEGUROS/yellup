@@ -233,13 +233,7 @@ function iniciarChat() {
   db.collection("chat")
     .where("jogoId", "==", jogoId)
     .orderBy("timestamp")
-    .onSnapshot(snapshot => {
-      const chatGeral = document.getElementById("chatGeral");
-      const chatTime = document.getElementById("chatTime");
-      chatGeral.innerHTML = "";
-      chatTime.innerHTML = "";
-
-     onSnapshot(async snapshot => {
+    .onSnapshot(async snapshot => {
   const chatGeral = document.getElementById("chatGeral");
   const chatTime = document.getElementById("chatTime");
   chatGeral.innerHTML = "";
@@ -261,13 +255,21 @@ function iniciarChat() {
     if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.appendChild(el);
   }
 
-  // Scroll no final após renderização total
+  // Scroll forçado após renderização completa
   setTimeout(() => {
     chatGeral.scrollTop = chatGeral.scrollHeight;
     chatTime.scrollTop = chatTime.scrollHeight;
   }, 100);
-});
+})
 
+      
+// Scroll controlado – só desce se estiver no final
+setTimeout(() => {
+  chatGeral.scrollTop = chatGeral.scrollHeight;
+  chatTime.scrollTop = chatTime.scrollHeight;
+}, 100);
+
+    });
 
   document.getElementById("mensagemGeral").addEventListener("keydown", e => {
     if (e.key === "Enter") enviarMensagem("geral");
