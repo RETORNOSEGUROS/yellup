@@ -239,32 +239,35 @@ function iniciarChat() {
       chatGeral.innerHTML = "";
       chatTime.innerHTML = "";
 
-      snapshot.forEach(async doc => {
-        const msg = doc.data();
-        const user = await db.collection("usuarios").doc(msg.userId).get();
-        const nome = user.exists ? user.data().usuario : "Torcedor";
-        const avatar = user.exists && user.data().avatarUrl
-          ? user.data().avatarUrl
-          : "https://i.imgur.com/DefaultAvatar.png";
+     onSnapshot(async snapshot => {
+  const chatGeral = document.getElementById("chatGeral");
+  const chatTime = document.getElementById("chatTime");
+  chatGeral.innerHTML = "";
+  chatTime.innerHTML = "";
 
-        const el = `
-          <div class='chat-message'>
-            <img src="${avatar}" alt="avatar">
-            <strong>${nome}:</strong> ${msg.texto}
-          </div>
-        `;
-        if (msg.tipo === "geral") chatGeral.innerHTML += el;
-        if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
-      });
+  for (const doc of snapshot.docs) {
+    const msg = doc.data();
+    const user = await db.collection("usuarios").doc(msg.userId).get();
+    const nome = user.exists ? user.data().usuario : "Torcedor";
+    const avatar = user.exists && user.data().avatarUrl
+      ? user.data().avatarUrl
+      : "https://i.imgur.com/DefaultAvatar.png";
 
-      
-// Scroll controlado – só desce se estiver no final
-setTimeout(() => {
-  chatGeral.scrollTop = chatGeral.scrollHeight;
-  chatTime.scrollTop = chatTime.scrollHeight;
-}, 100);
+    const el = document.createElement("div");
+    el.className = "chat-message";
+    el.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
 
-    });
+    if (msg.tipo === "geral") chatGeral.appendChild(el);
+    if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.appendChild(el);
+  }
+
+  // Scroll no final após renderização total
+  setTimeout(() => {
+    chatGeral.scrollTop = chatGeral.scrollHeight;
+    chatTime.scrollTop = chatTime.scrollHeight;
+  }, 100);
+});
+
 
   document.getElementById("mensagemGeral").addEventListener("keydown", e => {
     if (e.key === "Enter") enviarMensagem("geral");
