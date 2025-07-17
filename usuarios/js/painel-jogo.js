@@ -265,6 +265,7 @@ function scrollIfBottom(container) {
     container.scrollTop = container.scrollHeight;
   }
 }
+
 scrollIfBottom(chatGeral);
 scrollIfBottom(chatTime);
 
