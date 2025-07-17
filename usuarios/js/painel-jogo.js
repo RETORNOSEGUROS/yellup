@@ -25,17 +25,35 @@ firebase.auth().onAuthStateChanged(async (user) => {
 
   const timeA = await db.collection("times").doc(jogo.timeCasaId).get();
   const timeB = await db.collection("times").doc(jogo.timeForaId).get();
-  const nomeA = timeA.data().nome;
-  const nomeB = timeB.data().nome;
-  const corA = timeA.data().corPrimaria || "#28a745";
-  const corB = timeB.data().corPrimaria || "#dc3545";
 
-  // Aplica nomes e cores
+  const dadosA = timeA.data();
+  const dadosB = timeB.data();
+
+  const nomeA = dadosA.nome;
+  const nomeB = dadosB.nome;
+
+  // Cores completas (3 tons)
+  const corA1 = dadosA.primaria || "#28a745";
+  const corA2 = dadosA.secundaria || corA1;
+  const corA3 = dadosA.terciaria || corA1;
+  const corB1 = dadosB.primaria || "#dc3545";
+  const corB2 = dadosB.secundaria || corB1;
+  const corB3 = dadosB.terciaria || corB1;
+
+  // Aplica nomes
   document.getElementById("tituloJogo").innerText = `${nomeA} x ${nomeB}`;
   document.getElementById("timeA").innerText = nomeA;
   document.getElementById("timeB").innerText = nomeB;
-  document.documentElement.style.setProperty("--cor-timeA", corA);
-  document.documentElement.style.setProperty("--cor-timeB", corB);
+
+  // Aplica gradiente nos nomes
+  document.getElementById("timeA").style.background = `linear-gradient(45deg, ${corA1}, ${corA2}, ${corA3})`;
+  document.getElementById("timeB").style.background = `linear-gradient(45deg, ${corB1}, ${corB2}, ${corB3})`;
+
+  // Variáveis CSS para barras
+  document.documentElement.style.setProperty("--corA1", corA1);
+  document.documentElement.style.setProperty("--corB1", corB1);
+  document.documentElement.style.setProperty("--corA2", corA2);
+  document.documentElement.style.setProperty("--corB2", corB2);
 
   document.getElementById("inicioJogo").innerText = formatarData(jogo.dataInicio.toDate());
   document.getElementById("fimJogo").innerText = formatarData(jogo.dataFim.toDate());
