@@ -259,11 +259,6 @@ function iniciarChat() {
 
       
 // Scroll controlado – só desce se estiver no final
-function scrollIfBottom(container) {
-  const isAtBottom = Math.abs(container.scrollHeight - container.clientHeight - container.scrollTop) < 10;
-  if (isAtBottom) {
-    container.scrollTop = container.scrollHeight;
-  }
 }
 
 requestAnimationFrame(() => {
