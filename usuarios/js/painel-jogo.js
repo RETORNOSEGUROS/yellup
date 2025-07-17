@@ -266,8 +266,10 @@ function scrollIfBottom(container) {
   }
 }
 
-scrollIfBottom(chatGeral);
-scrollIfBottom(chatTime);
+setTimeout(() => {
+  scrollIfBottom(chatGeral);
+  scrollIfBottom(chatTime);
+}, 50);
 
     });
 
