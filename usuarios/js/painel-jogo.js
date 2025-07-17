@@ -232,8 +232,7 @@ async function calcularPontuacao() {
 function iniciarChat() {
   db.collection("chat")
     .where("jogoId", "==", jogoId)
-    .orderBy("timestamp", "desc") // mais recentes primeiro
-    .limit(30) // últimas 30 mensagens apenas
+    .orderBy("timestamp") // mais recentes primeiro
     .onSnapshot(async snapshot => {
       const chatGeral = document.getElementById("chatGeral");
       const chatTime = document.getElementById("chatTime");
