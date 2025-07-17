@@ -239,33 +239,23 @@ function iniciarChat() {
       chatGeral.innerHTML = "";
       chatTime.innerHTML = "";
 
-chatGeral.innerHTML = "";
-chatTime.innerHTML = "";
+      snapshot.forEach(async doc => {
+        const msg = doc.data();
+        const user = await db.collection("usuarios").doc(msg.userId).get();
+        const nome = user.exists ? user.data().usuario : "Torcedor";
+        const avatar = user.exists && user.data().avatarUrl
+          ? user.data().avatarUrl
+          : "https://i.imgur.com/DefaultAvatar.png";
 
-const mensagens = snapshot.docs;
-
-for (const doc of mensagens) {
-  const msg = doc.data();
-  const user = await db.collection("usuarios").doc(msg.userId).get();
-  const nome = user.exists ? user.data().usuario : "Torcedor";
-  const avatar = user.exists && user.data().avatarUrl
-    ? user.data().avatarUrl
-    : "https://i.imgur.com/DefaultAvatar.png";
-
-  const div = document.createElement("div");
-  div.className = "chat-message";
-  div.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
-
-  if (msg.tipo === "geral") chatGeral.appendChild(div);
-  if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.appendChild(div);
-}
-
-// Scroll no final SEM verificação (apenas após render)
-setTimeout(() => {
-  chatGeral.scrollTop = chatGeral.scrollHeight;
-  chatTime.scrollTop = chatTime.scrollHeight;
-}, 100);
-
+        const el = `
+          <div class='chat-message'>
+            <img src="${avatar}" alt="avatar">
+            <strong>${nome}:</strong> ${msg.texto}
+          </div>
+        `;
+        if (msg.tipo === "geral") chatGeral.innerHTML += el;
+        if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
+      });
 
       
 // Scroll controlado – só desce se estiver no final
