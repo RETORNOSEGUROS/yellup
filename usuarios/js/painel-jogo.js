@@ -232,35 +232,41 @@ async function calcularPontuacao() {
 function iniciarChat() {
   db.collection("chat")
     .where("jogoId", "==", jogoId)
-    .orderBy("timestamp")
+    .orderBy("timestamp", "desc") // mais recentes primeiro
+    .limit(30) // últimas 30 mensagens apenas
     .onSnapshot(async snapshot => {
-  const chatGeral = document.getElementById("chatGeral");
-  const chatTime = document.getElementById("chatTime");
-  chatGeral.innerHTML = "";
-  chatTime.innerHTML = "";
+      const chatGeral = document.getElementById("chatGeral");
+      const chatTime = document.getElementById("chatTime");
+      chatGeral.innerHTML = "";
+      chatTime.innerHTML = "";
 
-  for (const doc of snapshot.docs) {
-    const msg = doc.data();
-    const user = await db.collection("usuarios").doc(msg.userId).get();
-    const nome = user.exists ? user.data().usuario : "Torcedor";
-    const avatar = user.exists && user.data().avatarUrl
-      ? user.data().avatarUrl
-      : "https://i.imgur.com/DefaultAvatar.png";
+      // Inverter para exibir em ordem correta (antigo para novo)
+      const docsOrdenados = snapshot.docs.slice().reverse();
 
-    const el = document.createElement("div");
-    el.className = "chat-message";
-    el.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
+      for (const doc of docsOrdenados) {
+        const msg = doc.data();
+        const user = await db.collection("usuarios").doc(msg.userId).get();
+        const nome = user.exists ? user.data().usuario : "Torcedor";
+        const avatar = user.exists && user.data().avatarUrl
+          ? user.data().avatarUrl
+          : "https://i.imgur.com/DefaultAvatar.png";
 
-    if (msg.tipo === "geral") chatGeral.appendChild(el);
-    if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.appendChild(el);
-  }
+        const el = document.createElement("div");
+        el.className = "chat-message";
+        el.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
 
-  setTimeout(() => {
-    chatGeral.scrollTop = chatGeral.scrollHeight;
-    chatTime.scrollTop = chatTime.scrollHeight;
-  }, 100);
-})
+        if (msg.tipo === "geral") chatGeral.appendChild(el);
+        if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.appendChild(el);
+      }
 
+      // Scroll para o final (últimas mensagens)
+      setTimeout(() => {
+        chatGeral.scrollTop = chatGeral.scrollHeight;
+        chatTime.scrollTop = chatTime.scrollHeight;
+      }, 100);
+    });
+
+  // Listeners para enviar mensagens com Enter
   document.getElementById("mensagemGeral").addEventListener("keydown", e => {
     if (e.key === "Enter") enviarMensagem("geral");
   });
@@ -268,6 +274,7 @@ function iniciarChat() {
     if (e.key === "Enter") enviarMensagem("time");
   });
 }
+
 
 function enviarMensagem(tipo) {
   const input = document.getElementById(tipo === "geral" ? "mensagemGeral" : "mensagemTime");
