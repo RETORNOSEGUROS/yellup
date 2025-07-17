@@ -232,15 +232,14 @@ async function calcularPontuacao() {
 function iniciarChat() {
   db.collection("chat")
     .where("jogoId", "==", jogoId)
-    .orderBy("timestamp", "desc") // mais recentes primeiro
-    .limit(30) // últimas 30 mensagens apenas
+    .orderBy("timestamp", "desc")
+    .limit(30)
     .onSnapshot(async snapshot => {
       const chatGeral = document.getElementById("chatGeral");
       const chatTime = document.getElementById("chatTime");
       chatGeral.innerHTML = "";
       chatTime.innerHTML = "";
 
-      // Inverter para exibir em ordem correta (antigo para novo)
       const docsOrdenados = snapshot.docs.slice().reverse();
 
       for (const doc of docsOrdenados) {
@@ -259,22 +258,20 @@ function iniciarChat() {
         if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.appendChild(el);
       }
 
-      // Scroll para o final (últimas mensagens)
       setTimeout(() => {
         chatGeral.scrollTop = chatGeral.scrollHeight;
         chatTime.scrollTop = chatTime.scrollHeight;
       }, 100);
     });
 
-  // Listeners para enviar mensagens com Enter
   document.getElementById("mensagemGeral").addEventListener("keydown", e => {
     if (e.key === "Enter") enviarMensagem("geral");
   });
   document.getElementById("mensagemTime").addEventListener("keydown", e => {
     if (e.key === "Enter") enviarMensagem("time");
   });
+});
 }
-
 
 function enviarMensagem(tipo) {
   const input = document.getElementById(tipo === "geral" ? "mensagemGeral" : "mensagemTime");
