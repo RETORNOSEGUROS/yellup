@@ -267,8 +267,8 @@ function scrollIfBottom(container) {
 }
 
 requestAnimationFrame(() => {
-  scrollIfBottom(chatGeral);
-  scrollIfBottom(chatTime);
+  chatGeral.scrollTop = chatGeral.scrollHeight;
+  chatTime.scrollTop = chatTime.scrollHeight;
 });
 
     });
