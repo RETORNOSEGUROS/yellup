@@ -266,10 +266,10 @@ function scrollIfBottom(container) {
   }
 }
 
-setTimeout(() => {
+requestAnimationFrame(() => {
   scrollIfBottom(chatGeral);
   scrollIfBottom(chatTime);
-}, 50);
+});
 
     });
 
