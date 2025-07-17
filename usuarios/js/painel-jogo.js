@@ -257,8 +257,16 @@ function iniciarChat() {
         if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
       });
 
-      chatGeral.scrollTop = chatGeral.scrollHeight;
-      chatTime.scrollTop = chatTime.scrollHeight;
+      
+// Scroll controlado – só desce se estiver no final
+function scrollIfBottom(container) {
+  const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 5;
+  if (isAtBottom) container.scrollTop = container.scrollHeight;
+}
+
+scrollIfBottom(chatGeral);
+scrollIfBottom(chatTime);
+
     });
 
   document.getElementById("mensagemGeral").addEventListener("keydown", e => {
@@ -273,6 +281,7 @@ function enviarMensagem(tipo) {
   const input = document.getElementById(tipo === "geral" ? "mensagemGeral" : "mensagemTime");
   const texto = input.value.trim();
   if (!texto) return;
+  if (texto.length > 300) return alert('Limite de 300 caracteres.');
   input.value = "";
 
   db.collection("usuarios").doc(uid).get().then(doc => {
