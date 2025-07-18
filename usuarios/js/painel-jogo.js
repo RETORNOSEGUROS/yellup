@@ -276,7 +276,14 @@ function iniciarChat() {
             <strong>${nome}:</strong> ${msg.texto}
           </div>
         `;
-        if (msg.tipo === "geral") chatGeral.innerHTML += el;
+       const div = document.createElement("div");
+div.className = "chat-message";
+div.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
+chatGeral.appendChild(div);
+
+// Scroll automático
+div.scrollIntoView({ behavior: 'auto' });
+
         if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
       });
 
