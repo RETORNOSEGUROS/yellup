@@ -283,9 +283,12 @@ function iniciarChat() {
       
 // Scroll controlado – só desce se estiver no final
 setTimeout(() => {
-  chatGeral.scrollTop = chatGeral.scrollHeight;
-  chatTime.scrollTop = chatTime.scrollHeight;
-}, 100);
+  const ultimasMsgGeral = chatGeral.querySelector(".chat-message:last-child");
+  const ultimasMsgTime = chatTime.querySelector(".chat-message:last-child");
+  if (ultimasMsgGeral) ultimasMsgGeral.scrollIntoView({ behavior: 'auto' });
+  if (ultimasMsgTime) ultimasMsgTime.scrollIntoView({ behavior: 'auto' });
+}, 300); // tempo maior garante render completo
+
 
     });
 
