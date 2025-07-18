@@ -358,3 +358,58 @@ function montarRanking() {
       }
     });
 }
+
+
+
+function atualizarRankingPorPontuacao() {
+  if (!jogoIdGlobal) return;
+
+  db.collection("usuariosPartida")
+    .where("jogoId", "==", jogoIdGlobal)
+    .orderBy("pontuacao", "desc")
+    .onSnapshot(async (snapshot) => {
+      const rankingDiv = document.getElementById("rankingPontuacao");
+      rankingDiv.innerHTML = "";
+
+      const usuarioAtualId = firebase.auth().currentUser.uid;
+      let posicaoAtualUsuario = null;
+
+      for (let i = 0; i < snapshot.docs.length; i++) {
+        const doc = snapshot.docs[i];
+        const userData = doc.data();
+        const userId = userData.userId;
+        const posicao = i + 1;
+
+        if (userId === usuarioAtualId) {
+          posicaoAtualUsuario = posicao;
+          const spanRank = document.getElementById("rankingAtualUsuario");
+          if (spanRank) spanRank.innerText = `#${posicao}`;
+        }
+
+        const usuarioDoc = await db.collection("usuarios").doc(userId).get();
+        if (!usuarioDoc.exists) continue;
+
+        const usuario = usuarioDoc.data();
+        const avatar = usuario.avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
+        const nome = usuario.usuario || "Torcedor";
+        const pontos = userData.pontuacao || 0;
+
+        const cor1 = usuario.corPrimaria || "#0066ff";
+        const cor2 = usuario.corSecundaria || "#0044aa";
+        const cor3 = usuario.corTerciaria || "#002255";
+
+        const linha = document.createElement("div");
+        linha.className = "ranking-linha";
+        linha.style.background = `linear-gradient(90deg, ${cor1}, ${cor2}, ${cor3})`;
+
+        linha.innerHTML = `
+          <span class="pos">#${posicao}</span>
+          <img src="${avatar}" alt="avatar" class="avatar-ranking">
+          <strong>${nome}</strong>
+          <span style="margin-left:auto;"><strong>${pontos} pts</strong></span>
+        `;
+
+        rankingDiv.appendChild(linha);
+      }
+    });
+}
