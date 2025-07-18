@@ -60,6 +60,17 @@ firebase.auth().onAuthStateChanged(async (user) => {
 
   atualizarTempoRestante(jogo.dataFim.toDate());
   setInterval(() => atualizarTempoRestante(jogo.dataFim.toDate()), 1000);
+// APLICAR GRADIENTES NOS TÍTULOS DOS CHATS
+  const chatTorcidaTitle = document.querySelector(".chat-col:nth-child(1) h6");
+  const chatGeralTitle = document.querySelector(".chat-col:nth-child(2) h6");
+  if (chatTorcidaTitle) {
+    chatTorcidaTitle.classList.add("chat-title");
+    chatTorcidaTitle.style.background = `linear-gradient(45deg, ${corA1}, ${corA2}, ${corA3})`;
+  }
+  if (chatGeralTitle) {
+    chatGeralTitle.classList.add("chat-title");
+    chatGeralTitle.style.background = `linear-gradient(45deg, ${corA1}, ${corB2}, ${corB3})`;
+  }
 
   calcularTorcida();
   calcularPontuacao();
