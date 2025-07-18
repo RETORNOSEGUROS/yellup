@@ -65,7 +65,19 @@ firebase.auth().onAuthStateChanged(async (user) => {
   const chatGeralTitle = document.querySelector(".chat-col:nth-child(2) h6");
   if (chatTorcidaTitle) {
     chatTorcidaTitle.classList.add("chat-title");
-    chatTorcidaTitle.style.background = `linear-gradient(45deg, ${corA1}, ${corA2}, ${corA3})`;
+let corT1, corT2, corT3;
+
+if (timeTorcida === jogo.timeCasaId) {
+  corT1 = corA1;
+  corT2 = corA2;
+  corT3 = corA3;
+} else {
+  corT1 = corB1;
+  corT2 = corB2;
+  corT3 = corB3;
+}
+chatTorcidaTitle.style.background = `linear-gradient(45deg, ${corT1}, ${corT2}, ${corT3})`;
+
   }
   if (chatGeralTitle) {
     chatGeralTitle.classList.add("chat-title");
