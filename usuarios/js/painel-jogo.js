@@ -357,9 +357,18 @@ function montarRanking() {
         const nome = user.usuario || "Torcedor";
         const avatar = user.avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
 
-        const cor1 = user.corPrimaria || "#0066ff";
-        const cor2 = user.corSecundaria || "#0044aa";
-        const cor3 = user.corTerciaria || "#002255";
+        const timeTorcedorId = user.torcidas?.[jogoId];
+        let cor1 = "#0066ff", cor2 = "#0044aa", cor3 = "#002255";
+
+        if (timeTorcedorId) {
+          const timeDoc = await db.collection("times").doc(timeTorcedorId).get();
+          if (timeDoc.exists) {
+            const timeData = timeDoc.data();
+            cor1 = timeData.primaria || cor1;
+            cor2 = timeData.secundaria || cor1;
+            cor3 = timeData.terciaria || cor1;
+          }
+        }
 
         const linha = document.createElement("div");
         linha.className = "ranking-linha";
