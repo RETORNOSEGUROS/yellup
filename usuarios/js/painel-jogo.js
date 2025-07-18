@@ -366,7 +366,7 @@ function montarRanking() {
         linha.style.background = `linear-gradient(90deg, ${cor1}, ${cor2}, ${cor3})`;
 
         linha.innerHTML = `
-          <span class="pos">#${pos}</span>
+          <span class="pos">${pos}º</span>
           <img src="${avatar}" class="avatar-ranking" />
           <strong>${nome}</strong>
           <span style="margin-left:auto;"><strong>${pontos} pts</strong></span>
@@ -376,9 +376,12 @@ function montarRanking() {
 
         if (userId === usuarioAtualId) {
           const infoUsuario = document.getElementById("infoUsuario");
-          const spanExistente = document.getElementById("rankingAtualUsuario");
-          if (infoUsuario && !spanExistente) {
-            infoUsuario.innerHTML += ` | <span id="rankingAtualUsuario">#${pos}</span>`;
+          const existente = document.getElementById("posicaoTopo");
+          if (!existente && infoUsuario) {
+            const bloco = document.createElement("div");
+            bloco.id = "posicaoTopo";
+            bloco.innerText = `📊 Posição: ${pos}º lugar`;
+            infoUsuario.parentNode.appendChild(bloco);
           }
         }
       }
