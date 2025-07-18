@@ -270,21 +270,22 @@ function iniciarChat() {
           ? user.data().avatarUrl
           : "https://i.imgur.com/DefaultAvatar.png";
 
-        const el = `
-          <div class='chat-message'>
-            <img src="${avatar}" alt="avatar">
-            <strong>${nome}:</strong> ${msg.texto}
-          </div>
-        `;
-       const div = document.createElement("div");
-div.className = "chat-message";
-div.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
-chatGeral.appendChild(div);
+if (msg.tipo === "geral") {
+  const div = document.createElement("div");
+  div.className = "chat-message";
+  div.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
+  chatGeral.appendChild(div);
+  div.scrollIntoView({ behavior: 'auto' });
+}
 
-// Scroll automático
-div.scrollIntoView({ behavior: 'auto' });
+if (msg.tipo === "time" && msg.timeId === timeTorcida) {
+  const div = document.createElement("div");
+  div.className = "chat-message";
+  div.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
+  chatTime.appendChild(div);
+  div.scrollIntoView({ behavior: 'auto' });
+}
 
-        if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
       });
 
       
