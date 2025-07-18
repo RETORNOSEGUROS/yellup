@@ -262,6 +262,7 @@ function iniciarChat() {
       chatGeral.innerHTML = "";
       chatTime.innerHTML = "";
 
+      
       snapshot.forEach(async doc => {
         const msg = doc.data();
         const user = await db.collection("usuarios").doc(msg.userId).get();
@@ -270,30 +271,26 @@ function iniciarChat() {
           ? user.data().avatarUrl
           : "https://i.imgur.com/DefaultAvatar.png";
 
-        snapshot.forEach(async doc => {
-  const msg = doc.data();
-  const user = await db.collection("usuarios").doc(msg.userId).get();
-  const nome = user.exists ? user.data().usuario : "Torcedor";
-  const avatar = user.exists && user.data().avatarUrl
-    ? user.data().avatarUrl
-    : "https://i.imgur.com/DefaultAvatar.png";
+        if (msg.tipo === "geral") {
+          const divGeral = document.createElement("div");
+          divGeral.className = "chat-message";
+          divGeral.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
+          chatGeral.appendChild(divGeral);
+          divGeral.scrollIntoView({ behavior: 'auto' });
+        }
 
-  if (msg.tipo === "geral") {
-    const divGeral = document.createElement("div");
-    divGeral.className = "chat-message";
-    divGeral.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
-    chatGeral.appendChild(divGeral);
-    divGeral.scrollIntoView({ behavior: 'auto' });
-  }
+        if (msg.tipo === "time" && msg.timeId === timeTorcida) {
+          const divTime = document.createElement("div");
+          divTime.className = "chat-message";
+          divTime.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
+          chatTime.appendChild(divTime);
+          divTime.scrollIntoView({ behavior: 'auto' });
+        }
+      });
 
-  if (msg.tipo === "time" && msg.timeId === timeTorcida) {
-    const divTime = document.createElement("div");
-    divTime.className = "chat-message";
-    divTime.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
-    chatTime.appendChild(divTime);
-    divTime.scrollIntoView({ behavior: 'auto' });
-  }
-});
+
+        if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
+      });
 
       
 // Scroll controlado – só desce se estiver no final
