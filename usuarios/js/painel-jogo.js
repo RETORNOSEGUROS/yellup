@@ -341,20 +341,46 @@ function montarRanking() {
         if (!ranking[r.userId]) ranking[r.userId] = 0;
         ranking[r.userId] += r.pontuacao || 1;
       });
-      const lista = Object.entries(ranking).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+      const lista = Object.entries(ranking).sort((a, b) => b[1] - a[1]);
       const container = document.getElementById("rankingPontuacao");
       container.innerHTML = "";
-      for (const [userId, pontos] of lista) {
-        const user = await db.collection("usuarios").doc(userId).get();
-        const nome = user.exists ? user.data().usuario : "Torcedor";
-        const avatar = user.exists && user.data().avatarUrl
-          ? user.data().avatarUrl
-          : "https://i.imgur.com/DefaultAvatar.png";
-        container.innerHTML += `
-          <li class='list-group-item d-flex align-items-center gap-2'>
-            <img src='${avatar}' class='avatar-ranking'>
-            <span>${nome} - ${pontos} pts</span>
-          </li>`;
+
+      const usuarioAtualId = firebase.auth().currentUser.uid;
+
+      for (let i = 0; i < lista.length; i++) {
+        const [userId, pontos] = lista[i];
+        const pos = i + 1;
+
+        const userDoc = await db.collection("usuarios").doc(userId).get();
+        const user = userDoc.data();
+        const nome = user.usuario || "Torcedor";
+        const avatar = user.avatarUrl || "https://i.imgur.com/DefaultAvatar.png";
+
+        const cor1 = user.corPrimaria || "#0066ff";
+        const cor2 = user.corSecundaria || "#0044aa";
+        const cor3 = user.corTerciaria || "#002255";
+
+        const linha = document.createElement("div");
+        linha.className = "ranking-linha";
+        linha.style.background = `linear-gradient(90deg, ${cor1}, ${cor2}, ${cor3})`;
+
+        linha.innerHTML = `
+          <span class="pos">#${pos}</span>
+          <img src="${avatar}" class="avatar-ranking" />
+          <strong>${nome}</strong>
+          <span style="margin-left:auto;"><strong>${pontos} pts</strong></span>
+        `;
+
+        container.appendChild(linha);
+
+        if (userId === usuarioAtualId) {
+          const infoUsuario = document.getElementById("infoUsuario");
+          const spanExistente = document.getElementById("rankingAtualUsuario");
+          if (infoUsuario && !spanExistente) {
+            infoUsuario.innerHTML += ` | <span id="rankingAtualUsuario">#${pos}</span>`;
+          }
+        }
       }
     });
 }
