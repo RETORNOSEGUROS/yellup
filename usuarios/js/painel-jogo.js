@@ -270,22 +270,30 @@ function iniciarChat() {
           ? user.data().avatarUrl
           : "https://i.imgur.com/DefaultAvatar.png";
 
-        const el = `
-          <div class='chat-message'>
-            <img src="${avatar}" alt="avatar">
-            <strong>${nome}:</strong> ${msg.texto}
-          </div>
-        `;
-       const div = document.createElement("div");
-div.className = "chat-message";
-div.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
-chatGeral.appendChild(div);
+        snapshot.forEach(async doc => {
+  const msg = doc.data();
+  const user = await db.collection("usuarios").doc(msg.userId).get();
+  const nome = user.exists ? user.data().usuario : "Torcedor";
+  const avatar = user.exists && user.data().avatarUrl
+    ? user.data().avatarUrl
+    : "https://i.imgur.com/DefaultAvatar.png";
 
-// Scroll automático
-div.scrollIntoView({ behavior: 'auto' });
+  if (msg.tipo === "geral") {
+    const divGeral = document.createElement("div");
+    divGeral.className = "chat-message";
+    divGeral.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
+    chatGeral.appendChild(divGeral);
+    divGeral.scrollIntoView({ behavior: 'auto' });
+  }
 
-        if (msg.tipo === "time" && msg.timeId === timeTorcida) chatTime.innerHTML += el;
-      });
+  if (msg.tipo === "time" && msg.timeId === timeTorcida) {
+    const divTime = document.createElement("div");
+    divTime.className = "chat-message";
+    divTime.innerHTML = `<img src="${avatar}" alt="avatar"><strong>${nome}:</strong> ${msg.texto}`;
+    chatTime.appendChild(divTime);
+    divTime.scrollIntoView({ behavior: 'auto' });
+  }
+});
 
       
 // Scroll controlado – só desce se estiver no final
