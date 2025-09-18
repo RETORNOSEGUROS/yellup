@@ -1,5 +1,5 @@
-/* painel.js – com fallback para jogos de hoje e compatibilidade com #jogosLista
-   mantém toda a sua lógica de auth, leitura do usuário e torcer
+/* painel.js – moderno: Hoje/Amanhã/Ontem, cabeçalho com cores, minibarra de torcida
+   mantém auth, leitura de usuario/times/torcer e leitura de pontuacao de usuarios.pontuacao
 */
 
 // Auth + dados do usuário
@@ -20,10 +20,9 @@ auth.onAuthStateChanged(async (user) => {
   const dados = doc.data();
 
   // Nome, créditos, pontuação
-  const elNome = document.getElementById("nomeUsuario");
-  if (elNome) elNome.innerText = dados.nome || "Usuário";
+  document.getElementById("nomeUsuario")?.innerText = dados.nome || "Usuário";
   document.getElementById("creditos").innerText = dados.creditos || 0;
-  document.getElementById("pontuacao").innerText = dados.pontuacao || 0;
+  document.getElementById("pontuacao").innerText = dados.pontuacao || 0; // vem do doc do usuário
 
   // Time do coração + paleta dinâmica
   if (dados.timeId) {
@@ -32,9 +31,9 @@ auth.onAuthStateChanged(async (user) => {
       if (timeRef.exists) {
         const timeData = timeRef.data();
         document.getElementById("timeCoracao").innerText = timeData.nome;
-        document.documentElement.style.setProperty('--cor-primaria', timeData.corPrimaria || '#004aad');
+        document.documentElement.style.setProperty('--cor-primaria',  timeData.corPrimaria  || '#004aad');
         document.documentElement.style.setProperty('--cor-secundaria', timeData.corSecundaria || '#007bff');
-        document.documentElement.style.setProperty('--cor-terciaria', timeData.corTerciaria || '#d9ecff');
+        document.documentElement.style.setProperty('--cor-terciaria',  timeData.corTerciaria  || '#d9ecff');
       } else {
         document.getElementById("timeCoracao").innerText = "Desconhecido";
       }
@@ -52,9 +51,6 @@ auth.onAuthStateChanged(async (user) => {
   // Inicializa as listas por período
   await inicializarListas();
 
-  // Compat: também renderiza jogos de hoje no container antigo (#jogosLista)
-  await carregarJogosHojeCompat();
-
   // Ajuste opcional de cor de fundo
   setTimeout(() => {
     const corFinal = getComputedStyle(document.documentElement).getPropertyValue('--cor-terciaria');
@@ -62,6 +58,7 @@ auth.onAuthStateChanged(async (user) => {
   }, 200);
 });
 
+// Copiar link
 function copiarLink() {
   const input = document.getElementById("linkConvite");
   input.select();
@@ -77,15 +74,7 @@ function getRange(periodo){
 
   if (periodo === 'amanha'){ start.setDate(start.getDate()+1); end.setDate(end.getDate()+1); }
   if (periodo === 'ontem'){  start.setDate(start.getDate()-1); end.setDate(end.getDate()-1); }
-  if (periodo === 'semana'){
-    const day = start.getDay(); // 0=dom
-    const diffToMon = (day === 0 ? -6 : 1 - day);
-    start.setDate(start.getDate() + diffToMon);
-    start.setHours(0,0,0,0);
-    end.setTime(start.getTime());
-    end.setDate(end.getDate()+6);
-    end.setHours(23,59,59,999);
-  }
+
   return { start, end };
 }
 
@@ -120,8 +109,8 @@ async function carregarJogosPeriodo(periodo, containerId){
 
   const user = auth.currentUser;
   const uDoc = await db.collection("usuarios").doc(user.uid).get();
-  const dados = uDoc.data() || {};
-  const torcidas = dados.torcidas || {};
+  const dadosUser = uDoc.data() || {};
+  const torcidasUser = dadosUser.torcidas || {};
 
   // se vier sem orderBy, ordena no cliente
   const docs = snap.docs.sort((a,b)=>{
@@ -135,43 +124,62 @@ async function carregarJogosPeriodo(periodo, containerId){
   for (const d of docs){
     const jogo = d.data(); const jogoId = d.id;
 
+    // times + cores
     const casaDoc = await db.collection("times").doc(jogo.timeCasaId).get();
     const foraDoc = await db.collection("times").doc(jogo.timeForaId).get();
     const nomeCasa = casaDoc.exists ? casaDoc.data().nome : "Time A";
     const nomeFora = foraDoc.exists ? foraDoc.data().nome : "Time B";
+    const corCasa  = casaDoc.exists ? (casaDoc.data().corPrimaria || '#2ecc71') : '#2ecc71';
+    const corFora  = foraDoc.exists ? (foraDoc.data().corPrimaria || '#e74c3c') : '#e74c3c';
 
     const hora = jogo.dataInicio.toDate().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
     const status = (jogo.status || 'indefinido').replace('_',' ').toUpperCase();
 
-    // contador de torcedores (coleção opcional)
-    let torcidaCount = 0;
+    // contagem de torcedores por time
+    let torcidaCasa = 0, torcidaFora = 0;
     try{
       const tSnap = await db.collection("torcidas").where("jogoId","==",jogoId).get();
-      torcidaCount = tSnap.size;
+      tSnap.forEach(doc => {
+        const t = doc.data();
+        if (t.timeId === jogo.timeCasaId) torcidaCasa++;
+        else if (t.timeId === jogo.timeForaId) torcidaFora++;
+      });
     }catch(_){}
 
-    const torcidaId = torcidas[jogoId];
-    const jaTorcendo = Boolean(torcidaId);
+    const totalTorc = Math.max(1, torcidaCasa + torcidaFora); // evita dividir por 0
+    const pctCasa = Math.round((torcidaCasa / totalTorc) * 100);
+    const pctFora = 100 - pctCasa;
+
+    const jaTorcendo = Boolean(torcidasUser[jogoId]);
 
     const col = document.createElement('div'); col.className = "col-12 col-md-6 col-lg-4";
     col.innerHTML = `
       <div class="yl-match h-100">
-        <div class="yl-league">${jogo.liga || ''}</div>
-        <div class="yl-row">
-          <div class="yl-teams">
-            <div class="yl-team"><span class="yl-badge">${jogo.golsCasa ?? '-'}</span> ${nomeCasa}</div>
-            <div class="yl-team"><span class="yl-badge">${jogo.golsFora ?? '-'}</span> ${nomeFora}</div>
+        <!-- Cabeçalho: times lado a lado com cor -->
+        <div class="yl-match-header">
+          <div class="yl-team-side">
+            <span class="yl-dot" style="background:${corCasa}"></span>
+            <span>${nomeCasa}</span>
           </div>
           <div class="yl-meta">
             ${jogo.status === 'ao_vivo' ? `<span class="yl-badge yl-live">LIVE</span>` : ''}
             <span class="yl-badge">${hora}</span>
-            <span class="yl-badge yl-hot" title="Torcedores na partida">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 6 4 4 6.5 4 8.04 4 9.54 4.81 10.35 6.09 11.16 4.81 12.66 4 14.2 4 16.7 4 18.7 6 18.7 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-              ${torcidaCount}
-            </span>
-            <span class="yl-badge">${status}</span>
+          </div>
+          <div class="yl-team-side">
+            <span class="yl-dot" style="background:${corFora}"></span>
+            <span>${nomeFora}</span>
           </div>
         </div>
+
+        <!-- Minibarra de torcida -->
+        <div class="yl-torc">
+          <div class="yl-torc-bar" title="Torcida: ${nomeCasa} ${torcidaCasa} x ${torcidaFora} ${nomeFora}">
+            <div class="yl-torc-home" style="width:${pctCasa}%; background:${corCasa}"></div>
+            <div class="yl-torc-away" style="width:${pctFora}%; background:${corFora}"></div>
+          </div>
+        </div>
+
+        <!-- Ações -->
         <div class="yl-actions">
           ${
             jaTorcendo
@@ -192,77 +200,9 @@ async function inicializarListas(){
   await carregarJogosPeriodo('hoje',   'listaHoje');
   await carregarJogosPeriodo('amanha', 'listaAmanha');
   await carregarJogosPeriodo('ontem',  'listaOntem');
-  await carregarJogosPeriodo('semana', 'listaSemana');
 }
 
-/* ========= Compat: render antigo em #jogosLista ========= */
-async function carregarJogosHojeCompat(){
-  const container = document.getElementById("jogosLista");
-  if (!container) return;
-
-  container.innerHTML = "<p>Carregando jogos...</p>";
-
-  const { start, end } = getRange('hoje');
-  const snap = await queryJogosPorData(start, end);
-
-  if (snap.empty) {
-    container.innerHTML = "<p>Nenhum jogo marcado para hoje.</p>";
-    return;
-  }
-
-  const user = auth.currentUser;
-  const userDoc = await db.collection("usuarios").doc(user.uid).get();
-  const dados = userDoc.data() || {};
-  const torcidas = dados.torcidas || {};
-
-  container.innerHTML = "";
-  const docs = snap.docs.sort((a,b)=>{
-    const ta = a.data().dataInicio?.toDate()?.getTime() ?? 0;
-    const tb = b.data().dataInicio?.toDate()?.getTime() ?? 0;
-    return ta - tb;
-  });
-
-  for (const d of docs){
-    const jogo = d.data(); const jogoId = d.id;
-
-    const timeCasa = await db.collection("times").doc(jogo.timeCasaId).get();
-    const timeFora = await db.collection("times").doc(jogo.timeForaId).get();
-
-    const nomeCasa = timeCasa.exists ? timeCasa.data().nome : "Time A";
-    const nomeFora = timeFora.exists ? timeFora.data().nome : "Time B";
-    const status = jogo.status || "indefinido";
-    const horario = jogo.dataInicio.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-
-    const card = document.createElement("div");
-    card.className = "col";
-
-    let html = `
-      <div class="card h-100 p-3">
-        <h5>${nomeCasa} x ${nomeFora}</h5>
-        <p>Horário: <strong>${horario}</strong></p>
-        <p>Status: <strong>${status}</strong></p>
-    `;
-
-    const torcidaId = torcidas[jogoId];
-    if (torcidaId) {
-      const timeTorcidaDoc = await db.collection("times").doc(torcidaId).get();
-      const nomeTorcida = timeTorcidaDoc.exists ? timeTorcidaDoc.data().nome : "Time escolhido";
-      html += `<p class="text-success">Você está torcendo para: <strong>${nomeTorcida}</strong></p>
-               <a href="painel-jogo.html?id=${jogoId}" class="btn btn-outline-success">Acessar Partida</a>`;
-    } else {
-      html += `
-        <button class="btn btn-success mb-2" onclick="torcer('${jogoId}', '${jogo.timeCasaId}')">Torcer pelo ${nomeCasa}</button>
-        <button class="btn btn-primary" onclick="torcer('${jogoId}', '${jogo.timeForaId}')">Torcer pelo ${nomeFora}</button>
-      `;
-    }
-
-    html += `</div>`;
-    card.innerHTML = html;
-    container.appendChild(card);
-  }
-}
-
-/* ========= Torcer (sua função original) ========= */
+/* ========= Torcer ========= */
 async function torcer(jogoId, timeEscolhidoId) {
   const user = auth.currentUser;
   if (!user) return;
