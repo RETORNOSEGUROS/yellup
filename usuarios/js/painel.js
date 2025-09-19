@@ -1,50 +1,59 @@
-/* painel.js — torcida robusta + status derivado + apelido
+/* painel.js — link de convite + torcida robusta + status derivado + apelido
    Requer: firebase compat + firebase-init.js (auth, db)
 */
 
-function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
-function logError(ctx,e){ console.error(`[PAINEL] ${ctx}:`, e); }
+function $(id){ return document.getElementById(id); }
+function setText(id, v){ const el=$(id); if(el) el.textContent=v; }
+function logError(ctx, e){ console.error(`[PAINEL] ${ctx}:`, e); }
 
 /* ============ Auth / Usuário ============ */
 auth.onAuthStateChanged(async (user)=>{
   try{
     if(!user){ location.href="index.html"; return; }
     const uid=user.uid;
+
     const uSnap=await db.collection("usuarios").doc(uid).get();
     const u=uSnap.data()||{};
 
-    // >>> usa apelido primeiro
+    // Saudação priorizando apelido
     const nome = u.apelido || u.usuario || u.usuarioUnico || u.nome || user.displayName || "Usuário";
     setText("nomeUsuario", nome);
 
-    // créditos / pontos
-    const creditos=(u.creditos??u.creditosDisponiveis??0);
-    setText("creditos", String(creditos));
-
-    // pontuação real: soma do mapa 'pontuacoes' se existir
+    // Créditos / Pontuação real
+    setText("creditos", String(u.creditos ?? u.creditosDisponiveis ?? 0));
     let pontos=0;
     if (u.pontuacoes && typeof u.pontuacoes==='object'){
-      try{ pontos=Object.values(u.pontuacoes).reduce((a,b)=>a+(Number(b)||0),0); }catch{}
-    } else { pontos=(u.pontuacao??u.pontuacaoAcumulada??0); }
+      try{ pontos = Object.values(u.pontuacoes).reduce((a,b)=>a+(Number(b)||0),0); }catch{}
+    } else { pontos = (u.pontuacao ?? u.pontuacaoAcumulada ?? 0); }
     setText("pontuacao", String(pontos));
 
-    // avatar
-    const avatar=(u.avatarUrl && String(u.avatarUrl).trim())?u.avatarUrl:"/usuarios/img/avatar-fallback.png";
-    const avatarImg=document.getElementById("avatarImg"); if(avatarImg) avatarImg.src=avatar;
+    // Avatar
+    const avatar=(u.avatarUrl && String(u.avatarUrl).trim()) ? u.avatarUrl : "/usuarios/img/avatar-fallback.png";
+    const avatarImg=$("avatarImg"); if(avatarImg) avatarImg.src=avatar;
 
-    // time do coração
+    // Time do coração
     if(u.timeId){
       try{
         const tRef=await db.collection("times").doc(u.timeId).get();
         setText("timeCoracao", tRef.exists ? (tRef.data()?.nome || "—") : "—");
       }catch{ setText("timeCoracao","—"); }
-    }else setText("timeCoracao","—");
+    } else setText("timeCoracao","—");
+
+    // LINK DE CONVITE (corrigido)
+    const link = `https://yellup.vercel.app/usuarios/cadastro.html?indicador=${uid}`;
+    const linkInput = $("linkConvite"); if(linkInput) linkInput.value = link;
+    window.copiarLink = async function(){
+      try{
+        if(navigator.clipboard){ await navigator.clipboard.writeText(linkInput.value); alert("Link copiado!"); }
+        else { linkInput.select(); document.execCommand("copy"); alert("Link copiado!"); }
+      }catch(e){ alert("Não foi possível copiar o link."); }
+    };
 
     await inicializarListas();
-  }catch(e){ logError("onAuthStateChanged",e); }
+  }catch(e){ logError("onAuthStateChanged", e); }
 });
 
-/* ============ Util: datas e consulta ============ */
+/* ============ Datas ============ */
 function getRange(p){
   const s=new Date(); s.setHours(0,0,0,0);
   const e=new Date(); e.setHours(23,59,59,999);
@@ -65,12 +74,12 @@ async function queryJogosPorData(start,end){
   }
 }
 
-/* ============ Status derivado (fim garante ENCERRADO) ============ */
+/* ============ Status derivado (usa dataFim se status estiver errado) ============ */
 function statusDerivado(jogo){
   const raw=(jogo.status||"").toLowerCase();
   const now=new Date();
-  const ini=jogo.dataInicio?.toDate?jogo.dataInicio.toDate():null;
-  const fim=jogo.dataFim?.toDate?jogo.dataFim.toDate():null;
+  const ini=jogo.dataInicio?.toDate ? jogo.dataInicio.toDate() : null;
+  const fim=jogo.dataFim?.toDate     ? jogo.dataFim.toDate()     : null;
 
   if (["encerrado","finalizado","fim"].includes(raw)) return "ENCERRADO";
   if (fim && fim < now) return "ENCERRADO";
@@ -78,51 +87,67 @@ function statusDerivado(jogo){
   return "AGENDADO";
 }
 
-/* ============ Contagem de torcida (robusta) ============ */
-/* cobre:
-   - coleção raiz "torcidas" (campos timeId OU timeEscolhidoId)
-   - subcoleção "jogos/{id}/torcidas"
-   - agregados no doc do jogo (torcidaCasaCount/torcidaForaCount)
+/* ============ Torcida: contador “à prova de esquema” ============ */
+/* Procura por 4 nomes para o campo do jogo e 4 nomes para o campo do time.
+   Soma: 1) coleção raiz "torcidas", 2) subcoleção "jogos/{id}/torcidas",
+   3) agregados no doc do jogo (torcidaCasaCount/torcidaForaCount).
 */
+const JOGO_KEYS = ["jogoId","idJogo","partidaId","idPartida"];
+const TIME_KEYS = ["timeId","timeEscolhidoId","time","timeEscolhido"];
+
+async function contarRaizTorcidas(jogoId, casaId, foraId){
+  let casa=0, fora=0;
+  for(const jk of JOGO_KEYS){
+    try{
+      const snap = await db.collection("torcidas").where(jk,"==",jogoId).get();
+      if(!snap.empty){
+        snap.forEach(doc=>{
+          const t = doc.data();
+          const tid = TIME_KEYS.map(k=>t[k]).find(v=>!!v);
+          if(tid===casaId) casa++;
+          else if(tid===foraId) fora++;
+        });
+      }
+    }catch(e){ /* ignora consulta não indexada */ }
+  }
+  return {casa, fora};
+}
+
+async function contarSubcolecao(jogoId, casaId, foraId){
+  let casa=0, fora=0;
+  try{
+    const sub = await db.collection("jogos").doc(jogoId).collection("torcidas").get();
+    if(!sub.empty){
+      sub.forEach(doc=>{
+        const t = doc.data();
+        const tid = TIME_KEYS.map(k=>t[k]).find(v=>!!v);
+        if(tid===casaId) casa++;
+        else if(tid===foraId) fora++;
+      });
+    }
+  }catch(e){}
+  return {casa, fora};
+}
+
 async function contarTorcida(jogoId, casaId, foraId, agregados){
-  // 0) agregados no doc
+  // 0) agregados no doc (se existirem)
   const aCasa=Number(agregados?.torcidaCasaCount||0);
   const aFora=Number(agregados?.torcidaForaCount||0);
   if (aCasa || aFora) return {casa:aCasa, fora:aFora};
 
-  let casa=0, fora=0;
-
-  // 1) raiz
-  try{
-    const snap=await db.collection("torcidas").where("jogoId","==",jogoId).get();
-    snap.forEach(td=>{
-      const t=td.data();
-      const tid = t.timeId || t.timeEscolhidoId;    // <-- cobre ambos
-      if(tid===casaId) casa++;
-      else if(tid===foraId) fora++;
-    });
-  }catch{}
+  // 1) raiz com OR “manual” de chaves
+  const r = await contarRaizTorcidas(jogoId, casaId, foraId);
 
   // 2) subcoleção
-  if(casa===0 && fora===0){
-    try{
-      const sub=await db.collection("jogos").doc(jogoId).collection("torcidas").get();
-      sub.forEach(td=>{
-        const t=td.data();
-        const tid = t.timeId || t.timeEscolhidoId;
-        if(tid===casaId) casa++;
-        else if(tid===foraId) fora++;
-      });
-    }catch{}
-  }
+  const s = await contarSubcolecao(jogoId, casaId, foraId);
 
-  return {casa, fora};
+  return {casa: r.casa + s.casa, fora: r.fora + s.fora};
 }
 
-/* ============ Render ============ */
+/* ============ Render de partidas ============ */
 async function carregarJogosPeriodo(periodo, containerId){
   try{
-    const box=document.getElementById(containerId); if(!box) return;
+    const box=$(containerId); if(!box) return;
     box.innerHTML=`<p class="text-white-50">Carregando...</p>`;
 
     const {start,end}=getRange(periodo);
@@ -143,7 +168,7 @@ async function carregarJogosPeriodo(periodo, containerId){
     for(const d of docs){
       const jogo=d.data(); const jogoId=d.id;
 
-      // times
+      // Times
       const casaDoc=await db.collection("times").doc(jogo.timeCasaId).get();
       const foraDoc=await db.collection("times").doc(jogo.timeForaId).get();
       const nomeCasa=casaDoc.exists?(casaDoc.data().nome||"Time A"):"Time A";
@@ -151,12 +176,15 @@ async function carregarJogosPeriodo(periodo, containerId){
       const corCasa =casaDoc.exists?(casaDoc.data().corPrimaria||'#2ecc71'):'#2ecc71';
       const corFora =foraDoc.exists?(foraDoc.data().corPrimaria||'#e74c3c'):'#e74c3c';
 
+      // Data/Hora e Status
       const dt=jogo.dataInicio?.toDate?jogo.dataInicio.toDate():new Date();
       const dataTxt=dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
       const horaTxt=dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
       const status=statusDerivado(jogo);
 
-      const {casa:cntCasa, fora:cntFora}=await contarTorcida(jogoId, jogo.timeCasaId, jogo.timeForaId, jogo);
+      // Torcida (robusta)
+      const {casa:cntCasa, fora:cntFora} = await contarTorcida(jogoId, jogo.timeCasaId, jogo.timeForaId, jogo);
+
       const jaTorcendo=Boolean(torcidasUser[jogoId]);
 
       const col=document.createElement('div'); col.className="col-12 col-md-6 col-lg-4";
@@ -177,7 +205,7 @@ async function carregarJogosPeriodo(periodo, containerId){
             </div>
           </div>
 
-          <!-- Linha 2: torcida ESQ | data·hora centro | torcida DIR -->
+          <!-- Linha 2: torcida ESQ | data·hora | torcida DIR -->
           <div class="yl-row2">
             <span class="yl-count left"  style="border-color:${corCasa}; background:rgba(0,0,0,.2)">
               <span class="ico" style="background:${corCasa}"></span> ${cntCasa}
@@ -206,8 +234,8 @@ async function carregarJogosPeriodo(periodo, containerId){
       box.appendChild(col);
     }
   }catch(e){
-    logError(`carregarJogosPeriodo(${periodo})`,e);
-    const box=document.getElementById(containerId);
+    logError(`carregarJogosPeriodo(${periodo})`, e);
+    const box=$(containerId);
     if(box) box.innerHTML=`<p class="text-danger">Erro ao carregar partidas.</p>`;
   }
 }
@@ -218,7 +246,7 @@ async function inicializarListas(){
   await carregarJogosPeriodo('ontem','listaOntem');
 }
 
-/* ============ Torcer (inalterado) ============ */
+/* ============ Torcer (sem mudanças) ============ */
 async function torcer(jogoId, timeEscolhidoId){
   try{
     const user=auth.currentUser; if(!user) return;
