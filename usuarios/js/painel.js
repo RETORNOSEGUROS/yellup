@@ -1,33 +1,31 @@
-/* painel.js — status derivado + torcida por lado + nome do Firestore
+/* painel.js — torcida robusta + status derivado + apelido
    Requer: firebase compat + firebase-init.js (auth, db)
 */
 
-function setText(id, v){ const el=document.getElementById(id); if(el) el.textContent=v; }
+function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
 function logError(ctx,e){ console.error(`[PAINEL] ${ctx}:`, e); }
 
-/* =================== Auth / Usuário =================== */
+/* ============ Auth / Usuário ============ */
 auth.onAuthStateChanged(async (user)=>{
   try{
     if(!user){ location.href="index.html"; return; }
-
     const uid=user.uid;
     const uSnap=await db.collection("usuarios").doc(uid).get();
     const u=uSnap.data()||{};
 
-    // Sempre prioriza o nome do Firestore (como no teu print)
-    const nome = u.nome || user.displayName || "Usuário";
+    // >>> usa apelido primeiro
+    const nome = u.apelido || u.usuario || u.usuarioUnico || u.nome || user.displayName || "Usuário";
     setText("nomeUsuario", nome);
 
+    // créditos / pontos
     const creditos=(u.creditos??u.creditosDisponiveis??0);
     setText("creditos", String(creditos));
 
-    // pontuação: soma do mapa 'pontuacoes' quando existir
+    // pontuação real: soma do mapa 'pontuacoes' se existir
     let pontos=0;
     if (u.pontuacoes && typeof u.pontuacoes==='object'){
       try{ pontos=Object.values(u.pontuacoes).reduce((a,b)=>a+(Number(b)||0),0); }catch{}
-    } else {
-      pontos=(u.pontuacao??u.pontuacaoAcumulada??0);
-    }
+    } else { pontos=(u.pontuacao??u.pontuacaoAcumulada??0); }
     setText("pontuacao", String(pontos));
 
     // avatar
@@ -38,8 +36,7 @@ auth.onAuthStateChanged(async (user)=>{
     if(u.timeId){
       try{
         const tRef=await db.collection("times").doc(u.timeId).get();
-        if(tRef.exists){ setText("timeCoracao", (tRef.data()?.nome)||"—"); }
-        else setText("timeCoracao","—");
+        setText("timeCoracao", tRef.exists ? (tRef.data()?.nome || "—") : "—");
       }catch{ setText("timeCoracao","—"); }
     }else setText("timeCoracao","—");
 
@@ -47,7 +44,7 @@ auth.onAuthStateChanged(async (user)=>{
   }catch(e){ logError("onAuthStateChanged",e); }
 });
 
-/* =================== Datas / Query =================== */
+/* ============ Util: datas e consulta ============ */
 function getRange(p){
   const s=new Date(); s.setHours(0,0,0,0);
   const e=new Date(); e.setHours(23,59,59,999);
@@ -68,62 +65,61 @@ async function queryJogosPorData(start,end){
   }
 }
 
-/* =================== Status derivado =================== */
-function deriveStatus(jogo){
+/* ============ Status derivado (fim garante ENCERRADO) ============ */
+function statusDerivado(jogo){
   const raw=(jogo.status||"").toLowerCase();
   const now=new Date();
   const ini=jogo.dataInicio?.toDate?jogo.dataInicio.toDate():null;
   const fim=jogo.dataFim?.toDate?jogo.dataFim.toDate():null;
 
   if (["encerrado","finalizado","fim"].includes(raw)) return "ENCERRADO";
-  if (raw==="ao_vivo" || raw==="live") return "LIVE";
-
   if (fim && fim < now) return "ENCERRADO";
   if (ini && ini <= now && (!fim || fim > now)) return "LIVE";
   return "AGENDADO";
 }
 
-/* =================== Contagem de torcida (robusto) =================== */
-async function contarTorcida(jogoId, timeCasaId, timeForaId, agregado){
-  // 1) agregado no doc do jogo (se existir)
-  if (agregado){
-    const aCasa=Number(agregado.torcidaCasaCount||0);
-    const aFora=Number(agregado.torcidaForaCount||0);
-    if (aCasa || aFora) return {casa:aCasa, fora:aFora};
-  }
+/* ============ Contagem de torcida (robusta) ============ */
+/* cobre:
+   - coleção raiz "torcidas" (campos timeId OU timeEscolhidoId)
+   - subcoleção "jogos/{id}/torcidas"
+   - agregados no doc do jogo (torcidaCasaCount/torcidaForaCount)
+*/
+async function contarTorcida(jogoId, casaId, foraId, agregados){
+  // 0) agregados no doc
+  const aCasa=Number(agregados?.torcidaCasaCount||0);
+  const aFora=Number(agregados?.torcidaForaCount||0);
+  if (aCasa || aFora) return {casa:aCasa, fora:aFora};
 
-  // 2) coleção raiz "torcidas"
+  let casa=0, fora=0;
+
+  // 1) raiz
   try{
     const snap=await db.collection("torcidas").where("jogoId","==",jogoId).get();
-    if(!snap.empty){
-      let casa=0, fora=0;
-      snap.forEach(td=>{
-        const t=td.data();
-        if(t.timeId===timeCasaId) casa++;
-        else if(t.timeId===timeForaId) fora++;
-      });
-      return {casa, fora};
-    }
+    snap.forEach(td=>{
+      const t=td.data();
+      const tid = t.timeId || t.timeEscolhidoId;    // <-- cobre ambos
+      if(tid===casaId) casa++;
+      else if(tid===foraId) fora++;
+    });
   }catch{}
 
-  // 3) subcoleção "jogos/{id}/torcidas"
-  try{
-    const sub=await db.collection("jogos").doc(jogoId).collection("torcidas").get();
-    if(!sub.empty){
-      let casa=0, fora=0;
+  // 2) subcoleção
+  if(casa===0 && fora===0){
+    try{
+      const sub=await db.collection("jogos").doc(jogoId).collection("torcidas").get();
       sub.forEach(td=>{
         const t=td.data();
-        if(t.timeId===timeCasaId) casa++;
-        else if(t.timeId===timeForaId) fora++;
+        const tid = t.timeId || t.timeEscolhidoId;
+        if(tid===casaId) casa++;
+        else if(tid===foraId) fora++;
       });
-      return {casa, fora};
-    }
-  }catch{}
+    }catch{}
+  }
 
-  return {casa:0, fora:0};
+  return {casa, fora};
 }
 
-/* =================== Render Partidas =================== */
+/* ============ Render ============ */
 async function carregarJogosPeriodo(periodo, containerId){
   try{
     const box=document.getElementById(containerId); if(!box) return;
@@ -155,21 +151,18 @@ async function carregarJogosPeriodo(periodo, containerId){
       const corCasa =casaDoc.exists?(casaDoc.data().corPrimaria||'#2ecc71'):'#2ecc71';
       const corFora =foraDoc.exists?(foraDoc.data().corPrimaria||'#e74c3c'):'#e74c3c';
 
-      // status + data/hora
-      const status=deriveStatus(jogo);
       const dt=jogo.dataInicio?.toDate?jogo.dataInicio.toDate():new Date();
       const dataTxt=dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
       const horaTxt=dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+      const status=statusDerivado(jogo);
 
-      // torcida por lado
-      const {casa:torcidaCasa, fora:torcidaFora}=await contarTorcida(jogoId, jogo.timeCasaId, jogo.timeForaId, jogo);
-
+      const {casa:cntCasa, fora:cntFora}=await contarTorcida(jogoId, jogo.timeCasaId, jogo.timeForaId, jogo);
       const jaTorcendo=Boolean(torcidasUser[jogoId]);
 
       const col=document.createElement('div'); col.className="col-12 col-md-6 col-lg-4";
       col.innerHTML=`
         <div class="yl-match h-100">
-          <!-- Linha 1: apenas nomes -->
+          <!-- Linha 1: nomes -->
           <div class="yl-row1">
             <div class="yl-team">
               <span class="yl-dot" style="background:${corCasa}"></span>
@@ -184,14 +177,18 @@ async function carregarJogosPeriodo(periodo, containerId){
             </div>
           </div>
 
-          <!-- Linha 2: torcida ESQ | data/hora centro | torcida DIR -->
+          <!-- Linha 2: torcida ESQ | data·hora centro | torcida DIR -->
           <div class="yl-row2">
-            <span class="yl-count" style="border-color:${corCasa};"><span>👥</span>${torcidaCasa}</span>
+            <span class="yl-count left"  style="border-color:${corCasa}; background:rgba(0,0,0,.2)">
+              <span class="ico" style="background:${corCasa}"></span> ${cntCasa}
+            </span>
             <div class="yl-center">
               <span class="yl-badge">${dataTxt}</span>
               <span class="yl-badge">${horaTxt}</span>
             </div>
-            <span class="yl-count right" style="border-color:${corFora};"><span>👥</span>${torcidaFora}</span>
+            <span class="yl-count right" style="border-color:${corFora}; background:rgba(0,0,0,.2)">
+              <span class="ico" style="background:${corFora}"></span> ${cntFora}
+            </span>
           </div>
 
           <div class="yl-actions">
@@ -221,7 +218,7 @@ async function inicializarListas(){
   await carregarJogosPeriodo('ontem','listaOntem');
 }
 
-/* ============ Torcer (mantido) ============ */
+/* ============ Torcer (inalterado) ============ */
 async function torcer(jogoId, timeEscolhidoId){
   try{
     const user=auth.currentUser; if(!user) return;
@@ -233,7 +230,6 @@ async function torcer(jogoId, timeEscolhidoId){
     if(creditosAtuais<1){ alert("Você não tem créditos suficientes para torcer."); return; }
 
     await userRef.update({ creditos: creditosAtuais-1, [`torcidas.${jogoId}`]: timeEscolhidoId });
-
     await db.collection("torcidas").doc(`${jogoId}_${user.uid}`).set({
       uid:user.uid, jogoId, timeId:timeEscolhidoId,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
