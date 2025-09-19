@@ -182,8 +182,8 @@ async function carregarJogosPeriodo(periodo, containerId){
       const foraDoc=await db.collection("times").doc(jogo.timeForaId).get();
       const nomeCasa=casaDoc.exists?(casaDoc.data().nome||"Time A"):"Time A";
       const nomeFora=foraDoc.exists?(foraDoc.data().nome||"Time B"):"Time B";
-      const corCasa =casaDoc.exists?(casaDoc.data().corPrimaria||'#2ecc71'):'#2ecc71';
-      const corFora =foraDoc.exists?(foraDoc.data().corPrimaria||'#e74c3c'):'#e74c3c';
+      const corCasa = casaDoc.exists ? (casaDoc.data().corPrimaria || casaDoc.data().primaria || '#2ecc71') : '#2ecc71';
+      const corFora = foraDoc.exists ? (foraDoc.data().corPrimaria || foraDoc.data().primaria || '#e74c3c') : '#e74c3c';
 
       // Data/Hora e Status
       const dt=jogo.dataInicio?.toDate?jogo.dataInicio.toDate():new Date();
