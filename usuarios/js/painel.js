@@ -1,20 +1,27 @@
-/* painel.js – robusto contra elementos ausentes e variações de campos
-   - Mantém: auth, cores por time, listas Hoje/Amanhã/Ontem, barra de torcida, torcer
-   - Hotfix: checagem de elementos, fallback de campos, logs de erro
+/* painel.js – robusto + moderno
+   - Exibe dados do usuário (fallback de campos/ids)
+   - Listas: Hoje, Amanhã, Ontem
+   - Cabeçalho dos times lado a lado com cores
+   - Minibarra de torcida (50/50 quando sem votos)
+   - torcer(): atualiza usuário e grava em torcidas/{jogoId}_{uid}
+   Requer: firebase compat + firebase-init.js expondo "auth" e "db"
 */
 
-// util: seta texto se o elemento existir
+/* ========================= Util ========================= */
+
+// Seta texto se o elemento existir
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
 }
 
-// util: log seguro
+// Log padronizado
 function logError(ctx, err) {
   console.error(`[PAINEL] ${ctx}:`, err);
 }
 
-// ==== AUTH + DADOS DO USUÁRIO ====
+/* =================== Auth + Dados Usuário =================== */
+
 auth.onAuthStateChanged(async (user) => {
   try {
     if (!user) {
@@ -32,15 +39,15 @@ auth.onAuthStateChanged(async (user) => {
     const dados = doc.data() || {};
 
     // nome / créditos / pontuação (com fallback de nomes)
-    const nome = dados.nome || "Usuário";
+    const nome     = dados.nome || "Usuário";
     const creditos = (dados.creditos ?? dados.creditosDisponiveis ?? 0);
-    const pontos  = (dados.pontuacao ?? dados.pontuacaoAcumulada ?? 0);
+    const pontos   = (dados.pontuacao ?? dados.pontuacaoAcumulada ?? 0);
 
     setText("nomeUsuario", nome);
     setText("creditos", String(creditos));
     setText("pontuacao", String(pontos));
 
-    // time do coração + paleta
+    // time do coração + paleta dinâmica
     if (dados.timeId) {
       try {
         const timeRef = await db.collection("times").doc(dados.timeId).get();
@@ -78,6 +85,8 @@ auth.onAuthStateChanged(async (user) => {
   }
 });
 
+/* ========================= Copiar link ========================= */
+
 function copiarLink() {
   try {
     const input = document.getElementById("linkConvite");
@@ -90,7 +99,8 @@ function copiarLink() {
   }
 }
 
-/* ========= RANGE / QUERY ========= */
+/* =================== Range / Query Firestore =================== */
+
 function getRange(periodo){
   const start = new Date(); start.setHours(0,0,0,0);
   const end   = new Date(); end.setHours(23,59,59,999);
@@ -100,14 +110,14 @@ function getRange(periodo){
 }
 
 async function queryJogosPorData(start, end){
-  try {
+  try{
     return await db.collection("jogos")
       .where("dataInicio", ">=", start)
       .where("dataInicio", "<=", end)
       .orderBy("dataInicio", "asc")
       .get();
-  } catch (err) {
-    // fallback sem orderBy (evita índice obrigatório)
+  }catch(err){
+    // fallback sem orderBy (evita índice obrigatório); ordenamos no cliente
     return await db.collection("jogos")
       .where("dataInicio", ">=", start)
       .where("dataInicio", "<=", end)
@@ -115,7 +125,8 @@ async function queryJogosPorData(start, end){
   }
 }
 
-/* ========= CARREGAR PARTIDAS ========= */
+/* ====================== Carregar Partidas ====================== */
+
 async function carregarJogosPeriodo(periodo, containerId){
   try {
     const el = document.getElementById(containerId);
@@ -135,7 +146,7 @@ async function carregarJogosPeriodo(periodo, containerId){
     const dadosUser = uDoc.data() || {};
     const torcidasUser = dadosUser.torcidas || {};
 
-    // ordena no cliente se vier sem orderBy
+    // ordenação local caso não venha com orderBy
     const docs = snap.docs.sort((a,b)=>{
       const ta = a.data().dataInicio?.toDate()?.getTime() ?? 0;
       const tb = b.data().dataInicio?.toDate()?.getTime() ?? 0;
@@ -158,7 +169,7 @@ async function carregarJogosPeriodo(periodo, containerId){
       const hora = jogo.dataInicio.toDate().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
       const status = (jogo.status || 'indefinido').replace('_',' ').toUpperCase();
 
-      // contagem de torcedores por time
+      // contagem de torcedores por time a partir da coleção "torcidas"
       let torcidaCasa = 0, torcidaFora = 0;
       try{
         const tSnap = await db.collection("torcidas").where("jogoId","==",jogoId).get();
@@ -169,9 +180,14 @@ async function carregarJogosPeriodo(periodo, containerId){
         });
       }catch(_){}
 
-      const totalTorc = Math.max(1, torcidaCasa + torcidaFora); // evita divisão por 0
-      const pctCasa = Math.round((torcidaCasa / totalTorc) * 100);
-      const pctFora = 100 - pctCasa;
+      // porcentagens (se não houver votos, 50/50 neutro)
+      const totalTorc = torcidaCasa + torcidaFora;
+      let pctCasa, pctFora;
+      if (totalTorc === 0) { pctCasa = 50; pctFora = 50; }
+      else {
+        pctCasa = Math.round((torcidaCasa / totalTorc) * 100);
+        pctFora = 100 - pctCasa;
+      }
 
       const jaTorcendo = Boolean(torcidasUser[jogoId]);
 
@@ -195,7 +211,7 @@ async function carregarJogosPeriodo(periodo, containerId){
             </div>
           </div>
 
-          <!-- Minibarra de torcida -->
+          <!-- Minibarra de torcida (home à esquerda, away à direita) -->
           <div class="yl-torc">
             <div class="yl-torc-bar" title="Torcida: ${nomeCasa} ${torcidaCasa} x ${torcidaFora} ${nomeFora}">
               <div class="yl-torc-home" style="width:${pctCasa}%; background:${corCasa}"></div>
@@ -231,7 +247,10 @@ async function inicializarListas(){
   await carregarJogosPeriodo('ontem',  'listaOntem');
 }
 
-/* ========= TORCER ========= */
+/* ========================= Torcer =========================
+   - Atualiza créditos e mapa de torcidas no doc do usuário
+   - Grava/atualiza doc em "torcidas/{jogoId}_{uid}" para contagem global
+*/
 async function torcer(jogoId, timeEscolhidoId) {
   try {
     const user = auth.currentUser;
@@ -246,15 +265,27 @@ async function torcer(jogoId, timeEscolhidoId) {
       return;
     }
 
-    if ((dados.creditos ?? dados.creditosDisponiveis ?? 0) < 1) {
+    const creditosAtuais = (dados.creditos ?? dados.creditosDisponiveis ?? 0);
+    if (creditosAtuais < 1) {
       alert("Você não tem créditos suficientes para torcer.");
       return;
     }
 
+    // 1) Atualiza o doc do usuário
     await userRef.update({
-      creditos: (dados.creditos ?? dados.creditosDisponiveis ?? 0) - 1,
+      creditos: creditosAtuais - 1,
       [`torcidas.${jogoId}`]: timeEscolhidoId
     });
+
+    // 2) Grava/atualiza a torcida agregada por jogo
+    await db.collection("torcidas")
+      .doc(`${jogoId}_${user.uid}`)
+      .set({
+        uid: user.uid,
+        jogoId: jogoId,
+        timeId: timeEscolhidoId,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
 
     window.location.href = `painel-jogo.html?id=${jogoId}`;
   } catch (e) {
