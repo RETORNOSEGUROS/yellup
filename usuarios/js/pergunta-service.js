@@ -194,7 +194,7 @@ class PerguntaService {
   }
 
   /**
-   * Sistema de perguntas grátis (3 por dia)
+   * Sistema de perguntas grátis (5 por dia)
    * Verifica se usuário ainda tem jogadas grátis disponíveis
    * 
    * @returns {Promise<Object>} { temGratis, quantidade, proximoReset }
@@ -223,12 +223,12 @@ class PerguntaService {
 
         return {
           temGratis: true,
-          quantidade: 3,
+          quantidade: 5,
           proximoReset: this.calcularProximoReset()
         };
       }
 
-      const restantes = Math.max(0, 3 - jogadasUsadas);
+      const restantes = Math.max(0, 5 - jogadasUsadas);
 
       return {
         temGratis: restantes > 0,
