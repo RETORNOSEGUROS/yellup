@@ -811,39 +811,54 @@
     async function carregarTorcidasUsuario(uid) {
       try {
         console.log("🔍 Buscando torcidas do usuário:", uid);
+        console.log("   Testando TODOS os campos possíveis...");
         
-        // CORREÇÃO: Buscar por 'uid' E 'userId' para suportar ambos
-        const [torcidasByUid, torcidasByUserId] = await Promise.all([
-          db.collection('torcidas').where('uid', '==', uid).get(),
-          db.collection('torcidas').where('userId', '==', uid).get()
-        ]);
+        // Buscar de forma mais simples - apenas uma query que pega tudo
+        const allTorcidas = await db.collection('torcidas').get();
 
-        console.log("📊 Torcidas por UID:", torcidasByUid.size);
-        console.log("📊 Torcidas por userId:", torcidasByUserId.size);
+        console.log("📊 Total de registros na coleção:", allTorcidas.size);
 
         torcidas = {};
+        let encontrados = 0;
         
-        // Processar ambas as queries
-        [...torcidasByUid.docs, ...torcidasByUserId.docs].forEach(doc => {
+        allTorcidas.docs.forEach(doc => {
           const data = doc.data();
-          console.log("📝 Registro de torcida:", doc.id, data);
           
-          // Suportar diferentes estruturas
-          const jogoId = data.jogoId;
-          const timeTorcido = data.timeTorcido || data.time;
+          // Verificar se é do usuário atual
+          const pertenceAoUsuario = 
+            data.uid === uid || 
+            data.userId === uid;
           
-          if (jogoId && timeTorcido) {
-            torcidas[jogoId] = {
-              time: timeTorcido,
-              id: doc.id
-            };
-            console.log("   ✅ Adicionado:", jogoId, "→", timeTorcido);
-          } else {
-            console.log("   ⚠️ Registro inválido (falta jogoId ou time)");
+          if (pertenceAoUsuario) {
+            encontrados++;
+            console.log("📝 Registro do usuário encontrado:", doc.id);
+            console.log("   Campos:", Object.keys(data));
+            
+            const jogoId = data.jogoId;
+            const timeTorcido = data.timeTorcido || data.time;
+            
+            console.log("   jogoId:", jogoId);
+            console.log("   time:", timeTorcido);
+            
+            if (jogoId && timeTorcido) {
+              torcidas[jogoId] = {
+                time: timeTorcido,
+                id: doc.id
+              };
+              console.log("   ✅ ADICIONADO!");
+            } else {
+              console.log("   ❌ Registro incompleto");
+              if (!jogoId) console.log("      - Falta jogoId");
+              if (!timeTorcido) console.log("      - Falta timeTorcido/time");
+            }
           }
         });
 
-        console.log("✅ Torcidas carregadas:", torcidas);
+        console.log("✅ Registros do usuário encontrados:", encontrados);
+        console.log("✅ Torcidas válidas carregadas:", Object.keys(torcidas).length);
+        console.log("📋 Jogos com torcida:", Object.keys(torcidas));
+        console.log("📋 Detalhes:", torcidas);
+        
         return torcidas;
 
       } catch (error) {
@@ -867,6 +882,9 @@
       }
 
       console.log("✅ Usuário autenticado:", user.uid);
+      console.log("📧 Email:", user.email);
+      console.log("🆔 UID completo:", user.uid);
+      console.log("-----------------------------------");
 
       try {
         currentUserId = user.uid;
