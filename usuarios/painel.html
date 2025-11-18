@@ -812,13 +812,22 @@
       try {
         console.log("🔍 Buscando torcidas do usuário:", uid);
         
-        const torcidasSnap = await db.collection('torcidas')
-          .where('userId', '==', uid)
-          .get();
+        // CORREÇÃO: Buscar por 'uid' E 'userId' para suportar ambos
+        const [torcidasByUid, torcidasByUserId] = await Promise.all([
+          db.collection('torcidas').where('uid', '==', uid).get(),
+          db.collection('torcidas').where('userId', '==', uid).get()
+        ]);
+
+        console.log("📊 Torcidas por UID:", torcidasByUid.size);
+        console.log("📊 Torcidas por userId:", torcidasByUserId.size);
 
         torcidas = {};
-        torcidasSnap.forEach(doc => {
+        
+        // Processar ambas as queries
+        [...torcidasByUid.docs, ...torcidasByUserId.docs].forEach(doc => {
           const data = doc.data();
+          console.log("📝 Registro de torcida:", doc.id, data);
+          
           // Suportar diferentes estruturas
           const jogoId = data.jogoId;
           const timeTorcido = data.timeTorcido || data.time;
@@ -828,6 +837,9 @@
               time: timeTorcido,
               id: doc.id
             };
+            console.log("   ✅ Adicionado:", jogoId, "→", timeTorcido);
+          } else {
+            console.log("   ⚠️ Registro inválido (falta jogoId ou time)");
           }
         });
 
@@ -1008,21 +1020,38 @@
         if (torcidaInfo) {
           const timeTorcido = torcidaInfo.time;
           
+          console.log("🔍 DEBUG - Jogo:", jogo.id);
+          console.log("   Nome Casa:", nomeCasa);
+          console.log("   Nome Fora:", nomeFora);
+          console.log("   Time Torcido:", timeTorcido);
+          console.log("   ID Casa:", jogo.timeCasaId);
+          console.log("   ID Fora:", jogo.timeForaId);
+          
           // Identificar qual time escolheu
           if (timeTorcido === 'A' || timeTorcido === nomeCasa || timeTorcido === jogo.timeCasaId) {
             torcidaEscolhida = 'A';
             nomeTimeTorcido = nomeCasa;
+            console.log("   ✅ Identificado: Time A (Casa) -", nomeCasa);
           } else if (timeTorcido === 'B' || timeTorcido === nomeFora || timeTorcido === jogo.timeForaId) {
             torcidaEscolhida = 'B';
             nomeTimeTorcido = nomeFora;
+            console.log("   ✅ Identificado: Time B (Fora) -", nomeFora);
           } else {
+            console.log("   ⚠️ Tentando identificar por substring...");
             // Tentar identificar pelo nome do time
             if (timeTorcido.includes(nomeCasa) || nomeCasa.includes(timeTorcido)) {
               torcidaEscolhida = 'A';
               nomeTimeTorcido = nomeCasa;
+              console.log("   ✅ Identificado por substring: Time A -", nomeCasa);
             } else if (timeTorcido.includes(nomeFora) || nomeFora.includes(timeTorcido)) {
               torcidaEscolhida = 'B';
               nomeTimeTorcido = nomeFora;
+              console.log("   ✅ Identificado por substring: Time B -", nomeFora);
+            } else {
+              console.log("   ❌ NÃO CONSEGUIU IDENTIFICAR!");
+              console.log("   timeTorcido:", timeTorcido);
+              console.log("   nomeCasa:", nomeCasa);
+              console.log("   nomeFora:", nomeFora);
             }
           }
         }
