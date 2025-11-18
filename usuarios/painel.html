@@ -686,6 +686,13 @@
           <button class="btn-copy" onclick="copyInviteLink()">Copiar</button>
         </div>
       </div>
+
+      <!-- BOTÃO DE DEBUG -->
+      <div style="margin-top: 20px; padding: 15px; background: rgba(239, 68, 68, 0.2); border: 2px solid #ef4444; border-radius: 12px; text-align: center;">
+        <button onclick="debugTorcidas()" style="width: 100%; padding: 15px; background: #ef4444; border: none; border-radius: 10px; color: white; font-weight: 700; font-size: 1.1em; cursor: pointer; font-family: 'Poppins', sans-serif;">
+          🔍 DEBUG - Mostrar Minhas Torcidas
+        </button>
+      </div>
     </div>
 
     <!-- HOJE -->
@@ -770,6 +777,38 @@
     let currentUserId = null;
     let currentUserData = null;
     let torcidas = {}; // Cache de torcidas do usuário
+
+    // ===================================
+    // 🔍 DEBUG - MOSTRAR TORCIDAS
+    // ===================================
+    function debugTorcidas() {
+      let info = "🔍 DEBUG DE TORCIDAS\n\n";
+      info += `👤 Seu UID: ${currentUserId}\n\n`;
+      info += `📊 Total de torcidas carregadas: ${Object.keys(torcidas).length}\n\n`;
+      
+      if (Object.keys(torcidas).length === 0) {
+        info += "❌ NENHUMA TORCIDA ENCONTRADA!\n\n";
+        info += "Isso significa que:\n";
+        info += "1. Não há registros com seu UID\n";
+        info += "2. Ou os registros não têm jogoId\n\n";
+        info += "Veja o CONSOLE (F12) para mais detalhes!";
+      } else {
+        info += "✅ Torcidas encontradas:\n\n";
+        for (let jogoId in torcidas) {
+          info += `Jogo: ${jogoId}\n`;
+          info += `Time: ${torcidas[jogoId].time}\n`;
+          info += `ID: ${torcidas[jogoId].id}\n\n`;
+        }
+      }
+      
+      alert(info);
+      
+      // Também logar no console
+      console.log("=== DEBUG DE TORCIDAS ===");
+      console.log("UID:", currentUserId);
+      console.log("Torcidas:", torcidas);
+      console.log("========================");
+    }
 
     // ===================================
     // 💬 TOAST
@@ -1114,7 +1153,10 @@
         } else {
           // Ainda não escolheu time - modal inline
           actionButton = `
-            <button class="btn-action btn-secondary" onclick="event.stopPropagation(); escolherTime('${jogo.id}')">
+            <button 
+              class="btn-action btn-secondary" 
+              onclick="event.stopPropagation(); console.log('🖱️ BOTÃO CLICADO! Chamando escolherTime...'); escolherTime('${jogo.id}')"
+            >
               ⚽ Escolher Time
             </button>
           `;
@@ -1171,86 +1213,126 @@
     // ⚽ ESCOLHER TIME (COM MODAL)
     // ===================================
     async function escolherTime(jogoId) {
-      // Buscar dados do jogo
-      const jogoDoc = await db.collection('jogos').doc(jogoId).get();
-      if (!jogoDoc.exists) {
-        showToast('❌ Jogo não encontrado!');
-        return;
-      }
-
-      const jogo = jogoDoc.data();
+      console.log("🎯 ESCOLHER TIME CLICADO!");
+      console.log("   JogoId:", jogoId);
+      console.log("   UserId:", currentUserId);
       
-      // Buscar nomes dos times
-      let nomeCasa = jogo.timeA || "Time A";
-      let nomeFora = jogo.timeB || "Time B";
-
-      if (jogo.timeCasaId) {
-        const timeCasaDoc = await db.collection('times').doc(jogo.timeCasaId).get();
-        if (timeCasaDoc.exists) nomeCasa = timeCasaDoc.data().nome;
-      }
-
-      if (jogo.timeForaId) {
-        const timeForaDoc = await db.collection('times').doc(jogo.timeForaId).get();
-        if (timeForaDoc.exists) nomeFora = timeForaDoc.data().nome;
-      }
-
-      // Mostrar modal
-      const escolha = confirm(
-        `⚽ ESCOLHA SEU TIME:\n\n` +
-        `OK = ${nomeCasa}\n` +
-        `CANCELAR = ${nomeFora}\n\n` +
-        `⚠️ Você não poderá mudar depois!`
-      );
-
-      if (escolha === null) return; // Cancelou o modal
-
-      const timeEscolhido = escolha ? 'A' : 'B';
-      const nomeEscolhido = escolha ? nomeCasa : nomeFora;
-
-      // Salvar escolha
       try {
+        // Buscar dados do jogo
+        console.log("📊 Buscando dados do jogo...");
+        const jogoDoc = await db.collection('jogos').doc(jogoId).get();
+        
+        if (!jogoDoc.exists) {
+          console.error("❌ Jogo não encontrado!");
+          showToast('❌ Jogo não encontrado!');
+          return;
+        }
+
+        const jogo = jogoDoc.data();
+        console.log("✅ Jogo encontrado:", jogo);
+        
+        // Buscar nomes dos times
+        let nomeCasa = jogo.timeA || "Time A";
+        let nomeFora = jogo.timeB || "Time B";
+
+        console.log("🔍 Buscando nomes dos times...");
+        
+        if (jogo.timeCasaId) {
+          const timeCasaDoc = await db.collection('times').doc(jogo.timeCasaId).get();
+          if (timeCasaDoc.exists) nomeCasa = timeCasaDoc.data().nome;
+        }
+
+        if (jogo.timeForaId) {
+          const timeForaDoc = await db.collection('times').doc(jogo.timeForaId).get();
+          if (timeForaDoc.exists) nomeFora = timeForaDoc.data().nome;
+        }
+
+        console.log("✅ Times:", nomeCasa, "vs", nomeFora);
+
+        // Mostrar modal
+        console.log("📱 Abrindo popup...");
+        const escolha = confirm(
+          `⚽ ESCOLHA SEU TIME:\n\n` +
+          `OK = ${nomeCasa}\n` +
+          `CANCELAR = ${nomeFora}\n\n` +
+          `⚠️ Você não poderá mudar depois!`
+        );
+
+        console.log("👆 Escolha do usuário:", escolha);
+
+        if (escolha === null) {
+          console.log("❌ Usuário cancelou");
+          return;
+        }
+
+        const timeEscolhido = escolha ? 'A' : 'B';
+        const nomeEscolhido = escolha ? nomeCasa : nomeFora;
+
+        console.log("✅ Time escolhido:", timeEscolhido, "-", nomeEscolhido);
+
+        // Salvar escolha
         showToast('💾 Salvando sua escolha...');
+        console.log("💾 Iniciando salvamento...");
 
         // Salvar na coleção torcidas
-        await db.collection('torcidas').add({
+        console.log("1️⃣ Salvando na coleção torcidas...");
+        const novoRegistro = {
           uid: currentUserId,
           userId: currentUserId,
           jogoId: jogoId,
           timeTorcido: timeEscolhido,
           timestamp: firebase.firestore.FieldValue.serverTimestamp(),
           creditos: 10
-        });
+        };
+        
+        console.log("   Dados a salvar:", novoRegistro);
+        
+        await db.collection('torcidas').add(novoRegistro);
+        console.log("✅ Salvo na coleção torcidas!");
 
         // Atualizar contador do jogo
+        console.log("2️⃣ Atualizando contador do jogo...");
         const campo = timeEscolhido === 'A' ? 'torcidaCasaCount' : 'torcidaForaCount';
         await db.collection('jogos').doc(jogoId).update({
           [campo]: firebase.firestore.FieldValue.increment(1)
         });
+        console.log("✅ Contador atualizado!");
 
         // Atualizar cache do usuário
+        console.log("3️⃣ Atualizando perfil do usuário...");
         await db.collection('usuarios').doc(currentUserId).update({
           [`torcidas.${jogoId}`]: timeEscolhido
         });
+        console.log("✅ Perfil atualizado!");
 
         // Atualizar cache local
+        console.log("4️⃣ Atualizando cache local...");
         torcidas[jogoId] = {
           time: timeEscolhido,
           id: 'temp'
         };
+        console.log("✅ Cache local atualizado:", torcidas);
 
         showToast(`✅ Você escolheu ${nomeEscolhido}!`);
+        console.log("🎉 Tudo salvo com sucesso!");
 
         // Recarregar jogos para atualizar interface
+        console.log("🔄 Recarregando jogos...");
         await carregarJogos();
+        console.log("✅ Interface atualizada!");
 
         // Aguardar 1 segundo e entrar no jogo
+        console.log("⏳ Aguardando 1 segundo antes de redirecionar...");
         setTimeout(() => {
+          console.log("🎮 Redirecionando para o jogo...");
           entrarNoJogo(jogoId);
         }, 1000);
 
       } catch (error) {
-        console.error('❌ Erro ao salvar escolha:', error);
+        console.error('❌ ERRO AO SALVAR ESCOLHA:', error);
+        console.error('Stack:', error.stack);
         showToast('❌ Erro ao salvar. Tente novamente!');
+        alert('ERRO: ' + error.message + '\n\nVeja o console (F12) para detalhes!');
       }
     }
 
