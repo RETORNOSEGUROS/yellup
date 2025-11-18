@@ -779,6 +779,17 @@
     const db = firebase.firestore();
     const auth = firebase.auth();
 
+    // ===================================
+    // 🔐 CONFIGURAR PERSISTÊNCIA LOCAL
+    // ===================================
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+      .then(() => {
+        console.log("✅ Persistência de autenticação configurada");
+      })
+      .catch((error) => {
+        console.error("❌ Erro ao configurar persistência:", error);
+      });
+
     // Variável global para armazenar UID e dados do usuário
     let currentUserId = null;
     let currentUserData = null;
@@ -826,15 +837,34 @@
     // 👤 CARREGAR DADOS DO USUÁRIO
     // ===================================
     auth.onAuthStateChanged(async (user) => {
+      console.log("🔍 Verificando autenticação no painel...");
+      
       if (!user) {
-        window.location.href = 'index.html';
+        console.log("❌ Usuário não autenticado - Redirecionando para login...");
+        // Adicionar delay para evitar loop
+        setTimeout(() => {
+          window.location.href = 'index.html';
+        }, 500);
         return;
       }
+
+      console.log("✅ Usuário autenticado:", user.uid);
 
       try {
         currentUserId = user.uid;
         const userDoc = await db.collection('usuarios').doc(currentUserId).get();
+        
+        if (!userDoc.exists) {
+          console.error("❌ Documento do usuário não encontrado!");
+          showToast('❌ Erro: Usuário não encontrado');
+          setTimeout(() => {
+            window.location.href = 'index.html';
+          }, 2000);
+          return;
+        }
+
         currentUserData = userDoc.data() || {};
+        console.log("✅ Dados do usuário carregados:", currentUserData);
 
         // Nome e Avatar
         const nome = currentUserData.usuarioUnico || currentUserData.usuario || currentUserData.nome || 'Usuário';
@@ -880,9 +910,11 @@
         // Carregar jogos
         await carregarJogos();
 
+        console.log("✅ Painel carregado com sucesso!");
+
       } catch (error) {
         console.error('❌ Erro ao carregar dados:', error);
-        showToast('❌ Erro ao carregar dados');
+        showToast('❌ Erro ao carregar dados do usuário');
       }
     });
 
