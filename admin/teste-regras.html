@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste de Regras do Firestore - Yellup</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0e141b;
+      color: #e7eef7;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      color: #ffb547;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    
+    .test-section {
+      background: #18222e;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    
+    .test-section h2 {
+      color: #ffb547;
+      margin-bottom: 15px;
+      font-size: 1.3em;
+    }
+    
+    .test-item {
+      background: #1e2936;
+      padding: 15px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      border-left: 4px solid #555;
+    }
+    
+    .test-item.success {
+      border-left-color: #2ecc71;
+    }
+    
+    .test-item.error {
+      border-left-color: #e74c3c;
+    }
+    
+    .test-item.pending {
+      border-left-color: #f39c12;
+    }
+    
+    .test-name {
+      font-weight: bold;
+      margin-bottom: 8px;
+      font-size: 1.1em;
+    }
+    
+    .test-result {
+      margin-top: 8px;
+      padding: 8px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9em;
+    }
+    
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.85em;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+    
+    .status-badge.success {
+      background: #2ecc71;
+      color: white;
+    }
+    
+    .status-badge.error {
+      background: #e74c3c;
+      color: white;
+    }
+    
+    .status-badge.pending {
+      background: #f39c12;
+      color: white;
+    }
+    
+    button {
+      background: #ffb547;
+      color: #0e141b;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 1em;
+      font-weight: bold;
+      cursor: pointer;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    
+    button:hover {
+      background: #ffa31a;
+    }
+    
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    
+    .controls {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .summary {
+      background: #1e2936;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    
+    .summary-item {
+      display: inline-block;
+      margin: 0 20px;
+      font-size: 1.2em;
+    }
+    
+    .summary-item strong {
+      color: #ffb547;
+      font-size: 1.5em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Teste de Regras do Firestore - Yellup</h1>
+    
+    <div class="controls">
+      <button onclick="runAllTests()" id="runAllBtn">▶️ Executar Todos os Testes</button>
+      <button onclick="clearResults()">🗑️ Limpar Resultados</button>
+      <button onclick="loginTest()" id="loginBtn">🔑 Fazer Login Primeiro</button>
+    </div>
+    
+    <div class="summary" id="summary" style="display: none;">
+      <div class="summary-item">
+        <div>✅ Sucessos</div>
+        <strong id="successCount">0</strong>
+      </div>
+      <div class="summary-item">
+        <div>❌ Falhas</div>
+        <strong id="errorCount">0</strong>
+      </div>
+      <div class="summary-item">
+        <div>⏳ Pendentes</div>
+        <strong id="pendingCount">0</strong>
+      </div>
+    </div>
+    
+    <!-- Testes de Autenticação -->
+    <div class="test-section">
+      <h2>🔐 1. Testes de Autenticação</h2>
+      <div id="auth-tests"></div>
+    </div>
+    
+    <!-- Testes de Usuários -->
+    <div class="test-section">
+      <h2>👤 2. Testes de Usuários</h2>
+      <div id="user-tests"></div>
+    </div>
+    
+    <!-- Testes de Jogos -->
+    <div class="test-section">
+      <h2>⚽ 3. Testes de Jogos</h2>
+      <div id="game-tests"></div>
+    </div>
+    
+    <!-- Testes de Chat -->
+    <div class="test-section">
+      <h2>💬 4. Testes de Chat</h2>
+      <div id="chat-tests"></div>
+    </div>
+    
+    <!-- Testes de Pontuações -->
+    <div class="test-section">
+      <h2>🏆 5. Testes de Pontuações</h2>
+      <div id="score-tests"></div>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  
+  <script>
+    // Configuração do Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.firebasestorage.app",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+    
+    let testResults = {
+      success: 0,
+      error: 0,
+      pending: 0
+    };
+    
+    // Função para renderizar um teste
+    function renderTest(containerId, testName, status, message) {
+      const container = document.getElementById(containerId);
+      const testId = `test-${Date.now()}-${Math.random()}`;
+      
+      const testDiv = document.createElement('div');
+      testDiv.id = testId;
+      testDiv.className = `test-item ${status}`;
+      testDiv.innerHTML = `
+        <div class="test-name">
+          ${testName}
+          <span class="status-badge ${status}">
+            ${status === 'success' ? '✅ PASSOU' : status === 'error' ? '❌ FALHOU' : '⏳ PENDENTE'}
+          </span>
+        </div>
+        <div class="test-result">${message}</div>
+      `;
+      
+      container.appendChild(testDiv);
+      
+      // Atualizar contadores
+      if (status === 'success') testResults.success++;
+      if (status === 'error') testResults.error++;
+      if (status === 'pending') testResults.pending++;
+      
+      updateSummary();
+      
+      return testId;
+    }
+    
+    // Atualizar resumo
+    function updateSummary() {
+      document.getElementById('summary').style.display = 'block';
+      document.getElementById('successCount').textContent = testResults.success;
+      document.getElementById('errorCount').textContent = testResults.error;
+      document.getElementById('pendingCount').textContent = testResults.pending;
+    }
+    
+    // Limpar resultados
+    function clearResults() {
+      ['auth-tests', 'user-tests', 'game-tests', 'chat-tests', 'score-tests'].forEach(id => {
+        document.getElementById(id).innerHTML = '';
+      });
+      testResults = { success: 0, error: 0, pending: 0 };
+      document.getElementById('summary').style.display = 'none';
+    }
+    
+    // Login de teste
+    async function loginTest() {
+      const btn = document.getElementById('loginBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Fazendo login...';
+      
+      try {
+        // Tenta fazer login com usuário existente
+        await auth.signInWithEmailAndPassword('patrick@retornoseguros.com.br', 'senha123');
+        
+        renderTest('auth-tests', 'Login com usuário existente', 'success', 
+          `Usuário autenticado: ${auth.currentUser.email}`);
+        
+        btn.textContent = '✅ Login realizado';
+      } catch (error) {
+        renderTest('auth-tests', 'Login com usuário existente', 'error', 
+          `Erro: ${error.message}`);
+        
+        btn.textContent = '❌ Erro no login';
+        btn.disabled = false;
+      }
+    }
+    
+    // ==================== TESTES ====================
+    
+    async function runAllTests() {
+      clearResults();
+      
+      const btn = document.getElementById('runAllBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Executando testes...';
+      
+      // Verificar se está autenticado
+      if (!auth.currentUser) {
+        renderTest('auth-tests', 'Verificação de autenticação', 'error', 
+          'Você precisa fazer login primeiro!');
+        btn.disabled = false;
+        btn.textContent = '▶️ Executar Todos os Testes';
+        return;
+      }
+      
+      const currentUserId = auth.currentUser.uid;
+      
+      // 1. TESTES DE AUTENTICAÇÃO
+      renderTest('auth-tests', 'Usuário está autenticado', 'success', 
+        `UID: ${currentUserId}`);
+      
+      // 2. TESTES DE USUÁRIOS
+      try {
+        const userDoc = await db.collection('usuarios').doc(currentUserId).get();
+        if (userDoc.exists) {
+          renderTest('user-tests', 'Leitura do próprio usuário', 'success', 
+            `Nome: ${userDoc.data().nome}`);
+        } else {
+          renderTest('user-tests', 'Leitura do próprio usuário', 'error', 
+            'Documento do usuário não existe');
+        }
+      } catch (error) {
+        renderTest('user-tests', 'Leitura do próprio usuário', 'error', 
+          `Erro: ${error.message}`);
+      }
+      
+      // Tentar ler outro usuário (deve falhar)
+      try {
+        await db.collection('usuarios').doc('outro-usuario-fake-id').get();
+        renderTest('user-tests', 'Tentativa de ler outro usuário', 'error', 
+          'FALHA DE SEGURANÇA: Conseguiu ler dados de outro usuário!');
+      } catch (error) {
+        if (error.code === 'permission-denied') {
+          renderTest('user-tests', 'Tentativa de ler outro usuário', 'success', 
+            '✅ Acesso negado corretamente (permission-denied)');
+        } else {
+          renderTest('user-tests', 'Tentativa de ler outro usuário', 'error', 
+            `Erro inesperado: ${error.message}`);
+        }
+      }
+      
+      // 3. TESTES DE JOGOS
+      try {
+        const jogosSnapshot = await db.collection('jogos').limit(1).get();
+        if (!jogosSnapshot.empty) {
+          renderTest('game-tests', 'Leitura de jogos (público)', 'success', 
+            `Jogo encontrado: ${jogosSnapshot.docs[0].id}`);
+        } else {
+          renderTest('game-tests', 'Leitura de jogos (público)', 'pending', 
+            'Nenhum jogo cadastrado no banco');
+        }
+      } catch (error) {
+        renderTest('game-tests', 'Leitura de jogos (público)', 'error', 
+          `Erro: ${error.message}`);
+      }
+      
+      // Tentar criar jogo (deve falhar para usuário comum)
+      try {
+        await db.collection('jogos').add({
+          titulo: 'Teste',
+          status: 'teste'
+        });
+        renderTest('game-tests', 'Tentativa de criar jogo (usuário comum)', 'error', 
+          'FALHA DE SEGURANÇA: Usuário comum conseguiu criar jogo!');
+      } catch (error) {
+        if (error.code === 'permission-denied') {
+          renderTest('game-tests', 'Tentativa de criar jogo (usuário comum)', 'success', 
+            '✅ Criação negada corretamente (apenas admin pode criar)');
+        } else {
+          renderTest('game-tests', 'Tentativa de criar jogo (usuário comum)', 'error', 
+            `Erro inesperado: ${error.message}`);
+        }
+      }
+      
+      // 4. TESTES DE CHAT
+      try {
+        const chatMsg = await db.collection('chat').add({
+          userId: currentUserId,
+          jogoId: 'teste-jogo-id',
+          texto: 'Mensagem de teste das regras',
+          timeId: 'teste-time-id',
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          nome: 'Teste'
+        });
+        
+        renderTest('chat-tests', 'Criação de mensagem no chat', 'success', 
+          `Mensagem criada: ${chatMsg.id}`);
+        
+        // Deletar a mensagem de teste
+        await chatMsg.delete().catch(() => {});
+        
+      } catch (error) {
+        renderTest('chat-tests', 'Criação de mensagem no chat', 'error', 
+          `Erro: ${error.message}`);
+      }
+      
+      // Tentar criar mensagem muito longa (deve falhar)
+      try {
+        await db.collection('chat').add({
+          userId: currentUserId,
+          jogoId: 'teste-jogo-id',
+          texto: 'a'.repeat(501), // 501 caracteres (limite é 500)
+          timeId: 'teste-time-id',
+          timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        renderTest('chat-tests', 'Tentativa de criar mensagem muito longa', 'error', 
+          'FALHA DE VALIDAÇÃO: Mensagem com +500 caracteres foi aceita!');
+      } catch (error) {
+        if (error.code === 'permission-denied') {
+          renderTest('chat-tests', 'Tentativa de criar mensagem muito longa', 'success', 
+            '✅ Mensagem longa rejeitada corretamente');
+        } else {
+          renderTest('chat-tests', 'Tentativa de criar mensagem muito longa', 'error', 
+            `Erro inesperado: ${error.message}`);
+        }
+      }
+      
+      // 5. TESTES DE PONTUAÇÕES
+      try {
+        const pontuacaoRef = await db.collection('pontuacoes').add({
+          userId: currentUserId,
+          jogoId: 'teste-jogo-id',
+          pontos: 10,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        renderTest('score-tests', 'Criação de pontuação', 'success', 
+          `Pontuação criada: ${pontuacaoRef.id}`);
+        
+        // Deletar pontuação de teste
+        await pontuacaoRef.delete().catch(() => {});
+        
+      } catch (error) {
+        renderTest('score-tests', 'Criação de pontuação', 'error', 
+          `Erro: ${error.message}`);
+      }
+      
+      // Tentar criar pontuação negativa (deve falhar)
+      try {
+        await db.collection('pontuacoes').add({
+          userId: currentUserId,
+          jogoId: 'teste-jogo-id',
+          pontos: -10,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        renderTest('score-tests', 'Tentativa de criar pontuação negativa', 'error', 
+          'FALHA DE VALIDAÇÃO: Pontuação negativa foi aceita!');
+      } catch (error) {
+        if (error.code === 'permission-denied') {
+          renderTest('score-tests', 'Tentativa de criar pontuação negativa', 'success', 
+            '✅ Pontuação negativa rejeitada corretamente');
+        } else {
+          renderTest('score-tests', 'Tentativa de criar pontuação negativa', 'error', 
+            `Erro inesperado: ${error.message}`);
+        }
+      }
+      
+      btn.disabled = false;
+      btn.textContent = '▶️ Executar Todos os Testes';
+    }
+    
+    // Verificar estado de autenticação ao carregar
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        document.getElementById('loginBtn').textContent = '✅ Logado como ' + user.email;
+        document.getElementById('loginBtn').disabled = true;
+      }
+    });
+  </script>
+</body>
+</html>
