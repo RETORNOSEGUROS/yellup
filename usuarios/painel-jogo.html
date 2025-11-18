@@ -789,6 +789,7 @@
     let timeTorcida = null;
     let currentQuestion = null;
     let gameData = null;
+    let perguntasRespondidas = []; // Armazena IDs das perguntas já respondidas
 
     if (!jogoId) {
       alert("ID do jogo não encontrado!");
@@ -821,6 +822,9 @@
           window.location.href = "painel.html";
           return;
         }
+
+        // Carregar histórico de perguntas respondidas
+        perguntasRespondidas = userData[`perguntasRespondidas_${jogoId}`] || [];
 
         // Atualizar UI do usuário
         document.getElementById("userAvatar").textContent = nome.charAt(0).toUpperCase();
@@ -874,6 +878,10 @@
 
         // Atualizar stats a cada 10 segundos
         setInterval(updateStats, 10000);
+
+        console.log("✅ Jogo inicializado com sucesso!");
+        console.log("Time da torcida:", timeTorcida);
+        console.log("Perguntas já respondidas:", perguntasRespondidas.length);
 
       } catch (error) {
         console.error("Erro ao inicializar jogo:", error);
@@ -985,24 +993,44 @@
           return;
         }
 
-        // Buscar perguntas do jogo
-        const perguntasSnap = await db.collection("perguntas").where("jogoId", "==", jogoId).get();
+        console.log("Buscando perguntas para o time:", timeTorcida);
+
+        // ✅ CORREÇÃO: Buscar perguntas por timeId ao invés de jogoId
+        const perguntasSnap = await db.collection("perguntas")
+          .where("timeId", "==", timeTorcida)
+          .get();
         
         if (perguntasSnap.empty) {
-          alert("Nenhuma pergunta disponível para este jogo no momento.");
+          alert(`Nenhuma pergunta cadastrada para o seu time ainda. Aguarde o administrador adicionar perguntas!`);
           btn.disabled = false;
           btn.textContent = "🎯 Responder Pergunta";
           return;
         }
 
-        // Pegar uma pergunta aleatória
-        const perguntas = [];
+        console.log(`Encontradas ${perguntasSnap.size} perguntas no total`);
+
+        // Filtrar perguntas não respondidas
+        const perguntasDisponiveis = [];
         perguntasSnap.forEach(doc => {
-          perguntas.push({ id: doc.id, ...doc.data() });
+          if (!perguntasRespondidas.includes(doc.id)) {
+            perguntasDisponiveis.push({ id: doc.id, ...doc.data() });
+          }
         });
 
-        const randomIndex = Math.floor(Math.random() * perguntas.length);
-        currentQuestion = perguntas[randomIndex];
+        console.log(`Perguntas disponíveis (não respondidas): ${perguntasDisponiveis.length}`);
+
+        if (perguntasDisponiveis.length === 0) {
+          alert("Parabéns! Você já respondeu todas as perguntas do seu time! 🎉");
+          btn.disabled = false;
+          btn.textContent = "🎯 Responder Pergunta";
+          return;
+        }
+
+        // Pegar uma pergunta aleatória das disponíveis
+        const randomIndex = Math.floor(Math.random() * perguntasDisponiveis.length);
+        currentQuestion = perguntasDisponiveis[randomIndex];
+
+        console.log("Pergunta selecionada:", currentQuestion.pergunta);
 
         // Mostrar pergunta
         showQuestion(currentQuestion);
@@ -1017,50 +1045,71 @@
 
     function showQuestion(question) {
       document.getElementById("questionContainer").style.display = "block";
-      document.getElementById("questionText").textContent = question.pergunta || question.texto || "Pergunta não encontrada";
+      document.getElementById("questionText").textContent = question.pergunta || "Pergunta não encontrada";
       document.getElementById("resultMessage").style.display = "none";
       
       const optionsContainer = document.getElementById("optionsContainer");
       optionsContainer.innerHTML = "";
 
-      const opcoes = question.opcoes || [];
-      if (opcoes.length === 0) {
+      // Verificar se tem alternativas (formato antigo) ou opcoes (formato novo)
+      const alternativas = question.alternativas || {};
+      const letras = ["A", "B", "C", "D"];
+
+      if (Object.keys(alternativas).length === 0) {
         alert("Pergunta sem opções disponíveis.");
         return;
       }
 
-      opcoes.forEach((opcao, index) => {
-        const btn = document.createElement("button");
-        btn.className = "option-btn";
-        btn.textContent = opcao;
-        btn.onclick = () => answerQuestion(index);
-        optionsContainer.appendChild(btn);
+      letras.forEach((letra) => {
+        if (alternativas[letra]) {
+          const btn = document.createElement("button");
+          btn.className = "option-btn";
+          btn.textContent = `${letra}) ${alternativas[letra]}`;
+          btn.onclick = () => answerQuestion(letra);
+          optionsContainer.appendChild(btn);
+        }
       });
     }
 
-    async function answerQuestion(selectedIndex) {
+    async function answerQuestion(selectedLetter) {
       try {
         // Desabilitar todas as opções
         const options = document.querySelectorAll(".option-btn");
         options.forEach(opt => opt.disabled = true);
 
-        const correct = currentQuestion.respostaCorreta;
-        const pontos = currentQuestion.pontos || currentQuestion.pontuacao || 10;
-        const acertou = selectedIndex === correct;
+        const correct = currentQuestion.correta;
+        const pontos = currentQuestion.pontuacao || currentQuestion.pontos || 10;
+        const acertou = selectedLetter === correct;
 
-        // Marcar resposta correta e errada
-        options[selectedIndex].classList.add(acertou ? "correct" : "wrong");
-        if (!acertou) {
-          options[correct].classList.add("correct");
-        }
+        console.log("Resposta selecionada:", selectedLetter);
+        console.log("Resposta correta:", correct);
+        console.log("Acertou?", acertou);
+
+        // Marcar resposta visualmente
+        options.forEach((opt, index) => {
+          const letras = ["A", "B", "C", "D"];
+          const letraAtual = letras[index];
+          
+          if (letraAtual === selectedLetter) {
+            opt.classList.add(acertou ? "correct" : "wrong");
+          }
+          if (letraAtual === correct && !acertou) {
+            opt.classList.add("correct");
+          }
+        });
 
         // Mostrar resultado
         const resultMessage = document.getElementById("resultMessage");
         resultMessage.style.display = "block";
         resultMessage.className = `result-message ${acertou ? "success" : "error"}`;
+        
+        const alternativas = currentQuestion.alternativas || {};
         resultMessage.textContent = acertou 
           ? `🎉 Correto! +${pontos} pontos` 
-          : `❌ Errado! A resposta correta era: ${currentQuestion.opcoes[correct]}`;
+          : `❌ Errado! A resposta correta era: ${correct}) ${alternativas[correct]}`;
+
+        // Adicionar pergunta ao histórico de respondidas
+        perguntasRespondidas.push(currentQuestion.id);
 
         // Atualizar banco de dados
         const userDoc = await db.collection("usuarios").doc(uid).get();
@@ -1068,23 +1117,23 @@
         const jogadasUsadas = userData.jogadasGratis?.usadas || 0;
         const temGratis = jogadasUsadas < 5;
 
+        const updates = {
+          [`perguntasRespondidas_${jogoId}`]: firebase.firestore.FieldValue.arrayUnion(currentQuestion.id)
+        };
+
         if (temGratis) {
-          await db.collection("usuarios").doc(uid).update({
-            'jogadasGratis.usadas': firebase.firestore.FieldValue.increment(1)
-          });
+          updates['jogadasGratis.usadas'] = firebase.firestore.FieldValue.increment(1);
           await updateFreePlays();
         } else {
-          await db.collection("usuarios").doc(uid).update({
-            creditos: firebase.firestore.FieldValue.increment(-1)
-          });
+          updates.creditos = firebase.firestore.FieldValue.increment(-1);
         }
 
         if (acertou) {
-          await db.collection("usuarios").doc(uid).update({
-            [`pontuacoes.${jogoId}`]: firebase.firestore.FieldValue.increment(pontos),
-            xp: firebase.firestore.FieldValue.increment(pontos)
-          });
+          updates[`pontuacoes.${jogoId}`] = firebase.firestore.FieldValue.increment(pontos);
+          updates.xp = firebase.firestore.FieldValue.increment(pontos);
         }
+
+        await db.collection("usuarios").doc(uid).update(updates);
 
         // Atualizar estatísticas
         await updateStats();
@@ -1132,7 +1181,7 @@
           const msgs = [];
           snap.forEach(doc => msgs.push({ id: doc.id, ...doc.data() }));
           msgs.reverse().forEach(msg => renderMessage(msg, container));
-          container.scrollHeight;
+          container.scrollTop = container.scrollHeight;
         });
 
       // Enter para enviar
@@ -1239,7 +1288,7 @@
       }
     }
 
-    console.log("✅ Yellup Game v3.0 Professional Edition loaded!");
+    console.log("✅ Yellup Game v3.1 - Fixed Question System!");
   </script>
 
 </body>
