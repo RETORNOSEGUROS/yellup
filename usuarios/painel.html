@@ -761,39 +761,15 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-init.js"></script>
   
   <script>
     // ===================================
-    // 🔥 CONFIGURAÇÃO FIREBASE CORRETA
+    // 📦 VARIÁVEIS GLOBAIS
     // ===================================
-    const firebaseConfig = {
-      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
-      authDomain: "painel-yellup.firebaseapp.com",
-      projectId: "painel-yellup",
-      storageBucket: "painel-yellup.appspot.com",
-      messagingSenderId: "608347210297",
-      appId: "1:608347210297:web:75092713724e617c7203e8",
-      measurementId: "G-SYZ16X31KQ"
-    };
-
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-    const auth = firebase.auth();
-
-    // ===================================
-    // 🔐 CONFIGURAR PERSISTÊNCIA LOCAL
-    // ===================================
-    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
-      .then(() => {
-        console.log("✅ Persistência de autenticação configurada");
-      })
-      .catch((error) => {
-        console.error("❌ Erro ao configurar persistência:", error);
-      });
-
-    // Variável global para armazenar UID e dados do usuário
     let currentUserId = null;
     let currentUserData = null;
+    let torcidas = {}; // Cache de torcidas do usuário
 
     // ===================================
     // 💬 TOAST
@@ -820,14 +796,9 @@
     // ===================================
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', function() {
-        // Remover active de todos
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         this.classList.add('active');
-
-        // Esconder todas as seções
         document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
-
-        // Mostrar seção selecionada
         const tabName = this.getAttribute('data-tab');
         const section = document.getElementById(`section${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
         if (section) section.style.display = 'block';
@@ -835,14 +806,48 @@
     });
 
     // ===================================
+    // 🔍 BUSCAR TORCIDAS DO USUÁRIO
+    // ===================================
+    async function carregarTorcidasUsuario(uid) {
+      try {
+        console.log("🔍 Buscando torcidas do usuário:", uid);
+        
+        const torcidasSnap = await db.collection('torcidas')
+          .where('userId', '==', uid)
+          .get();
+
+        torcidas = {};
+        torcidasSnap.forEach(doc => {
+          const data = doc.data();
+          // Suportar diferentes estruturas
+          const jogoId = data.jogoId;
+          const timeTorcido = data.timeTorcido || data.time;
+          
+          if (jogoId && timeTorcido) {
+            torcidas[jogoId] = {
+              time: timeTorcido,
+              id: doc.id
+            };
+          }
+        });
+
+        console.log("✅ Torcidas carregadas:", torcidas);
+        return torcidas;
+
+      } catch (error) {
+        console.error("❌ Erro ao carregar torcidas:", error);
+        return {};
+      }
+    }
+
+    // ===================================
     // 👤 CARREGAR DADOS DO USUÁRIO
     // ===================================
     auth.onAuthStateChanged(async (user) => {
-      console.log("🔍 Verificando autenticação no painel...");
+      console.log("🔍 Verificando autenticação...");
       
       if (!user) {
-        console.log("❌ Usuário não autenticado - Redirecionando para login...");
-        // Adicionar delay para evitar loop
+        console.log("❌ Usuário não autenticado");
         setTimeout(() => {
           window.location.href = 'index.html';
         }, 500);
@@ -865,7 +870,10 @@
         }
 
         currentUserData = userDoc.data() || {};
-        console.log("✅ Dados do usuário carregados:", currentUserData);
+        console.log("✅ Dados do usuário carregados");
+
+        // Carregar torcidas do usuário
+        await carregarTorcidasUsuario(currentUserId);
 
         // Nome e Avatar
         const nome = currentUserData.usuarioUnico || currentUserData.usuario || currentUserData.nome || 'Usuário';
@@ -899,7 +907,6 @@
         document.getElementById('currentXP').textContent = xpAtual;
         document.getElementById('nextLevelXP').textContent = xpProximo;
         
-        // Animar barra de XP
         setTimeout(() => {
           document.getElementById('xpFill').style.width = `${(xpAtual / xpProximo) * 100}%`;
         }, 100);
@@ -931,7 +938,6 @@
         const ontem = new Date(hoje);
         ontem.setDate(ontem.getDate() - 1);
 
-        // Buscar jogos
         const jogosSnapshot = await db.collection('jogos')
           .where('dataInicio', '>=', ontem)
           .where('dataInicio', '<=', new Date(amanha.getTime() + 86400000))
@@ -985,7 +991,6 @@
 
       count.textContent = `${jogos.length} ${jogos.length === 1 ? 'jogo' : 'jogos'}`;
 
-      // Buscar nomes dos times e verificar torcida escolhida
       const jogosComInfo = await Promise.all(jogos.map(async jogo => {
         // Buscar nomes dos times
         const timeCasaDoc = jogo.timeCasaId ? await db.collection('times').doc(jogo.timeCasaId).get() : null;
@@ -994,14 +999,40 @@
         const nomeCasa = timeCasaDoc?.exists ? timeCasaDoc.data().nome : (jogo.timeA || 'Time A');
         const nomeFora = timeForaDoc?.exists ? timeForaDoc.data().nome : (jogo.timeB || 'Time B');
 
-        // Verificar se usuário já escolheu time neste jogo
-        const torcidaEscolhida = currentUserData.torcidas?.[jogo.id];
+        // CORREÇÃO: Verificar na coleção torcidas se usuário já escolheu time
+        const torcidaInfo = torcidas[jogo.id];
+        
+        let torcidaEscolhida = null;
+        let nomeTimeTorcido = null;
+
+        if (torcidaInfo) {
+          const timeTorcido = torcidaInfo.time;
+          
+          // Identificar qual time escolheu
+          if (timeTorcido === 'A' || timeTorcido === nomeCasa || timeTorcido === jogo.timeCasaId) {
+            torcidaEscolhida = 'A';
+            nomeTimeTorcido = nomeCasa;
+          } else if (timeTorcido === 'B' || timeTorcido === nomeFora || timeTorcido === jogo.timeForaId) {
+            torcidaEscolhida = 'B';
+            nomeTimeTorcido = nomeFora;
+          } else {
+            // Tentar identificar pelo nome do time
+            if (timeTorcido.includes(nomeCasa) || nomeCasa.includes(timeTorcido)) {
+              torcidaEscolhida = 'A';
+              nomeTimeTorcido = nomeCasa;
+            } else if (timeTorcido.includes(nomeFora) || nomeFora.includes(timeTorcido)) {
+              torcidaEscolhida = 'B';
+              nomeTimeTorcido = nomeFora;
+            }
+          }
+        }
 
         return {
           ...jogo,
           nomeCasa,
           nomeFora,
-          torcidaEscolhida
+          torcidaEscolhida,
+          nomeTimeTorcido
         };
       }));
 
@@ -1020,9 +1051,8 @@
 
         // Badge de time escolhido
         let teamBadge = '';
-        if (jogo.torcidaEscolhida) {
-          const timeEscolhido = jogo.torcidaEscolhida === 'timeA' ? jogo.nomeCasa : jogo.nomeFora;
-          teamBadge = `<div class="team-badge">✅ Torcendo para ${timeEscolhido}</div>`;
+        if (jogo.torcidaEscolhida && jogo.nomeTimeTorcido) {
+          teamBadge = `<div class="team-badge">✅ Torcendo para ${jogo.nomeTimeTorcido}</div>`;
         }
 
         // Botão de ação
@@ -1117,7 +1147,7 @@
       return 'AGENDADO';
     }
 
-    console.log("✅ Yellup Painel v2.0 - Sistema de Seleção de Times Corrigido!");
+    console.log("✅ Yellup Painel v3.0 - Sistema de Torcidas com Coleção Separada!");
   </script>
 
 </body>
