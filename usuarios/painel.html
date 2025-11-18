@@ -1094,9 +1094,9 @@
             </button>
           `;
         } else {
-          // Ainda não escolheu time
+          // Ainda não escolheu time - modal inline
           actionButton = `
-            <button class="btn-action btn-secondary" onclick="escolherTime('${jogo.id}')">
+            <button class="btn-action btn-secondary" onclick="event.stopPropagation(); escolherTime('${jogo.id}')">
               ⚽ Escolher Time
             </button>
           `;
@@ -1150,10 +1150,90 @@
     }
 
     // ===================================
-    // ⚽ ESCOLHER TIME
+    // ⚽ ESCOLHER TIME (COM MODAL)
     // ===================================
-    function escolherTime(jogoId) {
-      window.location.href = `selecionar-time.html?jogoId=${jogoId}`;
+    async function escolherTime(jogoId) {
+      // Buscar dados do jogo
+      const jogoDoc = await db.collection('jogos').doc(jogoId).get();
+      if (!jogoDoc.exists) {
+        showToast('❌ Jogo não encontrado!');
+        return;
+      }
+
+      const jogo = jogoDoc.data();
+      
+      // Buscar nomes dos times
+      let nomeCasa = jogo.timeA || "Time A";
+      let nomeFora = jogo.timeB || "Time B";
+
+      if (jogo.timeCasaId) {
+        const timeCasaDoc = await db.collection('times').doc(jogo.timeCasaId).get();
+        if (timeCasaDoc.exists) nomeCasa = timeCasaDoc.data().nome;
+      }
+
+      if (jogo.timeForaId) {
+        const timeForaDoc = await db.collection('times').doc(jogo.timeForaId).get();
+        if (timeForaDoc.exists) nomeFora = timeForaDoc.data().nome;
+      }
+
+      // Mostrar modal
+      const escolha = confirm(
+        `⚽ ESCOLHA SEU TIME:\n\n` +
+        `OK = ${nomeCasa}\n` +
+        `CANCELAR = ${nomeFora}\n\n` +
+        `⚠️ Você não poderá mudar depois!`
+      );
+
+      if (escolha === null) return; // Cancelou o modal
+
+      const timeEscolhido = escolha ? 'A' : 'B';
+      const nomeEscolhido = escolha ? nomeCasa : nomeFora;
+
+      // Salvar escolha
+      try {
+        showToast('💾 Salvando sua escolha...');
+
+        // Salvar na coleção torcidas
+        await db.collection('torcidas').add({
+          uid: currentUserId,
+          userId: currentUserId,
+          jogoId: jogoId,
+          timeTorcido: timeEscolhido,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          creditos: 10
+        });
+
+        // Atualizar contador do jogo
+        const campo = timeEscolhido === 'A' ? 'torcidaCasaCount' : 'torcidaForaCount';
+        await db.collection('jogos').doc(jogoId).update({
+          [campo]: firebase.firestore.FieldValue.increment(1)
+        });
+
+        // Atualizar cache do usuário
+        await db.collection('usuarios').doc(currentUserId).update({
+          [`torcidas.${jogoId}`]: timeEscolhido
+        });
+
+        // Atualizar cache local
+        torcidas[jogoId] = {
+          time: timeEscolhido,
+          id: 'temp'
+        };
+
+        showToast(`✅ Você escolheu ${nomeEscolhido}!`);
+
+        // Recarregar jogos para atualizar interface
+        await carregarJogos();
+
+        // Aguardar 1 segundo e entrar no jogo
+        setTimeout(() => {
+          entrarNoJogo(jogoId);
+        }, 1000);
+
+      } catch (error) {
+        console.error('❌ Erro ao salvar escolha:', error);
+        showToast('❌ Erro ao salvar. Tente novamente!');
+      }
     }
 
     // ===================================
@@ -1181,4 +1261,3 @@
 
 </body>
 </html>
- 
