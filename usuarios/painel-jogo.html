@@ -461,34 +461,92 @@
       color: var(--text-secondary);
     }
 
-    /* Question Container */
-    .question-container {
+    /* ==================== MODAL FULLSCREEN DA PERGUNTA ==================== */
+    .question-modal-overlay {
       display: none;
-      margin-top: 25px;
-      animation: fadeIn 0.4s ease;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.9);
+      backdrop-filter: blur(10px);
+      z-index: 9998;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .question-modal-overlay.active {
+      display: flex;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .question-modal {
+      background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-secondary) 100%);
+      border-radius: 24px;
+      padding: 30px;
+      width: 100%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+      border: 2px solid rgba(255, 181, 71, 0.3);
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+      animation: modalSlideUp 0.4s ease;
+    }
+
+    @keyframes modalSlideUp {
+      from { opacity: 0; transform: translateY(50px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .question-modal-close {
+      position: absolute;
+      top: 15px;
+      right: 20px;
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      color: white;
+      font-size: 24px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .question-modal-close:hover {
+      background: rgba(239, 68, 68, 0.5);
+    }
+
+    /* Question Container (dentro do modal) */
+    .question-container {
+      display: block;
     }
 
     .question-text {
-      font-size: 1.2em;
+      font-size: 1.3em;
       font-weight: 600;
       text-align: center;
-      padding: 20px;
-      background: rgba(0, 0, 0, 0.2);
-      border-radius: 15px;
-      margin-bottom: 20px;
-      line-height: 1.5;
+      padding: 25px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 16px;
+      margin-bottom: 25px;
+      line-height: 1.6;
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     .question-points {
       text-align: center;
-      margin-bottom: 15px;
+      margin-bottom: 20px;
       color: var(--accent);
-      font-weight: 600;
+      font-weight: 700;
+      font-size: 1.1em;
     }
 
     .options-container {
       display: grid;
-      gap: 12px;
+      gap: 15px;
     }
 
     .option-btn {
@@ -1169,20 +1227,25 @@
       <button class="btn-answer" id="btnAnswer" onclick="getQuestion()">
         🎯 Responder Pergunta
       </button>
+    </div>
 
-      <div class="question-container" id="questionContainer">
-        <!-- Timer da Pergunta -->
-        <div class="question-timer">
-          <div class="timer-circle" id="questionTimerCircle">
-            <span class="timer-value" id="questionTimerValue">10</span>
+    <!-- 🎯 MODAL FULLSCREEN DA PERGUNTA -->
+    <div class="question-modal-overlay" id="questionModalOverlay">
+      <div class="question-modal">
+        <div class="question-container" id="questionContainer">
+          <!-- Timer da Pergunta -->
+          <div class="question-timer">
+            <div class="timer-circle" id="questionTimerCircle">
+              <span class="timer-value" id="questionTimerValue">10</span>
+            </div>
+            <p class="timer-label">segundos para responder</p>
           </div>
-          <p class="timer-label">segundos para responder</p>
-        </div>
 
-        <div class="question-points" id="questionPoints">Vale 10 pontos</div>
-        <div class="question-text" id="questionText"></div>
-        <div class="options-container" id="optionsContainer"></div>
-        <div class="result-message" id="resultMessage"></div>
+          <div class="question-points" id="questionPoints">Vale 10 pontos</div>
+          <div class="question-text" id="questionText"></div>
+          <div class="options-container" id="optionsContainer"></div>
+          <div class="result-message" id="resultMessage"></div>
+        </div>
       </div>
     </div>
 
@@ -1499,17 +1562,19 @@
     }
 
     // ===================================
-    // 💎 ATUALIZAR JOGADAS GRÁTIS
+    // 💎 ATUALIZAR JOGADAS GRÁTIS (POR JOGO!)
     // ===================================
     async function updateFreePlays() {
       try {
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const user = userDoc.data() || {};
         
-        const jogadasUsadas = user.jogadasGratis?.usadas || 0;
+        // ✅ CORREÇÃO: Jogadas grátis POR JOGO, não global
+        const jogadasPorJogo = user.jogadasGratisPorJogo || {};
+        const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
         const creditosPagos = user.creditos || 0;
         
-        const gratisRestantes = Math.max(0, 5 - jogadasUsadas);
+        const gratisRestantes = Math.max(0, 5 - jogadasUsadasNesteJogo);
         
         document.getElementById("freeCredits").textContent = `${gratisRestantes}/5`;
         document.getElementById("paidCredits").textContent = creditosPagos;
@@ -1622,13 +1687,14 @@
         btnAnswer.disabled = true;
         btnAnswer.textContent = "🔍 Buscando pergunta...";
 
-        // Verificar créditos ANTES de buscar
+        // ✅ CORREÇÃO: Verificar créditos POR JOGO
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const userData = userDoc.data() || {};
-        const jogadasUsadas = userData.jogadasGratis?.usadas || 0;
+        const jogadasPorJogo = userData.jogadasGratisPorJogo || {};
+        const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
         const creditosPagos = userData.creditos || 0;
 
-        if (jogadasUsadas >= 5 && creditosPagos <= 0) {
+        if (jogadasUsadasNesteJogo >= 5 && creditosPagos <= 0) {
           alert("❌ Você não tem créditos disponíveis!\n\nCompre mais créditos ou indique amigos.");
           btnAnswer.disabled = false;
           btnAnswer.textContent = "❌ Sem Créditos";
@@ -1686,17 +1752,20 @@
     }
 
     // ===================================
-    // 📝 EXIBIR PERGUNTA COM TIMER
+    // 📝 EXIBIR PERGUNTA COM TIMER (MODAL FULLSCREEN)
     // ===================================
     function displayQuestion() {
+      const modalOverlay = document.getElementById("questionModalOverlay");
       const questionContainer = document.getElementById("questionContainer");
       const questionText = document.getElementById("questionText");
       const optionsContainer = document.getElementById("optionsContainer");
       const resultMessage = document.getElementById("resultMessage");
       const questionPoints = document.getElementById("questionPoints");
 
+      // ✅ ABRIR MODAL FULLSCREEN
+      modalOverlay.classList.add("active");
+      
       // Resetar
-      questionContainer.style.display = "block";
       questionText.textContent = currentQuestion.pergunta;
       optionsContainer.innerHTML = "";
       resultMessage.style.display = "none";
@@ -1820,32 +1889,35 @@
         // Adicionar pergunta ao histórico
         perguntasRespondidas.push(currentQuestion.id);
 
-        // Descontar crédito mesmo sem responder
+        // ✅ CORREÇÃO: Descontar jogada grátis POR JOGO
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const userData = userDoc.data() || {};
-        const jogadasUsadas = userData.jogadasGratis?.usadas || 0;
-        const temGratis = jogadasUsadas < 5;
+        const jogadasPorJogo = userData.jogadasGratisPorJogo || {};
+        const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
+        const temGratis = jogadasUsadasNesteJogo < 5;
 
         const updates = {
           [`perguntasRespondidas_${jogoId}`]: firebase.firestore.FieldValue.arrayUnion(currentQuestion.id)
         };
 
         if (temGratis) {
-          updates['jogadasGratis.usadas'] = firebase.firestore.FieldValue.increment(1);
+          updates[`jogadasGratisPorJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
+          console.log(`✅ Usando jogada grátis (${jogadasUsadasNesteJogo + 1}/5) neste jogo`);
         } else {
           updates.creditos = firebase.firestore.FieldValue.increment(-1);
+          console.log(`💎 Descontando 1 crédito pago`);
         }
 
         await db.collection("usuarios").doc(uid).update(updates);
 
         await updateFreePlays();
 
-        // Reabilitar após 3 segundos
+        // ✅ FECHAR MODAL após 3 segundos
         setTimeout(() => {
           currentQuestion = null;
           document.getElementById("btnAnswer").disabled = false;
           document.getElementById("btnAnswer").textContent = "🎯 Responder Pergunta";
-          document.getElementById("questionContainer").style.display = "none";
+          document.getElementById("questionModalOverlay").classList.remove("active");
         }, 3000);
 
       } catch (error) {
@@ -1917,19 +1989,20 @@
         // Adicionar pergunta ao histórico
         perguntasRespondidas.push(currentQuestion.id);
 
-        // Verificar e descontar créditos
+        // ✅ CORREÇÃO: Verificar e descontar créditos POR JOGO
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const userData = userDoc.data() || {};
-        const jogadasUsadas = userData.jogadasGratis?.usadas || 0;
-        const temGratis = jogadasUsadas < 5;
+        const jogadasPorJogo = userData.jogadasGratisPorJogo || {};
+        const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
+        const temGratis = jogadasUsadasNesteJogo < 5;
 
         const updates = {
           [`perguntasRespondidas_${jogoId}`]: firebase.firestore.FieldValue.arrayUnion(currentQuestion.id)
         };
 
         if (temGratis) {
-          updates['jogadasGratis.usadas'] = firebase.firestore.FieldValue.increment(1);
-          console.log(`✅ Usando jogada grátis (${jogadasUsadas + 1}/5)`);
+          updates[`jogadasGratisPorJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
+          console.log(`✅ Usando jogada grátis (${jogadasUsadasNesteJogo + 1}/5) neste jogo`);
         } else {
           // ✅ Validar se tem créditos antes de descontar
           if (userData.creditos > 0) {
@@ -1957,12 +2030,12 @@
           setTimeout(() => mostrarPatrocinador(), 1500);
         }
 
-        // Reabilitar botão após 3 segundos
+        // ✅ FECHAR MODAL após 3 segundos
         setTimeout(() => {
           currentQuestion = null;
           document.getElementById("btnAnswer").disabled = false;
           document.getElementById("btnAnswer").textContent = "🎯 Responder Pergunta";
-          document.getElementById("questionContainer").style.display = "none";
+          document.getElementById("questionModalOverlay").classList.remove("active");
         }, 3000);
 
       } catch (error) {
