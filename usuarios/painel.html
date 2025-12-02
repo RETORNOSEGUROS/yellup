@@ -133,6 +133,17 @@
       margin-bottom: 5px;
     }
 
+    .level-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.85em;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
     .profile-team {
       color: #a9b5c6;
       display: flex;
@@ -613,12 +624,14 @@
         <div class="profile-avatar" id="profileAvatar">U</div>
         <div class="profile-info">
           <h2 id="profileName">Usuário</h2>
+          <div id="profileLevel"></div>
           <div class="profile-team">
             <span id="profileTeamJersey"></span>
             <span id="profileTeam">Carregando...</span>
           </div>
         </div>
       </div>
+      <div id="levelProgress" style="margin-bottom: 20px;"></div>
       <div class="user-stats">
         <div class="stat-card">
           <div class="stat-value" id="statCredits">0</div>
@@ -723,9 +736,9 @@
         <span class="nav-icon">🏆</span>
         <span>Ranking</span>
       </a>
-      <a href="loja-creditos.html" class="nav-item">
-        <span class="nav-icon">💎</span>
-        <span>Loja</span>
+      <a href="indicacoes.html" class="nav-item">
+        <span class="nav-icon">🔗</span>
+        <span>Indicar</span>
       </a>
       <a href="editar-perfil.html" class="nav-item">
         <span class="nav-icon">👤</span>
@@ -766,6 +779,44 @@
     let currentUserId = null;
     let currentUserData = null;
     let jogoAtual = null;  // Jogo sendo selecionado no modal
+
+    // ===================================
+    // 🎖️ SISTEMA DE NÍVEIS
+    // ===================================
+    const NIVEIS = [
+      { nome: 'Bronze', minXP: 0, classe: 'level-bronze', emoji: '🥉', cor: '#CD7F32' },
+      { nome: 'Prata', minXP: 500, classe: 'level-prata', emoji: '🥈', cor: '#C0C0C0' },
+      { nome: 'Ouro', minXP: 2000, classe: 'level-ouro', emoji: '🥇', cor: '#FFD700' },
+      { nome: 'Diamante', minXP: 5000, classe: 'level-diamante', emoji: '💎', cor: '#B9F2FF' },
+      { nome: 'Mestre', minXP: 10000, classe: 'level-mestre', emoji: '👑', cor: '#9B59B6' }
+    ];
+
+    function calcularNivel(xp) {
+      let nivel = NIVEIS[0];
+      for (const n of NIVEIS) {
+        if (xp >= n.minXP) nivel = n;
+      }
+      return nivel;
+    }
+
+    function calcularProximoNivel(xp) {
+      for (const n of NIVEIS) {
+        if (xp < n.minXP) return n;
+      }
+      return null; // Já é mestre
+    }
+
+    function calcularProgressoNivel(xp) {
+      const nivelAtual = calcularNivel(xp);
+      const proximoNivel = calcularProximoNivel(xp);
+      
+      if (!proximoNivel) return 100; // Mestre
+      
+      const xpNoNivelAtual = xp - nivelAtual.minXP;
+      const xpParaProximo = proximoNivel.minXP - nivelAtual.minXP;
+      
+      return Math.round((xpNoNivelAtual / xpParaProximo) * 100);
+    }
 
     // ===================================
     // 👕 FUNÇÃO PARA GERAR CAMISETA SVG
@@ -849,15 +900,50 @@
     async function atualizarPerfil() {
       const nome = currentUserData.usuarioUnico || currentUserData.usuario || currentUserData.nome || 'Usuário';
       const inicial = nome.charAt(0).toUpperCase();
+      const xp = currentUserData.xp || 0;
 
       document.getElementById('userName').textContent = nome;
       document.getElementById('userAvatar').textContent = inicial;
       document.getElementById('profileName').textContent = nome;
       document.getElementById('profileAvatar').textContent = inicial;
 
+      // Calcular nível
+      const nivel = calcularNivel(xp);
+      const proximoNivel = calcularProximoNivel(xp);
+      const progresso = calcularProgressoNivel(xp);
+
+      // Atualizar badge de nível
+      const nivelBadge = document.getElementById('profileLevel');
+      if (nivelBadge) {
+        nivelBadge.innerHTML = `
+          <span class="level-badge" style="background: ${nivel.cor}20; color: ${nivel.cor}; border: 1px solid ${nivel.cor}50;">
+            ${nivel.emoji} ${nivel.nome}
+          </span>
+        `;
+      }
+
+      // Barra de progresso do nível
+      const progressBar = document.getElementById('levelProgress');
+      if (progressBar && proximoNivel) {
+        progressBar.innerHTML = `
+          <div style="font-size: 0.8em; color: #a9b5c6; margin-bottom: 5px;">
+            ${xp} / ${proximoNivel.minXP} XP para ${proximoNivel.emoji} ${proximoNivel.nome}
+          </div>
+          <div style="height: 6px; background: rgba(0,0,0,0.3); border-radius: 3px; overflow: hidden;">
+            <div style="width: ${progresso}%; height: 100%; background: linear-gradient(90deg, ${nivel.cor}, ${proximoNivel.cor}); border-radius: 3px;"></div>
+          </div>
+        `;
+      } else if (progressBar) {
+        progressBar.innerHTML = `
+          <div style="font-size: 0.8em; color: #9B59B6;">
+            👑 Nível máximo atingido!
+          </div>
+        `;
+      }
+
       // Estatísticas
       document.getElementById('statCredits').textContent = currentUserData.creditos || 0;
-      document.getElementById('statXP').textContent = currentUserData.xp || 0;
+      document.getElementById('statXP').textContent = xp;
       
       const jogosParticipados = currentUserData.torcidas ? Object.keys(currentUserData.torcidas).length : 0;
       document.getElementById('statGames').textContent = jogosParticipados;
