@@ -108,6 +108,17 @@
       from { opacity: 0; }
       to { opacity: 1; }
     }
+    
+    /* ✅ Animações Toast */
+    @keyframes toastSlideUp {
+      from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    
+    @keyframes toastSlideDown {
+      from { opacity: 1; transform: translateX(-50%) translateY(0); }
+      to { opacity: 0; transform: translateX(-50%) translateY(20px); }
+    }
 
     /* Header */
     .header {
@@ -1349,7 +1360,10 @@
     let todasPerguntasRespondidas = false;
     let questionTimer = null;        // Timer da pergunta
     let questionTimeLeft = 10;       // 10 segundos por pergunta
-    let jogoStatus = null;           // ✅ NOVO: Status do jogo (agendado, ao_vivo, finalizado)
+    let jogoStatus = null;           // Status calculado (agendado, ao_vivo, finalizado)
+    let jogoDataInicio = null;       // ✅ NOVO: Data/hora de início do jogo
+    let jogoDataFim = null;          // ✅ NOVO: Data/hora de fim do jogo
+    let statusCheckInterval = null;  // ✅ NOVO: Intervalo para checar status
 
     // 🎮 GAMIFICAÇÃO
     let streak = 0;                  // Sequência de acertos
@@ -1506,18 +1520,26 @@
         document.getElementById("teamAName").style.background = `linear-gradient(135deg, ${timeCasaData.primaria}99, ${timeCasaData.primaria}44)`;
         document.getElementById("teamBName").style.background = `linear-gradient(135deg, ${timeForaData.primaria}99, ${timeForaData.primaria}44)`;
 
-        // Formatar data
+        // ✅ NOVO: Salvar datas de início e fim para controle de status
         if (jogo.dataInicio) {
-          const dataInicio = jogo.dataInicio.toDate ? jogo.dataInicio.toDate() : new Date(jogo.dataInicio);
-          document.getElementById("matchDate").textContent = dataInicio.toLocaleDateString('pt-BR', {
+          jogoDataInicio = jogo.dataInicio.toDate ? jogo.dataInicio.toDate() : new Date(jogo.dataInicio);
+          document.getElementById("matchDate").textContent = jogoDataInicio.toLocaleDateString('pt-BR', {
             day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
           });
         }
+        
+        if (jogo.dataFim) {
+          jogoDataFim = jogo.dataFim.toDate ? jogo.dataFim.toDate() : new Date(jogo.dataFim);
+        }
+        
+        console.log("📅 Horário início:", jogoDataInicio);
+        console.log("📅 Horário fim:", jogoDataFim);
 
         document.getElementById("matchLeague").textContent = jogo.liga || jogo.campeonato || "Partida";
         
-        // ✅ NOVO: Atualizar botão baseado no status
-        atualizarBotaoBaseadoNoStatus();
+        // ✅ NOVO: Calcular status baseado no horário e iniciar verificação contínua
+        calcularStatusDoJogo();
+        iniciarVerificacaoDeStatus();
 
       } catch (error) {
         console.error("❌ Erro ao carregar jogo:", error);
@@ -1525,18 +1547,78 @@
       }
     }
     
-    // ✅ NOVA FUNÇÃO: Atualizar botão baseado no status do jogo
+    // ✅ NOVA FUNÇÃO: Calcular status baseado em dataInicio e dataFim
+    function calcularStatusDoJogo() {
+      const agora = new Date();
+      
+      if (!jogoDataInicio || !jogoDataFim) {
+        // Se não tiver datas, considera ao vivo (fallback)
+        jogoStatus = 'ao_vivo';
+        console.log("⚠️ Datas não definidas, considerando ao vivo");
+      } else if (agora < jogoDataInicio) {
+        jogoStatus = 'agendado';
+        console.log("⏳ Jogo agendado - ainda não começou");
+      } else if (agora >= jogoDataInicio && agora <= jogoDataFim) {
+        jogoStatus = 'ao_vivo';
+        console.log("🔴 Jogo AO VIVO!");
+      } else {
+        jogoStatus = 'finalizado';
+        console.log("🏁 Jogo finalizado");
+      }
+      
+      atualizarBotaoBaseadoNoStatus();
+    }
+    
+    // ✅ NOVA FUNÇÃO: Verificar status a cada 10 segundos
+    function iniciarVerificacaoDeStatus() {
+      // Limpar intervalo anterior se existir
+      if (statusCheckInterval) {
+        clearInterval(statusCheckInterval);
+      }
+      
+      // Verificar a cada 10 segundos
+      statusCheckInterval = setInterval(() => {
+        const statusAnterior = jogoStatus;
+        calcularStatusDoJogo();
+        
+        // Se mudou de status, mostrar mensagem
+        if (statusAnterior !== jogoStatus) {
+          if (jogoStatus === 'ao_vivo') {
+            showToast("🔴 O jogo começou! Responda as perguntas!");
+          } else if (jogoStatus === 'finalizado') {
+            showToast("🏁 O jogo terminou! Veja o ranking final.");
+          }
+        }
+      }, 10000); // 10 segundos
+    }
+    
+    // ✅ FUNÇÃO ATUALIZADA: Atualizar botão baseado no status calculado
     function atualizarBotaoBaseadoNoStatus() {
       const btnAnswer = document.getElementById("btnAnswer");
+      if (!btnAnswer) return;
       
       if (jogoStatus === 'agendado') {
         btnAnswer.disabled = true;
-        btnAnswer.textContent = "⏳ Jogo ainda não começou";
+        // Mostrar quanto tempo falta
+        const agora = new Date();
+        const diffMs = jogoDataInicio - agora;
+        const diffMin = Math.ceil(diffMs / 60000);
+        
+        if (diffMin > 60) {
+          const diffHoras = Math.floor(diffMin / 60);
+          btnAnswer.textContent = `⏳ Começa em ${diffHoras}h ${diffMin % 60}min`;
+        } else if (diffMin > 0) {
+          btnAnswer.textContent = `⏳ Começa em ${diffMin} minutos`;
+        } else {
+          btnAnswer.textContent = "⏳ Começando em breve...";
+        }
         btnAnswer.style.background = "rgba(241, 196, 15, 0.5)";
+        
       } else if (jogoStatus === 'finalizado') {
         btnAnswer.disabled = true;
         btnAnswer.textContent = "🏁 Jogo finalizado";
         btnAnswer.style.background = "rgba(149, 165, 166, 0.5)";
+        
       } else {
         // ao_vivo - permitir responder
         btnAnswer.disabled = false;
@@ -1713,10 +1795,15 @@
       try {
         const btnAnswer = document.getElementById("btnAnswer");
         
-        // ✅ NOVO: Verificar se o jogo está ao vivo
+        // ✅ Recalcular status antes de verificar (caso tenha mudado)
+        calcularStatusDoJogo();
+        
+        // ✅ Verificar se o jogo está ao vivo
         if (jogoStatus !== 'ao_vivo') {
           if (jogoStatus === 'agendado') {
-            alert("⏳ O jogo ainda não começou!\n\nAguarde o administrador iniciar a partida.");
+            const agora = new Date();
+            const diffMin = Math.ceil((jogoDataInicio - agora) / 60000);
+            alert(`⏳ O jogo ainda não começou!\n\nComeça em ${diffMin} minutos.\nAguarde o horário de início.`);
           } else if (jogoStatus === 'finalizado') {
             alert("🏁 Este jogo já foi finalizado!\n\nVeja o ranking final e aguarde a próxima partida.");
           }
@@ -2103,108 +2190,135 @@
       }
     }
 
+    // ✅ VARIÁVEIS PARA LISTENERS DO CHAT
+    let chatTorcidaListener = null;
+    let chatGeralListener = null;
+
     function initChat() {
-      console.log("💬 Iniciando sistema de chat...");
+      console.log("💬 Iniciando sistema de chat em tempo real...");
       console.log("📍 jogoId:", jogoId);
       console.log("📍 timeTorcida:", timeTorcida);
       
-      // ✅ CHAT DA TORCIDA - Simplificado para funcionar sem índice composto
-      db.collection("chats")
+      // Cancelar listeners anteriores se existirem
+      if (chatTorcidaListener) chatTorcidaListener();
+      if (chatGeralListener) chatGeralListener();
+      
+      // ✅ CHAT DA TORCIDA - Listener em tempo real
+      chatTorcidaListener = db.collection("chats")
         .where("jogoId", "==", jogoId)
-        .orderBy("timestamp", "desc")
-        .limit(50)
-        .onSnapshot(snap => {
-          const container = document.getElementById("teamChat");
-          container.innerHTML = "";
-          const msgs = [];
+        .orderBy("timestamp", "asc")  // ASC para não precisar reverter
+        .onSnapshot(snapshot => {
+          console.log("📩 Chat torcida atualizado:", snapshot.size, "mensagens total");
           
-          snap.forEach(doc => {
+          const container = document.getElementById("teamChat");
+          if (!container) return;
+          
+          container.innerHTML = "";
+          
+          snapshot.forEach(doc => {
             const data = doc.data();
-            // Filtrar no cliente: só mensagens da minha torcida
+            // Filtrar: só mensagens da minha torcida
             if (data.timeId === timeTorcida) {
-              msgs.push({ id: doc.id, ...data });
+              renderMessage(data, container);
             }
           });
           
-          console.log(`💚 Chat da torcida: ${msgs.length} mensagens`);
-          msgs.reverse().forEach(msg => renderMessage(msg, container));
-          container.scrollTop = container.scrollHeight;
+          // ✅ Scroll automático para última mensagem
+          setTimeout(() => {
+            container.scrollTop = container.scrollHeight;
+          }, 100);
           
         }, error => {
-          console.error("❌ Erro no chat da torcida:", error);
-          // Tentar sem orderBy (fallback)
-          db.collection("chats")
-            .where("jogoId", "==", jogoId)
-            .limit(100)
-            .get()
-            .then(snap => {
-              const container = document.getElementById("teamChat");
-              container.innerHTML = "";
-              const msgs = [];
-              snap.forEach(doc => {
-                const data = doc.data();
-                if (data.timeId === timeTorcida) {
-                  msgs.push({ id: doc.id, ...data });
-                }
-              });
-              msgs.sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
-              msgs.forEach(msg => renderMessage(msg, container));
-              container.scrollTop = container.scrollHeight;
-            });
+          console.error("❌ Erro no listener do chat da torcida:", error);
+          // Fallback: buscar sem orderBy
+          carregarChatFallback("teamChat", timeTorcida);
         });
 
-      // ✅ CHAT GERAL - Simplificado
-      db.collection("chats")
+      // ✅ CHAT GERAL - Listener em tempo real
+      chatGeralListener = db.collection("chats")
         .where("jogoId", "==", jogoId)
-        .orderBy("timestamp", "desc")
-        .limit(50)
-        .onSnapshot(snap => {
-          const container = document.getElementById("generalChat");
-          container.innerHTML = "";
-          const msgs = [];
+        .orderBy("timestamp", "asc")  // ASC para não precisar reverter
+        .onSnapshot(snapshot => {
+          console.log("📩 Chat geral atualizado:", snapshot.size, "mensagens total");
           
-          snap.forEach(doc => {
+          const container = document.getElementById("generalChat");
+          if (!container) return;
+          
+          container.innerHTML = "";
+          
+          snapshot.forEach(doc => {
             const data = doc.data();
-            // Filtrar no cliente: só mensagens gerais (sem timeId ou tipo === geral)
+            // Filtrar: só mensagens gerais (sem timeId ou tipo === geral)
             if (!data.timeId || data.tipo === "geral") {
-              msgs.push({ id: doc.id, ...data });
+              renderMessage(data, container);
             }
           });
           
-          console.log(`💬 Chat geral: ${msgs.length} mensagens`);
-          msgs.reverse().forEach(msg => renderMessage(msg, container));
-          container.scrollTop = container.scrollHeight;
+          // ✅ Scroll automático para última mensagem
+          setTimeout(() => {
+            container.scrollTop = container.scrollHeight;
+          }, 100);
           
         }, error => {
-          console.error("❌ Erro no chat geral:", error);
-          // Tentar sem orderBy (fallback)
-          db.collection("chats")
-            .where("jogoId", "==", jogoId)
-            .limit(100)
-            .get()
-            .then(snap => {
-              const container = document.getElementById("generalChat");
-              container.innerHTML = "";
-              const msgs = [];
-              snap.forEach(doc => {
-                const data = doc.data();
-                if (!data.timeId || data.tipo === "geral") {
-                  msgs.push({ id: doc.id, ...data });
-                }
-              });
-              msgs.sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
-              msgs.forEach(msg => renderMessage(msg, container));
-              container.scrollTop = container.scrollHeight;
-            });
+          console.error("❌ Erro no listener do chat geral:", error);
+          // Fallback: buscar sem orderBy
+          carregarChatFallback("generalChat", null);
         });
 
       // Enter para enviar
-      document.getElementById("teamChatInput").addEventListener("keypress", (e) => {
-        if (e.key === "Enter") sendMessage("team");
-      });
-      document.getElementById("generalChatInput").addEventListener("keypress", (e) => {
-        if (e.key === "Enter") sendMessage("general");
-      });
+      const teamInput = document.getElementById("teamChatInput");
+      const generalInput = document.getElementById("generalChatInput");
+      
+      if (teamInput) {
+        teamInput.addEventListener("keypress", (e) => {
+          if (e.key === "Enter") sendMessage("team");
+        });
+      }
+      if (generalInput) {
+        generalInput.addEventListener("keypress", (e) => {
+          if (e.key === "Enter") sendMessage("general");
+        });
+      }
+    }
+    
+    // Fallback caso o índice não exista
+    function carregarChatFallback(containerId, timeIdFiltro) {
+      db.collection("chats")
+        .where("jogoId", "==", jogoId)
+        .get()
+        .then(snapshot => {
+          const container = document.getElementById(containerId);
+          if (!container) return;
+          
+          container.innerHTML = "";
+          const msgs = [];
+          
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            if (timeIdFiltro) {
+              // Chat da torcida
+              if (data.timeId === timeIdFiltro) {
+                msgs.push(data);
+              }
+            } else {
+              // Chat geral
+              if (!data.timeId || data.tipo === "geral") {
+                msgs.push(data);
+              }
+            }
+          });
+          
+          // Ordenar por timestamp
+          msgs.sort((a, b) => {
+            const timeA = a.timestamp?.toMillis?.() || a.timestamp?.seconds * 1000 || 0;
+            const timeB = b.timestamp?.toMillis?.() || b.timestamp?.seconds * 1000 || 0;
+            return timeA - timeB;
+          });
+          
+          msgs.forEach(msg => renderMessage(msg, container));
+          container.scrollTop = container.scrollHeight;
+        })
+        .catch(err => console.error("Erro no fallback:", err));
     }
 
     function renderMessage(msg, container) {
@@ -2515,8 +2629,41 @@
       const popup = document.getElementById('sponsorPopup');
       if (popup) popup.remove();
     }
+    
+    // ✅ FUNÇÃO TOAST - Mensagens temporárias
+    function showToast(message, duration = 3000) {
+      // Remover toast anterior se existir
+      const existingToast = document.getElementById('toastNotification');
+      if (existingToast) existingToast.remove();
+      
+      const toast = document.createElement('div');
+      toast.id = 'toastNotification';
+      toast.textContent = message;
+      toast.style.cssText = `
+        position: fixed;
+        bottom: 100px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: linear-gradient(135deg, var(--bg-card), var(--bg-secondary));
+        color: var(--text-primary);
+        padding: 15px 25px;
+        border-radius: 12px;
+        font-weight: 600;
+        z-index: 10000;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        border: 1px solid rgba(255,181,71,0.3);
+        animation: toastSlideUp 0.3s ease;
+      `;
+      
+      document.body.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.style.animation = 'toastSlideDown 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
 
-    console.log("✅ Yellup Game v6.0 - Com Gamificação + Streak + Conquistas + Patrocinadores!");
+    console.log("✅ Yellup Game v7.0 - Chat em tempo real + Status por horário!");
   </script>
 
 </body>
