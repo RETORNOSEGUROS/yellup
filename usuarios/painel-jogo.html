@@ -1349,6 +1349,7 @@
     let todasPerguntasRespondidas = false;
     let questionTimer = null;        // Timer da pergunta
     let questionTimeLeft = 10;       // 10 segundos por pergunta
+    let jogoStatus = null;           // ✅ NOVO: Status do jogo (agendado, ao_vivo, finalizado)
 
     // 🎮 GAMIFICAÇÃO
     let streak = 0;                  // Sequência de acertos
@@ -1463,6 +1464,10 @@
         timeCasaId = jogo.timeCasaId;
         timeForaId = jogo.timeForaId;
         
+        // ✅ NOVO: Salvar status do jogo
+        jogoStatus = jogo.status || 'agendado';
+        console.log("📊 Status do jogo:", jogoStatus);
+        
         // Carregar dados dos times
         const [timeCasaDoc, timeForaDoc] = await Promise.all([
           db.collection("times").doc(timeCasaId).get(),
@@ -1510,10 +1515,33 @@
         }
 
         document.getElementById("matchLeague").textContent = jogo.liga || jogo.campeonato || "Partida";
+        
+        // ✅ NOVO: Atualizar botão baseado no status
+        atualizarBotaoBaseadoNoStatus();
 
       } catch (error) {
         console.error("❌ Erro ao carregar jogo:", error);
         throw error;
+      }
+    }
+    
+    // ✅ NOVA FUNÇÃO: Atualizar botão baseado no status do jogo
+    function atualizarBotaoBaseadoNoStatus() {
+      const btnAnswer = document.getElementById("btnAnswer");
+      
+      if (jogoStatus === 'agendado') {
+        btnAnswer.disabled = true;
+        btnAnswer.textContent = "⏳ Jogo ainda não começou";
+        btnAnswer.style.background = "rgba(241, 196, 15, 0.5)";
+      } else if (jogoStatus === 'finalizado') {
+        btnAnswer.disabled = true;
+        btnAnswer.textContent = "🏁 Jogo finalizado";
+        btnAnswer.style.background = "rgba(149, 165, 166, 0.5)";
+      } else {
+        // ao_vivo - permitir responder
+        btnAnswer.disabled = false;
+        btnAnswer.textContent = "🎯 Responder Pergunta";
+        btnAnswer.style.background = "linear-gradient(135deg, var(--accent), #ff8c42)";
       }
     }
 
@@ -1684,6 +1712,18 @@
     async function getQuestion() {
       try {
         const btnAnswer = document.getElementById("btnAnswer");
+        
+        // ✅ NOVO: Verificar se o jogo está ao vivo
+        if (jogoStatus !== 'ao_vivo') {
+          if (jogoStatus === 'agendado') {
+            alert("⏳ O jogo ainda não começou!\n\nAguarde o administrador iniciar a partida.");
+          } else if (jogoStatus === 'finalizado') {
+            alert("🏁 Este jogo já foi finalizado!\n\nVeja o ranking final e aguarde a próxima partida.");
+          }
+          atualizarBotaoBaseadoNoStatus();
+          return;
+        }
+        
         btnAnswer.disabled = true;
         btnAnswer.textContent = "🔍 Buscando pergunta...";
 
@@ -2064,55 +2104,96 @@
     }
 
     function initChat() {
-      // Chat da torcida (só do time que estou torcendo)
+      console.log("💬 Iniciando sistema de chat...");
+      console.log("📍 jogoId:", jogoId);
+      console.log("📍 timeTorcida:", timeTorcida);
+      
+      // ✅ CHAT DA TORCIDA - Simplificado para funcionar sem índice composto
       db.collection("chats")
         .where("jogoId", "==", jogoId)
-        .where("timeId", "==", timeTorcida)
         .orderBy("timestamp", "desc")
         .limit(50)
         .onSnapshot(snap => {
           const container = document.getElementById("teamChat");
           container.innerHTML = "";
           const msgs = [];
-          snap.forEach(doc => msgs.push({ id: doc.id, ...doc.data() }));
+          
+          snap.forEach(doc => {
+            const data = doc.data();
+            // Filtrar no cliente: só mensagens da minha torcida
+            if (data.timeId === timeTorcida) {
+              msgs.push({ id: doc.id, ...data });
+            }
+          });
+          
+          console.log(`💚 Chat da torcida: ${msgs.length} mensagens`);
           msgs.reverse().forEach(msg => renderMessage(msg, container));
           container.scrollTop = container.scrollHeight;
+          
         }, error => {
           console.error("❌ Erro no chat da torcida:", error);
+          // Tentar sem orderBy (fallback)
+          db.collection("chats")
+            .where("jogoId", "==", jogoId)
+            .limit(100)
+            .get()
+            .then(snap => {
+              const container = document.getElementById("teamChat");
+              container.innerHTML = "";
+              const msgs = [];
+              snap.forEach(doc => {
+                const data = doc.data();
+                if (data.timeId === timeTorcida) {
+                  msgs.push({ id: doc.id, ...data });
+                }
+              });
+              msgs.sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+              msgs.forEach(msg => renderMessage(msg, container));
+              container.scrollTop = container.scrollHeight;
+            });
         });
 
-      // ✅ Chat geral - pega TODAS as mensagens do jogo que são gerais
+      // ✅ CHAT GERAL - Simplificado
       db.collection("chats")
         .where("jogoId", "==", jogoId)
-        .where("tipo", "==", "geral")
         .orderBy("timestamp", "desc")
         .limit(50)
         .onSnapshot(snap => {
           const container = document.getElementById("generalChat");
           container.innerHTML = "";
           const msgs = [];
-          snap.forEach(doc => msgs.push({ id: doc.id, ...doc.data() }));
+          
+          snap.forEach(doc => {
+            const data = doc.data();
+            // Filtrar no cliente: só mensagens gerais (sem timeId ou tipo === geral)
+            if (!data.timeId || data.tipo === "geral") {
+              msgs.push({ id: doc.id, ...data });
+            }
+          });
+          
+          console.log(`💬 Chat geral: ${msgs.length} mensagens`);
           msgs.reverse().forEach(msg => renderMessage(msg, container));
           container.scrollTop = container.scrollHeight;
+          
         }, error => {
           console.error("❌ Erro no chat geral:", error);
-          // Fallback: tentar sem o filtro tipo
+          // Tentar sem orderBy (fallback)
           db.collection("chats")
             .where("jogoId", "==", jogoId)
-            .orderBy("timestamp", "desc")
-            .limit(50)
-            .onSnapshot(snap => {
+            .limit(100)
+            .get()
+            .then(snap => {
               const container = document.getElementById("generalChat");
               container.innerHTML = "";
               const msgs = [];
               snap.forEach(doc => {
                 const data = doc.data();
-                // Mostrar apenas mensagens gerais (sem timeId ou timeId vazio)
                 if (!data.timeId || data.tipo === "geral") {
                   msgs.push({ id: doc.id, ...data });
                 }
               });
-              msgs.reverse().forEach(msg => renderMessage(msg, container));
+              msgs.sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+              msgs.forEach(msg => renderMessage(msg, container));
               container.scrollTop = container.scrollHeight;
             });
         });
@@ -2186,7 +2267,7 @@
     }
 
     // ===================================
-    // 🏆 RANKING
+    // 🏆 RANKING (CORRIGIDO - TODOS OS TIMES!)
     // ===================================
     async function loadRanking() {
       try {
@@ -2197,15 +2278,16 @@
           const user = doc.data();
           const timeUser = user.torcidas?.[jogoId];
           
-          // Mostrar apenas usuários da mesma torcida
-          if (timeUser !== timeTorcida) return;
+          // ✅ CORREÇÃO: Mostrar usuários de AMBOS os times (não só da minha torcida)
+          if (timeUser !== timeCasaId && timeUser !== timeForaId) return;
 
           const pontos = user.pontuacoes?.[jogoId] || 0;
           if (pontos > 0) {
             const displayName = user.usuarioUnico || user.usuario || user.nome || "Anônimo";
             ranking.push({
-              odName: displayName,
+              nome: displayName,  // ✅ CORREÇÃO: Era "odName" (typo!)
               pontos: pontos,
+              timeId: timeUser,   // ✅ NOVO: Guardar o time para mostrar cor
               avatar: user.avatarUrl || user.avatar || user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`
             });
           }
@@ -2228,10 +2310,13 @@
           const posicao = index + 1;
           const medalha = posicao === 1 ? '🥇' : posicao === 2 ? '🥈' : posicao === 3 ? '🥉' : `${posicao}º`;
           
+          // ✅ NOVO: Cor do time no nome
+          const corTime = user.timeId === timeCasaId ? 'var(--cor-timeA)' : 'var(--cor-timeB)';
+          
           li.innerHTML = `
             <span class="ranking-position">${medalha}</span>
             <img src="${user.avatar}" alt="${user.nome}" class="ranking-avatar">
-            <span class="ranking-name">${user.nome}</span>
+            <span class="ranking-name" style="color: ${corTime}">${user.nome}</span>
             <span class="ranking-points">${user.pontos} pts</span>
           `;
           
