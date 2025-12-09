@@ -2191,78 +2191,76 @@
     }
 
     // ✅ VARIÁVEIS PARA LISTENERS DO CHAT
-    let chatTorcidaListener = null;
-    let chatGeralListener = null;
+    let chatListener = null;
 
     function initChat() {
-      console.log("💬 Iniciando sistema de chat em tempo real...");
-      console.log("📍 jogoId:", jogoId);
-      console.log("📍 timeTorcida:", timeTorcida);
+      console.log("💬 Iniciando chat em tempo real...");
       
-      // Cancelar listeners anteriores se existirem
-      if (chatTorcidaListener) chatTorcidaListener();
-      if (chatGeralListener) chatGeralListener();
+      // Cancelar listener anterior se existir
+      if (chatListener) {
+        chatListener();
+        chatListener = null;
+      }
       
-      // ✅ CHAT DA TORCIDA - Listener em tempo real
-      chatTorcidaListener = db.collection("chats")
+      // ✅ LISTENER ÚNICO E SIMPLES - Sem orderBy (não precisa de índice!)
+      chatListener = db.collection("chats")
         .where("jogoId", "==", jogoId)
-        .orderBy("timestamp", "asc")  // ASC para não precisar reverter
-        .onSnapshot(snapshot => {
-          console.log("📩 Chat torcida atualizado:", snapshot.size, "mensagens total");
+        .limit(200)  // Limitar para melhor performance
+        .onSnapshot({ includeMetadataChanges: false }, snapshot => {
+          console.log("📩 Chat atualizado! Total:", snapshot.size);
           
-          const container = document.getElementById("teamChat");
-          if (!container) return;
-          
-          container.innerHTML = "";
+          const msgsTorcida = [];
+          const msgsGeral = [];
           
           snapshot.forEach(doc => {
             const data = doc.data();
-            // Filtrar: só mensagens da minha torcida
+            
+            // Separar mensagens por tipo
             if (data.timeId === timeTorcida) {
-              renderMessage(data, container);
+              msgsTorcida.push(data);
             }
-          });
-          
-          // ✅ Scroll automático para última mensagem
-          setTimeout(() => {
-            container.scrollTop = container.scrollHeight;
-          }, 100);
-          
-        }, error => {
-          console.error("❌ Erro no listener do chat da torcida:", error);
-          // Fallback: buscar sem orderBy
-          carregarChatFallback("teamChat", timeTorcida);
-        });
-
-      // ✅ CHAT GERAL - Listener em tempo real
-      chatGeralListener = db.collection("chats")
-        .where("jogoId", "==", jogoId)
-        .orderBy("timestamp", "asc")  // ASC para não precisar reverter
-        .onSnapshot(snapshot => {
-          console.log("📩 Chat geral atualizado:", snapshot.size, "mensagens total");
-          
-          const container = document.getElementById("generalChat");
-          if (!container) return;
-          
-          container.innerHTML = "";
-          
-          snapshot.forEach(doc => {
-            const data = doc.data();
-            // Filtrar: só mensagens gerais (sem timeId ou tipo === geral)
             if (!data.timeId || data.tipo === "geral") {
-              renderMessage(data, container);
+              msgsGeral.push(data);
             }
           });
           
-          // ✅ Scroll automático para última mensagem
-          setTimeout(() => {
-            container.scrollTop = container.scrollHeight;
-          }, 100);
+          // Ordenar por timestamp no cliente
+          const ordenarPorTempo = (a, b) => {
+            const getTime = (msg) => {
+              if (!msg.timestamp) return Date.now(); // Mensagens novas sem timestamp vão pro final
+              if (msg.timestamp.toMillis) return msg.timestamp.toMillis();
+              if (msg.timestamp.seconds) return msg.timestamp.seconds * 1000;
+              return 0;
+            };
+            return getTime(a) - getTime(b);
+          };
+          
+          msgsTorcida.sort(ordenarPorTempo);
+          msgsGeral.sort(ordenarPorTempo);
+          
+          // Pegar apenas as últimas 50 mensagens de cada
+          const ultimasTorcida = msgsTorcida.slice(-50);
+          const ultimasGeral = msgsGeral.slice(-50);
+          
+          // Renderizar chat da torcida
+          const containerTorcida = document.getElementById("teamChat");
+          if (containerTorcida) {
+            containerTorcida.innerHTML = "";
+            ultimasTorcida.forEach(msg => renderMessage(msg, containerTorcida));
+            containerTorcida.scrollTop = containerTorcida.scrollHeight;
+          }
+          
+          // Renderizar chat geral
+          const containerGeral = document.getElementById("generalChat");
+          if (containerGeral) {
+            containerGeral.innerHTML = "";
+            ultimasGeral.forEach(msg => renderMessage(msg, containerGeral));
+            containerGeral.scrollTop = containerGeral.scrollHeight;
+          }
           
         }, error => {
-          console.error("❌ Erro no listener do chat geral:", error);
-          // Fallback: buscar sem orderBy
-          carregarChatFallback("generalChat", null);
+          console.error("❌ Erro no chat:", error);
+          showToast("⚠️ Erro ao carregar chat. Recarregue a página.");
         });
 
       // Enter para enviar
@@ -2271,54 +2269,20 @@
       
       if (teamInput) {
         teamInput.addEventListener("keypress", (e) => {
-          if (e.key === "Enter") sendMessage("team");
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage("team");
+          }
         });
       }
       if (generalInput) {
         generalInput.addEventListener("keypress", (e) => {
-          if (e.key === "Enter") sendMessage("general");
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage("general");
+          }
         });
       }
-    }
-    
-    // Fallback caso o índice não exista
-    function carregarChatFallback(containerId, timeIdFiltro) {
-      db.collection("chats")
-        .where("jogoId", "==", jogoId)
-        .get()
-        .then(snapshot => {
-          const container = document.getElementById(containerId);
-          if (!container) return;
-          
-          container.innerHTML = "";
-          const msgs = [];
-          
-          snapshot.forEach(doc => {
-            const data = doc.data();
-            if (timeIdFiltro) {
-              // Chat da torcida
-              if (data.timeId === timeIdFiltro) {
-                msgs.push(data);
-              }
-            } else {
-              // Chat geral
-              if (!data.timeId || data.tipo === "geral") {
-                msgs.push(data);
-              }
-            }
-          });
-          
-          // Ordenar por timestamp
-          msgs.sort((a, b) => {
-            const timeA = a.timestamp?.toMillis?.() || a.timestamp?.seconds * 1000 || 0;
-            const timeB = b.timestamp?.toMillis?.() || b.timestamp?.seconds * 1000 || 0;
-            return timeA - timeB;
-          });
-          
-          msgs.forEach(msg => renderMessage(msg, container));
-          container.scrollTop = container.scrollHeight;
-        })
-        .catch(err => console.error("Erro no fallback:", err));
     }
 
     function renderMessage(msg, container) {
@@ -2345,20 +2309,33 @@
       return div.innerHTML;
     }
 
+    // ✅ Cache dos dados do usuário para não buscar toda vez
+    let cachedUserData = null;
+    
     async function sendMessage(type) {
       const inputId = type === "team" ? "teamChatInput" : "generalChatInput";
       const input = document.getElementById(inputId);
       const mensagem = input.value.trim();
       
       if (!mensagem) return;
+      
+      // ✅ Limpar input IMEDIATAMENTE (feedback instantâneo)
+      input.value = "";
+      input.disabled = true;
+      input.placeholder = "Enviando...";
 
       try {
-        const userDoc = await db.collection("usuarios").doc(uid).get();
-        const user = userDoc.data() || {};
+        // ✅ Usar cache se disponível
+        if (!cachedUserData) {
+          const userDoc = await db.collection("usuarios").doc(uid).get();
+          cachedUserData = userDoc.data() || {};
+        }
         
+        const user = cachedUserData;
         const displayName = user.usuarioUnico || user.usuario || user.nome || "Anônimo";
         const avatar = user.avatarUrl || user.avatar || user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`;
 
+        // ✅ Enviar para o Firestore
         await db.collection("chats").add({
           jogoId,
           timeId: type === "team" ? timeTorcida : null,
@@ -2371,12 +2348,19 @@
           mensagem,
           timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
-
-        input.value = "";
+        
+        console.log("✅ Mensagem enviada:", mensagem);
 
       } catch (error) {
         console.error("❌ Erro ao enviar mensagem:", error);
-        alert("Erro ao enviar mensagem. Tente novamente!");
+        // Restaurar mensagem se deu erro
+        input.value = mensagem;
+        showToast("❌ Erro ao enviar. Tente novamente!");
+      } finally {
+        // ✅ Reativar input
+        input.disabled = false;
+        input.placeholder = type === "team" ? "Digite sua mensagem..." : "Mensagem para todos...";
+        input.focus();
       }
     }
 
