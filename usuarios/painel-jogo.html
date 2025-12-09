@@ -742,7 +742,7 @@
       border: 2px solid rgba(255, 181, 71, 0.5);
       border-radius: 20px;
       padding: 25px;
-      max-width: 350px;
+      max-width: 380px;
       width: 90%;
       text-align: center;
       z-index: 10000;
@@ -761,46 +761,72 @@
     }
 
     .sponsor-header {
-      font-size: 0.85em;
-      color: #a8b3cf;
+      font-size: 0.9em;
+      color: #ffb547;
       margin-bottom: 15px;
+      font-weight: 600;
     }
 
     .sponsor-logo {
-      width: 120px;
-      height: 120px;
+      width: 100px;
+      height: 100px;
       margin: 0 auto 15px;
-      background: #fff;
-      border-radius: 15px;
+      background: linear-gradient(135deg, #fff, #f0f0f0);
+      border-radius: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 3em;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+    }
+    
+    .sponsor-logo-img {
+      width: 100px;
+      height: 100px;
+      margin: 0 auto 15px;
+      border-radius: 20px;
+      object-fit: cover;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.3);
     }
 
     .sponsor-name {
-      font-size: 1.3em;
+      font-size: 1.4em;
       font-weight: 700;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #fff, #a8b3cf);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .sponsor-desc {
+      font-size: 0.9em;
+      color: #a8b3cf;
+      margin-bottom: 15px;
     }
 
     .sponsor-reward {
       background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.1));
       border: 1px solid rgba(16, 185, 129, 0.5);
-      border-radius: 10px;
-      padding: 12px;
+      border-radius: 12px;
+      padding: 15px;
       margin-bottom: 15px;
       color: #10b981;
-      font-weight: 600;
+      font-size: 1em;
+    }
+    
+    .sponsor-reward strong {
+      font-size: 1.3em;
+      color: #2ecc71;
     }
 
     .sponsor-btn {
       width: 100%;
-      padding: 14px;
-      background: linear-gradient(135deg, #ffb547, #ff8c42);
+      padding: 16px;
+      background: linear-gradient(135deg, #10b981, #059669);
       border: none;
       border-radius: 12px;
-      color: #0a0e27;
+      color: #fff;
       font-weight: 700;
       font-size: 1.1em;
       cursor: pointer;
@@ -811,20 +837,35 @@
 
     .sponsor-btn:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 25px rgba(255, 181, 71, 0.4);
+      box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
     }
 
     .sponsor-skip {
       background: transparent;
-      border: none;
+      border: 1px solid rgba(255,255,255,0.2);
       color: #a8b3cf;
       cursor: pointer;
       font-size: 0.9em;
       font-family: 'Poppins', sans-serif;
+      padding: 10px 20px;
+      border-radius: 8px;
+      transition: all 0.2s;
     }
 
     .sponsor-skip:hover {
       color: #fff;
+      border-color: rgba(255,255,255,0.4);
+    }
+    
+    .sponsor-timer {
+      margin-top: 12px;
+      font-size: 0.8em;
+      color: #666;
+    }
+    
+    .sponsor-timer span {
+      color: #f39c12;
+      font-weight: 600;
     }
 
     .result-message {
@@ -1665,6 +1706,7 @@
         await updateStats();       // Atualiza estatísticas
         initChat();                // Inicia chat
         await loadRanking();       // Carrega ranking
+        await carregarPatrocinadores(); // ✅ NOVO: Carrega patrocinadores da partida
         startGameTimer();          // Inicia timer do jogo
         
         document.getElementById("loadingScreen").style.display = "none";
@@ -2451,10 +2493,8 @@
         await updateStats();
         await loadRanking();
 
-        // 💰 Chance de mostrar patrocinador
-        if (Math.random() < 0.2) {
-          setTimeout(() => mostrarPatrocinador(), 1500);
-        }
+        // 💰 Verificar se deve mostrar patrocinador (a cada 5 respostas)
+        verificarPatrocinador();
 
         // ✅ FECHAR MODAL após 3 segundos
         setTimeout(() => {
@@ -3325,64 +3365,172 @@
     }
 
     // ===================================
-    // 💰 PATROCINADOR
+    // 💰 SISTEMA DE PATROCINADORES
     // ===================================
     let sponsorTimeout = null;
-    const PATROCINADORES = [
-      { nome: 'Yellup Premium', logo: '⭐', creditos: 2, descricao: 'Assine Premium e ganhe mais!' },
-      { nome: 'Super Bet', logo: '🎰', creditos: 1, descricao: 'Aposte com responsabilidade' },
-      { nome: 'Energy Drink', logo: '⚡', creditos: 1, descricao: 'Energia para o jogo!' }
-    ];
-
-    function mostrarPatrocinador() {
-      // 30% de chance de mostrar patrocinador
-      if (Math.random() > 0.3) return;
+    let patrocinadoresJogo = [];        // Lista de patrocinadores da partida
+    let patrocinadorAtualIndex = 0;     // Índice do próximo patrocinador
+    let contadorRespostas = 0;          // Contador de respostas para mostrar a cada 5
+    let patrocinadorPendente = null;    // Patrocinador atual sendo mostrado
+    
+    // Carregar patrocinadores da partida
+    async function carregarPatrocinadores() {
+      try {
+        const jogoDoc = await db.collection("jogos").doc(jogoId).get();
+        const jogo = jogoDoc.data();
+        
+        if (jogo.patrocinadores && jogo.patrocinadores.length > 0) {
+          patrocinadoresJogo = jogo.patrocinadores;
+          console.log(`📢 ${patrocinadoresJogo.length} patrocinadores carregados`);
+        } else {
+          console.log("📢 Nenhum patrocinador cadastrado para esta partida");
+          patrocinadoresJogo = [];
+        }
+        
+        // Carregar índice do usuário (para continuar de onde parou)
+        const userDoc = await db.collection("usuarios").doc(uid).get();
+        const userData = userDoc.data() || {};
+        patrocinadorAtualIndex = userData.patrocinadorIndex?.[jogoId] || 0;
+        contadorRespostas = userData.contadorRespostas?.[jogoId] || 0;
+        
+      } catch (error) {
+        console.error("❌ Erro ao carregar patrocinadores:", error);
+        patrocinadoresJogo = [];
+      }
+    }
+    
+    // Verificar se deve mostrar patrocinador (a cada 5 respostas)
+    function verificarPatrocinador() {
+      contadorRespostas++;
       
-      const sponsor = PATROCINADORES[Math.floor(Math.random() * PATROCINADORES.length)];
+      // Salvar contador no usuário
+      db.collection("usuarios").doc(uid).update({
+        [`contadorRespostas.${jogoId}`]: contadorRespostas
+      }).catch(e => console.error("Erro ao salvar contador:", e));
+      
+      // A cada 5 respostas, mostrar patrocinador
+      if (contadorRespostas % 5 === 0 && patrocinadoresJogo.length > 0) {
+        setTimeout(() => mostrarPatrocinador(), 1500);
+      }
+    }
+    
+    // Mostrar patrocinador atual
+    function mostrarPatrocinador() {
+      if (patrocinadoresJogo.length === 0) {
+        console.log("📢 Nenhum patrocinador disponível");
+        return;
+      }
+      
+      // Pegar patrocinador atual (ciclo)
+      const sponsor = patrocinadoresJogo[patrocinadorAtualIndex % patrocinadoresJogo.length];
+      patrocinadorPendente = sponsor;
+      
+      console.log(`📢 Mostrando patrocinador: ${sponsor.nome} (${patrocinadorAtualIndex + 1}/${patrocinadoresJogo.length})`);
+      
+      // Remover popup anterior se existir
+      const existingPopup = document.getElementById('sponsorPopup');
+      if (existingPopup) existingPopup.remove();
       
       // Criar popup
       const popup = document.createElement('div');
       popup.className = 'sponsor-popup active';
       popup.id = 'sponsorPopup';
+      
+      // Logo pode ser emoji ou URL de imagem
+      const logoDisplay = sponsor.logoUrl 
+        ? `<img src="${sponsor.logoUrl}" alt="${sponsor.nome}" class="sponsor-logo-img">`
+        : `<div class="sponsor-logo">${sponsor.logo || '🎁'}</div>`;
+      
       popup.innerHTML = `
-        <div class="sponsor-header">📢 Patrocinador</div>
-        <div class="sponsor-logo">${sponsor.logo}</div>
+        <div class="sponsor-header">📢 Patrocinador da Partida</div>
+        ${logoDisplay}
         <div class="sponsor-name">${sponsor.nome}</div>
-        <div class="sponsor-reward">🎁 Clique e ganhe ${sponsor.creditos} crédito${sponsor.creditos > 1 ? 's' : ''}!</div>
-        <button class="sponsor-btn" onclick="coletarPatrocinador(${sponsor.creditos})">
-          💎 Coletar Créditos
+        ${sponsor.descricao ? `<div class="sponsor-desc">${sponsor.descricao}</div>` : ''}
+        <div class="sponsor-reward">
+          🎁 Visite o site e ganhe <strong>${sponsor.creditos}</strong> crédito${sponsor.creditos > 1 ? 's' : ''}!
+        </div>
+        <button class="sponsor-btn" onclick="resgatarPatrocinador()">
+          🌐 Visitar e Resgatar
         </button>
         <button class="sponsor-skip" onclick="fecharPatrocinador()">
-          Pular
+          Pular desta vez
         </button>
+        <div class="sponsor-timer">
+          <span id="sponsorCountdown">15</span>s para fechar automaticamente
+        </div>
       `;
       document.body.appendChild(popup);
+      
+      // Countdown visual
+      let countdown = 15;
+      const countdownEl = document.getElementById('sponsorCountdown');
+      const countdownInterval = setInterval(() => {
+        countdown--;
+        if (countdownEl) countdownEl.textContent = countdown;
+        if (countdown <= 0) clearInterval(countdownInterval);
+      }, 1000);
 
-      // Auto-fechar após 10 segundos
+      // Auto-fechar após 15 segundos
       sponsorTimeout = setTimeout(() => {
         fecharPatrocinador();
-      }, 10000);
+        clearInterval(countdownInterval);
+      }, 15000);
     }
-
-    async function coletarPatrocinador(creditos) {
+    
+    // Resgatar patrocinador (abre site + credita pontos)
+    async function resgatarPatrocinador() {
+      if (!patrocinadorPendente) return;
+      
+      const sponsor = patrocinadorPendente;
+      
       try {
+        // Abrir site do patrocinador em nova aba
+        if (sponsor.url) {
+          window.open(sponsor.url, '_blank');
+        }
+        
+        // Creditar pontos ao usuário
         await db.collection('usuarios').doc(uid).update({
-          creditos: firebase.firestore.FieldValue.increment(creditos)
+          creditos: firebase.firestore.FieldValue.increment(sponsor.creditos),
+          // Salvar histórico de patrocinadores resgatados
+          [`patrocinadoresResgatados.${jogoId}`]: firebase.firestore.FieldValue.arrayUnion({
+            nome: sponsor.nome,
+            creditos: sponsor.creditos,
+            timestamp: new Date().toISOString()
+          }),
+          // Avançar para próximo patrocinador
+          [`patrocinadorIndex.${jogoId}`]: (patrocinadorAtualIndex + 1) % patrocinadoresJogo.length
         });
         
-        showToast(`🎁 +${creditos} crédito${creditos > 1 ? 's' : ''} do patrocinador!`);
+        // Avançar índice local
+        patrocinadorAtualIndex = (patrocinadorAtualIndex + 1) % patrocinadoresJogo.length;
+        
+        showToast(`🎁 +${sponsor.creditos} crédito${sponsor.creditos > 1 ? 's' : ''} de ${sponsor.nome}!`);
         fecharPatrocinador();
         updateFreePlays();
         
       } catch (e) {
-        console.error("Erro ao coletar:", e);
+        console.error("Erro ao resgatar patrocinador:", e);
+        showToast("❌ Erro ao resgatar. Tente novamente!");
       }
     }
 
     function fecharPatrocinador() {
-      if (sponsorTimeout) clearTimeout(sponsorTimeout);
+      if (sponsorTimeout) {
+        clearTimeout(sponsorTimeout);
+        sponsorTimeout = null;
+      }
       const popup = document.getElementById('sponsorPopup');
       if (popup) popup.remove();
+      patrocinadorPendente = null;
+      
+      // Avançar para próximo patrocinador mesmo pulando
+      patrocinadorAtualIndex = (patrocinadorAtualIndex + 1) % Math.max(1, patrocinadoresJogo.length);
+      
+      // Salvar índice
+      db.collection("usuarios").doc(uid).update({
+        [`patrocinadorIndex.${jogoId}`]: patrocinadorAtualIndex
+      }).catch(e => console.error("Erro ao salvar índice:", e));
     }
     
     // ✅ FUNÇÃO TOAST - Mensagens temporárias
