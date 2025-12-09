@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin - Jogos | Yellup</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -220,46 +223,60 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 16px;
         }
 
-        .vs { color: rgba(255, 255, 255, 0.5); font-weight: bold; }
+        .vs-badge {
+            font-weight: 700;
+            color: #FFD700;
+        }
 
-        .badge {
-            padding: 4px 12px;
+        .status-badge {
+            padding: 5px 12px;
             border-radius: 20px;
             font-size: 12px;
             font-weight: 600;
         }
 
-        .badge-live { 
-            background: rgba(231, 76, 60, 0.2); 
-            color: #e74c3c;
-            animation: pulse 2s infinite;
+        .status-ao_vivo { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
+        .status-agendado { background: rgba(241, 196, 15, 0.2); color: #f1c40f; }
+        .status-finalizado { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
+
+        .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            margin-top: 20px;
+            color: white;
         }
 
-        .badge-scheduled { background: rgba(52, 152, 219, 0.2); color: #3498db; }
-        .badge-finished { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
+        .pagination button {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
         }
 
-        .actions { display: flex; gap: 8px; }
+        .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
 
         /* Modal */
         .modal {
-            display: none;
             position: fixed;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
+            right: 0;
+            bottom: 0;
             background: rgba(0, 0, 0, 0.8);
-            z-index: 1000;
+            display: none;
             align-items: center;
             justify-content: center;
+            z-index: 1000;
+            padding: 20px;
         }
 
         .modal.active { display: flex; }
@@ -269,7 +286,7 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 16px;
             padding: 30px;
-            width: 90%;
+            width: 100%;
             max-width: 700px;
             max-height: 90vh;
             overflow-y: auto;
@@ -282,28 +299,41 @@
             margin-bottom: 25px;
         }
 
-        .modal-header h2 { color: white; font-size: 22px; }
+        .modal-header h2 { color: #FFD700; }
 
         .modal-close {
-            background: none;
-            border: none;
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 24px;
+            background: rgba(231, 76, 60, 0.2);
+            border: 1px solid #e74c3c;
+            color: #e74c3c;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
             cursor: pointer;
+            font-size: 18px;
         }
 
-        .form-group { margin-bottom: 20px; }
+        .modal-close:hover { background: #e74c3c; color: white; }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
 
         .form-group label {
-            display: block;
-            color: rgba(255, 255, 255, 0.7);
-            margin-bottom: 8px;
+            color: rgba(255, 255, 255, 0.8);
             font-size: 14px;
+            font-weight: 500;
         }
 
-        .form-group input,
-        .form-group select {
-            width: 100%;
+        .form-group input, .form-group select {
             padding: 12px 15px;
             border-radius: 8px;
             border: 1px solid rgba(255, 255, 255, 0.2);
@@ -312,87 +342,151 @@
             font-size: 14px;
         }
 
-        .form-group input:focus,
-        .form-group select:focus {
+        .form-group input:focus, .form-group select:focus {
             outline: none;
             border-color: #FFD700;
         }
 
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
+        .form-group select option { background: #1a1a2e; }
 
         .time-selector {
             display: flex;
             align-items: center;
-            gap: 20px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
+            gap: 15px;
             margin-bottom: 20px;
         }
 
         .time-selector select {
             flex: 1;
             padding: 15px;
-            border-radius: 8px;
+            border-radius: 10px;
             border: 1px solid rgba(255, 255, 255, 0.2);
             background: rgba(255, 255, 255, 0.1);
             color: white;
-            font-size: 16px;
+            font-size: 14px;
         }
 
         .time-selector .vs {
             font-size: 24px;
-            font-weight: bold;
+            font-weight: 700;
             color: #FFD700;
         }
 
-        /* Pagination */
-        .pagination {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 10px;
-            margin-top: 20px;
-            padding: 20px;
-        }
-
-        .pagination button {
-            padding: 10px 20px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: white;
-            border-radius: 8px;
-            cursor: pointer;
-        }
-
-        .pagination button:hover { background: rgba(255, 215, 0, 0.2); border-color: #FFD700; }
-        .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
-        .pagination span { color: rgba(255, 255, 255, 0.7); }
-
         .loading {
             text-align: center;
+            color: rgba(255, 255, 255, 0.6);
             padding: 40px;
-            color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Patrocinadores */
+        .patrocinadores-section {
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .patrocinadores-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .patrocinadores-header h3 {
+            color: #FFD700;
+            font-size: 16px;
+        }
+
+        .patrocinador-item {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        .patrocinador-item .btn-remove {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(231, 76, 60, 0.2);
+            border: 1px solid #e74c3c;
+            color: #e74c3c;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .patrocinador-item .btn-remove:hover {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .patrocinador-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .patrocinador-grid .form-group.full {
+            grid-column: span 2;
+        }
+
+        .logo-preview {
+            width: 60px;
+            height: 60px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .logo-preview img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .logo-preview .emoji-logo {
+            font-size: 30px;
+        }
+
+        .patrocinador-count {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .main { margin-left: 0; }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+            .form-row { grid-template-columns: 1fr; }
+            .patrocinador-grid { grid-template-columns: 1fr; }
+            .patrocinador-grid .form-group.full { grid-column: span 1; }
         }
     </style>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
     <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-header">
-            <h2>⚽ Yellup <span>Admin</span></h2>
+            <h2>Yellup</h2>
+            <span>ADMIN</span>
         </div>
 
         <div class="nav-section">
             <div class="nav-section-title">Principal</div>
-            <a href="dashboard.html"><span class="icon">📊</span> Dashboard</a>
+            <a href="index.html"><span class="icon">📊</span> Dashboard</a>
             <a href="usuarios.html"><span class="icon">👥</span> Usuários</a>
             <a href="jogos.html" class="active"><span class="icon">🎮</span> Jogos</a>
             <a href="perguntas.html"><span class="icon">❓</span> Perguntas</a>
@@ -480,7 +574,7 @@
                     <tr>
                         <th>Jogo</th>
                         <th>Data/Hora</th>
-                        <th>Entrada</th>
+                        <th>Patrocinadores</th>
                         <th>Jogadores</th>
                         <th>Status</th>
                         <th>Ações</th>
@@ -522,43 +616,46 @@
 
             <div class="form-row">
                 <div class="form-group">
-                    <label>Data e Hora de Início</label>
+                    <label>📅 Data e Hora de Início</label>
                     <input type="datetime-local" id="dataInicio">
                 </div>
                 <div class="form-group">
-                    <label>Data e Hora de Fim</label>
+                    <label>🏁 Data e Hora de Fim</label>
                     <input type="datetime-local" id="dataFim">
                 </div>
             </div>
 
             <div class="form-row">
                 <div class="form-group">
-                    <label>Valor de Entrada (créditos)</label>
-                    <input type="number" id="valorEntrada" value="25">
-                </div>
-                <div class="form-group">
-                    <label>Status</label>
+                    <label>📊 Status</label>
                     <select id="status">
                         <option value="agendado">📆 Agendado</option>
                         <option value="ao_vivo">🔴 Ao Vivo</option>
                         <option value="finalizado">✅ Finalizado</option>
                     </select>
                 </div>
-            </div>
-
-            <div class="form-row">
                 <div class="form-group">
-                    <label>Placar Casa</label>
-                    <input type="number" id="placarCasa" value="0" min="0">
-                </div>
-                <div class="form-group">
-                    <label>Placar Visitante</label>
-                    <input type="number" id="placarFora" value="0" min="0">
+                    <label>🏆 Liga/Campeonato</label>
+                    <input type="text" id="liga" placeholder="Ex: Brasileirão Série A">
                 </div>
             </div>
 
-            <div style="display: flex; gap: 15px; margin-top: 20px;">
-                <button class="btn btn-primary" onclick="salvarJogo()" style="flex: 1;">💾 Salvar</button>
+            <!-- Patrocinadores -->
+            <div class="patrocinadores-section">
+                <div class="patrocinadores-header">
+                    <h3>📢 Patrocinadores da Partida</h3>
+                    <button class="btn btn-success btn-sm" onclick="adicionarPatrocinador()">➕ Adicionar</button>
+                </div>
+                <p style="color: rgba(255,255,255,0.5); font-size: 12px; margin-bottom: 15px;">
+                    A cada 5 respostas, o usuário verá um patrocinador. Ao clicar no link, ganha os créditos.
+                </p>
+                <div id="patrocinadoresContainer">
+                    <!-- Patrocinadores serão adicionados aqui -->
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 15px; margin-top: 25px;">
+                <button class="btn btn-primary" onclick="salvarJogo()" style="flex: 1;">💾 Salvar Jogo</button>
                 <button class="btn btn-danger" onclick="fecharModal()">Cancelar</button>
             </div>
         </div>
@@ -618,8 +715,7 @@
 
                 selectCasa.innerHTML = options;
                 selectVisitante.innerHTML = options;
-                selectFiltro.innerHTML = '<option value="">Todos os Times</option>' + 
-                    todosTimes.map(t => `<option value="${t.id}">${t.nome}</option>`).join('');
+                selectFiltro.innerHTML = '<option value="">Todos os Times</option>' + options.replace('<option value="">Selecione...</option>', '');
 
             } catch (error) {
                 console.error('Erro ao carregar times:', error);
@@ -628,10 +724,7 @@
 
         async function carregarJogos() {
             try {
-                const snap = await db.collection('jogos')
-                    .orderBy('dataInicio', 'desc')
-                    .get();
-
+                const snap = await db.collection('jogos').orderBy('dataInicio', 'desc').get();
                 todosJogos = [];
                 let aoVivo = 0, agendados = 0, finalizados = 0;
 
@@ -644,6 +737,7 @@
                     else if (j.status === 'finalizado') finalizados++;
                 });
 
+                // Atualizar stats
                 document.getElementById('statTotal').textContent = todosJogos.length;
                 document.getElementById('statAoVivo').textContent = aoVivo;
                 document.getElementById('statAgendados').textContent = agendados;
@@ -651,73 +745,69 @@
 
                 jogosFiltrados = [...todosJogos];
                 renderizarJogos();
+
             } catch (error) {
-                console.error('Erro:', error);
-                document.getElementById('listaJogos').innerHTML = 
-                    '<tr><td colspan="6" style="text-align: center; color: #e74c3c;">Erro ao carregar jogos</td></tr>';
+                console.error('Erro ao carregar jogos:', error);
             }
         }
 
         function renderizarJogos() {
-            const inicio = (paginaAtual - 1) * porPagina;
-            const fim = inicio + porPagina;
-            const jogosPagina = jogosFiltrados.slice(inicio, fim);
-
             const tbody = document.getElementById('listaJogos');
-
-            if (jogosPagina.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: rgba(255,255,255,0.5);">Nenhum jogo encontrado</td></tr>';
+            
+            if (jogosFiltrados.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="loading">Nenhum jogo encontrado</td></tr>';
                 return;
             }
 
+            const inicio = (paginaAtual - 1) * porPagina;
+            const pagina = jogosFiltrados.slice(inicio, inicio + porPagina);
             let html = '';
-            jogosPagina.forEach(j => {
-                const timeCasa = timesMap[j.timeCasaId] || { nome: 'Time A', cor: '#3498db' };
-                const timeFora = timesMap[j.timeForaId] || { nome: 'Time B', cor: '#e74c3c' };
 
-                const dataInicio = j.dataInicio?.toDate ? 
-                    j.dataInicio.toDate().toLocaleString('pt-BR') : 
-                    'N/A';
+            pagina.forEach(j => {
+                const timeCasa = timesMap[j.timeCasaId] || { nome: 'Time', primaria: '#666' };
+                const timeFora = timesMap[j.timeForaId] || { nome: 'Time', primaria: '#666' };
 
-                const statusBadge = {
-                    'ao_vivo': 'badge-live',
-                    'agendado': 'badge-scheduled',
-                    'finalizado': 'badge-finished'
-                }[j.status] || 'badge-scheduled';
+                const dataInicio = j.dataInicio?.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio);
+                const dataFim = j.dataFim?.toDate ? j.dataFim.toDate() : new Date(j.dataFim);
 
-                const statusText = {
-                    'ao_vivo': '🔴 AO VIVO',
-                    'agendado': '📆 Agendado',
-                    'finalizado': '✅ Finalizado'
-                }[j.status] || j.status;
-
-                const placar = j.status !== 'agendado' ? 
-                    `${j.placarCasa || 0} - ${j.placarFora || 0}` : 
-                    'VS';
+                const patrocinadores = j.patrocinadores || [];
+                const qtdPatrocinadores = patrocinadores.length;
 
                 html += `
                     <tr>
                         <td>
                             <div class="jogo-cell">
                                 <div class="time-badge">
-                                    <div class="escudo" style="background: ${timeCasa.cor || '#3498db'}">⚽</div>
-                                    <span>${timeCasa.nome}</span>
+                                    <span class="escudo" style="background: ${timeCasa.primaria}"></span>
+                                    ${timeCasa.nome}
                                 </div>
-                                <span class="vs">${placar}</span>
+                                <span class="vs-badge">VS</span>
                                 <div class="time-badge">
-                                    <div class="escudo" style="background: ${timeFora.cor || '#e74c3c'}">⚽</div>
-                                    <span>${timeFora.nome}</span>
+                                    <span class="escudo" style="background: ${timeFora.primaria}"></span>
+                                    ${timeFora.nome}
                                 </div>
                             </div>
                         </td>
-                        <td>${dataInicio}</td>
-                        <td>💰 ${j.valorEntrada || 25}</td>
-                        <td>👥 ${j.participantes || 0}</td>
-                        <td><span class="badge ${statusBadge}">${statusText}</span></td>
+                        <td>
+                            <div>📅 ${dataInicio.toLocaleDateString('pt-BR')}</div>
+                            <div style="font-size: 12px; opacity: 0.7;">
+                                ⏰ ${dataInicio.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})} 
+                                → ${dataFim.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}
+                            </div>
+                        </td>
+                        <td>
+                            <span class="patrocinador-count">
+                                📢 ${qtdPatrocinadores} patrocinador${qtdPatrocinadores !== 1 ? 'es' : ''}
+                            </span>
+                        </td>
+                        <td>${j.participantes || 0} 👥</td>
+                        <td>
+                            <span class="status-badge status-${j.status}">
+                                ${j.status === 'ao_vivo' ? '🔴 Ao Vivo' : j.status === 'agendado' ? '📆 Agendado' : '✅ Finalizado'}
+                            </span>
+                        </td>
                         <td>
                             <div class="actions">
-                                ${j.status === 'agendado' ? `<button class="btn btn-warning btn-sm" onclick="iniciarJogo('${j.id}')">▶️ Iniciar</button>` : ''}
-                                ${j.status === 'ao_vivo' ? `<button class="btn btn-success btn-sm" onclick="finalizarJogo('${j.id}')">⏹️ Finalizar</button>` : ''}
                                 <button class="btn btn-info btn-sm" onclick="editarJogo('${j.id}')">✏️</button>
                                 <button class="btn btn-danger btn-sm" onclick="excluirJogo('${j.id}')">🗑️</button>
                             </div>
@@ -784,10 +874,9 @@
             document.getElementById('timeVisitante').value = '';
             document.getElementById('dataInicio').value = '';
             document.getElementById('dataFim').value = '';
-            document.getElementById('valorEntrada').value = '25';
             document.getElementById('status').value = 'agendado';
-            document.getElementById('placarCasa').value = '0';
-            document.getElementById('placarFora').value = '0';
+            document.getElementById('liga').value = '';
+            document.getElementById('patrocinadoresContainer').innerHTML = '';
             document.getElementById('modalJogo').classList.add('active');
         }
 
@@ -803,10 +892,8 @@
             document.getElementById('jogoId').value = id;
             document.getElementById('timeCasa').value = j.timeCasaId || '';
             document.getElementById('timeVisitante').value = j.timeForaId || '';
-            document.getElementById('valorEntrada').value = j.valorEntrada || 25;
             document.getElementById('status').value = j.status || 'agendado';
-            document.getElementById('placarCasa').value = j.placarCasa || 0;
-            document.getElementById('placarFora').value = j.placarFora || 0;
+            document.getElementById('liga').value = j.liga || j.campeonato || '';
 
             if (j.dataInicio?.toDate) {
                 const d = j.dataInicio.toDate();
@@ -817,7 +904,91 @@
                 document.getElementById('dataFim').value = d.toISOString().slice(0, 16);
             }
 
+            // Carregar patrocinadores
+            document.getElementById('patrocinadoresContainer').innerHTML = '';
+            if (j.patrocinadores && j.patrocinadores.length > 0) {
+                j.patrocinadores.forEach(p => adicionarPatrocinador(p));
+            }
+
             document.getElementById('modalJogo').classList.add('active');
+        }
+
+        // ===================================
+        // PATROCINADORES
+        // ===================================
+        function adicionarPatrocinador(dados = null) {
+            const container = document.getElementById('patrocinadoresContainer');
+            const div = document.createElement('div');
+            div.className = 'patrocinador-item';
+            
+            const nome = dados?.nome || '';
+            const logo = dados?.logo || '🎁';
+            const logoUrl = dados?.logoUrl || '';
+            const url = dados?.url || '';
+            const creditos = dados?.creditos || 5;
+            const descricao = dados?.descricao || '';
+
+            div.innerHTML = `
+                <button class="btn-remove" onclick="this.parentElement.remove()">✕</button>
+                <div class="patrocinador-grid">
+                    <div class="form-group">
+                        <label>Nome do Patrocinador</label>
+                        <input type="text" class="pat-nome" placeholder="Ex: Empresa ABC" value="${nome}">
+                    </div>
+                    <div class="form-group">
+                        <label>Créditos ao Visitar</label>
+                        <input type="number" class="pat-creditos" placeholder="5" value="${creditos}" min="1">
+                    </div>
+                    <div class="form-group full">
+                        <label>URL do Site</label>
+                        <input type="url" class="pat-url" placeholder="https://www.empresa.com.br" value="${url}">
+                    </div>
+                    <div class="form-group">
+                        <label>Emoji do Logo</label>
+                        <input type="text" class="pat-logo" placeholder="🎁" value="${logo}" maxlength="4">
+                        <div class="logo-preview">
+                            <span class="emoji-logo">${logo || '🎁'}</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>OU URL da Imagem</label>
+                        <input type="url" class="pat-logoUrl" placeholder="https://..." value="${logoUrl}">
+                    </div>
+                    <div class="form-group full">
+                        <label>Descrição (opcional)</label>
+                        <input type="text" class="pat-descricao" placeholder="Visite nosso site!" value="${descricao}">
+                    </div>
+                </div>
+            `;
+
+            // Atualizar preview do emoji
+            const emojiInput = div.querySelector('.pat-logo');
+            const preview = div.querySelector('.emoji-logo');
+            emojiInput.addEventListener('input', () => {
+                preview.textContent = emojiInput.value || '🎁';
+            });
+
+            container.appendChild(div);
+        }
+
+        function coletarPatrocinadores() {
+            const items = document.querySelectorAll('.patrocinador-item');
+            const patrocinadores = [];
+
+            items.forEach(item => {
+                const nome = item.querySelector('.pat-nome').value.trim();
+                const creditos = parseInt(item.querySelector('.pat-creditos').value) || 5;
+                const url = item.querySelector('.pat-url').value.trim();
+                const logo = item.querySelector('.pat-logo').value.trim() || '🎁';
+                const logoUrl = item.querySelector('.pat-logoUrl').value.trim();
+                const descricao = item.querySelector('.pat-descricao').value.trim();
+
+                if (nome) {
+                    patrocinadores.push({ nome, creditos, url, logo, logoUrl, descricao });
+                }
+            });
+
+            return patrocinadores;
         }
 
         async function salvarJogo() {
@@ -835,71 +1006,40 @@
                 return;
             }
 
-            const dados = {
-                timeCasaId,
-                timeForaId,
-                valorEntrada: parseInt(document.getElementById('valorEntrada').value) || 25,
-                status: document.getElementById('status').value,
-                placarCasa: parseInt(document.getElementById('placarCasa').value) || 0,
-                placarFora: parseInt(document.getElementById('placarFora').value) || 0
-            };
-
             const dataInicioVal = document.getElementById('dataInicio').value;
             const dataFimVal = document.getElementById('dataFim').value;
 
-            if (dataInicioVal) dados.dataInicio = new Date(dataInicioVal);
-            if (dataFimVal) dados.dataFim = new Date(dataFimVal);
+            if (!dataInicioVal || !dataFimVal) {
+                alert('Preencha as datas de início e fim!');
+                return;
+            }
+
+            const dados = {
+                timeCasaId,
+                timeForaId,
+                status: document.getElementById('status').value,
+                liga: document.getElementById('liga').value || 'Partida',
+                patrocinadores: coletarPatrocinadores(),
+                dataInicio: new Date(dataInicioVal),
+                dataFim: new Date(dataFimVal)
+            };
 
             try {
                 if (id) {
                     await db.collection('jogos').doc(id).update(dados);
-                    alert('Jogo atualizado!');
+                    alert('✅ Jogo atualizado!');
                 } else {
                     dados.participantes = 0;
                     dados.dataCriacao = firebase.firestore.FieldValue.serverTimestamp();
+                    dados.premiado = false;
                     await db.collection('jogos').add(dados);
-                    alert('Jogo criado!');
+                    alert('✅ Jogo criado!');
                 }
                 fecharModal();
                 carregarJogos();
             } catch (error) {
                 console.error('Erro:', error);
-                alert('Erro ao salvar: ' + error.message);
-            }
-        }
-
-        async function iniciarJogo(id) {
-            if (!confirm('Iniciar este jogo? O status será alterado para AO VIVO.')) return;
-
-            try {
-                await db.collection('jogos').doc(id).update({
-                    status: 'ao_vivo',
-                    dataInicio: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                alert('Jogo iniciado!');
-                carregarJogos();
-            } catch (error) {
-                alert('Erro: ' + error.message);
-            }
-        }
-
-        async function finalizarJogo(id) {
-            const placarCasa = prompt('Placar do time da casa:', '0');
-            const placarFora = prompt('Placar do visitante:', '0');
-
-            if (placarCasa === null || placarFora === null) return;
-
-            try {
-                await db.collection('jogos').doc(id).update({
-                    status: 'finalizado',
-                    placarCasa: parseInt(placarCasa) || 0,
-                    placarFora: parseInt(placarFora) || 0,
-                    dataFim: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                alert('Jogo finalizado!');
-                carregarJogos();
-            } catch (error) {
-                alert('Erro: ' + error.message);
+                alert('❌ Erro ao salvar: ' + error.message);
             }
         }
 
@@ -908,20 +1048,22 @@
 
             try {
                 await db.collection('jogos').doc(id).delete();
-                alert('Jogo excluído!');
+                alert('🗑️ Jogo excluído!');
                 carregarJogos();
             } catch (error) {
-                alert('Erro: ' + error.message);
+                alert('❌ Erro: ' + error.message);
             }
         }
 
         function exportarCSV() {
-            let csv = 'Time Casa,Time Visitante,Data,Entrada,Jogadores,Status,Placar\n';
+            let csv = 'Time Casa,Time Visitante,Data Início,Data Fim,Patrocinadores,Jogadores,Status\n';
             jogosFiltrados.forEach(j => {
                 const casa = timesMap[j.timeCasaId]?.nome || 'N/A';
                 const fora = timesMap[j.timeForaId]?.nome || 'N/A';
-                const data = j.dataInicio?.toDate?.().toLocaleString('pt-BR') || 'N/A';
-                csv += `"${casa}","${fora}","${data}",${j.valorEntrada || 0},${j.participantes || 0},"${j.status}","${j.placarCasa || 0} x ${j.placarFora || 0}"\n`;
+                const dataI = j.dataInicio?.toDate?.().toLocaleString('pt-BR') || 'N/A';
+                const dataF = j.dataFim?.toDate?.().toLocaleString('pt-BR') || 'N/A';
+                const qtdPat = j.patrocinadores?.length || 0;
+                csv += `"${casa}","${fora}","${dataI}","${dataF}",${qtdPat},${j.participantes || 0},"${j.status}"\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv' });
