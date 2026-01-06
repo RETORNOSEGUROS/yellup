@@ -632,42 +632,55 @@
         // =====================================================
         // TORCEDORES E RANKING
         // =====================================================
+        let totalCreditosPagosJogo = 0;
+
         async function carregarTorcedores() {
             try {
-                const snap = await db.collection('torcidas').where('jogoId', '==', jogoId).get();
+                // ✅ CORREÇÃO: Torcida está em usuarios/{userId}.torcidas.{jogoId}
+                const snap = await db.collection('usuarios').get();
                 
                 torcedoresList = [];
                 let countCasa = 0, countFora = 0;
                 let pontosCasa = 0, pontosFora = 0;
                 let totalRespostas = 0;
+                totalCreditosPagosJogo = 0;
 
-                // Primeiro, coletar todos os torcedores
                 snap.forEach(doc => {
-                    const t = { odecId: doc.id, visibleId: doc.id, ...doc.data() };
-                    torcedoresList.push(t);
+                    const user = doc.data();
+                    const odecId = doc.id;
                     
-                    if (t.timeId === timeCasa.id) countCasa++;
-                    else if (t.timeId === timeFora.id) countFora++;
-                });
+                    // Verificar se este usuário está torcendo neste jogo
+                    const timeUser = user.torcidas?.[jogoId];
+                    if (!timeUser) return; // Não está neste jogo
+                    
+                    // Só contar se estiver torcendo para um dos times
+                    if (timeUser !== timeCasa.id && timeUser !== timeFora.id) return;
 
-                // Buscar dados de cada usuário
-                for (const t of torcedoresList) {
-                    try {
-                        const userDoc = await db.collection('usuarios').doc(t.odecId).get();
-                        if (userDoc.exists) {
-                            const u = userDoc.data();
-                            t.pontos = u.pontuacoes?.[jogoId] || 0;
-                            t.usuario = u.usuarioUnico || u.usuario || u.nome || 'Anônimo';
-                            t.respostas = (u[`perguntasRespondidas_${jogoId}`] || []).length;
-                            totalRespostas += t.respostas;
+                    const pontos = user.pontuacoes?.[jogoId] || 0;
+                    const respostas = (user[`perguntasRespondidas_${jogoId}`] || []).length;
+                    const creditosPagos = user.creditosPagosJogo?.[jogoId] || 0;
+                    const usuario = user.usuarioUnico || user.usuario || user.nome || 'Anônimo';
 
-                            if (t.timeId === timeCasa.id) pontosCasa += t.pontos;
-                            else pontosFora += t.pontos;
-                        }
-                    } catch (e) {
-                        console.log('Erro ao buscar usuário:', e);
+                    torcedoresList.push({
+                        odecId,
+                        timeId: timeUser,
+                        pontos,
+                        respostas,
+                        creditosPagos,
+                        usuario
+                    });
+
+                    totalRespostas += respostas;
+                    totalCreditosPagosJogo += creditosPagos;
+
+                    if (timeUser === timeCasa.id) {
+                        countCasa++;
+                        pontosCasa += pontos;
+                    } else {
+                        countFora++;
+                        pontosFora += pontos;
                     }
-                }
+                });
 
                 // Atualizar UI
                 document.getElementById('torcedoresCasa').textContent = countCasa;
@@ -678,6 +691,7 @@
                 document.getElementById('totalPontos').textContent = pontosCasa + pontosFora;
                 document.getElementById('totalRespostas').textContent = totalRespostas;
 
+                console.log('✅ Torcedores carregados:', torcedoresList.length);
                 carregarRanking();
 
             } catch (error) {
@@ -835,6 +849,7 @@
                     usuario: '🛡️ Admin',
                     usuarioUnico: '🛡️ Admin',
                     nome: '🛡️ Admin',
+                    avatar: 'https://ui-avatars.com/api/?name=Admin&background=FFD700&color=1a1a2e',
                     mensagem,
                     timestamp: firebase.firestore.FieldValue.serverTimestamp()
                 });
