@@ -160,6 +160,9 @@
       <button class="btn btn-primary" onclick="verificarStatus()">
         🔍 Verificar Status
       </button>
+      <button class="btn btn-danger" onclick="limparCotas()" style="margin-top: 10px;">
+        🗑️ Limpar Cotas (Recomeçar)
+      </button>
     </div>
 
     <!-- Atualização de Preços -->
@@ -321,11 +324,14 @@
           const lote = timesParaCriar.slice(i, i + batchSize);
 
           for (const time of lote) {
+            // Pular times sem nome
+            const timeNome = time.nome || time.name || time.id || 'Time sem nome';
+            
             // Criar cota
             const cotaRef = db.collection('bolsa_cotas').doc();
             batch.set(cotaRef, {
               timeId: time.id,
-              timeNome: time.nome,
+              timeNome: timeNome,
               userId: DONO_INICIAL_ID,
               usuarioNome: DONO_INICIAL_NOME,
               quantidade: COTAS_POR_TIME,
@@ -337,7 +343,7 @@
             const metricaRef = db.collection('bolsa_metricas_time').doc(time.id);
             batch.set(metricaRef, {
               timeId: time.id,
-              timeNome: time.nome,
+              timeNome: timeNome,
               precoAlgoritmo: PRECO_INICIAL,
               precoMercado: PRECO_INICIAL,
               totalJogos: 0,
@@ -662,6 +668,65 @@
       entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
       container.appendChild(entry);
       container.scrollTop = container.scrollHeight;
+    }
+
+    // ==================== LIMPAR COTAS ====================
+    async function limparCotas() {
+      if (!confirm('⚠️ ATENÇÃO!\n\nIsso irá DELETAR todas as cotas e métricas!\n\nUse isso apenas se a inicialização falhou no meio.\n\nContinuar?')) {
+        return;
+      }
+
+      showProgress();
+      log('🗑️ Limpando cotas e métricas...', 'warning');
+
+      try {
+        // Deletar cotas em lotes
+        let deletados = 0;
+        let continuar = true;
+        
+        while (continuar) {
+          const cotasSnap = await db.collection('bolsa_cotas').limit(500).get();
+          
+          if (cotasSnap.empty) {
+            continuar = false;
+            break;
+          }
+
+          const batch = db.batch();
+          cotasSnap.forEach(doc => batch.delete(doc.ref));
+          await batch.commit();
+          
+          deletados += cotasSnap.size;
+          log(`🗑️ ${deletados} cotas deletadas...`, 'info');
+        }
+
+        // Deletar métricas em lotes
+        continuar = true;
+        let metricasDeletadas = 0;
+        
+        while (continuar) {
+          const metricasSnap = await db.collection('bolsa_metricas_time').limit(500).get();
+          
+          if (metricasSnap.empty) {
+            continuar = false;
+            break;
+          }
+
+          const batch = db.batch();
+          metricasSnap.forEach(doc => batch.delete(doc.ref));
+          await batch.commit();
+          
+          metricasDeletadas += metricasSnap.size;
+          log(`🗑️ ${metricasDeletadas} métricas deletadas...`, 'info');
+        }
+
+        log(`✅ Limpeza concluída! ${deletados} cotas e ${metricasDeletadas} métricas removidas.`, 'success');
+        await verificarStatus();
+
+      } catch (error) {
+        console.error(error);
+        log('❌ Erro: ' + error.message, 'error');
+      }
     }
   </script>
 </body>
