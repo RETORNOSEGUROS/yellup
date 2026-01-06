@@ -556,7 +556,7 @@
                 snap.forEach(doc => {
                     const t = { id: doc.id, ...doc.data() };
                     todosTimes.push(t);
-                    paisesUnicos.add(t.pais);
+                    if (t.pais) paisesUnicos.add(t.pais);
 
                     if (t.pais === 'Brasil') brasil++;
                     else if (paisesEuropa.includes(t.pais)) europa++;
@@ -591,19 +591,26 @@
             const ordenacao = document.getElementById('ordenacao').value;
 
             timesFiltrados = todosTimes.filter(t => {
-                const matchTermo = !termo || 
-                    t.nome.toLowerCase().includes(termo) || 
-                    t.id.toLowerCase().includes(termo);
-                const matchPais = !pais || t.pais === pais;
+                const nome = (t.nome || '').toLowerCase();
+                const id = (t.id || '').toLowerCase();
+                const paisTime = t.pais || '';
+                
+                const matchTermo = !termo || nome.includes(termo) || id.includes(termo);
+                const matchPais = !pais || paisTime === pais;
                 return matchTermo && matchPais;
             });
 
-            // Ordenação
+            // Ordenação (com proteção contra undefined)
             timesFiltrados.sort((a, b) => {
+                const nomeA = a.nome || '';
+                const nomeB = b.nome || '';
+                const paisA = a.pais || '';
+                const paisB = b.pais || '';
+                
                 switch (ordenacao) {
-                    case 'nome-asc': return a.nome.localeCompare(b.nome);
-                    case 'nome-desc': return b.nome.localeCompare(a.nome);
-                    case 'pais-asc': return a.pais.localeCompare(b.pais);
+                    case 'nome-asc': return nomeA.localeCompare(nomeB);
+                    case 'nome-desc': return nomeB.localeCompare(nomeA);
+                    case 'pais-asc': return paisA.localeCompare(paisB);
                     default: return 0;
                 }
             });
@@ -627,11 +634,14 @@
 
             let html = '';
             timesPagina.forEach(t => {
-                const bandeira = bandeiras[t.pais] || '🏳️';
-                const inicial = t.nome.charAt(0).toUpperCase();
+                const nome = t.nome || 'Sem nome';
+                const pais = t.pais || 'Desconhecido';
+                const bandeira = bandeiras[pais] || '🏳️';
+                const inicial = nome.charAt(0).toUpperCase();
                 const corPrimaria = t.primaria || '#333333';
                 const corSecundaria = t.secundaria || '#666666';
                 const corTerciaria = t.terciaria || '#999999';
+                const nomeEscapado = nome.replace(/'/g, "\\'");
 
                 html += `
                     <tr>
@@ -641,8 +651,8 @@
                                     ${inicial}
                                 </div>
                                 <div class="team-details">
-                                    <h4>${t.nome}</h4>
-                                    <span>${bandeira} ${t.pais}</span>
+                                    <h4>${nome}</h4>
+                                    <span>${bandeira} ${pais}</span>
                                 </div>
                             </div>
                         </td>
@@ -652,7 +662,7 @@
                             </div>
                         </td>
                         <td>
-                            <span class="country-badge">${bandeira} ${t.pais}</span>
+                            <span class="country-badge">${bandeira} ${pais}</span>
                         </td>
                         <td>
                             <div class="colors-preview">
@@ -664,7 +674,7 @@
                         <td>
                             <div class="actions">
                                 <button class="btn btn-success btn-sm" onclick="editarTime('${t.id}')">✏️ Editar</button>
-                                <button class="btn btn-danger btn-sm" onclick="excluirTime('${t.id}', '${t.nome.replace(/'/g, "\\'")}')">🗑️</button>
+                                <button class="btn btn-danger btn-sm" onclick="excluirTime('${t.id}', '${nomeEscapado}')">🗑️</button>
                             </div>
                         </td>
                     </tr>
@@ -835,7 +845,9 @@
         function exportarCSV() {
             let csv = 'ID,Nome,País,Cor Primária,Cor Secundária,Cor Terciária\n';
             timesFiltrados.forEach(t => {
-                csv += `"${t.id}","${t.nome}","${t.pais}","${t.primaria || ''}","${t.secundaria || ''}","${t.terciaria || ''}"\n`;
+                const nome = (t.nome || '').replace(/"/g, '""');
+                const pais = (t.pais || '').replace(/"/g, '""');
+                csv += `"${t.id}","${nome}","${pais}","${t.primaria || ''}","${t.secundaria || ''}","${t.terciaria || ''}"\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv' });
