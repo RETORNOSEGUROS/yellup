@@ -383,7 +383,7 @@
                     <label>Dificuldade</label>
                     <select id="dificuldade">
                         <option value="facil">🟢 Fácil</option>
-                        <option value="medio">🟡 Médio</option>
+                        <option value="medio" selected>🟡 Médio</option>
                         <option value="dificil">🔴 Difícil</option>
                     </select>
                 </div>
@@ -439,6 +439,21 @@
         let timesMap = {};
         let paginaAtual = 1;
         const porPagina = 15;
+
+        // =====================================================
+        // FUNÇÃO HELPER PARA EXTRAIR ALTERNATIVAS
+        // Suporta AMBOS os formatos: 
+        //   - Novo: { alternativas: { A: "...", B: "...", C: "...", D: "..." } }
+        //   - Antigo: { altA: "...", altB: "...", altC: "...", altD: "..." }
+        // =====================================================
+        function getAlternativa(p, letra) {
+            // Primeiro tenta o formato novo (alternativas.A, alternativas.B, etc)
+            if (p.alternativas && typeof p.alternativas === 'object') {
+                return p.alternativas[letra] || p.alternativas[letra.toLowerCase()] || '';
+            }
+            // Depois tenta os formatos antigos
+            return p[`alt${letra}`] || p[`alternativa${letra}`] || p[`Alt${letra}`] || '';
+        }
 
         async function carregarTimes() {
             try {
@@ -527,8 +542,10 @@
                 }[dif] || '🟡 Médio';
 
                 const correta = p.correta || 'A';
+                
+                // CORREÇÃO: Usar a função helper para extrair alternativas
                 const alternativas = ['A', 'B', 'C', 'D'].map(letra => {
-                    const texto = p[`alt${letra}`] || p[`alternativa${letra}`] || '-';
+                    const texto = getAlternativa(p, letra) || '-';
                     const isCorreta = letra === correta;
                     return `<div class="alt-item ${isCorreta ? 'correta' : 'incorreta'}">
                         <strong>${letra}:</strong> ${texto.substring(0, 30)}${texto.length > 30 ? '...' : ''}
@@ -632,10 +649,12 @@
             document.getElementById('modalTitulo').textContent = '✏️ Editar Pergunta';
             document.getElementById('perguntaId').value = id;
             document.getElementById('pergunta').value = p.pergunta || '';
-            document.getElementById('altA').value = p.altA || p.alternativaA || '';
-            document.getElementById('altB').value = p.altB || p.alternativaB || '';
-            document.getElementById('altC').value = p.altC || p.alternativaC || '';
-            document.getElementById('altD').value = p.altD || p.alternativaD || '';
+            
+            // CORREÇÃO: Usar a função helper para extrair alternativas
+            document.getElementById('altA').value = getAlternativa(p, 'A');
+            document.getElementById('altB').value = getAlternativa(p, 'B');
+            document.getElementById('altC').value = getAlternativa(p, 'C');
+            document.getElementById('altD').value = getAlternativa(p, 'D');
 
             const correta = p.correta || 'A';
             document.querySelectorAll('input[name="correta"]').forEach(r => {
@@ -664,12 +683,15 @@
                 return;
             }
 
+            // CORREÇÃO: Salvar no formato correto (alternativas como objeto)
             const dados = {
                 pergunta,
-                altA: document.getElementById('altA').value.trim(),
-                altB: document.getElementById('altB').value.trim(),
-                altC: document.getElementById('altC').value.trim(),
-                altD: document.getElementById('altD').value.trim(),
+                alternativas: {
+                    A: document.getElementById('altA').value.trim(),
+                    B: document.getElementById('altB').value.trim(),
+                    C: document.getElementById('altC').value.trim(),
+                    D: document.getElementById('altD').value.trim()
+                },
                 correta: corretaRadio.value,
                 timeId: document.getElementById('timeId').value || null,
                 pontuacao: parseInt(document.getElementById('pontuacao').value) || 10,
@@ -715,7 +737,12 @@
             let csv = 'Pergunta,Alt A,Alt B,Alt C,Alt D,Correta,Time,Dificuldade,Pontos\n';
             perguntasFiltradas.forEach(p => {
                 const time = timesMap[p.timeId]?.nome || 'Geral';
-                csv += `"${(p.pergunta || '').replace(/"/g, '""')}","${p.altA || ''}","${p.altB || ''}","${p.altC || ''}","${p.altD || ''}","${p.correta}","${time}","${p.dificuldade || 'medio'}",${p.pontuacao || 10}\n`;
+                // CORREÇÃO: Usar a função helper para extrair alternativas
+                const altA = getAlternativa(p, 'A');
+                const altB = getAlternativa(p, 'B');
+                const altC = getAlternativa(p, 'C');
+                const altD = getAlternativa(p, 'D');
+                csv += `"${(p.pergunta || '').replace(/"/g, '""')}","${altA}","${altB}","${altC}","${altD}","${p.correta}","${time}","${p.dificuldade || 'medio'}",${p.pontuacao || 10}\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv' });
