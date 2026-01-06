@@ -386,12 +386,13 @@
                         <th>Entrada</th>
                         <th>Patrocinadores</th>
                         <th>Jogadores</th>
+                        <th>💰 Créditos</th>
                         <th>Status</th>
                         <th>Ações</th>
                     </tr>
                 </thead>
                 <tbody id="listaJogos">
-                    <tr><td colspan="7" class="loading">Carregando jogos...</td></tr>
+                    <tr><td colspan="8" class="loading">Carregando jogos...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -563,20 +564,35 @@
         // =====================================================
         // CARREGAR CONTAGEM DE TORCEDORES POR JOGO
         // =====================================================
+        let creditosPagosMap = {}; // Mapa de créditos pagos por jogo
+
         async function carregarContagemTorcedores() {
             try {
-                const snap = await db.collection('torcidas').get();
+                // ✅ CORREÇÃO: Torcida está em usuarios/{userId}.torcidas.{jogoId}
+                const snap = await db.collection('usuarios').get();
                 torcidaCountMap = {};
+                creditosPagosMap = {};
 
                 snap.forEach(doc => {
-                    const t = doc.data();
-                    const jogoId = t.jogoId;
-                    if (jogoId) {
-                        torcidaCountMap[jogoId] = (torcidaCountMap[jogoId] || 0) + 1;
+                    const user = doc.data();
+                    
+                    // Verificar torcidas do usuário
+                    if (user.torcidas) {
+                        Object.keys(user.torcidas).forEach(jogoId => {
+                            torcidaCountMap[jogoId] = (torcidaCountMap[jogoId] || 0) + 1;
+                        });
+                    }
+                    
+                    // Verificar créditos pagos por jogo
+                    if (user.creditosPagosJogo) {
+                        Object.keys(user.creditosPagosJogo).forEach(jogoId => {
+                            creditosPagosMap[jogoId] = (creditosPagosMap[jogoId] || 0) + (user.creditosPagosJogo[jogoId] || 0);
+                        });
                     }
                 });
 
-                console.log('Contagem de torcedores:', torcidaCountMap);
+                console.log('✅ Contagem de torcedores:', torcidaCountMap);
+                console.log('✅ Créditos pagos:', creditosPagosMap);
             } catch (error) {
                 console.error('Erro ao carregar torcidas:', error);
             }
@@ -674,7 +690,7 @@
             const tbody = document.getElementById('listaJogos');
             
             if (jogosFiltrados.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="loading">Nenhum jogo encontrado</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="loading">Nenhum jogo encontrado</td></tr>';
                 return;
             }
 
@@ -733,6 +749,7 @@
                             </span>
                         </td>
                         <td><strong>${jogadores}</strong> 👥</td>
+                        <td><strong style="color: #f1c40f;">${creditosPagosMap[j.id] || 0}</strong> 💰</td>
                         <td>
                             <span class="status-badge status-${j.status}">${statusLabel}</span>
                         </td>
@@ -1004,7 +1021,7 @@
         }
 
         function exportarCSV() {
-            let csv = 'Time Casa,Time Visitante,Data Início,Data Fim,Entrada,Patrocinadores,Jogadores,Status\n';
+            let csv = 'Time Casa,Time Visitante,Data Início,Data Fim,Entrada,Patrocinadores,Jogadores,Créditos Pagos,Status\n';
             jogosFiltrados.forEach(j => {
                 const casa = timesMap[j.timeCasaId]?.nome || 'N/A';
                 const fora = timesMap[j.timeForaId]?.nome || 'N/A';
@@ -1012,8 +1029,9 @@
                 const dataF = j.dataFim?.toDate?.().toLocaleString('pt-BR') || 'N/A';
                 const qtdPat = j.patrocinadores?.length || 0;
                 const jogadores = torcidaCountMap[j.id] || j.participantes || 0;
+                const creditosPagos = creditosPagosMap[j.id] || 0;
                 const entrada = j.creditosEntrada || 0;
-                csv += `"${casa}","${fora}","${dataI}","${dataF}",${entrada},${qtdPat},${jogadores},"${j.status}"\n`;
+                csv += `"${casa}","${fora}","${dataI}","${dataF}",${entrada},${qtdPat},${jogadores},${creditosPagos},"${j.status}"\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv' });
