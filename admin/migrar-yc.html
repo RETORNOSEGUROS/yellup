@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Migração Sistema YC - Admin Yellup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: linear-gradient(135deg, #0e141b 0%, #1a2332 100%);
+      color: #e7eef7;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #ffb547;
+    }
+    .card {
+      background: rgba(30, 41, 54, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 25px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      color: #ffb547;
+      margin-bottom: 15px;
+      font-size: 1.2em;
+    }
+    .card p {
+      color: #a9b5c6;
+      margin-bottom: 15px;
+      line-height: 1.6;
+    }
+    .btn {
+      padding: 15px 30px;
+      border: none;
+      border-radius: 10px;
+      font-family: 'Poppins', sans-serif;
+      font-weight: 600;
+      font-size: 1em;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #ffb547 0%, #ff8c42 100%);
+      color: #0e141b;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(255, 181, 71, 0.4);
+    }
+    .btn-danger {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: white;
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .log-box {
+      background: #0e141b;
+      border-radius: 10px;
+      padding: 15px;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 0.85em;
+      margin-top: 20px;
+    }
+    .log-item {
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .log-item.success { color: #10b981; }
+    .log-item.error { color: #ef4444; }
+    .log-item.info { color: #3b82f6; }
+    .log-item.warning { color: #f59e0b; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .stat-box {
+      background: rgba(0,0,0,0.3);
+      border-radius: 10px;
+      padding: 15px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 2em;
+      font-weight: 700;
+      color: #ffb547;
+    }
+    .stat-label {
+      font-size: 0.85em;
+      color: #a9b5c6;
+    }
+    .progress-bar {
+      height: 10px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 5px;
+      overflow: hidden;
+      margin: 15px 0;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #10b981, #059669);
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+    .alert {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid #ef4444;
+      border-radius: 10px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    .alert h3 {
+      color: #ef4444;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>🔄 Migração Sistema YC</h1>
+
+    <div class="alert">
+      <h3>⚠️ ATENÇÃO</h3>
+      <p>Esta migração vai adicionar os novos campos nos usuários existentes. Execute apenas UMA VEZ. Faça backup do Firestore antes de executar.</p>
+    </div>
+
+    <div class="card">
+      <h2>📊 Estatísticas</h2>
+      <div class="stats">
+        <div class="stat-box">
+          <div class="stat-value" id="totalUsuarios">-</div>
+          <div class="stat-label">Total Usuários</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="jaMigrados">-</div>
+          <div class="stat-label">Já Migrados</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="pendentes">-</div>
+          <div class="stat-label">Pendentes</div>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="verificarStatus()">🔍 Verificar Status</button>
+    </div>
+
+    <div class="card">
+      <h2>🚀 Executar Migração</h2>
+      <p>A migração vai:</p>
+      <ul style="margin-left: 20px; margin-bottom: 15px; color: #a9b5c6;">
+        <li>Adicionar campo <code>creditosBonus</code> = créditos atuais</li>
+        <li>Adicionar campo <code>creditosPagos</code> = 0</li>
+        <li>Adicionar campo <code>yc</code> = 0</li>
+      </ul>
+      
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <p style="text-align: center; font-size: 0.9em;" id="progressText">Aguardando...</p>
+
+      <button class="btn btn-primary" id="btnMigrar" onclick="executarMigracao()">🔄 Executar Migração</button>
+    </div>
+
+    <div class="card">
+      <h2>📝 Log de Execução</h2>
+      <div class="log-box" id="logBox">
+        <div class="log-item info">Aguardando ação...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.firebasestorage.app",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    let usuariosPendentes = [];
+
+    function log(message, type = 'info') {
+      const logBox = document.getElementById('logBox');
+      const item = document.createElement('div');
+      item.className = `log-item ${type}`;
+      item.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logBox.appendChild(item);
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function clearLog() {
+      document.getElementById('logBox').innerHTML = '';
+    }
+
+    async function verificarStatus() {
+      clearLog();
+      log('Verificando status dos usuários...', 'info');
+
+      try {
+        const snapshot = await db.collection('usuarios').get();
+        const total = snapshot.size;
+        let migrados = 0;
+        let pendentes = 0;
+        usuariosPendentes = [];
+
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          // Verifica se já tem os novos campos
+          if (data.hasOwnProperty('creditosBonus') && data.hasOwnProperty('creditosPagos') && data.hasOwnProperty('yc')) {
+            migrados++;
+          } else {
+            pendentes++;
+            usuariosPendentes.push({
+              id: doc.id,
+              nome: data.usuarioUnico || data.usuario || data.nome || 'Sem nome',
+              creditos: data.creditos || 0
+            });
+          }
+        });
+
+        document.getElementById('totalUsuarios').textContent = total;
+        document.getElementById('jaMigrados').textContent = migrados;
+        document.getElementById('pendentes').textContent = pendentes;
+
+        log(`Total: ${total} usuários`, 'info');
+        log(`Já migrados: ${migrados}`, 'success');
+        log(`Pendentes: ${pendentes}`, pendentes > 0 ? 'warning' : 'success');
+
+        if (pendentes === 0) {
+          log('✅ Todos os usuários já foram migrados!', 'success');
+          document.getElementById('btnMigrar').disabled = true;
+        } else {
+          log(`Usuários pendentes:`, 'info');
+          usuariosPendentes.forEach(u => {
+            log(`  • ${u.nome} (${u.creditos} créditos)`, 'warning');
+          });
+        }
+
+      } catch (error) {
+        log(`Erro: ${error.message}`, 'error');
+      }
+    }
+
+    async function executarMigracao() {
+      if (usuariosPendentes.length === 0) {
+        log('Nenhum usuário para migrar. Execute "Verificar Status" primeiro.', 'warning');
+        return;
+      }
+
+      if (!confirm(`Deseja migrar ${usuariosPendentes.length} usuários? Esta ação não pode ser desfeita.`)) {
+        return;
+      }
+
+      const btn = document.getElementById('btnMigrar');
+      btn.disabled = true;
+      btn.textContent = '⏳ Migrando...';
+
+      const progressFill = document.getElementById('progressFill');
+      const progressText = document.getElementById('progressText');
+
+      let migrados = 0;
+      let erros = 0;
+      const total = usuariosPendentes.length;
+
+      log(`Iniciando migração de ${total} usuários...`, 'info');
+
+      for (const usuario of usuariosPendentes) {
+        try {
+          const creditosAtuais = usuario.creditos || 0;
+
+          await db.collection('usuarios').doc(usuario.id).update({
+            creditosBonus: creditosAtuais,  // Créditos atuais viram bônus
+            creditosPagos: 0,               // Nenhum crédito pago ainda
+            yc: 0                           // Nenhum YC ainda
+          });
+
+          migrados++;
+          log(`✅ ${usuario.nome}: creditosBonus=${creditosAtuais}, creditosPagos=0, yc=0`, 'success');
+
+        } catch (error) {
+          erros++;
+          log(`❌ Erro ao migrar ${usuario.nome}: ${error.message}`, 'error');
+        }
+
+        // Atualizar progresso
+        const percent = Math.round((migrados + erros) / total * 100);
+        progressFill.style.width = `${percent}%`;
+        progressText.textContent = `${migrados + erros} de ${total} (${percent}%)`;
+      }
+
+      log('', 'info');
+      log('═══════════════════════════════════════', 'info');
+      log(`MIGRAÇÃO CONCLUÍDA!`, 'success');
+      log(`✅ Migrados com sucesso: ${migrados}`, 'success');
+      if (erros > 0) {
+        log(`❌ Erros: ${erros}`, 'error');
+      }
+      log('═══════════════════════════════════════', 'info');
+
+      btn.textContent = '✅ Migração Concluída';
+      
+      // Atualizar estatísticas
+      await verificarStatus();
+    }
+
+    // Verificar autenticação
+    auth.onAuthStateChanged(user => {
+      if (!user) {
+        log('Você precisa estar logado para executar a migração.', 'error');
+        document.getElementById('btnMigrar').disabled = true;
+      } else {
+        log(`Logado como: ${user.email}`, 'success');
+      }
+    });
+
+    // Verificar status ao carregar
+    setTimeout(verificarStatus, 1000);
+  </script>
+
+</body>
+</html>
