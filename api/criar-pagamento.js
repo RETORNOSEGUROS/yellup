@@ -40,6 +40,13 @@ export default async function handler(req, res) {
       payer: {
         email: userEmail || 'cliente@yellup.com'
       },
+      // Métodos de pagamento - incluindo PIX
+      payment_methods: {
+        excluded_payment_methods: [],
+        excluded_payment_types: [],
+        installments: 3,
+        default_payment_method_id: 'pix'
+      },
       external_reference: JSON.stringify({
         pacoteId,
         creditos,
