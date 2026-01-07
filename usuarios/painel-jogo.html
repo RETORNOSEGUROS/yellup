@@ -2838,10 +2838,10 @@
         return []; // Mínimo 100 créditos para premiar
       }
       
-      // 20% casa, 80% prêmios
-      // Dos 80%: 75% ranking, 15% sortudo vencedor, 10% sortudo popular
+      // NOVA DISTRIBUIÇÃO:
+      // 20% casa, 40% ranking, 10% sortudo vencedor, 5% sortudo popular, 25% cotistas bolsa
       const totalPremios = Math.floor(totalCreditosPagosJogo * 0.80);
-      const totalRanking = Math.floor(totalCreditosPagosJogo * 0.60); // 60% do total
+      const totalRanking = Math.floor(totalCreditosPagosJogo * 0.40); // 40% do total
       
       // Determinar quantos premiar baseado no total de ranking
       let quantosPremiar = 10;
@@ -2888,9 +2888,10 @@
           </div>
         `;
       } else {
-        const premioRanking = Math.floor(totalCreditos * 0.60);
-        const premioSortudoVencedor = Math.floor(totalCreditos * 0.12);
-        const premioSortudoPopular = Math.floor(totalCreditos * 0.08);
+        const premioRanking = Math.floor(totalCreditos * 0.40);
+        const premioSortudoVencedor = Math.floor(totalCreditos * 0.10);
+        const premioSortudoPopular = Math.floor(totalCreditos * 0.05);
+        const premioCotistas = Math.floor(totalCreditos * 0.25);
         
         infoEl.innerHTML = `
           <div class="premiacao-ativa">
@@ -2899,6 +2900,7 @@
               <span>🏅 Top ${Math.min(10, totalParticipantes)}: ${premioRanking} 💎</span>
               <span>🎰 Sortudo: ${premioSortudoVencedor} 💎</span>
               <span>🍀 Popular: ${premioSortudoPopular} 💎</span>
+              <span>📈 Cotistas: ${premioCotistas} 💎</span>
             </div>
           </div>
         `;
@@ -3005,12 +3007,14 @@
         });
         
         // ===== CALCULAR DISTRIBUIÇÃO =====
+        // NOVA DISTRIBUIÇÃO: 20% casa, 40% ranking, 10% sortudo vencedor, 5% sortudo popular, 25% cotistas
         const taxaCasa = Math.floor(totalCreditosPagos * 0.20);  // 20% casa
-        const totalRanking = Math.floor(totalCreditosPagos * 0.60);  // 60% ranking
-        const totalSortudoVencedor = Math.floor(totalCreditosPagos * 0.12);  // 12% sortudo vencedor
-        const totalSortudoPopular = Math.floor(totalCreditosPagos * 0.08);  // 8% sortudo popular
+        const totalRanking = Math.floor(totalCreditosPagos * 0.40);  // 40% ranking
+        const totalSortudoVencedor = Math.floor(totalCreditosPagos * 0.10);  // 10% sortudo vencedor
+        const totalSortudoPopular = Math.floor(totalCreditosPagos * 0.05);  // 5% sortudo popular
+        const totalCotistas = Math.floor(totalCreditosPagos * 0.25);  // 25% cotistas bolsa
         
-        console.log(`🏠 Casa: ${taxaCasa} | 🏅 Ranking: ${totalRanking} | 🎰 Vencedor: ${totalSortudoVencedor} | 🍀 Popular: ${totalSortudoPopular}`);
+        console.log(`🏠 Casa: ${taxaCasa} | 🏅 Ranking: ${totalRanking} | 🎰 Vencedor: ${totalSortudoVencedor} | 🍀 Popular: ${totalSortudoPopular} | 📈 Cotistas: ${totalCotistas}`);
         
         // Determinar quantos premiar
         let quantosPremiar = 10;
@@ -3116,13 +3120,119 @@
           console.log(`🍀 ${sortudoPopular.nome}: +${sortudoPopular.creditos} créditos (Sortudo Popular)`);
         }
         
+        // ===== DISTRIBUIR PARA COTISTAS DA BOLSA (25%) =====
+        let cotistasPremiados = [];
+        
+        if (totalCotistas >= 1) {
+          try {
+            // Buscar cotas do time da casa
+            const cotasCasaSnapshot = await db.collection("bolsa_cotas")
+              .where("timeId", "==", timeCasaId)
+              .get();
+            
+            // Buscar cotas do time de fora
+            const cotasForaSnapshot = await db.collection("bolsa_cotas")
+              .where("timeId", "==", timeForaId)
+              .get();
+            
+            let cotasCasa = [];
+            let cotasFora = [];
+            let totalCotasCasa = 0;
+            let totalCotasFora = 0;
+            
+            cotasCasaSnapshot.forEach(doc => {
+              const cota = doc.data();
+              cotasCasa.push({ odId: cota.userId, odNome: cota.usuarioNome, quantidade: cota.quantidade || 0 });
+              totalCotasCasa += cota.quantidade || 0;
+            });
+            
+            cotasForaSnapshot.forEach(doc => {
+              const cota = doc.data();
+              cotasFora.push({ odId: cota.userId, odNome: cota.usuarioNome, quantidade: cota.quantidade || 0 });
+              totalCotasFora += cota.quantidade || 0;
+            });
+            
+            // Determinar time vencedor da partida (pelo resultado real ou por pontos)
+            let percentualCasa = 0.5;  // Empate padrão
+            let percentualFora = 0.5;
+            
+            if (estatisticas.timeCasa.pontos > estatisticas.timeFora.pontos) {
+              percentualCasa = 0.7;  // Time casa venceu: 70%
+              percentualFora = 0.3;  // Time fora: 30%
+            } else if (estatisticas.timeFora.pontos > estatisticas.timeCasa.pontos) {
+              percentualCasa = 0.3;  // Time casa: 30%
+              percentualFora = 0.7;  // Time fora venceu: 70%
+            }
+            
+            const premioCotasCasa = Math.floor(totalCotistas * percentualCasa);
+            const premioCotasFora = Math.floor(totalCotistas * percentualFora);
+            
+            console.log(`📈 Cotistas Casa: ${premioCotasCasa} (${percentualCasa * 100}%) | Fora: ${premioCotasFora} (${percentualFora * 100}%)`);
+            
+            // Distribuir para cotistas do time da casa
+            if (totalCotasCasa > 0 && premioCotasCasa > 0) {
+              for (const cotista of cotasCasa) {
+                if (cotista.quantidade > 0) {
+                  const percentualCotista = cotista.quantidade / totalCotasCasa;
+                  const creditosCotista = Math.floor(premioCotasCasa * percentualCotista);
+                  
+                  if (creditosCotista > 0) {
+                    const userRef = db.collection("usuarios").doc(cotista.odId);
+                    batch.update(userRef, {
+                      creditos: firebase.firestore.FieldValue.increment(creditosCotista)
+                    });
+                    cotistasPremiados.push({
+                      odId: cotista.odId,
+                      nome: cotista.odNome,
+                      creditos: creditosCotista,
+                      time: estatisticas.timeCasa.nome,
+                      cotas: cotista.quantidade
+                    });
+                    console.log(`📈 ${cotista.odNome}: +${creditosCotista} créditos (Cotista ${estatisticas.timeCasa.nome})`);
+                  }
+                }
+              }
+            }
+            
+            // Distribuir para cotistas do time de fora
+            if (totalCotasFora > 0 && premioCotasFora > 0) {
+              for (const cotista of cotasFora) {
+                if (cotista.quantidade > 0) {
+                  const percentualCotista = cotista.quantidade / totalCotasFora;
+                  const creditosCotista = Math.floor(premioCotasFora * percentualCotista);
+                  
+                  if (creditosCotista > 0) {
+                    const userRef = db.collection("usuarios").doc(cotista.odId);
+                    batch.update(userRef, {
+                      creditos: firebase.firestore.FieldValue.increment(creditosCotista)
+                    });
+                    cotistasPremiados.push({
+                      odId: cotista.odId,
+                      nome: cotista.odNome,
+                      creditos: creditosCotista,
+                      time: estatisticas.timeFora.nome,
+                      cotas: cotista.quantidade
+                    });
+                    console.log(`📈 ${cotista.odNome}: +${creditosCotista} créditos (Cotista ${estatisticas.timeFora.nome})`);
+                  }
+                }
+              }
+            }
+            
+          } catch (e) {
+            console.error("Erro ao distribuir para cotistas:", e);
+          }
+        }
+        
         // Marcar jogo como premiado
         const premiacaoDetalhes = {
           totalPago: totalCreditosPagos,
           taxaCasa,
+          totalCotistas,
           ranking: premiosRanking,
           sortudoVencedor,
           sortudoPopular,
+          cotistas: cotistasPremiados,
           estatisticas: {
             timeCasa: { nome: estatisticas.timeCasa.nome, pontos: estatisticas.timeCasa.pontos, torcedores: estatisticas.timeCasa.torcedores.length },
             timeFora: { nome: estatisticas.timeFora.nome, pontos: estatisticas.timeFora.pontos, torcedores: estatisticas.timeFora.torcedores.length }
