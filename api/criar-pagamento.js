@@ -40,13 +40,6 @@ export default async function handler(req, res) {
       payer: {
         email: userEmail || 'cliente@yellup.com'
       },
-      // Métodos de pagamento - incluindo PIX
-      payment_methods: {
-        excluded_payment_methods: [],
-        excluded_payment_types: [],
-        installments: 3,
-        default_payment_method_id: 'pix'
-      },
       external_reference: JSON.stringify({
         pacoteId,
         creditos,
@@ -61,10 +54,7 @@ export default async function handler(req, res) {
       },
       auto_return: 'approved',
       notification_url: 'https://yellup.vercel.app/api/webhook-mp',
-      statement_descriptor: 'YELLUP',
-      expires: true,
-      expiration_date_from: new Date().toISOString(),
-      expiration_date_to: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 horas
+      statement_descriptor: 'YELLUP'
     };
 
     const response = await fetch('https://api.mercadopago.com/checkout/preferences', {
