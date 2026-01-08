@@ -747,10 +747,10 @@
     // ============================================
     async function carregarHistorico() {
       try {
+        // Query simples sem orderBy (evita necessidade de índice composto)
         const snapshot = await db.collection('compras')
           .where('usuarioId', '==', currentUserId)
-          .orderBy('data', 'desc')
-          .limit(10)
+          .limit(20)
           .get();
 
         const container = document.getElementById('purchaseHistory');
@@ -760,9 +760,20 @@
           return;
         }
 
-        let html = '';
+        // Converter para array e ordenar por data (mais recente primeiro)
+        let compras = [];
         snapshot.forEach(doc => {
-          const compra = doc.data();
+          compras.push({ id: doc.id, ...doc.data() });
+        });
+        
+        compras.sort((a, b) => {
+          const dataA = a.data?.toDate ? a.data.toDate().getTime() : 0;
+          const dataB = b.data?.toDate ? b.data.toDate().getTime() : 0;
+          return dataB - dataA; // Mais recente primeiro
+        });
+
+        let html = '';
+        compras.slice(0, 10).forEach(compra => {
           const dataStr = compra.data?.toDate ? compra.data.toDate().toLocaleDateString('pt-BR') : 'Processando...';
           
           let statusClass = 'status-pending';
