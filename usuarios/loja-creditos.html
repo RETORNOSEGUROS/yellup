@@ -512,7 +512,12 @@
     </div>
 
     <div class="info-card">
-      <div class="section-title">📜 Últimas Compras</div>
+      <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>📜 Últimas Compras</span>
+        <button onclick="verificarPagamentosManual()" style="background: linear-gradient(135deg, #3498db, #2980b9); border: none; color: white; padding: 8px 16px; border-radius: 8px; font-size: 0.8em; cursor: pointer;">
+          🔄 Verificar PIX
+        </button>
+      </div>
       <div id="purchaseHistory">
         <p style="text-align: center; color: #a9b5c6; padding: 20px;">
           Você ainda não fez nenhuma compra
@@ -606,66 +611,224 @@
           }
           
           carregarHistorico();
-          verificarPagamentoPendente();
+          
+          // Verificar URL de retorno do MP
+          verificarRetornoMP();
+          
+          // Verificar compras pendentes (PIX que pode ter sido pago)
+          verificarComprasPendentes();
         }
       } catch (error) {
         console.error("Erro:", error);
       }
     });
 
+    // Verificar retorno direto do Mercado Pago (cartão, etc)
+    async function verificarRetornoMP() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const status = urlParams.get('status');
+      const paymentId = urlParams.get('payment_id');
+      const preferenceId = urlParams.get('preference_id');
+
+      if (!status) return;
+
+      // Limpar URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      if (status === 'approved' && paymentId) {
+        // Buscar a compra pendente com esse preferenceId
+        const comprasSnapshot = await db.collection('compras')
+          .where('usuarioId', '==', currentUserId)
+          .where('status', '==', 'pendente')
+          .get();
+
+        for (const doc of comprasSnapshot.docs) {
+          const compra = doc.data();
+          if (compra.preferenceId === preferenceId || !compra.preferenceId) {
+            await processarCompraAprovada(doc.id, compra, paymentId);
+            return;
+          }
+        }
+        
+        showToast('✅ Pagamento aprovado!');
+      } else if (status === 'pending') {
+        showToast('⏳ Pagamento pendente. Volte aqui após confirmar o PIX!');
+      } else if (status === 'failure') {
+        showToast('❌ Pagamento não aprovado.');
+      }
+    }
+
+    // Verificar compras pendentes (para PIX)
+    async function verificarComprasPendentes() {
+      try {
+        const comprasSnapshot = await db.collection('compras')
+          .where('usuarioId', '==', currentUserId)
+          .where('status', '==', 'pendente')
+          .orderBy('data', 'desc')
+          .limit(5)
+          .get();
+
+        if (comprasSnapshot.empty) return;
+
+        console.log(`🔍 Verificando ${comprasSnapshot.size} compras pendentes...`);
+
+        for (const doc of comprasSnapshot.docs) {
+          const compra = doc.data();
+          
+          // Se tem preferenceId, verificar status via API
+          if (compra.preferenceId) {
+            const statusResult = await verificarStatusPagamento(compra.preferenceId);
+            
+            if (statusResult && statusResult.approved) {
+              await processarCompraAprovada(doc.id, compra, statusResult.paymentId);
+            } else if (statusResult && statusResult.expired) {
+              // Marcar como expirado
+              await db.collection('compras').doc(doc.id).update({
+                status: 'expirado'
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao verificar compras pendentes:', error);
+      }
+    }
+
+    // Verificar status do pagamento via API
+    async function verificarStatusPagamento(preferenceId) {
+      try {
+        const response = await fetch(`/api/verificar-pagamento?preferenceId=${preferenceId}`);
+        if (response.ok) {
+          return await response.json();
+        }
+      } catch (error) {
+        console.error('Erro ao verificar pagamento:', error);
+      }
+      return null;
+    }
+
+    // Processar compra aprovada
+    async function processarCompraAprovada(compraId, compra, paymentId) {
+      try {
+        // Verificar se já foi creditado
+        const compraDoc = await db.collection('compras').doc(compraId).get();
+        if (compraDoc.data().status === 'aprovado') {
+          return; // Já processado
+        }
+
+        const creditosComprados = compra.creditos || 0;
+
+        // Atualizar créditos do usuário
+        await db.collection('usuarios').doc(currentUserId).update({
+          creditos: firebase.firestore.FieldValue.increment(creditosComprados),
+          creditosPagos: firebase.firestore.FieldValue.increment(creditosComprados)
+        });
+
+        // Marcar compra como aprovada
+        await db.collection('compras').doc(compraId).update({
+          status: 'aprovado',
+          paymentId: paymentId || 'pix',
+          aprovadoEm: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Atualizar saldo na tela
+        const novoSaldo = (currentUserData.creditos || 0) + creditosComprados;
+        document.getElementById('currentBalance').textContent = novoSaldo;
+        currentUserData.creditos = novoSaldo;
+
+        showToast(`🎉 +${creditosComprados} créditos adicionados!`);
+        carregarHistorico();
+
+        console.log(`✅ Compra ${compraId} processada: +${creditosComprados} créditos`);
+      } catch (error) {
+        console.error('Erro ao processar compra:', error);
+      }
+    }
+
+    // FUNÇÃO ANTIGA - manter para compatibilidade
     async function verificarPagamentoPendente() {
       const urlParams = new URLSearchParams(window.location.search);
       const status = urlParams.get('status');
       const paymentId = urlParams.get('payment_id');
-      const externalReference = urlParams.get('external_reference');
+      const externalReference = urlParams.get('external_reference') || urlParams.get('ref');
 
-      if (status === 'approved' && externalReference) {
-        try {
-          const refData = JSON.parse(decodeURIComponent(externalReference));
-          const creditosTotal = refData.creditos + (refData.bonus || 0);
+      if (status === 'success' || status === 'approved') {
+        if (externalReference) {
+          try {
+            let refData;
+            
+            // Novo formato: pacoteId_creditos_bonus_userId_timestamp
+            const parts = externalReference.split('_');
+            if (parts.length >= 4) {
+              refData = {
+                pacoteId: parseInt(parts[0]) || 0,
+                creditos: parseInt(parts[1]) || 0,
+                bonus: parseInt(parts[2]) || 0,
+                userId: parts[3]
+              };
+            } else {
+              // Formato antigo (JSON)
+              refData = JSON.parse(decodeURIComponent(externalReference));
+            }
+            
+            const creditosComprados = refData.creditos;
 
-          const pagamentoDoc = await db.collection('pagamentos_mp').doc(String(paymentId)).get();
-          
-          if (pagamentoDoc.exists && pagamentoDoc.data().creditado) {
-            showToast('✅ Este pagamento já foi processado!');
-          } else {
+            // Verificar se já foi creditado
+            if (paymentId) {
+              const pagamentoDoc = await db.collection('pagamentos_mp').doc(String(paymentId)).get();
+              
+              if (pagamentoDoc.exists && pagamentoDoc.data().creditado) {
+                showToast('✅ Este pagamento já foi processado!');
+                window.history.replaceState({}, document.title, window.location.pathname);
+                return;
+              }
+            }
+
             // Créditos comprados vão para creditosPagos E creditos (total)
             await db.collection('usuarios').doc(currentUserId).update({
-              creditos: firebase.firestore.FieldValue.increment(creditosTotal),
-              creditosPagos: firebase.firestore.FieldValue.increment(creditosTotal)
+              creditos: firebase.firestore.FieldValue.increment(creditosComprados),
+              creditosPagos: firebase.firestore.FieldValue.increment(creditosComprados)
             });
 
-            await db.collection('pagamentos_mp').doc(String(paymentId)).set({
-              creditado: true,
-              creditadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-              userId: currentUserId,
-              creditos: creditosTotal,
-              valorPago: PACOTES.find(p => p.id === refData.pacoteId)?.preco || 0
-            }, { merge: true });
+            // Registrar pagamento
+            if (paymentId) {
+              await db.collection('pagamentos_mp').doc(String(paymentId)).set({
+                creditado: true,
+                creditadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+                userId: currentUserId,
+                creditos: creditosComprados,
+                valorPago: PACOTES.find(p => p.id === refData.pacoteId)?.preco || 0
+              }, { merge: true });
+            }
 
+            // Registrar compra
             await db.collection('compras').add({
               usuarioId: currentUserId,
               pacoteId: refData.pacoteId,
-              creditos: creditosTotal,
+              creditos: creditosComprados,
               valor: PACOTES.find(p => p.id === refData.pacoteId)?.preco || 0,
               metodoPagamento: 'mercadopago',
-              paymentId: paymentId,
+              paymentId: paymentId || 'sem_id',
               status: 'aprovado',
               data: firebase.firestore.FieldValue.serverTimestamp()
             });
 
-            const novoSaldo = (currentUserData.creditos || 0) + creditosTotal;
+            const novoSaldo = (currentUserData.creditos || 0) + creditosComprados;
             document.getElementById('currentBalance').textContent = novoSaldo;
             currentUserData.creditos = novoSaldo;
 
-            showToast(`🎉 +${creditosTotal} créditos adicionados!`);
+            showToast(`🎉 +${creditosComprados} créditos adicionados!`);
             carregarHistorico();
+
+            window.history.replaceState({}, document.title, window.location.pathname);
+
+          } catch (error) {
+            console.error('Erro ao processar retorno:', error);
+            showToast('⚠️ Erro ao processar pagamento. Contate o suporte.');
           }
-
+        } else {
+          showToast('✅ Pagamento aprovado!');
           window.history.replaceState({}, document.title, window.location.pathname);
-
-        } catch (error) {
-          console.error('Erro ao processar retorno:', error);
         }
       } else if (status === 'pending') {
         showToast('⏳ Pagamento pendente. Aguarde confirmação.');
@@ -689,6 +852,7 @@
       loading.classList.add('active');
 
       try {
+        // Criar pagamento no Mercado Pago
         const response = await fetch('/api/criar-pagamento', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -706,6 +870,21 @@
         const data = await response.json();
 
         if (data.success && data.initPoint) {
+          // Salvar compra como PENDENTE antes de redirecionar
+          await db.collection('compras').add({
+            usuarioId: currentUserId,
+            pacoteId: pacote.id,
+            creditos: pacote.creditos,
+            valor: pacote.preco,
+            metodoPagamento: 'mercadopago',
+            preferenceId: data.preferenceId,
+            status: 'pendente',
+            data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          console.log('✅ Compra pendente salva, redirecionando...');
+          
+          // Redirecionar para o Mercado Pago
           window.location.href = data.initPoint;
         } else {
           throw new Error(data.error || 'Erro ao criar pagamento');
@@ -770,7 +949,49 @@
       }
     }
 
-    console.log("✅ Loja de Créditos v2.0 - Mercado Pago");
+    // Verificação manual de pagamentos pendentes
+    async function verificarPagamentosManual() {
+      showToast('🔍 Verificando pagamentos...');
+      
+      try {
+        const comprasSnapshot = await db.collection('compras')
+          .where('usuarioId', '==', currentUserId)
+          .where('status', '==', 'pendente')
+          .get();
+
+        if (comprasSnapshot.empty) {
+          showToast('✅ Nenhum pagamento pendente!');
+          return;
+        }
+
+        let encontrouAprovado = false;
+
+        for (const doc of comprasSnapshot.docs) {
+          const compra = doc.data();
+          
+          if (compra.preferenceId) {
+            const statusResult = await verificarStatusPagamento(compra.preferenceId);
+            
+            if (statusResult && statusResult.approved) {
+              await processarCompraAprovada(doc.id, compra, statusResult.paymentId);
+              encontrouAprovado = true;
+            }
+          }
+        }
+
+        if (!encontrouAprovado) {
+          showToast('⏳ Pagamentos ainda pendentes. Verifique se o PIX foi confirmado.');
+        }
+
+        carregarHistorico();
+
+      } catch (error) {
+        console.error('Erro:', error);
+        showToast('❌ Erro ao verificar. Tente novamente.');
+      }
+    }
+
+    console.log("✅ Loja de Créditos v3.0 - Mercado Pago + PIX");
   </script>
 
 </body>
