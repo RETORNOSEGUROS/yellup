@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Creditar Pagamento Manual - Admin Yellup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      color: #fff;
+      padding: 20px;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #ffb547;
+    }
+    .card {
+      background: rgba(255,255,255,0.1);
+      border-radius: 15px;
+      padding: 25px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      margin-bottom: 20px;
+      font-size: 1.2em;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding-bottom: 10px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: #a9b5c6;
+      font-size: 0.9em;
+    }
+    input, select {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+      font-size: 1em;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #ffb547;
+    }
+    button {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #27ae60, #2ecc71);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 1.1em;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(39,174,96,0.4);
+    }
+    button.danger {
+      background: linear-gradient(135deg, #e74c3c, #c0392b);
+    }
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 10px;
+      display: none;
+    }
+    .result.success {
+      background: rgba(39,174,96,0.2);
+      border: 1px solid #27ae60;
+      display: block;
+    }
+    .result.error {
+      background: rgba(231,76,60,0.2);
+      border: 1px solid #e74c3c;
+      display: block;
+    }
+    .user-info {
+      background: rgba(0,0,0,0.2);
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 15px;
+    }
+    .user-info p {
+      margin: 5px 0;
+    }
+    .highlight {
+      color: #ffb547;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>💰 Creditar Pagamento Manual</h1>
+
+    <div class="card">
+      <h2>🔍 Buscar Usuário</h2>
+      <div class="form-group">
+        <label>Email ou Nome de Usuário</label>
+        <input type="text" id="buscarUsuario" placeholder="Ex: diva@marcoss.com ou divadiva">
+      </div>
+      <button onclick="buscarUsuario()">🔍 Buscar</button>
+      
+      <div id="userInfo" class="user-info" style="display: none; margin-top: 15px;">
+        <p><strong>Nome:</strong> <span id="userName"></span></p>
+        <p><strong>Email:</strong> <span id="userEmail"></span></p>
+        <p><strong>Usuário:</strong> <span id="userUsername"></span></p>
+        <p><strong>Créditos Atuais:</strong> <span id="userCreditos" class="highlight"></span></p>
+        <p><strong>Créditos Pagos:</strong> <span id="userCreditosPagos" class="highlight"></span></p>
+        <p><strong>UID:</strong> <span id="userUid" style="font-size: 0.8em; color: #888;"></span></p>
+      </div>
+    </div>
+
+    <div class="card" id="creditarCard" style="display: none;">
+      <h2>💎 Creditar Créditos</h2>
+      <div class="form-group">
+        <label>Quantidade de Créditos</label>
+        <input type="number" id="qtdCreditos" value="10" min="1">
+      </div>
+      <div class="form-group">
+        <label>Tipo de Crédito</label>
+        <select id="tipoCredito">
+          <option value="pagos">Créditos Pagos (entram no pool de premiação)</option>
+          <option value="bonus">Créditos Bônus (não entram no pool)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Motivo/Referência</label>
+        <input type="text" id="motivo" placeholder="Ex: Pagamento PIX 140533507699">
+      </div>
+      <button onclick="creditarUsuario()">✅ Creditar</button>
+      
+      <div id="resultado" class="result"></div>
+    </div>
+
+    <div class="card">
+      <h2>⚠️ Atenção</h2>
+      <p style="color: #a9b5c6; font-size: 0.9em;">
+        Esta página é para uso administrativo apenas. 
+        Use para creditar pagamentos que foram aprovados no Mercado Pago 
+        mas não creditaram automaticamente.
+      </p>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.firebasestorage.app",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    let usuarioSelecionado = null;
+
+    async function buscarUsuario() {
+      const busca = document.getElementById('buscarUsuario').value.trim().toLowerCase();
+      
+      if (!busca) {
+        alert('Digite um email ou nome de usuário');
+        return;
+      }
+
+      document.getElementById('userInfo').style.display = 'none';
+      document.getElementById('creditarCard').style.display = 'none';
+
+      try {
+        let snapshot;
+        
+        // Tentar buscar por email
+        if (busca.includes('@')) {
+          snapshot = await db.collection('usuarios')
+            .where('email', '==', busca)
+            .limit(1)
+            .get();
+        } else {
+          // Buscar por usuarioUnico
+          snapshot = await db.collection('usuarios')
+            .where('usuarioUnico', '==', busca)
+            .limit(1)
+            .get();
+        }
+
+        if (snapshot.empty) {
+          alert('Usuário não encontrado!');
+          return;
+        }
+
+        const doc = snapshot.docs[0];
+        const data = doc.data();
+        usuarioSelecionado = {
+          uid: doc.id,
+          ...data
+        };
+
+        document.getElementById('userName').textContent = data.nome || '-';
+        document.getElementById('userEmail').textContent = data.email || '-';
+        document.getElementById('userUsername').textContent = data.usuarioUnico || '-';
+        document.getElementById('userCreditos').textContent = data.creditos || 0;
+        document.getElementById('userCreditosPagos').textContent = data.creditosPagos || 0;
+        document.getElementById('userUid').textContent = doc.id;
+
+        document.getElementById('userInfo').style.display = 'block';
+        document.getElementById('creditarCard').style.display = 'block';
+
+      } catch (error) {
+        console.error('Erro:', error);
+        alert('Erro ao buscar usuário: ' + error.message);
+      }
+    }
+
+    async function creditarUsuario() {
+      if (!usuarioSelecionado) {
+        alert('Selecione um usuário primeiro');
+        return;
+      }
+
+      const qtd = parseInt(document.getElementById('qtdCreditos').value);
+      const tipo = document.getElementById('tipoCredito').value;
+      const motivo = document.getElementById('motivo').value.trim();
+
+      if (!qtd || qtd < 1) {
+        alert('Digite uma quantidade válida');
+        return;
+      }
+
+      if (!confirm(`Confirma creditar ${qtd} créditos (${tipo}) para ${usuarioSelecionado.nome || usuarioSelecionado.usuarioUnico}?`)) {
+        return;
+      }
+
+      try {
+        const updateData = {
+          creditos: firebase.firestore.FieldValue.increment(qtd)
+        };
+
+        if (tipo === 'pagos') {
+          updateData.creditosPagos = firebase.firestore.FieldValue.increment(qtd);
+        } else {
+          updateData.creditosBonus = firebase.firestore.FieldValue.increment(qtd);
+        }
+
+        await db.collection('usuarios').doc(usuarioSelecionado.uid).update(updateData);
+
+        // Registrar a operação
+        await db.collection('creditos_manuais').add({
+          usuarioId: usuarioSelecionado.uid,
+          usuarioEmail: usuarioSelecionado.email,
+          quantidade: qtd,
+          tipo: tipo,
+          motivo: motivo,
+          adminId: auth.currentUser?.uid || 'manual',
+          data: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        const resultado = document.getElementById('resultado');
+        resultado.className = 'result success';
+        resultado.innerHTML = `
+          ✅ <strong>Sucesso!</strong><br>
+          ${qtd} créditos ${tipo === 'pagos' ? 'pagos' : 'bônus'} creditados para ${usuarioSelecionado.nome || usuarioSelecionado.usuarioUnico}
+        `;
+
+        // Atualizar info na tela
+        const novoTotal = (usuarioSelecionado.creditos || 0) + qtd;
+        document.getElementById('userCreditos').textContent = novoTotal;
+        
+        if (tipo === 'pagos') {
+          const novosPagos = (usuarioSelecionado.creditosPagos || 0) + qtd;
+          document.getElementById('userCreditosPagos').textContent = novosPagos;
+        }
+
+        usuarioSelecionado.creditos = novoTotal;
+
+      } catch (error) {
+        console.error('Erro:', error);
+        const resultado = document.getElementById('resultado');
+        resultado.className = 'result error';
+        resultado.innerHTML = `❌ <strong>Erro:</strong> ${error.message}`;
+      }
+    }
+  </script>
+</body>
+</html>
