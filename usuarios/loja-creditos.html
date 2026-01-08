@@ -610,18 +610,193 @@
             document.getElementById('packagesGrid').style.pointerEvents = 'none';
           }
           
+          // PRIMEIRO: Verificar se voltou do Mercado Pago com pagamento aprovado
+          await processarRetornoMercadoPago();
+          
+          // Carregar histórico
           carregarHistorico();
-          
-          // Verificar URL de retorno do MP
-          verificarRetornoMP();
-          
-          // Verificar compras pendentes (PIX que pode ter sido pago)
-          verificarComprasPendentes();
         }
       } catch (error) {
         console.error("Erro:", error);
       }
     });
+
+    // ============================================
+    // FUNÇÃO PRINCIPAL: Processar retorno do MP
+    // ============================================
+    async function processarRetornoMercadoPago() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const status = urlParams.get('status');
+      const paymentId = urlParams.get('payment_id');
+      const externalRef = urlParams.get('external_reference') || urlParams.get('ref');
+      
+      // Limpar URL imediatamente
+      if (status) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
+      console.log('🔍 Retorno MP:', { status, paymentId, externalRef });
+
+      // Se não tem status, não veio do MP
+      if (!status) return;
+
+      // PAGAMENTO APROVADO!
+      if (status === 'approved' || status === 'success') {
+        
+        // Verificar se já processamos este pagamento
+        if (paymentId) {
+          const jaProcessado = await db.collection('pagamentos_mp').doc(paymentId).get();
+          if (jaProcessado.exists) {
+            showToast('✅ Este pagamento já foi creditado!');
+            return;
+          }
+        }
+
+        // Extrair dados da external_reference
+        // Formato: pacoteId_creditos_bonus_userId_timestamp
+        let creditos = 0;
+        let pacoteId = 0;
+        
+        if (externalRef) {
+          const parts = externalRef.split('_');
+          if (parts.length >= 2) {
+            pacoteId = parseInt(parts[0]) || 0;
+            creditos = parseInt(parts[1]) || 0;
+          }
+        }
+
+        // Se não conseguiu extrair, tentar pelo pacoteId
+        if (creditos === 0 && pacoteId > 0) {
+          const pacote = PACOTES.find(p => p.id === pacoteId);
+          if (pacote) creditos = pacote.creditos;
+        }
+
+        // Fallback: pacote básico
+        if (creditos === 0) creditos = 10;
+
+        console.log('💰 Creditando:', creditos, 'créditos');
+
+        try {
+          // 1. Creditar usuário
+          await db.collection('usuarios').doc(currentUserId).update({
+            creditos: firebase.firestore.FieldValue.increment(creditos),
+            creditosPagos: firebase.firestore.FieldValue.increment(creditos)
+          });
+
+          // 2. Registrar pagamento (evita duplicação)
+          if (paymentId) {
+            await db.collection('pagamentos_mp').doc(paymentId).set({
+              usuarioId: currentUserId,
+              creditos: creditos,
+              status: 'aprovado',
+              externalReference: externalRef || '',
+              processadoEm: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          }
+
+          // 3. Registrar na coleção compras
+          await db.collection('compras').add({
+            usuarioId: currentUserId,
+            pacoteId: pacoteId,
+            creditos: creditos,
+            valor: PACOTES.find(p => p.id === pacoteId)?.preco || 4.90,
+            metodoPagamento: 'mercadopago',
+            paymentId: paymentId || 'pix_' + Date.now(),
+            status: 'aprovado',
+            data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          // 4. Atualizar tela
+          const novoSaldo = (currentUserData.creditos || 0) + creditos;
+          document.getElementById('currentBalance').textContent = novoSaldo;
+          currentUserData.creditos = novoSaldo;
+
+          showToast(`🎉 +${creditos} créditos adicionados!`);
+          console.log('✅ Pagamento processado com sucesso!');
+
+        } catch (error) {
+          console.error('❌ Erro ao creditar:', error);
+          showToast('❌ Erro ao creditar. Contate o suporte com o ID: ' + (paymentId || 'N/A'));
+        }
+
+      } else if (status === 'pending') {
+        showToast('⏳ Pagamento pendente. Após pagar, volte aqui e clique em "Verificar PIX"');
+      } else if (status === 'failure' || status === 'rejected') {
+        showToast('❌ Pagamento não aprovado. Tente novamente.');
+      }
+    }
+
+    // ============================================
+    // Verificar PIX pendente (botão manual)
+    // ============================================
+    async function verificarPagamentosManual() {
+      showToast('🔍 Verificando pagamentos...');
+      
+      try {
+        // Buscar os últimos pagamentos deste usuário na API do MP
+        const response = await fetch(`/api/verificar-pagamento?userId=${currentUserId}`);
+        const data = await response.json();
+        
+        console.log('📡 Resposta verificação:', data);
+
+        if (data.approved && data.paymentId) {
+          // Verificar se já processamos
+          const jaProcessado = await db.collection('pagamentos_mp').doc(data.paymentId).get();
+          
+          if (jaProcessado.exists) {
+            showToast('✅ Pagamentos já estão creditados!');
+            return;
+          }
+
+          // Extrair créditos da external_reference
+          let creditos = 10;
+          if (data.externalReference) {
+            const parts = data.externalReference.split('_');
+            if (parts.length >= 2) {
+              creditos = parseInt(parts[1]) || 10;
+            }
+          }
+
+          // Creditar
+          await db.collection('usuarios').doc(currentUserId).update({
+            creditos: firebase.firestore.FieldValue.increment(creditos),
+            creditosPagos: firebase.firestore.FieldValue.increment(creditos)
+          });
+
+          await db.collection('pagamentos_mp').doc(data.paymentId).set({
+            usuarioId: currentUserId,
+            creditos: creditos,
+            status: 'aprovado',
+            externalReference: data.externalReference || '',
+            processadoEm: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          await db.collection('compras').add({
+            usuarioId: currentUserId,
+            creditos: creditos,
+            valor: 4.90,
+            metodoPagamento: 'pix',
+            paymentId: data.paymentId,
+            status: 'aprovado',
+            data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          const novoSaldo = (currentUserData.creditos || 0) + creditos;
+          document.getElementById('currentBalance').textContent = novoSaldo;
+          currentUserData.creditos = novoSaldo;
+
+          showToast(`🎉 +${creditos} créditos adicionados!`);
+          carregarHistorico();
+
+        } else {
+          showToast('⏳ Nenhum pagamento aprovado encontrado.');
+        }
+
+      } catch (error) {
+        console.error('Erro:', error);
+        showToast('❌ Erro ao verificar. Tente novamente.');
+      }
+    }
 
     // Verificar retorno direto do Mercado Pago (cartão, etc)
     async function verificarRetornoMP() {
@@ -896,23 +1071,11 @@
         });
 
         const data = await response.json();
+        console.log('📡 Resposta da API:', data);
 
         if (data.success && data.initPoint) {
-          // Salvar compra como PENDENTE antes de redirecionar
-          await db.collection('compras').add({
-            usuarioId: currentUserId,
-            pacoteId: pacote.id,
-            creditos: pacote.creditos,
-            valor: pacote.preco,
-            metodoPagamento: 'mercadopago',
-            preferenceId: data.preferenceId,
-            status: 'pendente',
-            data: firebase.firestore.FieldValue.serverTimestamp()
-          });
-
-          console.log('✅ Compra pendente salva, redirecionando...');
-          
           // Redirecionar para o Mercado Pago
+          // Os créditos serão processados no RETORNO (quando voltar com status=approved)
           window.location.href = data.initPoint;
         } else {
           throw new Error(data.error || 'Erro ao criar pagamento');
