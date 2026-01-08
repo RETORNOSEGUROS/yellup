@@ -674,19 +674,29 @@
 
         for (const doc of comprasSnapshot.docs) {
           const compra = doc.data();
+          console.log('📦 Compra pendente:', doc.id, compra);
           
-          // Se tem preferenceId, verificar status via API
+          // Tentar verificar por preferenceId primeiro
+          let statusResult = null;
+          
           if (compra.preferenceId) {
-            const statusResult = await verificarStatusPagamento(compra.preferenceId);
-            
-            if (statusResult && statusResult.approved) {
-              await processarCompraAprovada(doc.id, compra, statusResult.paymentId);
-            } else if (statusResult && statusResult.expired) {
-              // Marcar como expirado
-              await db.collection('compras').doc(doc.id).update({
-                status: 'expirado'
-              });
-            }
+            statusResult = await verificarStatusPagamento({ preferenceId: compra.preferenceId });
+          }
+          
+          // Se não encontrou, tentar buscar todos os pagamentos do usuário
+          if (!statusResult || !statusResult.approved) {
+            statusResult = await verificarStatusPagamento({ userId: currentUserId });
+          }
+          
+          console.log('📊 Resultado da verificação:', statusResult);
+          
+          if (statusResult && statusResult.approved) {
+            await processarCompraAprovada(doc.id, compra, statusResult.paymentId);
+          } else if (statusResult && statusResult.expired) {
+            // Marcar como expirado
+            await db.collection('compras').doc(doc.id).update({
+              status: 'expirado'
+            });
           }
         }
       } catch (error) {
@@ -695,11 +705,22 @@
     }
 
     // Verificar status do pagamento via API
-    async function verificarStatusPagamento(preferenceId) {
+    async function verificarStatusPagamento(params) {
       try {
-        const response = await fetch(`/api/verificar-pagamento?preferenceId=${preferenceId}`);
+        const queryParams = new URLSearchParams();
+        if (params.preferenceId) queryParams.append('preferenceId', params.preferenceId);
+        if (params.externalReference) queryParams.append('externalReference', params.externalReference);
+        if (params.userId) queryParams.append('userId', params.userId);
+        
+        const url = `/api/verificar-pagamento?${queryParams.toString()}`;
+        console.log('🔗 Verificando:', url);
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        console.log('📡 Resposta API:', data);
+        
         if (response.ok) {
-          return await response.json();
+          return data;
         }
       } catch (error) {
         console.error('Erro ao verificar pagamento:', error);
@@ -710,19 +731,24 @@
     // Processar compra aprovada
     async function processarCompraAprovada(compraId, compra, paymentId) {
       try {
+        console.log('🔄 Processando compra:', compraId, compra);
+        
         // Verificar se já foi creditado
         const compraDoc = await db.collection('compras').doc(compraId).get();
         if (compraDoc.data().status === 'aprovado') {
+          console.log('⚠️ Compra já processada');
           return; // Já processado
         }
 
         const creditosComprados = compra.creditos || 0;
+        console.log('💰 Creditando', creditosComprados, 'créditos para', currentUserId);
 
         // Atualizar créditos do usuário
         await db.collection('usuarios').doc(currentUserId).update({
           creditos: firebase.firestore.FieldValue.increment(creditosComprados),
           creditosPagos: firebase.firestore.FieldValue.increment(creditosComprados)
         });
+        console.log('✅ Créditos do usuário atualizados');
 
         // Marcar compra como aprovada
         await db.collection('compras').doc(compraId).update({
@@ -730,6 +756,7 @@
           paymentId: paymentId || 'pix',
           aprovadoEm: firebase.firestore.FieldValue.serverTimestamp()
         });
+        console.log('✅ Compra marcada como aprovada');
 
         // Atualizar saldo na tela
         const novoSaldo = (currentUserData.creditos || 0) + creditosComprados;
@@ -741,7 +768,8 @@
 
         console.log(`✅ Compra ${compraId} processada: +${creditosComprados} créditos`);
       } catch (error) {
-        console.error('Erro ao processar compra:', error);
+        console.error('❌ Erro ao processar compra:', error);
+        showToast(`❌ Erro: ${error.message || 'Falha ao creditar'}`);
       }
     }
 
@@ -968,14 +996,25 @@
 
         for (const doc of comprasSnapshot.docs) {
           const compra = doc.data();
+          console.log('📦 Verificando compra:', doc.id, compra);
+          
+          // Tentar por preferenceId primeiro
+          let statusResult = null;
           
           if (compra.preferenceId) {
-            const statusResult = await verificarStatusPagamento(compra.preferenceId);
-            
-            if (statusResult && statusResult.approved) {
-              await processarCompraAprovada(doc.id, compra, statusResult.paymentId);
-              encontrouAprovado = true;
-            }
+            statusResult = await verificarStatusPagamento({ preferenceId: compra.preferenceId });
+          }
+          
+          // Se não encontrou, buscar por userId
+          if (!statusResult || !statusResult.approved) {
+            statusResult = await verificarStatusPagamento({ userId: currentUserId });
+          }
+          
+          console.log('📊 Resultado:', statusResult);
+          
+          if (statusResult && statusResult.approved) {
+            await processarCompraAprovada(doc.id, compra, statusResult.paymentId);
+            encontrouAprovado = true;
           }
         }
 
@@ -991,7 +1030,7 @@
       }
     }
 
-    console.log("✅ Loja de Créditos v3.0 - Mercado Pago + PIX");
+    console.log("✅ Loja de Créditos v3.1 - Mercado Pago + PIX");
   </script>
 
 </body>
