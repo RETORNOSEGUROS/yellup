@@ -46,12 +46,11 @@ export default async function handler(req, res) {
       },
       // Referência externa simplificada
       external_reference: externalRef,
-      // Habilitar todos os métodos de pagamento incluindo PIX
+      // Habilitar TODOS os métodos de pagamento
       payment_methods: {
         excluded_payment_methods: [],
         excluded_payment_types: [],
-        installments: 1,
-        default_payment_method_id: 'pix'
+        installments: 12
       },
       back_urls: {
         success: `https://yellup.vercel.app/usuarios/loja-creditos.html?status=success&ref=${externalRef}`,
