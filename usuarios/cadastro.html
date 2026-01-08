@@ -240,7 +240,7 @@
       <h2 class="card-title">📝 Criar Conta</h2>
 
       <div class="bonus-info">
-        🎁 Ganhe <strong>50 créditos</strong> ao se cadastrar!
+        🎁 Ganhe <strong>20 créditos</strong> ao se cadastrar!
       </div>
 
       <form id="formCadastro" onsubmit="return false;">
@@ -267,7 +267,21 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Celular</label>
-            <input type="tel" class="form-control" id="celular" placeholder="(00) 00000-0000" required>
+            <div style="display: flex; gap: 8px;">
+              <select class="form-control" id="codigoPais" style="width: 100px; flex-shrink: 0;">
+                <option value="+55">🇧🇷 +55</option>
+                <option value="+351">🇵🇹 +351</option>
+                <option value="+54">🇦🇷 +54</option>
+                <option value="+1">🇺🇸 +1</option>
+                <option value="+34">🇪🇸 +34</option>
+                <option value="+39">🇮🇹 +39</option>
+                <option value="+33">🇫🇷 +33</option>
+                <option value="+44">🇬🇧 +44</option>
+                <option value="+49">🇩🇪 +49</option>
+                <option value="+81">🇯🇵 +81</option>
+              </select>
+              <input type="tel" class="form-control" id="celular" placeholder="(00) 00000-0000" required maxlength="15" oninput="mascaraTelefone(this)">
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">Data de Nascimento</label>
@@ -383,25 +397,55 @@
     // ===================================
     async function carregarPaises() {
       const select = document.getElementById("pais");
-      try {
-        const snapshot = await db.collection("paises").orderBy("nome").get();
-        select.innerHTML = '<option value="">Selecione o país</option>';
-        
-        if (snapshot.empty) {
-          // Fallback se não tiver países cadastrados
-          select.innerHTML += '<option value="Brasil">Brasil</option>';
-          select.innerHTML += '<option value="Portugal">Portugal</option>';
-          select.innerHTML += '<option value="Argentina">Argentina</option>';
-        } else {
-          snapshot.forEach(doc => {
-            const nome = doc.data().nome || doc.id;
-            select.innerHTML += `<option value="${nome}">${nome}</option>`;
-          });
-        }
-      } catch (error) {
-        console.error("Erro ao carregar países:", error);
-        select.innerHTML = '<option value="Brasil">Brasil</option>';
+      
+      // Lista fixa com Brasil primeiro
+      const paisesFixos = [
+        "Brasil",
+        "Portugal", 
+        "Argentina",
+        "Uruguai",
+        "Paraguai",
+        "Chile",
+        "Colômbia",
+        "México",
+        "Estados Unidos",
+        "Espanha",
+        "Itália",
+        "França",
+        "Alemanha",
+        "Inglaterra",
+        "Japão",
+        "Outros"
+      ];
+      
+      select.innerHTML = '<option value="">Selecione o país</option>';
+      paisesFixos.forEach(pais => {
+        select.innerHTML += `<option value="${pais}">${pais}</option>`;
+      });
+    }
+
+    // ===================================
+    // 📱 MÁSCARA DE TELEFONE
+    // ===================================
+    function mascaraTelefone(input) {
+      let valor = input.value.replace(/\D/g, ''); // Remove tudo que não é número
+      
+      if (valor.length > 11) {
+        valor = valor.slice(0, 11);
       }
+      
+      if (valor.length > 0) {
+        // Formato: (XX) XXXXX-XXXX
+        if (valor.length <= 2) {
+          valor = `(${valor}`;
+        } else if (valor.length <= 7) {
+          valor = `(${valor.slice(0,2)}) ${valor.slice(2)}`;
+        } else {
+          valor = `(${valor.slice(0,2)}) ${valor.slice(2,7)}-${valor.slice(7)}`;
+        }
+      }
+      
+      input.value = valor;
     }
 
     // ===================================
@@ -435,7 +479,10 @@
       const email = document.getElementById('email').value.trim().toLowerCase();
       const senha = document.getElementById('senha').value;
       const usuario = document.getElementById('usuario').value.trim().toLowerCase().replace(/\s+/g, '');
-      const celular = document.getElementById('celular').value.trim();
+      const codigoPais = document.getElementById('codigoPais').value;
+      const celularInput = document.getElementById('celular').value.trim();
+      const celular = codigoPais + ' ' + celularInput; // Formato: +55 (XX) XXXXX-XXXX
+      const celularLimpo = (codigoPais + celularInput).replace(/\D/g, ''); // Só números para validação
       const cidade = document.getElementById('cidade').value.trim();
       const estado = document.getElementById('estado').value.trim().toUpperCase();
       const pais = document.getElementById('pais').value;
@@ -446,7 +493,7 @@
       errorDiv.style.display = 'none';
       successDiv.style.display = 'none';
 
-      if (!nome || !email || !senha || !usuario || !celular || !cidade || !estado || !pais || !dataNascimento || !timeId) {
+      if (!nome || !email || !senha || !usuario || !celularInput || !cidade || !estado || !pais || !dataNascimento || !timeId) {
         errorDiv.textContent = '❌ Preencha todos os campos!';
         errorDiv.style.display = 'block';
         return;
@@ -464,9 +511,17 @@
         return;
       }
 
+      // Validar formato do celular (mínimo 10 dígitos sem código do país)
+      const celularNumeros = celularInput.replace(/\D/g, '');
+      if (celularNumeros.length < 10 || celularNumeros.length > 11) {
+        errorDiv.textContent = '❌ Celular inválido! Use o formato (XX) XXXXX-XXXX';
+        errorDiv.style.display = 'block';
+        return;
+      }
+
       // Desabilitar botão
       btn.disabled = true;
-      btn.textContent = '⏳ Criando conta...';
+      btn.textContent = '⏳ Verificando dados...';
 
       try {
         // Verificar se usuário já existe
@@ -482,6 +537,36 @@
           return;
         }
 
+        // Verificar se email já existe
+        btn.textContent = '⏳ Verificando e-mail...';
+        const existeEmail = await db.collection("usuarios")
+          .where("email", "==", email)
+          .get();
+
+        if (!existeEmail.empty) {
+          errorDiv.textContent = '❌ Este e-mail já está cadastrado!';
+          errorDiv.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = '🚀 Criar Minha Conta';
+          return;
+        }
+
+        // Verificar se celular já existe
+        btn.textContent = '⏳ Verificando celular...';
+        const existeCelular = await db.collection("usuarios")
+          .where("celularLimpo", "==", celularLimpo)
+          .get();
+
+        if (!existeCelular.empty) {
+          errorDiv.textContent = '❌ Este celular já está cadastrado!';
+          errorDiv.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = '🚀 Criar Minha Conta';
+          return;
+        }
+
+        btn.textContent = '⏳ Criando conta...';
+
         // Criar usuário no Firebase Auth
         const userCredential = await auth.createUserWithEmailAndPassword(email, senha);
         const uid = userCredential.user.uid;
@@ -493,6 +578,7 @@
           nome,
           email,
           celular,
+          celularLimpo,  // Só números para validação de unicidade
           cidade,
           estado,
           pais,
