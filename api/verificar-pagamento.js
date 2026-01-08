@@ -19,27 +19,38 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { preferenceId } = req.query;
+    const { preferenceId, externalReference, userId } = req.query;
 
-    if (!preferenceId) {
-      return res.status(400).json({ error: 'preferenceId é obrigatório' });
+    console.log('🔍 Verificando pagamento:', { preferenceId, externalReference, userId });
+
+    let searchUrl;
+    
+    // Priorizar busca por external_reference (mais confiável para PIX)
+    if (externalReference) {
+      searchUrl = `https://api.mercadopago.com/v1/payments/search?external_reference=${externalReference}&sort=date_created&criteria=desc`;
+    } else if (preferenceId) {
+      searchUrl = `https://api.mercadopago.com/v1/payments/search?preference_id=${preferenceId}&sort=date_created&criteria=desc`;
+    } else if (userId) {
+      // Buscar pagamentos recentes do usuário (últimos 30 dias)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      searchUrl = `https://api.mercadopago.com/v1/payments/search?sort=date_created&criteria=desc&range=date_created&begin_date=${thirtyDaysAgo.toISOString()}&end_date=${new Date().toISOString()}`;
+    } else {
+      return res.status(400).json({ error: 'preferenceId, externalReference ou userId é obrigatório' });
     }
 
-    console.log('🔍 Verificando pagamento para preference:', preferenceId);
+    console.log('🔗 URL de busca:', searchUrl);
 
-    // Buscar pagamentos associados a esta preferência
-    const searchResponse = await fetch(
-      `https://api.mercadopago.com/v1/payments/search?preference_id=${preferenceId}&sort=date_created&criteria=desc`,
-      {
-        headers: {
-          'Authorization': `Bearer ${MP_ACCESS_TOKEN}`
-        }
+    const searchResponse = await fetch(searchUrl, {
+      headers: {
+        'Authorization': `Bearer ${MP_ACCESS_TOKEN}`
       }
-    );
+    });
 
     if (!searchResponse.ok) {
-      console.error('Erro ao buscar pagamentos');
-      return res.status(500).json({ error: 'Erro ao buscar pagamentos' });
+      const errorText = await searchResponse.text();
+      console.error('Erro ao buscar pagamentos:', errorText);
+      return res.status(500).json({ error: 'Erro ao buscar pagamentos', details: errorText });
     }
 
     const searchData = await searchResponse.json();
@@ -47,29 +58,6 @@ export default async function handler(req, res) {
     console.log(`📦 Encontrados ${searchData.results?.length || 0} pagamentos`);
 
     if (!searchData.results || searchData.results.length === 0) {
-      // Verificar se a preferência existe e se expirou
-      const prefResponse = await fetch(
-        `https://api.mercadopago.com/checkout/preferences/${preferenceId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${MP_ACCESS_TOKEN}`
-          }
-        }
-      );
-
-      if (prefResponse.ok) {
-        const prefData = await prefResponse.json();
-        const expirationDate = new Date(prefData.expiration_date_to);
-        
-        if (expirationDate < new Date()) {
-          return res.status(200).json({
-            approved: false,
-            expired: true,
-            message: 'Pagamento expirado'
-          });
-        }
-      }
-
       return res.status(200).json({
         approved: false,
         pending: true,
@@ -77,23 +65,32 @@ export default async function handler(req, res) {
       });
     }
 
+    // Se buscou por userId, filtrar os que contém o userId na external_reference
+    let payments = searchData.results;
+    if (userId && !externalReference && !preferenceId) {
+      payments = payments.filter(p => 
+        p.external_reference && p.external_reference.includes(userId)
+      );
+    }
+
     // Verificar se algum pagamento foi aprovado
-    const approvedPayment = searchData.results.find(p => p.status === 'approved');
+    const approvedPayment = payments.find(p => p.status === 'approved');
     
     if (approvedPayment) {
-      console.log('✅ Pagamento aprovado encontrado:', approvedPayment.id);
+      console.log('✅ Pagamento aprovado encontrado:', approvedPayment.id, approvedPayment.external_reference);
       return res.status(200).json({
         approved: true,
         paymentId: String(approvedPayment.id),
         status: 'approved',
         amount: approvedPayment.transaction_amount,
         paymentMethod: approvedPayment.payment_type_id,
-        dateApproved: approvedPayment.date_approved
+        dateApproved: approvedPayment.date_approved,
+        externalReference: approvedPayment.external_reference
       });
     }
 
     // Verificar pagamento pendente
-    const pendingPayment = searchData.results.find(p => 
+    const pendingPayment = payments.find(p => 
       p.status === 'pending' || p.status === 'in_process'
     );
 
@@ -103,18 +100,27 @@ export default async function handler(req, res) {
         pending: true,
         paymentId: String(pendingPayment.id),
         status: pendingPayment.status,
-        message: 'Pagamento pendente'
+        message: 'Pagamento pendente',
+        externalReference: pendingPayment.external_reference
       });
     }
 
     // Pagamento rejeitado ou outro status
-    const latestPayment = searchData.results[0];
+    const latestPayment = payments[0];
+    if (latestPayment) {
+      return res.status(200).json({
+        approved: false,
+        rejected: latestPayment.status === 'rejected',
+        status: latestPayment.status,
+        statusDetail: latestPayment.status_detail,
+        message: `Status: ${latestPayment.status}`,
+        externalReference: latestPayment.external_reference
+      });
+    }
+
     return res.status(200).json({
       approved: false,
-      rejected: latestPayment.status === 'rejected',
-      status: latestPayment.status,
-      statusDetail: latestPayment.status_detail,
-      message: `Status: ${latestPayment.status}`
+      message: 'Nenhum pagamento relevante encontrado'
     });
 
   } catch (error) {
