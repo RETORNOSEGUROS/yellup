@@ -19,27 +19,33 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { preferenceId } = req.query;
+    const { userId, preferenceId } = req.query;
 
-    // CRÍTICO: Só permite busca por preferenceId para segurança
-    if (!preferenceId) {
+    if (!userId && !preferenceId) {
       return res.status(400).json({ 
-        error: 'preferenceId é obrigatório',
+        error: 'userId ou preferenceId é obrigatório',
         approved: false 
       });
     }
 
-    console.log('🔍 Verificando pagamento para preference:', preferenceId);
+    let searchUrl;
+    
+    if (preferenceId) {
+      searchUrl = `https://api.mercadopago.com/v1/payments/search?preference_id=${preferenceId}&sort=date_created&criteria=desc`;
+    } else {
+      // Buscar pagamentos dos últimos 7 dias
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      searchUrl = `https://api.mercadopago.com/v1/payments/search?sort=date_created&criteria=desc&begin_date=${sevenDaysAgo.toISOString()}&end_date=${new Date().toISOString()}`;
+    }
 
-    // Buscar pagamentos associados a esta preferência específica
-    const searchResponse = await fetch(
-      `https://api.mercadopago.com/v1/payments/search?preference_id=${preferenceId}&sort=date_created&criteria=desc`,
-      {
-        headers: {
-          'Authorization': `Bearer ${MP_ACCESS_TOKEN}`
-        }
+    console.log('🔍 Buscando pagamentos:', searchUrl);
+
+    const searchResponse = await fetch(searchUrl, {
+      headers: {
+        'Authorization': `Bearer ${MP_ACCESS_TOKEN}`
       }
-    );
+    });
 
     if (!searchResponse.ok) {
       const errorText = await searchResponse.text();
@@ -51,34 +57,44 @@ export default async function handler(req, res) {
     }
 
     const searchData = await searchResponse.json();
+    let payments = searchData.results || [];
     
-    console.log(`📦 Encontrados ${searchData.results?.length || 0} pagamentos para preferenceId ${preferenceId}`);
+    console.log(`📦 Encontrados ${payments.length} pagamentos`);
 
-    if (!searchData.results || searchData.results.length === 0) {
+    // Se buscou por userId, filtrar os que contém o userId na external_reference
+    if (userId && !preferenceId) {
+      payments = payments.filter(p => 
+        p.external_reference && p.external_reference.includes(userId)
+      );
+      console.log(`📦 ${payments.length} pagamentos do usuário ${userId}`);
+    }
+
+    if (payments.length === 0) {
       return res.status(200).json({
         approved: false,
         pending: true,
-        message: 'Nenhum pagamento encontrado para esta preferência'
+        message: 'Nenhum pagamento encontrado'
       });
     }
 
     // Verificar se algum pagamento foi APROVADO
-    const approvedPayment = searchData.results.find(p => p.status === 'approved');
+    const approvedPayment = payments.find(p => p.status === 'approved');
     
     if (approvedPayment) {
-      console.log('✅ Pagamento APROVADO encontrado:', approvedPayment.id);
+      console.log('✅ Pagamento APROVADO:', approvedPayment.id);
       return res.status(200).json({
         approved: true,
         status: 'approved',
         paymentId: String(approvedPayment.id),
         amount: approvedPayment.transaction_amount,
         paymentMethod: approvedPayment.payment_type_id,
-        dateApproved: approvedPayment.date_approved
+        dateApproved: approvedPayment.date_approved,
+        externalReference: approvedPayment.external_reference
       });
     }
 
     // Verificar pagamento pendente
-    const pendingPayment = searchData.results.find(p => 
+    const pendingPayment = payments.find(p => 
       p.status === 'pending' || p.status === 'in_process'
     );
 
@@ -93,15 +109,10 @@ export default async function handler(req, res) {
       });
     }
 
-    // Pagamento rejeitado ou outro status
-    const latestPayment = searchData.results[0];
-    console.log('❌ Pagamento não aprovado:', latestPayment.status);
+    // Nenhum aprovado ou pendente
     return res.status(200).json({
       approved: false,
-      rejected: latestPayment.status === 'rejected',
-      status: latestPayment.status,
-      statusDetail: latestPayment.status_detail,
-      message: `Status: ${latestPayment.status}`
+      message: 'Nenhum pagamento aprovado encontrado'
     });
 
   } catch (error) {
