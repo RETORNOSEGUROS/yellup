@@ -66,13 +66,28 @@ export default async function handler(req, res) {
       // Verificar se o pagamento foi aprovado
       if (payment.status === 'approved') {
         
-        // Extrair dados da referência externa
+        // Extrair dados da referência externa (novo formato: pacoteId_creditos_bonus_userId_timestamp)
         let referenceData;
-        try {
-          referenceData = JSON.parse(payment.external_reference);
-        } catch (e) {
-          console.error('❌ Erro ao parsear external_reference:', payment.external_reference);
-          return res.status(200).json({ received: true, error: 'Referência inválida' });
+        const extRef = payment.external_reference || '';
+        
+        // Tentar primeiro o novo formato (string separada por _)
+        const parts = extRef.split('_');
+        if (parts.length >= 4) {
+          referenceData = {
+            pacoteId: parseInt(parts[0]) || 0,
+            creditos: parseInt(parts[1]) || 0,
+            bonus: parseInt(parts[2]) || 0,
+            userId: parts[3],
+            timestamp: parts[4] || ''
+          };
+        } else {
+          // Fallback para formato antigo (JSON)
+          try {
+            referenceData = JSON.parse(extRef);
+          } catch (e) {
+            console.error('❌ Erro ao parsear external_reference:', extRef);
+            return res.status(200).json({ received: true, error: 'Referência inválida' });
+          }
         }
 
         const { userId, creditos, bonus, pacoteId } = referenceData;
@@ -82,8 +97,8 @@ export default async function handler(req, res) {
           return res.status(200).json({ received: true, error: 'Dados incompletos' });
         }
 
-        // Creditar os créditos usando Firebase REST API
-        const creditosTotal = creditos + (bonus || 0);
+        // Créditos comprados vão para creditosPagos (entram no pool de premiação)
+        const creditosComprados = creditos; // Créditos pagos
         
         // Verificar se já processamos este pagamento (evitar duplicação)
         const checkUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/pagamentos_mp/${paymentId}`;
@@ -103,7 +118,7 @@ export default async function handler(req, res) {
             fields: {
               paymentId: { stringValue: String(paymentId) },
               userId: { stringValue: userId },
-              creditos: { integerValue: creditosTotal },
+              creditos: { integerValue: creditosComprados },
               valor: { doubleValue: payment.transaction_amount },
               status: { stringValue: 'approved' },
               processedAt: { timestampValue: new Date().toISOString() },
@@ -112,7 +127,7 @@ export default async function handler(req, res) {
           })
         });
 
-        console.log(`✅ Pagamento ${paymentId} processado: +${creditosTotal} créditos para ${userId}`);
+        console.log(`✅ Pagamento ${paymentId} processado: +${creditosComprados} créditos pagos para ${userId}`);
 
         // Retornar sucesso
         // NOTA: A atualização dos créditos do usuário será feita pelo cliente
@@ -122,7 +137,7 @@ export default async function handler(req, res) {
           received: true, 
           processed: true,
           userId,
-          creditos: creditosTotal
+          creditos: creditosComprados
         });
       }
 
