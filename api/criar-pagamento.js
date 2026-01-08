@@ -25,37 +25,49 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Dados incompletos' });
     }
 
+    // External reference simples (máx 256 caracteres)
+    const externalRef = `${pacoteId}_${creditos}_${bonus || 0}_${userId}_${Date.now()}`;
+
     // Criar preferência de pagamento no Mercado Pago
     const preference = {
       items: [
         {
           id: `pacote_${pacoteId}`,
-          title: `Yellup - ${creditos} Créditos${bonus > 0 ? ` + ${bonus} Bônus` : ''}`,
-          description: `Pacote de ${creditos + bonus} créditos para jogar no Yellup`,
+          title: `Yellup - ${creditos} Créditos`,
+          description: `Pacote de ${creditos} créditos para jogar no Yellup`,
           quantity: 1,
           currency_id: 'BRL',
-          unit_price: preco
+          unit_price: parseFloat(preco)
         }
       ],
       payer: {
-        email: userEmail || 'cliente@yellup.com'
+        email: userEmail || 'cliente@yellup.com',
+        name: userName || 'Cliente Yellup'
       },
-      external_reference: JSON.stringify({
-        pacoteId,
-        creditos,
-        bonus,
-        userId,
-        timestamp: Date.now()
-      }),
+      // Referência externa simplificada
+      external_reference: externalRef,
+      // Habilitar todos os métodos de pagamento incluindo PIX
+      payment_methods: {
+        excluded_payment_methods: [],
+        excluded_payment_types: [],
+        installments: 1,
+        default_payment_method_id: 'pix'
+      },
       back_urls: {
-        success: 'https://yellup.vercel.app/usuarios/loja-creditos.html',
-        failure: 'https://yellup.vercel.app/usuarios/loja-creditos.html',
-        pending: 'https://yellup.vercel.app/usuarios/loja-creditos.html'
+        success: `https://yellup.vercel.app/usuarios/loja-creditos.html?status=success&ref=${externalRef}`,
+        failure: `https://yellup.vercel.app/usuarios/loja-creditos.html?status=failure&ref=${externalRef}`,
+        pending: `https://yellup.vercel.app/usuarios/loja-creditos.html?status=pending&ref=${externalRef}`
       },
       auto_return: 'approved',
       notification_url: 'https://yellup.vercel.app/api/webhook-mp',
-      statement_descriptor: 'YELLUP'
+      statement_descriptor: 'YELLUP',
+      // Expiração de 30 minutos
+      expires: true,
+      expiration_date_from: new Date().toISOString(),
+      expiration_date_to: new Date(Date.now() + 30 * 60 * 1000).toISOString()
     };
+
+    console.log('Criando preferência:', JSON.stringify(preference, null, 2));
 
     const response = await fetch('https://api.mercadopago.com/checkout/preferences', {
       method: 'POST',
@@ -73,6 +85,8 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Erro ao criar pagamento', details: data });
     }
 
+    console.log('Preferência criada:', data.id);
+
     return res.status(200).json({
       success: true,
       preferenceId: data.id,
@@ -82,6 +96,6 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Erro:', error);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
+    return res.status(500).json({ error: 'Erro interno do servidor', message: error.message });
   }
 }
