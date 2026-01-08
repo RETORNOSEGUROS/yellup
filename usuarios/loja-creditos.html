@@ -676,27 +676,26 @@
           const compra = doc.data();
           console.log('📦 Compra pendente:', doc.id, compra);
           
-          // Tentar verificar por preferenceId primeiro
-          let statusResult = null;
-          
-          if (compra.preferenceId) {
-            statusResult = await verificarStatusPagamento({ preferenceId: compra.preferenceId });
+          // IMPORTANTE: Só verificar se tem preferenceId
+          // Não buscar por userId para evitar creditar pagamentos antigos
+          if (!compra.preferenceId) {
+            console.log('⚠️ Compra sem preferenceId, ignorando');
+            continue;
           }
           
-          // Se não encontrou, tentar buscar todos os pagamentos do usuário
-          if (!statusResult || !statusResult.approved) {
-            statusResult = await verificarStatusPagamento({ userId: currentUserId });
-          }
-          
+          const statusResult = await verificarStatusPagamento({ preferenceId: compra.preferenceId });
           console.log('📊 Resultado da verificação:', statusResult);
           
-          if (statusResult && statusResult.approved) {
+          // CRÍTICO: Só creditar se o pagamento foi APROVADO
+          if (statusResult && statusResult.approved === true && statusResult.status === 'approved') {
             await processarCompraAprovada(doc.id, compra, statusResult.paymentId);
           } else if (statusResult && statusResult.expired) {
             // Marcar como expirado
             await db.collection('compras').doc(doc.id).update({
               status: 'expirado'
             });
+          } else {
+            console.log('⏳ Pagamento ainda não aprovado');
           }
         }
       } catch (error) {
@@ -707,12 +706,13 @@
     // Verificar status do pagamento via API
     async function verificarStatusPagamento(params) {
       try {
-        const queryParams = new URLSearchParams();
-        if (params.preferenceId) queryParams.append('preferenceId', params.preferenceId);
-        if (params.externalReference) queryParams.append('externalReference', params.externalReference);
-        if (params.userId) queryParams.append('userId', params.userId);
+        // CRÍTICO: Só permite preferenceId para evitar buscar pagamentos antigos
+        if (!params.preferenceId) {
+          console.log('⚠️ preferenceId obrigatório');
+          return null;
+        }
         
-        const url = `/api/verificar-pagamento?${queryParams.toString()}`;
+        const url = `/api/verificar-pagamento?preferenceId=${params.preferenceId}`;
         console.log('🔗 Verificando:', url);
         
         const response = await fetch(url);
@@ -998,21 +998,17 @@
           const compra = doc.data();
           console.log('📦 Verificando compra:', doc.id, compra);
           
-          // Tentar por preferenceId primeiro
-          let statusResult = null;
-          
-          if (compra.preferenceId) {
-            statusResult = await verificarStatusPagamento({ preferenceId: compra.preferenceId });
+          // CRÍTICO: Só verificar se tem preferenceId
+          if (!compra.preferenceId) {
+            console.log('⚠️ Compra sem preferenceId');
+            continue;
           }
           
-          // Se não encontrou, buscar por userId
-          if (!statusResult || !statusResult.approved) {
-            statusResult = await verificarStatusPagamento({ userId: currentUserId });
-          }
-          
+          const statusResult = await verificarStatusPagamento({ preferenceId: compra.preferenceId });
           console.log('📊 Resultado:', statusResult);
           
-          if (statusResult && statusResult.approved) {
+          // CRÍTICO: Só creditar se REALMENTE aprovado
+          if (statusResult && statusResult.approved === true && statusResult.status === 'approved') {
             await processarCompraAprovada(doc.id, compra, statusResult.paymentId);
             encontrouAprovado = true;
           }
