@@ -995,9 +995,12 @@
         document.getElementById('countMinutes').textContent = '00';
         document.getElementById('countSeconds').textContent = '00';
         
-        // Recarregar para atualizar status
+        // Se o embate estava aguardando e chegou a hora, iniciar!
         if (embateData.status === 'aguardando') {
-          setTimeout(() => location.reload(), 2000);
+          iniciarEmbateAgora();
+        } else if (embateData.status === 'em_andamento') {
+          // Se estava em andamento e o tempo acabou, finalizar
+          finalizarEmbate();
         }
         return;
       }
@@ -1011,6 +1014,118 @@
       document.getElementById('countHours').textContent = String(hours).padStart(2, '0');
       document.getElementById('countMinutes').textContent = String(minutes).padStart(2, '0');
       document.getElementById('countSeconds').textContent = String(seconds).padStart(2, '0');
+    }
+
+    // ===================================
+    // 🚀 INICIAR EMBATE AGORA
+    // ===================================
+    async function iniciarEmbateAgora() {
+      try {
+        // Atualizar status para em_andamento
+        await db.collection('embates').doc(embateId).update({
+          status: 'em_andamento'
+        });
+        
+        showToast('🎮 Embate iniciado! Entrando na arena...');
+        
+        // Redirecionar para arena
+        setTimeout(() => {
+          window.location.href = `arena-embate.html?id=${embateId}`;
+        }, 1500);
+        
+      } catch (error) {
+        console.error("Erro ao iniciar embate:", error);
+        // Tenta recarregar mesmo assim
+        location.reload();
+      }
+    }
+
+    // ===================================
+    // 🏁 FINALIZAR EMBATE
+    // ===================================
+    async function finalizarEmbate() {
+      try {
+        // Buscar participações para calcular vencedor
+        const participacoesSnap = await db.collection('embates').doc(embateId)
+          .collection('participacoes').get();
+        
+        let ranking = [];
+        participacoesSnap.forEach(doc => {
+          ranking.push({ odId: doc.id, ...doc.data() });
+        });
+        
+        // Ordenar por pontos (maior primeiro)
+        ranking.sort((a, b) => b.pontos - a.pontos);
+        
+        // Determinar vencedor
+        let resultado = {};
+        if (ranking.length > 0) {
+          const vencedor = ranking[0];
+          const empate = ranking.length > 1 && ranking[0].pontos === ranking[1].pontos;
+          
+          resultado = {
+            vencedorId: empate ? null : vencedor.odId,
+            vencedorNome: empate ? null : vencedor.odNome,
+            pontuacaoVencedor: vencedor.pontos,
+            empate: empate,
+            ranking: ranking.map((r, i) => ({
+              posicao: i + 1,
+              odId: r.odId,
+              odNome: r.odNome,
+              pontos: r.pontos,
+              acertos: r.acertos,
+              erros: r.erros
+            }))
+          };
+          
+          // Distribuir prêmio
+          const premio = embateData.prizePool || embateData.aposta * 2;
+          
+          if (empate) {
+            // Dividir entre empatados
+            const empatados = ranking.filter(r => r.pontos === ranking[0].pontos);
+            const premioPorJogador = Math.floor(premio / empatados.length);
+            
+            for (const jogador of empatados) {
+              await db.collection('usuarios').doc(jogador.odId).update({
+                creditos: firebase.firestore.FieldValue.increment(premioPorJogador),
+                'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premioPorJogador)
+              });
+            }
+          } else {
+            // Dar tudo ao vencedor
+            await db.collection('usuarios').doc(vencedor.odId).update({
+              creditos: firebase.firestore.FieldValue.increment(premio),
+              'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
+              'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premio)
+            });
+            
+            // Atualizar derrotas dos perdedores
+            for (const jogador of ranking.slice(1)) {
+              await db.collection('usuarios').doc(jogador.odId).update({
+                'pvp.derrotas': firebase.firestore.FieldValue.increment(1)
+              });
+            }
+          }
+        }
+        
+        // Atualizar embate como finalizado
+        await db.collection('embates').doc(embateId).update({
+          status: 'finalizado',
+          resultado: resultado
+        });
+        
+        showToast('🏁 Embate finalizado!');
+        
+        // Redirecionar para resultado
+        setTimeout(() => {
+          window.location.href = `resultado-embate.html?id=${embateId}`;
+        }, 2000);
+        
+      } catch (error) {
+        console.error("Erro ao finalizar embate:", error);
+        location.reload();
+      }
     }
 
     // ===================================
