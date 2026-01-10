@@ -1152,19 +1152,69 @@
       // Número da pergunta
       document.getElementById('questionNumber').textContent = `Pergunta #${gameState.totalPerguntas}`;
       
-      // Texto
-      document.getElementById('questionText').textContent = pergunta.pergunta;
+      // Texto da pergunta (suporta diferentes campos)
+      const textoPergunta = pergunta.pergunta || pergunta.texto || pergunta.question || '';
+      document.getElementById('questionText').textContent = textoPergunta;
       
-      // Alternativas
-      const opcoes = pergunta.alternativas || [];
+      // Alternativas - suporta diferentes estruturas
+      let opcoes = [];
+      
+      // Estrutura 1: array de alternativas
+      if (Array.isArray(pergunta.alternativas)) {
+        opcoes = pergunta.alternativas;
+      } 
+      // Estrutura 2: array de opcoes
+      else if (Array.isArray(pergunta.opcoes)) {
+        opcoes = pergunta.opcoes;
+      }
+      // Estrutura 3: array de respostas
+      else if (Array.isArray(pergunta.respostas)) {
+        opcoes = pergunta.respostas;
+      }
+      // Estrutura 4: campos individuais (opcaoA, opcaoB, opcaoC, opcaoD)
+      else if (pergunta.opcaoA || pergunta.opcao_a) {
+        opcoes = [
+          pergunta.opcaoA || pergunta.opcao_a || '',
+          pergunta.opcaoB || pergunta.opcao_b || '',
+          pergunta.opcaoC || pergunta.opcao_c || '',
+          pergunta.opcaoD || pergunta.opcao_d || ''
+        ].filter(o => o);
+      }
+      // Estrutura 5: a, b, c, d
+      else if (pergunta.a || pergunta.A) {
+        opcoes = [
+          pergunta.a || pergunta.A || '',
+          pergunta.b || pergunta.B || '',
+          pergunta.c || pergunta.C || '',
+          pergunta.d || pergunta.D || ''
+        ].filter(o => o);
+      }
+      
+      console.log("Pergunta:", pergunta);
+      console.log("Opções encontradas:", opcoes);
+      
       const letras = ['A', 'B', 'C', 'D'];
       
-      document.getElementById('optionsList').innerHTML = opcoes.map((opcao, i) => `
-        <button class="option-btn" onclick="responderPergunta('${letras[i]}')" data-letra="${letras[i]}">
-          <span class="option-letter">${letras[i]}</span>
-          <span class="option-text">${opcao.texto || opcao}</span>
-        </button>
-      `).join('');
+      document.getElementById('optionsList').innerHTML = opcoes.map((opcao, i) => {
+        // Suporta opção como string ou objeto
+        const textoOpcao = typeof opcao === 'string' ? opcao : (opcao.texto || opcao.text || opcao.label || opcao);
+        return `
+          <button class="option-btn" onclick="responderPergunta('${letras[i]}')" data-letra="${letras[i]}">
+            <span class="option-letter">${letras[i]}</span>
+            <span class="option-text">${textoOpcao}</span>
+          </button>
+        `;
+      }).join('');
+      
+      // Se não encontrou opções, mostrar erro
+      if (opcoes.length === 0) {
+        document.getElementById('optionsList').innerHTML = `
+          <div style="color: #f59e0b; text-align: center; padding: 20px;">
+            ⚠️ Erro: Alternativas não encontradas<br>
+            <small>Estrutura da pergunta: ${Object.keys(pergunta).join(', ')}</small>
+          </div>
+        `;
+      }
       
       // Iniciar timer da pergunta
       iniciarTimerPergunta();
@@ -1220,8 +1270,26 @@
         btn.disabled = true;
       });
       
+      // Buscar resposta correta - suporta diferentes estruturas
+      let correta = gameState.perguntaAtual.correta 
+        || gameState.perguntaAtual.respostaCorreta 
+        || gameState.perguntaAtual.resposta
+        || gameState.perguntaAtual.answer
+        || gameState.perguntaAtual.correct
+        || 'A';
+      
+      // Se for número, converter para letra
+      if (typeof correta === 'number') {
+        const letras = ['A', 'B', 'C', 'D'];
+        correta = letras[correta] || 'A';
+      }
+      
+      // Se for minúscula, converter para maiúscula
+      if (typeof correta === 'string') {
+        correta = correta.toUpperCase();
+      }
+      
       // Mostrar resposta correta
-      const correta = gameState.perguntaAtual.correta;
       document.querySelectorAll('.option-btn').forEach(btn => {
         if (btn.dataset.letra === correta) {
           btn.classList.add('correct');
@@ -1248,18 +1316,41 @@
       });
       
       const tempoResposta = 10 - questionTimeLeft;
-      const correta = gameState.perguntaAtual.correta;
+      
+      // Buscar resposta correta - suporta diferentes estruturas
+      let correta = gameState.perguntaAtual.correta 
+        || gameState.perguntaAtual.respostaCorreta 
+        || gameState.perguntaAtual.resposta
+        || gameState.perguntaAtual.answer
+        || gameState.perguntaAtual.correct
+        || 'A';
+      
+      // Se for número (0, 1, 2, 3), converter para letra
+      if (typeof correta === 'number') {
+        const letras = ['A', 'B', 'C', 'D'];
+        correta = letras[correta] || 'A';
+      }
+      
+      // Se for minúscula, converter para maiúscula
+      if (typeof correta === 'string') {
+        correta = correta.toUpperCase();
+      }
+      
+      console.log("Resposta correta:", correta, "| Selecionada:", letra);
+      
       const acertou = letra === correta;
       
       // Marcar selecionado
-      document.querySelector(`[data-letra="${letra}"]`).classList.add('selected');
+      const btnSelecionado = document.querySelector(`[data-letra="${letra}"]`);
+      if (btnSelecionado) btnSelecionado.classList.add('selected');
       
       // Mostrar correta
-      document.querySelector(`[data-letra="${correta}"]`).classList.add('correct');
+      const btnCorreta = document.querySelector(`[data-letra="${correta}"]`);
+      if (btnCorreta) btnCorreta.classList.add('correct');
       
       // Se errou, marcar errada
-      if (!acertou) {
-        document.querySelector(`[data-letra="${letra}"]`).classList.add('wrong');
+      if (!acertou && btnSelecionado) {
+        btnSelecionado.classList.add('wrong');
       }
       
       // Calcular pontos
