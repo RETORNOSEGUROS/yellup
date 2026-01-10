@@ -1076,28 +1076,47 @@
       btn.textContent = '⏳ Carregando...';
       
       try {
-        // Buscar pergunta do tema que não foi respondida
-        let query;
+        // Buscar perguntas
+        let perguntas = [];
         
-        if (embateData.tema?.tipo === 'time') {
-          query = db.collection('perguntas')
+        // Primeiro tenta buscar por tema específico
+        if (embateData.tema?.tipo === 'time' && embateData.tema?.id) {
+          const snapshotTime = await db.collection('perguntas')
             .where('timeId', '==', embateData.tema.id)
-            .limit(50);
-        } else {
-          query = db.collection('perguntas')
+            .limit(50)
+            .get();
+          
+          snapshotTime.forEach(doc => {
+            if (!gameState.perguntasRespondidas.includes(doc.id)) {
+              perguntas.push({ id: doc.id, ...doc.data() });
+            }
+          });
+        } else if (embateData.tema?.tipo === 'campeonato' && embateData.tema?.id) {
+          const snapshotCamp = await db.collection('perguntas')
             .where('campeonatoId', '==', embateData.tema.id)
-            .limit(50);
+            .limit(50)
+            .get();
+          
+          snapshotCamp.forEach(doc => {
+            if (!gameState.perguntasRespondidas.includes(doc.id)) {
+              perguntas.push({ id: doc.id, ...doc.data() });
+            }
+          });
         }
         
-        const snapshot = await query.get();
-        
-        let perguntas = [];
-        snapshot.forEach(doc => {
-          // Filtrar perguntas já respondidas
-          if (!gameState.perguntasRespondidas.includes(doc.id)) {
-            perguntas.push({ id: doc.id, ...doc.data() });
-          }
-        });
+        // Se não encontrou perguntas específicas, busca perguntas gerais
+        if (perguntas.length === 0) {
+          console.log("Buscando perguntas gerais...");
+          const snapshotGeral = await db.collection('perguntas')
+            .limit(100)
+            .get();
+          
+          snapshotGeral.forEach(doc => {
+            if (!gameState.perguntasRespondidas.includes(doc.id)) {
+              perguntas.push({ id: doc.id, ...doc.data() });
+            }
+          });
+        }
         
         // Se não há mais perguntas
         if (perguntas.length === 0) {
