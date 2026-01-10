@@ -1159,29 +1159,39 @@
       // Alternativas - suporta diferentes estruturas
       let opcoes = [];
       
-      // Estrutura 1: array de alternativas
-      if (Array.isArray(pergunta.alternativas)) {
-        opcoes = pergunta.alternativas;
-      } 
-      // Estrutura 2: array de opcoes
-      else if (Array.isArray(pergunta.opcoes)) {
-        opcoes = pergunta.opcoes;
+      // Debug completo
+      console.log("Pergunta completa:", JSON.stringify(pergunta, null, 2));
+      console.log("Tipo de alternativas:", typeof pergunta.alternativas);
+      console.log("Alternativas raw:", pergunta.alternativas);
+      
+      // Tentar pegar alternativas de várias formas
+      const altField = pergunta.alternativas || pergunta.opcoes || pergunta.respostas;
+      
+      if (altField) {
+        // Se já é array
+        if (Array.isArray(altField)) {
+          opcoes = altField;
+        }
+        // Se é objeto com índices numéricos (Firestore às vezes faz isso)
+        else if (typeof altField === 'object') {
+          // Converter objeto para array
+          const keys = Object.keys(altField).sort();
+          opcoes = keys.map(k => altField[k]);
+        }
       }
-      // Estrutura 3: array de respostas
-      else if (Array.isArray(pergunta.respostas)) {
-        opcoes = pergunta.respostas;
-      }
-      // Estrutura 4: campos individuais (opcaoA, opcaoB, opcaoC, opcaoD)
-      else if (pergunta.opcaoA || pergunta.opcao_a) {
+      
+      // Estrutura alternativa: campos individuais (opcaoA, opcaoB, opcaoC, opcaoD)
+      if (opcoes.length === 0 && (pergunta.opcaoA || pergunta.opcao_a || pergunta.alternativaA)) {
         opcoes = [
-          pergunta.opcaoA || pergunta.opcao_a || '',
-          pergunta.opcaoB || pergunta.opcao_b || '',
-          pergunta.opcaoC || pergunta.opcao_c || '',
-          pergunta.opcaoD || pergunta.opcao_d || ''
+          pergunta.opcaoA || pergunta.opcao_a || pergunta.alternativaA || '',
+          pergunta.opcaoB || pergunta.opcao_b || pergunta.alternativaB || '',
+          pergunta.opcaoC || pergunta.opcao_c || pergunta.alternativaC || '',
+          pergunta.opcaoD || pergunta.opcao_d || pergunta.alternativaD || ''
         ].filter(o => o);
       }
-      // Estrutura 5: a, b, c, d
-      else if (pergunta.a || pergunta.A) {
+      
+      // Estrutura alternativa: a, b, c, d
+      if (opcoes.length === 0 && (pergunta.a || pergunta.A)) {
         opcoes = [
           pergunta.a || pergunta.A || '',
           pergunta.b || pergunta.B || '',
@@ -1190,14 +1200,13 @@
         ].filter(o => o);
       }
       
-      console.log("Pergunta:", pergunta);
       console.log("Opções encontradas:", opcoes);
       
       const letras = ['A', 'B', 'C', 'D'];
       
       document.getElementById('optionsList').innerHTML = opcoes.map((opcao, i) => {
         // Suporta opção como string ou objeto
-        const textoOpcao = typeof opcao === 'string' ? opcao : (opcao.texto || opcao.text || opcao.label || opcao);
+        const textoOpcao = typeof opcao === 'string' ? opcao : (opcao.texto || opcao.text || opcao.label || String(opcao));
         return `
           <button class="option-btn" onclick="responderPergunta('${letras[i]}')" data-letra="${letras[i]}">
             <span class="option-letter">${letras[i]}</span>
@@ -1206,12 +1215,14 @@
         `;
       }).join('');
       
-      // Se não encontrou opções, mostrar erro
+      // Se não encontrou opções, mostrar erro com mais detalhes
       if (opcoes.length === 0) {
         document.getElementById('optionsList').innerHTML = `
           <div style="color: #f59e0b; text-align: center; padding: 20px;">
             ⚠️ Erro: Alternativas não encontradas<br>
-            <small>Estrutura da pergunta: ${Object.keys(pergunta).join(', ')}</small>
+            <small>Estrutura da pergunta: ${Object.keys(pergunta).join(', ')}</small><br>
+            <small>Tipo alternativas: ${typeof pergunta.alternativas}</small><br>
+            <small>Valor: ${JSON.stringify(pergunta.alternativas)}</small>
           </div>
         `;
       }
