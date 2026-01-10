@@ -936,7 +936,35 @@
       document.getElementById('loadingState').style.display = 'none';
       document.getElementById('mainContent').style.display = 'block';
       
-      const resultado = embateData.resultado;
+      const resultado = embateData.resultado || {};
+      
+      // Se não tem resultado ainda, calcular baseado nas participações
+      if (!resultado.vencedorId && !resultado.empate && participacoes.length > 0) {
+        // Ordenar por pontos
+        const ordenados = [...participacoes].sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
+        const maiorPontuacao = ordenados[0]?.pontos || 0;
+        const vencedores = ordenados.filter(p => p.pontos === maiorPontuacao);
+        
+        if (vencedores.length > 1) {
+          resultado.empate = true;
+          resultado.vencedoresEmpate = vencedores.map(v => v.odId);
+          resultado.pontuacaoVencedor = maiorPontuacao;
+        } else {
+          resultado.empate = false;
+          resultado.vencedorId = vencedores[0]?.odId;
+          resultado.vencedorNome = vencedores[0]?.odNome;
+          resultado.pontuacaoVencedor = maiorPontuacao;
+        }
+        
+        resultado.ranking = ordenados.map((p, i) => ({
+          posicao: i + 1,
+          odId: p.odId,
+          odNome: p.odNome,
+          pontos: p.pontos || 0,
+          acertos: p.acertos || 0,
+          erros: p.erros || 0
+        }));
+      }
       
       // Seção do vencedor
       renderizarVencedor(resultado);
@@ -966,6 +994,20 @@
     // ===================================
     function renderizarVencedor(resultado) {
       const container = document.getElementById('winnerSection');
+      
+      // Verificar se tem resultado válido
+      if (!resultado || (!resultado.vencedorId && !resultado.empate)) {
+        container.innerHTML = `
+          <div class="winner-section">
+            <div class="winner-content">
+              <div class="winner-badge">🏁 FINALIZADO</div>
+              <div class="winner-crown">⏳</div>
+              <div class="winner-name">Resultado sendo calculado...</div>
+            </div>
+          </div>
+        `;
+        return;
+      }
       
       if (resultado.empate) {
         // Empate
@@ -1024,7 +1066,10 @@
     function renderizarRanking(resultado) {
       const container = document.getElementById('rankingList');
       
-      const ranking = resultado.ranking || participacoes.map((p, i) => ({
+      // Ordenar participações por pontos se não tiver ranking
+      const sortedParticipacoes = [...participacoes].sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
+      
+      const ranking = resultado?.ranking || sortedParticipacoes.map((p, i) => ({
         ...p,
         posicao: i + 1,
         premio: 0
@@ -1034,13 +1079,14 @@
         const isMe = p.odId === currentUserId;
         const isFirst = p.posicao === 1;
         const posClass = p.posicao === 1 ? 'gold' : p.posicao === 2 ? 'silver' : p.posicao === 3 ? 'bronze' : 'normal';
+        const nome = p.odNome || p.nome || 'Anônimo';
         
         return `
           <div class="ranking-item ${isMe ? 'me' : ''} ${isFirst ? 'first' : ''}">
             <div class="ranking-position ${posClass}">${p.posicao}</div>
-            <div class="ranking-avatar">${p.nome?.charAt(0).toUpperCase() || '?'}</div>
+            <div class="ranking-avatar">${nome.charAt(0).toUpperCase()}</div>
             <div class="ranking-info">
-              <div class="ranking-name">${p.nome || 'Anônimo'} ${isMe ? '(você)' : ''}</div>
+              <div class="ranking-name">${nome} ${isMe ? '(você)' : ''}</div>
               <div class="ranking-stats">${p.acertos || 0} acertos • ${p.erros || 0} erros</div>
             </div>
             <div class="ranking-right">
