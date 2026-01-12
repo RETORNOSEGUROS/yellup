@@ -709,10 +709,10 @@
       try {
         // PRIMEIRO: Verificar status atual no banco
         const embateDoc = await db.collection('embates').doc(embate.id).get();
-        const statusAtual = embateDoc.data()?.status;
+        const embateAtualizado = embateDoc.data();
         
-        if (statusAtual === 'finalizado') {
-          console.log("Embate já finalizado, pulando...", embate.id);
+        if (!embateAtualizado || embateAtualizado.status === 'finalizado') {
+          console.log("Embate já finalizado ou não existe, pulando...", embate.id);
           return;
         }
         
@@ -728,12 +728,9 @@
         // Ordenar por pontos
         ranking.sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
         
-        // Usar dados atualizados
-        const embateAtualizado = embateDoc.data();
-        
         // Calcular resultado
         let resultado = {};
-        const premio = embateAtualizado.prizePool || (embateAtualizado.aposta * ranking.length);
+        const premio = embateAtualizado.prizePool || (embateAtualizado.aposta * ranking.length) || 0;
         
         if (ranking.length > 0) {
           const maiorPontuacao = ranking[0].pontos || 0;
@@ -756,75 +753,71 @@
             }))
           };
           
-          // Distribuir prêmio
-          if (empate) {
-            const premioPorJogador = Math.floor(premio / vencedores.length);
+          // Verificar se EU sou um dos vencedores e preciso receber créditos
+          const euVenci = vencedores.some(v => v.odId === currentUserId);
+          const euParticipei = ranking.some(r => r.odId === currentUserId);
+          
+          if (euParticipei) {
+            // Verificar se já recebemos os créditos deste embate
+            const transacaoExistente = await db.collection('transacoes')
+              .where('usuarioId', '==', currentUserId)
+              .where('embateId', '==', embate.id)
+              .where('tipo', '==', 'credito')
+              .limit(1)
+              .get();
             
-            for (const vencedor of vencedores) {
-              await db.collection('usuarios').doc(vencedor.odId).update({
-                creditos: firebase.firestore.FieldValue.increment(premioPorJogador),
+            if (transacaoExistente.empty && euVenci) {
+              // Ainda não recebemos, dar créditos
+              const meuPremio = empate ? Math.floor(premio / vencedores.length) : premio;
+              
+              await db.collection('usuarios').doc(currentUserId).update({
+                creditos: firebase.firestore.FieldValue.increment(meuPremio),
                 'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
-                'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premioPorJogador),
+                'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(meuPremio),
                 'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
               });
               
               await db.collection('transacoes').add({
-                usuarioId: vencedor.odId,
+                usuarioId: currentUserId,
                 tipo: 'credito',
-                valor: premioPorJogador,
-                descricao: `🏆 Empate no embate ${embateAtualizado.codigo} (+${premioPorJogador} créditos)`,
+                valor: meuPremio,
+                descricao: `🏆 Vitória no embate ${embateAtualizado.codigo} (+${meuPremio} créditos)`,
                 embateId: embate.id,
                 data: firebase.firestore.FieldValue.serverTimestamp()
               });
-            }
-            
-            // Perdedores
-            const perdedores = ranking.filter(r => (r.pontos || 0) < maiorPontuacao);
-            for (const perdedor of perdedores) {
-              await db.collection('usuarios').doc(perdedor.odId).update({
+              
+              showToast(`🏆 Você ganhou +${meuPremio} créditos!`);
+            } else if (transacaoExistente.empty && !euVenci) {
+              // Perdi, atualizar estatísticas
+              await db.collection('usuarios').doc(currentUserId).update({
                 'pvp.derrotas': firebase.firestore.FieldValue.increment(1),
                 'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
               });
-            }
-          } else {
-            // Vencedor único
-            const vencedor = vencedores[0];
-            
-            await db.collection('usuarios').doc(vencedor.odId).update({
-              creditos: firebase.firestore.FieldValue.increment(premio),
-              'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
-              'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premio),
-              'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
-            });
-            
-            await db.collection('transacoes').add({
-              usuarioId: vencedor.odId,
-              tipo: 'credito',
-              valor: premio,
-              descricao: `🏆 Vitória no embate ${embateAtualizado.codigo} (+${premio} créditos)`,
-              embateId: embate.id,
-              data: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            // Perdedores
-            for (const perdedor of ranking.slice(1)) {
-              await db.collection('usuarios').doc(perdedor.odId).update({
-                'pvp.derrotas': firebase.firestore.FieldValue.increment(1),
-                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
+              
+              // Registrar que processamos este embate
+              await db.collection('transacoes').add({
+                usuarioId: currentUserId,
+                tipo: 'derrota',
+                valor: 0,
+                descricao: `😢 Derrota no embate ${embateAtualizado.codigo}`,
+                embateId: embate.id,
+                data: firebase.firestore.FieldValue.serverTimestamp()
               });
             }
           }
         }
         
-        // Atualizar embate
-        await db.collection('embates').doc(embate.id).update({
-          status: 'finalizado',
-          resultado: resultado,
-          dataFinalizacao: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        console.log("Embate finalizado:", embate.id, resultado);
-        showToast(`🏁 Embate ${embateAtualizado.codigo} finalizado!`);
+        // Tentar atualizar embate como finalizado (pode falhar se não for o criador, tudo bem)
+        try {
+          await db.collection('embates').doc(embate.id).update({
+            status: 'finalizado',
+            resultado: resultado,
+            dataFinalizacao: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          console.log("Embate finalizado:", embate.id);
+        } catch (e) {
+          console.log("Não foi possível atualizar status do embate (permissão), mas créditos do usuário foram processados");
+        }
         
         // Atualizar créditos no header
         const userDoc = await db.collection('usuarios').doc(currentUserId).get();
@@ -918,22 +911,56 @@
         });
       }
 
-      // Participantes
+      // Participantes com fotos
       const participantes = embate.participantes || [];
-      const avatares = participantes.slice(0, 3).map((p, i) => {
-        const letra = (embate.convidados?.find(c => c.odId === p)?.nome || 'U').charAt(0).toUpperCase();
-        return `<div class="participante-avatar">${letra}</div>`;
+      const avatares = participantes.slice(0, 4).map((odId, i) => {
+        // Buscar info do participante
+        const conv = embate.convidados?.find(c => c.odId === odId);
+        const nome = conv?.nome || conv?.odNome || odId.substring(0, 1).toUpperCase();
+        const foto = conv?.foto || conv?.fotoPerfil || null;
+        const letra = nome.charAt(0).toUpperCase();
+        
+        // Se é o criador, pegar info dele
+        const isCriador = odId === embate.criadorId;
+        const nomeFinal = isCriador ? embate.criadorNome : nome;
+        const fotoFinal = isCriador ? embate.criadorFoto : foto;
+        
+        if (fotoFinal) {
+          return `<div class="participante-avatar" style="background-image: url('${fotoFinal}'); background-size: cover;"></div>`;
+        }
+        return `<div class="participante-avatar">${nomeFinal?.charAt(0).toUpperCase() || '?'}</div>`;
       }).join('');
 
-      // Resultado (se histórico)
+      // Resultado (se histórico) - melhorado
       let resultadoBadge = '';
-      if (isHistorico && embate.resultado) {
-        if (embate.resultado.vencedorId === currentUserId) {
-          resultadoBadge = '<span class="result-badge vitoria">🏆 Vitória</span>';
-        } else if (embate.resultado.empate) {
-          resultadoBadge = '<span class="result-badge empate">🤝 Empate</span>';
+      if (isHistorico) {
+        const resultado = embate.resultado;
+        
+        // Verificar se o resultado existe
+        if (resultado) {
+          // Verificar se eu venci
+          if (resultado.vencedorId === currentUserId) {
+            resultadoBadge = '<span class="result-badge vitoria">🏆 Vitória</span>';
+          } 
+          // Verificar se foi empate e eu estou entre os vencedores
+          else if (resultado.empate && resultado.vencedoresEmpate?.includes(currentUserId)) {
+            resultadoBadge = '<span class="result-badge empate">🤝 Empate</span>';
+          }
+          // Se não venci nem empatei como vencedor, perdi
+          else if (participantes.includes(currentUserId)) {
+            resultadoBadge = '<span class="result-badge derrota">💔 Derrota</span>';
+          }
         } else {
-          resultadoBadge = '<span class="result-badge derrota">💔 Derrota</span>';
+          // Calcular resultado baseado nas participações se não existe
+          const ranking = embate.ranking || resultado?.ranking;
+          if (ranking && ranking.length > 0) {
+            const minhaPosicao = ranking.find(r => r.odId === currentUserId);
+            if (minhaPosicao?.posicao === 1) {
+              resultadoBadge = '<span class="result-badge vitoria">🏆 Vitória</span>';
+            } else if (minhaPosicao) {
+              resultadoBadge = '<span class="result-badge derrota">💔 Derrota</span>';
+            }
+          }
         }
       }
 
