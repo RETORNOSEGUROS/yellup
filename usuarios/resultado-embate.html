@@ -809,6 +809,8 @@
     // ===================================
     // 📊 CARREGAR RESULTADO
     // ===================================
+    let fotoUsuarios = {}; // Cache de fotos
+    
     async function carregarResultado() {
       try {
         // Carregar embate
@@ -837,10 +839,8 @@
           }
         });
         
-        // Se o embate ainda não tem resultado calculado, calcular
-        if (!embateData.resultado && embateData.status === 'finalizado') {
-          await calcularResultado();
-        }
+        // Carregar fotos dos participantes
+        await carregarFotosParticipantes();
         
         // Renderizar
         renderizarResultado();
@@ -850,82 +850,47 @@
         showToast('❌ Erro ao carregar resultado');
       }
     }
-
+    
     // ===================================
-    // 🧮 CALCULAR RESULTADO
+    // 📸 CARREGAR FOTOS DOS PARTICIPANTES
     // ===================================
-    async function calcularResultado() {
-      if (participacoes.length === 0) return;
-      
-      // Ordenar por pontos
-      participacoes.sort((a, b) => b.pontos - a.pontos);
-      
-      // Verificar empate
-      const maiorPontuacao = participacoes[0].pontos;
-      const vencedores = participacoes.filter(p => p.pontos === maiorPontuacao);
-      
-      const empate = vencedores.length > 1;
-      const premioIndividual = Math.floor(embateData.prizePool / vencedores.length);
-      
-      // Construir ranking
-      const ranking = participacoes.map((p, index) => ({
-        odId: p.odId,
-        nome: p.odNome,
-        pontos: p.pontos,
-        acertos: p.acertos,
-        erros: p.erros,
-        posicao: index + 1,
-        premio: index < vencedores.length ? premioIndividual : 0
-      }));
-      
-      // Resultado
-      const resultado = {
-        empate: empate,
-        vencedorId: empate ? null : vencedores[0].odId,
-        vencedorNome: empate ? null : vencedores[0].odNome,
-        pontuacaoVencedor: maiorPontuacao,
-        vencedoresEmpate: empate ? vencedores.map(v => v.odId) : [],
-        ranking: ranking
-      };
-      
-      // Salvar resultado no embate
-      await db.collection('embates').doc(embateId).update({
-        resultado: resultado
-      });
-      
-      embateData.resultado = resultado;
-      
-      // Distribuir prêmios
-      for (const vencedor of vencedores) {
-        await db.collection('usuarios').doc(vencedor.odId).update({
-          creditos: firebase.firestore.FieldValue.increment(premioIndividual)
-        });
+    async function carregarFotosParticipantes() {
+      try {
+        const ids = participacoes.map(p => p.odId);
         
-        // Registrar transação
-        await db.collection('transacoes').add({
-          usuarioId: vencedor.odId,
-          tipo: 'credito',
-          valor: premioIndividual,
-          descricao: `Prêmio do embate ${embateData.codigo}`,
-          embateId: embateId,
-          data: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        for (const odId of ids) {
+          const userDoc = await db.collection('usuarios').doc(odId).get();
+          if (userDoc.exists) {
+            const userData = userDoc.data();
+            fotoUsuarios[odId] = userData.fotoPerfil || userData.foto || null;
+          }
+        }
+      } catch (error) {
+        console.log("Erro ao carregar fotos:", error);
       }
+    }
+    
+    // ===================================
+    // 🎁 OBTER FOTO DO USUÁRIO
+    // ===================================
+    function obterFotoUsuario(odId, nome) {
+      const foto = fotoUsuarios[odId];
+      const letra = (nome || '?').charAt(0).toUpperCase();
       
-      // Atualizar estatísticas PvP dos participantes
-      for (const p of participacoes) {
-        const venceu = vencedores.some(v => v.odId === p.odId);
-        const empatou = empate && venceu;
-        
-        await db.collection('usuarios').doc(p.odId).update({
-          'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1),
-          'pvp.vitorias': firebase.firestore.FieldValue.increment(venceu && !empatou ? 1 : 0),
-          'pvp.derrotas': firebase.firestore.FieldValue.increment(!venceu ? 1 : 0),
-          'pvp.empates': firebase.firestore.FieldValue.increment(empatou ? 1 : 0),
-          'pvp.creditosApostados': firebase.firestore.FieldValue.increment(embateData.aposta),
-          'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(venceu ? premioIndividual : 0)
-        });
+      if (foto) {
+        return `<div class="winner-avatar" style="background-image: url('${foto}'); background-size: cover; background-position: center;"></div>`;
       }
+      return `<div class="winner-avatar">${letra}</div>`;
+    }
+    
+    function obterFotoRanking(odId, nome) {
+      const foto = fotoUsuarios[odId];
+      const letra = (nome || '?').charAt(0).toUpperCase();
+      
+      if (foto) {
+        return `<div class="ranking-avatar" style="background-image: url('${foto}'); background-size: cover; background-position: center;"></div>`;
+      }
+      return `<div class="ranking-avatar">${letra}</div>`;
     }
 
     // ===================================
@@ -1021,16 +986,23 @@
             <div class="tie-title">Empate!</div>
             <p style="color: #a9b5c6;">${vencedores.length} jogadores empataram com ${resultado.pontuacaoVencedor} pontos</p>
             <div class="tie-winners">
-              ${vencedores.map(v => `
-                <div class="tie-winner">
-                  <div class="tie-avatar">${v.odNome?.charAt(0).toUpperCase() || '?'}</div>
-                  <div class="tie-name">${v.odNome}</div>
-                </div>
-              `).join('')}
+              ${vencedores.map(v => {
+                const foto = fotoUsuarios[v.odId];
+                const letra = v.odNome?.charAt(0).toUpperCase() || '?';
+                const avatarHtml = foto 
+                  ? `<div class="tie-avatar" style="background-image: url('${foto}'); background-size: cover;"></div>`
+                  : `<div class="tie-avatar">${letra}</div>`;
+                return `
+                  <div class="tie-winner">
+                    ${avatarHtml}
+                    <div class="tie-name">${v.odNome}</div>
+                  </div>
+                `;
+              }).join('')}
             </div>
             <div style="margin-top: 20px;">
               <span class="prize-icon">🏆</span>
-              <span class="prize-value">${Math.floor(embateData.prizePool / vencedores.length)} 💎</span>
+              <span class="prize-value">${Math.floor((embateData.prizePool || 0) / vencedores.length)} 💎</span>
               <span class="prize-label">cada</span>
             </div>
           </div>
@@ -1038,19 +1010,24 @@
       } else {
         // Vencedor único
         const vencedor = participacoes.find(p => p.odId === resultado.vencedorId);
+        const foto = fotoUsuarios[resultado.vencedorId];
+        const letra = vencedor?.odNome?.charAt(0).toUpperCase() || '?';
+        const avatarHtml = foto 
+          ? `<div class="winner-avatar" style="background-image: url('${foto}'); background-size: cover; background-position: center;"></div>`
+          : `<div class="winner-avatar">${letra}</div>`;
         
         container.innerHTML = `
           <div class="winner-section">
             <div class="winner-content">
               <div class="winner-badge">🏆 VENCEDOR</div>
               <div class="winner-crown">👑</div>
-              <div class="winner-avatar">${vencedor?.odNome?.charAt(0).toUpperCase() || '?'}</div>
+              ${avatarHtml}
               <div class="winner-name">${vencedor?.odNome || 'Anônimo'}</div>
               <div class="winner-points">${resultado.pontuacaoVencedor} pontos</div>
               <div class="winner-prize">
                 <span class="prize-icon">🏆</span>
                 <div>
-                  <div class="prize-value">${embateData.prizePool} 💎</div>
+                  <div class="prize-value">${embateData.prizePool || 0} 💎</div>
                   <div class="prize-label">Prize Pool</div>
                 </div>
               </div>
@@ -1080,11 +1057,17 @@
         const isFirst = p.posicao === 1;
         const posClass = p.posicao === 1 ? 'gold' : p.posicao === 2 ? 'silver' : p.posicao === 3 ? 'bronze' : 'normal';
         const nome = p.odNome || p.nome || 'Anônimo';
+        const foto = fotoUsuarios[p.odId];
+        const letra = nome.charAt(0).toUpperCase();
+        
+        const avatarHtml = foto 
+          ? `<div class="ranking-avatar" style="background-image: url('${foto}'); background-size: cover; background-position: center;"></div>`
+          : `<div class="ranking-avatar">${letra}</div>`;
         
         return `
           <div class="ranking-item ${isMe ? 'me' : ''} ${isFirst ? 'first' : ''}">
             <div class="ranking-position ${posClass}">${p.posicao}</div>
-            <div class="ranking-avatar">${nome.charAt(0).toUpperCase()}</div>
+            ${avatarHtml}
             <div class="ranking-info">
               <div class="ranking-name">${nome} ${isMe ? '(você)' : ''}</div>
               <div class="ranking-stats">${p.acertos || 0} acertos • ${p.erros || 0} erros</div>
