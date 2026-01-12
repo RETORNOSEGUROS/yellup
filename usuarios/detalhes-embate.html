@@ -787,6 +787,7 @@
     let embateId = null;
     let embateData = null;
     let countdownInterval = null;
+    let processandoFinalizacao = false;
 
     // ===================================
     // 🚀 INICIALIZAÇÃO
@@ -838,6 +839,25 @@
         }
         
         embateData = { id: doc.id, ...doc.data() };
+        
+        // Se está finalizado, redirecionar para resultado
+        if (embateData.status === 'finalizado') {
+          window.location.href = `resultado-embate.html?id=${embateId}`;
+          return;
+        }
+        
+        // Se está em_andamento mas já expirou, finalizar primeiro
+        if (embateData.status === 'em_andamento' && embateData.dataFim) {
+          const dataFim = embateData.dataFim.toDate ? embateData.dataFim.toDate() : new Date(embateData.dataFim);
+          const agora = new Date();
+          
+          if (dataFim < agora) {
+            console.log("Embate expirado detectado, finalizando...");
+            processandoFinalizacao = true;
+            await finalizarEmbate();
+            return;
+          }
+        }
         
         renderizarEmbate();
         
@@ -990,16 +1010,24 @@
       const diff = dataAlvo - agora;
       
       if (diff <= 0) {
+        // PARAR O INTERVAL IMEDIATAMENTE
+        if (countdownInterval) {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+        }
+        
         document.getElementById('countDays').textContent = '00';
         document.getElementById('countHours').textContent = '00';
         document.getElementById('countMinutes').textContent = '00';
         document.getElementById('countSeconds').textContent = '00';
         
         // Se o embate estava aguardando e chegou a hora, iniciar!
-        if (embateData.status === 'aguardando') {
+        if (embateData.status === 'aguardando' && !processandoFinalizacao) {
+          processandoFinalizacao = true;
           iniciarEmbateAgora();
-        } else if (embateData.status === 'em_andamento') {
+        } else if (embateData.status === 'em_andamento' && !processandoFinalizacao) {
           // Se estava em andamento e o tempo acabou, finalizar
+          processandoFinalizacao = true;
           finalizarEmbate();
         }
         return;
@@ -1045,6 +1073,16 @@
     // ===================================
     async function finalizarEmbate() {
       try {
+        // PRIMEIRO: Verificar status atual no banco (pode ter sido finalizado por outro cliente)
+        const embateDoc = await db.collection('embates').doc(embateId).get();
+        const statusAtual = embateDoc.data()?.status;
+        
+        if (statusAtual === 'finalizado') {
+          console.log("Embate já foi finalizado, redirecionando...");
+          window.location.href = `resultado-embate.html?id=${embateId}`;
+          return;
+        }
+        
         // Buscar participações para calcular vencedor
         const participacoesSnap = await db.collection('embates').doc(embateId)
           .collection('participacoes').get();
@@ -1057,16 +1095,12 @@
         // Ordenar por pontos (maior primeiro)
         ranking.sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
         
-        // Verificar se já foi finalizado (evitar duplicação)
-        if (embateData.status === 'finalizado') {
-          console.log("Embate já finalizado");
-          window.location.href = `resultado-embate.html?id=${embateId}`;
-          return;
-        }
+        // Usar dados atualizados do banco
+        const embateAtualizado = embateDoc.data();
         
         // Determinar vencedor
         let resultado = {};
-        const premio = embateData.prizePool || embateData.aposta * 2;
+        const premio = embateAtualizado.prizePool || embateAtualizado.aposta * 2;
         
         if (ranking.length > 0) {
           const maiorPontuacao = ranking[0].pontos || 0;
@@ -1107,7 +1141,7 @@
                 usuarioId: jogador.odId,
                 tipo: 'credito',
                 valor: premioPorJogador,
-                descricao: `🏆 Empate no embate ${embateData.codigo} (+${premioPorJogador} créditos)`,
+                descricao: `🏆 Empate no embate ${embateAtualizado.codigo} (+${premioPorJogador} créditos)`,
                 embateId: embateId,
                 data: firebase.firestore.FieldValue.serverTimestamp()
               });
@@ -1136,7 +1170,7 @@
               usuarioId: vencedor.odId,
               tipo: 'credito',
               valor: premio,
-              descricao: `🏆 Vitória no embate ${embateData.codigo} (+${premio} créditos)`,
+              descricao: `🏆 Vitória no embate ${embateAtualizado.codigo} (+${premio} créditos)`,
               embateId: embateId,
               data: firebase.firestore.FieldValue.serverTimestamp()
             });
