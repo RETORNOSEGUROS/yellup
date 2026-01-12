@@ -840,21 +840,27 @@
         
         embateData = { id: doc.id, ...doc.data() };
         
-        // Se está finalizado, redirecionar para resultado
+        // Se está finalizado, redirecionar para resultado imediatamente
         if (embateData.status === 'finalizado') {
           window.location.href = `resultado-embate.html?id=${embateId}`;
           return;
         }
         
-        // Se está em_andamento mas já expirou, finalizar primeiro
+        // Se está cancelado, mostrar página de cancelado
+        if (embateData.status === 'cancelado') {
+          renderizarEmbate();
+          return;
+        }
+        
+        // Se está em_andamento mas já expirou, redirecionar para resultado
+        // A finalização será feita pelo hub quando o usuário entrar lá
         if (embateData.status === 'em_andamento' && embateData.dataFim) {
           const dataFim = embateData.dataFim.toDate ? embateData.dataFim.toDate() : new Date(embateData.dataFim);
           const agora = new Date();
           
           if (dataFim < agora) {
-            console.log("Embate expirado detectado, finalizando...");
-            processandoFinalizacao = true;
-            await finalizarEmbate();
+            console.log("Embate expirado, redirecionando para resultado...");
+            window.location.href = `resultado-embate.html?id=${embateId}`;
             return;
           }
         }
@@ -1026,9 +1032,13 @@
           processandoFinalizacao = true;
           iniciarEmbateAgora();
         } else if (embateData.status === 'em_andamento' && !processandoFinalizacao) {
-          // Se estava em andamento e o tempo acabou, finalizar
+          // Se estava em andamento e o tempo acabou, redirecionar para resultado
+          // A finalização e distribuição de créditos será feita pelo hub
           processandoFinalizacao = true;
-          finalizarEmbate();
+          showToast('🏁 Embate finalizado! Calculando resultado...');
+          setTimeout(() => {
+            window.location.href = `resultado-embate.html?id=${embateId}`;
+          }, 1500);
         }
         return;
       }
