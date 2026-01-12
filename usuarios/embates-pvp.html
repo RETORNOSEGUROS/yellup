@@ -634,15 +634,31 @@
         embatesAtivos = [];
         historico = [];
         
-        snapshotParticipante.forEach(doc => {
+        const agora = new Date();
+        
+        for (const doc of snapshotParticipante.docs) {
           const embate = { id: doc.id, ...doc.data() };
+          
+          // Verificar se embate em_andamento já expirou
+          if (embate.status === 'em_andamento' && embate.dataFim) {
+            const dataFim = embate.dataFim.toDate ? embate.dataFim.toDate() : new Date(embate.dataFim);
+            
+            if (dataFim < agora) {
+              // Embate expirado! Finalizar automaticamente
+              console.log("Finalizando embate expirado:", embate.id);
+              await finalizarEmbateExpirado(embate);
+              embate.status = 'finalizado';
+              historico.push(embate);
+              continue;
+            }
+          }
           
           if (['aguardando', 'em_andamento'].includes(embate.status)) {
             embatesAtivos.push(embate);
           } else if (embate.status === 'finalizado') {
             historico.push(embate);
           }
-        });
+        }
 
         // Buscar convites pendentes
         const snapshotConvites = await db.collection('embates')
@@ -683,6 +699,129 @@
             <p>Tente novamente mais tarde</p>
           </div>
         `;
+      }
+    }
+
+    // ===================================
+    // FINALIZAR EMBATE EXPIRADO
+    // ===================================
+    async function finalizarEmbateExpirado(embate) {
+      try {
+        // Buscar participações
+        const participacoesSnap = await db.collection('embates').doc(embate.id)
+          .collection('participacoes').get();
+        
+        let ranking = [];
+        participacoesSnap.forEach(doc => {
+          ranking.push({ odId: doc.id, ...doc.data() });
+        });
+        
+        // Ordenar por pontos
+        ranking.sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
+        
+        // Calcular resultado
+        let resultado = {};
+        const premio = embate.prizePool || (embate.aposta * ranking.length);
+        
+        if (ranking.length > 0) {
+          const maiorPontuacao = ranking[0].pontos || 0;
+          const vencedores = ranking.filter(r => (r.pontos || 0) === maiorPontuacao);
+          const empate = vencedores.length > 1;
+          
+          resultado = {
+            vencedorId: empate ? null : vencedores[0].odId,
+            vencedorNome: empate ? null : vencedores[0].odNome,
+            pontuacaoVencedor: maiorPontuacao,
+            empate: empate,
+            vencedoresEmpate: empate ? vencedores.map(v => v.odId) : null,
+            ranking: ranking.map((r, i) => ({
+              posicao: i + 1,
+              odId: r.odId,
+              odNome: r.odNome,
+              pontos: r.pontos || 0,
+              acertos: r.acertos || 0,
+              erros: r.erros || 0
+            }))
+          };
+          
+          // Distribuir prêmio
+          if (empate) {
+            const premioPorJogador = Math.floor(premio / vencedores.length);
+            
+            for (const vencedor of vencedores) {
+              await db.collection('usuarios').doc(vencedor.odId).update({
+                creditos: firebase.firestore.FieldValue.increment(premioPorJogador),
+                'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
+                'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premioPorJogador),
+                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
+              });
+              
+              await db.collection('transacoes').add({
+                usuarioId: vencedor.odId,
+                tipo: 'credito',
+                valor: premioPorJogador,
+                descricao: `🏆 Empate no embate ${embate.codigo} (+${premioPorJogador} créditos)`,
+                embateId: embate.id,
+                data: firebase.firestore.FieldValue.serverTimestamp()
+              });
+            }
+            
+            // Perdedores
+            const perdedores = ranking.filter(r => (r.pontos || 0) < maiorPontuacao);
+            for (const perdedor of perdedores) {
+              await db.collection('usuarios').doc(perdedor.odId).update({
+                'pvp.derrotas': firebase.firestore.FieldValue.increment(1),
+                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
+              });
+            }
+          } else {
+            // Vencedor único
+            const vencedor = vencedores[0];
+            
+            await db.collection('usuarios').doc(vencedor.odId).update({
+              creditos: firebase.firestore.FieldValue.increment(premio),
+              'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
+              'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premio),
+              'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
+            });
+            
+            await db.collection('transacoes').add({
+              usuarioId: vencedor.odId,
+              tipo: 'credito',
+              valor: premio,
+              descricao: `🏆 Vitória no embate ${embate.codigo} (+${premio} créditos)`,
+              embateId: embate.id,
+              data: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Perdedores
+            for (const perdedor of ranking.slice(1)) {
+              await db.collection('usuarios').doc(perdedor.odId).update({
+                'pvp.derrotas': firebase.firestore.FieldValue.increment(1),
+                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
+              });
+            }
+          }
+        }
+        
+        // Atualizar embate
+        await db.collection('embates').doc(embate.id).update({
+          status: 'finalizado',
+          resultado: resultado,
+          dataFinalizacao: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        console.log("Embate finalizado:", embate.id, resultado);
+        showToast(`🏁 Embate ${embate.codigo} finalizado!`);
+        
+        // Atualizar créditos no header
+        const userDoc = await db.collection('usuarios').doc(currentUserId).get();
+        currentUserData = userDoc.data();
+        document.getElementById('userCredits').textContent = currentUserData.creditos || 0;
+        atualizarStats();
+        
+      } catch (error) {
+        console.error("Erro ao finalizar embate expirado:", error);
       }
     }
 
