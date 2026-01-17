@@ -758,97 +758,75 @@
     // ===================================
     async function carregarTorneios() {
       try {
+        // Buscar todos os torneios (sem filtro de status para evitar índice composto)
         const snapshot = await db.collection('torneios')
-          .where('status', 'in', ['aberto', 'andamento'])
-          .orderBy('dataInicio', 'asc')
+          .orderBy('dataCriacao', 'desc')
           .get();
 
         torneios = [];
         snapshot.forEach(doc => {
-          torneios.push({ id: doc.id, ...doc.data() });
+          const data = doc.data();
+          
+          // Mapear campos do admin para o formato esperado pela página
+          torneios.push({ 
+            id: doc.id,
+            nome: data.nome || 'Torneio',
+            tipo: data.config?.estilo || 'pontuacao',
+            descricao: data.descricao || '',
+            premio: data.prizePool || 0,
+            entrada: data.config?.taxaInscricao || 0,
+            vagas: data.config?.maxParticipantes || 64,
+            inscritos: data.totalInscritos || 0,
+            status: mapearStatus(data.status),
+            dataInicio: data.agendamento?.dataInicio?.toDate?.() || null,
+            dataFim: data.agendamento?.dataFim?.toDate?.() || null,
+            inscricoesAbrem: data.agendamento?.inscricoesAbrem?.toDate?.() || null,
+            inscricoesFecham: data.agendamento?.inscricoesFecham?.toDate?.() || null,
+            destaque: data.destaque || false,
+            participantes: data.inscritos || [],
+            config: data.config || {},
+            // Guardar dados originais para uso posterior
+            _original: data
+          });
         });
 
-        // Se não há torneios, usar exemplos
-        if (torneios.length === 0) {
-          torneios = gerarTorneiosExemplo();
-        }
+        console.log("Torneios carregados:", torneios);
 
         renderizarTorneiosDisponiveis();
         renderizarMeusTorneios();
         renderizarHistorico();
 
       } catch (error) {
-        console.error("Erro:", error);
-        torneios = gerarTorneiosExemplo();
-        renderizarTorneiosDisponiveis();
-        renderizarMeusTorneios();
-        renderizarHistorico();
+        console.error("Erro ao carregar torneios:", error);
+        // Mostrar mensagem de erro em vez de dados fake
+        document.getElementById('torneiosDisponiveis').innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">⚠️</div>
+            <p>Erro ao carregar torneios</p>
+            <small style="color: #a9b5c6;">${error.message}</small>
+          </div>
+        `;
       }
     }
 
+    // Mapear status do admin para status da página
+    function mapearStatus(statusAdmin) {
+      const mapa = {
+        'inscricoes_abertas': 'aberto',
+        'em_andamento': 'andamento',
+        'finalizado': 'finalizado',
+        'cancelado': 'cancelado',
+        'rascunho': 'rascunho',
+        'inscricoes_fechadas': 'fechado'
+      };
+      return mapa[statusAdmin] || statusAdmin;
+    }
+
     // ===================================
-    // 📝 TORNEIOS DE EXEMPLO
+    // 📝 TORNEIOS DE EXEMPLO (removido - usar dados reais)
     // ===================================
     function gerarTorneiosExemplo() {
-      const agora = new Date();
-      return [
-        {
-          id: 'torneio1',
-          nome: 'Copa Semanal',
-          tipo: 'semanal',
-          descricao: 'Torneio semanal com os melhores jogadores! 16 participantes, eliminatórias simples.',
-          premio: 100,
-          entrada: 5,
-          vagas: 16,
-          inscritos: 12,
-          status: 'aberto',
-          dataInicio: new Date(agora.getTime() + 1000 * 60 * 60 * 2), // 2 horas
-          destaque: true,
-          participantes: []
-        },
-        {
-          id: 'torneio2',
-          nome: 'Torneio Relâmpago',
-          tipo: 'relampago',
-          descricao: 'Torneio rápido de 8 jogadores. Começa assim que encher!',
-          premio: 40,
-          entrada: 3,
-          vagas: 8,
-          inscritos: 6,
-          status: 'aberto',
-          dataInicio: null,
-          destaque: false,
-          participantes: []
-        },
-        {
-          id: 'torneio3',
-          nome: 'Liga dos Campeões',
-          tipo: 'mensal',
-          descricao: 'O maior torneio do mês! 32 participantes disputando o título.',
-          premio: 500,
-          entrada: 10,
-          vagas: 32,
-          inscritos: 28,
-          status: 'aberto',
-          dataInicio: new Date(agora.getTime() + 1000 * 60 * 60 * 24 * 3), // 3 dias
-          destaque: true,
-          participantes: []
-        },
-        {
-          id: 'torneio4',
-          nome: 'Desafio do Dia',
-          tipo: 'diario',
-          descricao: 'Torneio diário gratuito! Top 3 ganham créditos.',
-          premio: 20,
-          entrada: 0,
-          vagas: 100,
-          inscritos: 45,
-          status: 'andamento',
-          dataInicio: new Date(agora.getTime() - 1000 * 60 * 30), // 30 min atrás
-          destaque: false,
-          participantes: [currentUserId]
-        }
-      ];
+      return []; // Não usar mais dados fake
     }
 
     // ===================================
@@ -1011,11 +989,16 @@
     // ===================================
     function getIconeTorneio(tipo) {
       const icones = {
+        pontuacao: '🎯',
+        sobrevivencia: '❤️',
         diario: '📅',
         semanal: '📆',
         mensal: '🗓️',
         relampago: '⚡',
-        especial: '⭐'
+        especial: '⭐',
+        fase_unica: '1️⃣',
+        grupos_eliminatorias: '🏟️',
+        eliminatorias: '🔥'
       };
       return icones[tipo] || '🏆';
     }
@@ -1074,13 +1057,13 @@
         return;
       }
 
-      if (torneio.inscritos >= torneio.vagas) {
+      if (torneio.inscritos >= torneio.vagas && torneio.vagas < 9999) {
         showToast('❌ Torneio cheio!');
         return;
       }
 
       try {
-        // Descontar entrada
+        // 1. Descontar entrada do usuário
         if (torneio.entrada > 0) {
           await db.collection('usuarios').doc(currentUserId).update({
             creditos: firebase.firestore.FieldValue.increment(-torneio.entrada)
@@ -1088,22 +1071,54 @@
           currentUserData.creditos -= torneio.entrada;
         }
 
-        // Adicionar participante (simulado)
-        torneio.participantes.push(currentUserId);
-        torneio.inscritos++;
+        // 2. Atualizar documento do torneio
+        await db.collection('torneios').doc(torneioId).update({
+          inscritos: firebase.firestore.FieldValue.arrayUnion(currentUserId),
+          totalInscritos: firebase.firestore.FieldValue.increment(1),
+          prizePool: firebase.firestore.FieldValue.increment(torneio.entrada || 0)
+        });
 
-        // Atualizar estatísticas
+        // 3. Criar participação na subcoleção
+        await db.collection('torneios').doc(torneioId)
+          .collection('participacoes').doc(currentUserId).set({
+            odId: currentUserId,
+            odNome: currentUserData?.usuarioUnico || currentUserData?.nome || 'Anônimo',
+            foto: currentUserData?.fotoPerfil || null,
+            ativo: true,
+            pontos: 0,
+            acertos: 0,
+            erros: 0,
+            dataInscricao: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+        // 4. Registrar transação (se cobrou entrada)
+        if (torneio.entrada > 0) {
+          await db.collection('transacoes').add({
+            usuarioId: currentUserId,
+            tipo: 'debito',
+            valor: torneio.entrada,
+            descricao: `🏆 Inscrição no torneio ${torneio.nome}`,
+            torneioId: torneioId,
+            data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+
+        // 5. Atualizar estatísticas do usuário
         await db.collection('usuarios').doc(currentUserId).update({
           'torneios.participacoes': firebase.firestore.FieldValue.increment(1)
         });
+
+        // 6. Atualizar local
+        torneio.participantes.push(currentUserId);
+        torneio.inscritos++;
 
         showToast('✅ Inscrição confirmada!');
         renderizarTorneiosDisponiveis();
         renderizarMeusTorneios();
 
       } catch (error) {
-        console.error("Erro:", error);
-        showToast('❌ Erro ao inscrever');
+        console.error("Erro ao inscrever:", error);
+        showToast('❌ Erro ao inscrever: ' + error.message);
       }
     }
 
@@ -1114,18 +1129,51 @@
       const torneio = torneios.find(t => t.id === torneioId);
       if (!torneio) return;
 
+      // Se o torneio está em andamento, ir para a arena
+      if (torneio.status === 'andamento') {
+        window.location.href = `arena-torneio.html?id=${torneioId}`;
+        return;
+      }
+
+      // Se está finalizado, ir para resultado
+      if (torneio.status === 'finalizado') {
+        window.location.href = `resultado-torneio.html?id=${torneioId}`;
+        return;
+      }
+
       document.getElementById('modalTorneioTitulo').textContent = torneio.nome;
       
-      // Simular bracket
+      // Calcular tempo para início
+      let tempoTexto = 'Em breve';
+      if (torneio.dataInicio) {
+        const agora = new Date();
+        const diff = torneio.dataInicio - agora;
+        if (diff > 0) {
+          const dias = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const horas = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          
+          if (dias > 0) tempoTexto = `${dias}d ${horas}h`;
+          else if (horas > 0) tempoTexto = `${horas}h ${mins}min`;
+          else tempoTexto = `${mins} minutos`;
+        } else {
+          tempoTexto = 'Iniciando...';
+        }
+      }
+
       const bracket = `
         <div style="margin-bottom: 20px;">
           <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
             <span>📊 Seu status:</span>
-            <span style="color: #10b981; font-weight: 600;">Aguardando partida</span>
+            <span style="color: #10b981; font-weight: 600;">✅ Inscrito</span>
           </div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
             <span>👥 Participantes:</span>
-            <span>${torneio.inscritos}/${torneio.vagas}</span>
+            <span>${torneio.inscritos}/${torneio.vagas === 9999 ? '∞' : torneio.vagas}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <span>💰 Entrada:</span>
+            <span>${torneio.entrada > 0 ? torneio.entrada + ' 💎' : 'Grátis'}</span>
           </div>
           <div style="display: flex; justify-content: space-between;">
             <span>🏆 Prêmio:</span>
@@ -1136,8 +1184,14 @@
         <div style="text-align: center; padding: 30px; background: rgba(0,0,0,0.2); border-radius: 12px;">
           <div style="font-size: 3em; margin-bottom: 10px;">⏳</div>
           <div style="font-weight: 600; margin-bottom: 5px;">Aguardando início</div>
-          <div style="color: #a9b5c6; font-size: 0.9em;">O torneio começará em breve!</div>
+          <div style="color: #a9b5c6; font-size: 0.9em;">Começa em: ${tempoTexto}</div>
         </div>
+
+        ${torneio.descricao ? `
+          <div style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
+            <div style="font-size: 0.85em; color: #a9b5c6;">${torneio.descricao}</div>
+          </div>
+        ` : ''}
 
         <button class="btn-inscrever btn-ver" style="margin-top: 20px;" onclick="fecharModal()">
           Fechar
