@@ -2,33 +2,296 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Ranking - Yellup Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rankings - Yellup Admin</title>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <script src="/admin/js/firebase-config.js"></script>
-  <script src="/admin/js/ranking.js" defer></script>
   <style>
-    body { font-family: Arial; padding: 20px; }
-    h2 { margin-bottom: 10px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
-    th { background: #333; color: white; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #fff;
+      padding: 20px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      padding: 20px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+    }
+    .header h1 { font-size: 1.8em; }
+    .btn-voltar {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      text-decoration: none;
+    }
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 25px;
+      flex-wrap: wrap;
+    }
+    .tab {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.7);
+      padding: 12px 25px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-weight: 500;
+    }
+    .tab:hover { background: rgba(255,215,0,0.1); }
+    .tab.active {
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      color: #1a1a2e;
+      border-color: transparent;
+    }
+    .podium {
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      gap: 20px;
+      margin-bottom: 30px;
+      padding: 30px;
+    }
+    .podium-item {
+      text-align: center;
+      padding: 20px;
+      border-radius: 15px;
+      background: rgba(0,0,0,0.3);
+      min-width: 150px;
+    }
+    .podium-item.first {
+      background: linear-gradient(135deg, rgba(255,215,0,0.3), rgba(255,165,0,0.2));
+      border: 2px solid #FFD700;
+      transform: scale(1.1);
+    }
+    .podium-item.second {
+      background: linear-gradient(135deg, rgba(192,192,192,0.3), rgba(169,169,169,0.2));
+      border: 2px solid #C0C0C0;
+    }
+    .podium-item.third {
+      background: linear-gradient(135deg, rgba(205,127,50,0.3), rgba(184,115,51,0.2));
+      border: 2px solid #CD7F32;
+    }
+    .podium-rank { font-size: 2.5em; margin-bottom: 10px; }
+    .podium-avatar {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      margin: 0 auto 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5em;
+      font-weight: 700;
+    }
+    .podium-item.first .podium-avatar { background: linear-gradient(135deg, #FFD700, #FFA500); }
+    .podium-item.second .podium-avatar { background: linear-gradient(135deg, #C0C0C0, #A9A9A9); }
+    .podium-item.third .podium-avatar { background: linear-gradient(135deg, #CD7F32, #B8860B); }
+    .podium-name { font-weight: 700; margin-bottom: 5px; }
+    .podium-score { color: #FFD700; font-size: 1.2em; font-weight: 700; }
+    .table-container {
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: rgba(255,215,0,0.2);
+      color: #FFD700;
+      padding: 15px;
+      text-align: left;
+    }
+    td { padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    tr:hover { background: rgba(255,255,255,0.05); }
+    .rank-cell { font-weight: 700; font-size: 1.1em; }
+    .rank-1 { color: #FFD700; }
+    .rank-2 { color: #C0C0C0; }
+    .rank-3 { color: #CD7F32; }
+    .user-info { display: flex; align-items: center; gap: 12px; }
+    .user-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+    }
+    .score { color: #2ecc71; font-weight: 700; font-size: 1.1em; }
+    .nivel-badge {
+      padding: 4px 10px;
+      border-radius: 15px;
+      font-size: 0.75em;
+      font-weight: 600;
+    }
+    .nivel-bronze { background: rgba(205,127,50,0.3); color: #CD7F32; }
+    .nivel-prata { background: rgba(192,192,192,0.3); color: #C0C0C0; }
+    .nivel-ouro { background: rgba(255,215,0,0.3); color: #FFD700; }
+    .nivel-diamante { background: rgba(0,191,255,0.3); color: #00BFFF; }
+    .nivel-mestre { background: rgba(155,89,182,0.3); color: #9b59b6; }
+    .empty-state { text-align: center; padding: 60px; color: rgba(255,255,255,0.5); }
   </style>
 </head>
 <body>
-  <h2>Ranking Geral dos Usuários</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Posição</th>
-        <th>Nome</th>
-        <th>Email</th>
-        <th>Créditos</th>
-        <th>Pontuação</th>
-      </tr>
-    </thead>
-    <tbody id="tabelaRanking"></tbody>
-  </table>
+  <div class="container">
+    <div class="header">
+      <h1>🏆 Rankings</h1>
+      <a href="dashboard.html" class="btn-voltar">← Painel Admin</a>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="mudarTab('xp')">⭐ XP Total</div>
+      <div class="tab" onclick="mudarTab('creditos')">💎 Créditos</div>
+      <div class="tab" onclick="mudarTab('jogos')">🎮 Jogos</div>
+      <div class="tab" onclick="mudarTab('vitorias')">🏅 Vitórias</div>
+      <div class="tab" onclick="mudarTab('streak')">🔥 Maior Streak</div>
+    </div>
+
+    <div class="podium" id="podium"></div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:60px">#</th>
+            <th>Usuário</th>
+            <th>Nível</th>
+            <th id="colunaPontuacao">XP</th>
+          </tr>
+        </thead>
+        <tbody id="tabela"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const db = firebase.firestore();
+    let usuarios = [];
+    let tabAtual = 'xp';
+
+    document.addEventListener('DOMContentLoaded', carregarDados);
+
+    async function carregarDados() {
+      try {
+        const snap = await db.collection('usuarios').get();
+        usuarios = [];
+        snap.forEach(doc => usuarios.push({ id: doc.id, ...doc.data() }));
+        renderizar();
+      } catch (e) {
+        console.error('Erro:', e);
+      }
+    }
+
+    function mudarTab(tab) {
+      tabAtual = tab;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+      
+      const colunas = {
+        xp: '⭐ XP',
+        creditos: '💎 Créditos',
+        jogos: '🎮 Jogos',
+        vitorias: '🏅 Vitórias',
+        streak: '🔥 Streak'
+      };
+      document.getElementById('colunaPontuacao').textContent = colunas[tab];
+      
+      renderizar();
+    }
+
+    function getValor(u) {
+      switch(tabAtual) {
+        case 'xp': return u.xp || u.pontuacao || 0;
+        case 'creditos': return u.creditos || 0;
+        case 'jogos': return u.jogosParticipados || u.totalJogos || 0;
+        case 'vitorias': return u.vitorias || 0;
+        case 'streak': return u.maiorStreak || u.streakMaximo || 0;
+        default: return 0;
+      }
+    }
+
+    function getNivel(xp) {
+      if (xp >= 5000) return { nome: 'Mestre', classe: 'nivel-mestre' };
+      if (xp >= 3000) return { nome: 'Diamante', classe: 'nivel-diamante' };
+      if (xp >= 1500) return { nome: 'Ouro', classe: 'nivel-ouro' };
+      if (xp >= 500) return { nome: 'Prata', classe: 'nivel-prata' };
+      return { nome: 'Bronze', classe: 'nivel-bronze' };
+    }
+
+    function renderizar() {
+      const ordenados = [...usuarios].sort((a, b) => getValor(b) - getValor(a));
+      const top3 = ordenados.slice(0, 3);
+      const resto = ordenados.slice(3, 50);
+
+      // Pódio
+      const podiumHtml = top3.length >= 3 ? `
+        <div class="podium-item second">
+          <div class="podium-rank">🥈</div>
+          <div class="podium-avatar">${(top3[1].nome || 'U')[0].toUpperCase()}</div>
+          <div class="podium-name">${top3[1].nome || top3[1].usuarioUnico || 'Usuário'}</div>
+          <div class="podium-score">${getValor(top3[1]).toLocaleString()}</div>
+        </div>
+        <div class="podium-item first">
+          <div class="podium-rank">🥇</div>
+          <div class="podium-avatar">${(top3[0].nome || 'U')[0].toUpperCase()}</div>
+          <div class="podium-name">${top3[0].nome || top3[0].usuarioUnico || 'Usuário'}</div>
+          <div class="podium-score">${getValor(top3[0]).toLocaleString()}</div>
+        </div>
+        <div class="podium-item third">
+          <div class="podium-rank">🥉</div>
+          <div class="podium-avatar">${(top3[2].nome || 'U')[0].toUpperCase()}</div>
+          <div class="podium-name">${top3[2].nome || top3[2].usuarioUnico || 'Usuário'}</div>
+          <div class="podium-score">${getValor(top3[2]).toLocaleString()}</div>
+        </div>
+      ` : '<div style="color:rgba(255,255,255,0.5)">Poucos usuários para pódio</div>';
+      
+      document.getElementById('podium').innerHTML = podiumHtml;
+
+      // Tabela
+      const tbody = document.getElementById('tabela');
+      
+      if (resto.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Sem mais usuários</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = resto.map((u, i) => {
+        const pos = i + 4;
+        const nivel = getNivel(u.xp || 0);
+        const inicial = (u.nome || u.usuarioUnico || 'U')[0].toUpperCase();
+        
+        return `
+          <tr>
+            <td class="rank-cell">${pos}º</td>
+            <td>
+              <div class="user-info">
+                <div class="user-avatar">${inicial}</div>
+                <div>
+                  <div style="font-weight:600">${u.nome || u.usuarioUnico || 'Usuário'}</div>
+                  <div style="font-size:0.8em;color:rgba(255,255,255,0.5)">${u.email || ''}</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="nivel-badge ${nivel.classe}">${nivel.nome}</span></td>
+            <td class="score">${getValor(u).toLocaleString()}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  </script>
 </body>
 </html>
