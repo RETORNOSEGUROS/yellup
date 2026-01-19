@@ -1,41 +1,283 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <title>Ranking de Pontuação - Yellup</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pontuação - Yellup Admin</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="/admin/js/firebase-config.js"></script>
   <style>
-    body { font-family: Arial; padding: 20px; background: #f9f9f9; }
-    h2 { margin-bottom: 20px; }
-    .filtros { margin-bottom: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 5px rgba(0,0,0,0.1); }
-    input, button { margin: 5px; padding: 10px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; box-shadow: 0 0 5px rgba(0,0,0,0.1); }
-    th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
-    th { background-color: #333; color: white; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #fff;
+      padding: 20px;
+    }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      padding: 20px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+    }
+    .header h1 { font-size: 1.8em; }
+    .btn-voltar {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      text-decoration: none;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-bottom: 25px;
+    }
+    .stat-card {
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+      padding: 25px;
+      text-align: center;
+    }
+    .stat-icon { font-size: 2em; margin-bottom: 10px; }
+    .stat-value { font-size: 2em; font-weight: 700; color: #FFD700; }
+    .stat-label { color: rgba(255,255,255,0.6); margin-top: 5px; }
+    .filters {
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+      padding: 20px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      align-items: flex-end;
+    }
+    .filter-group { flex: 1; min-width: 150px; }
+    .filter-group label { display: block; margin-bottom: 5px; color: rgba(255,255,255,0.7); font-size: 0.85em; }
+    .filter-group input, .filter-group select {
+      width: 100%;
+      padding: 10px 15px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+    }
+    .btn-filtrar {
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      color: #1a1a2e;
+      padding: 10px 25px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .table-container {
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: rgba(255,215,0,0.2);
+      color: #FFD700;
+      padding: 15px;
+      text-align: left;
+    }
+    td { padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    tr:hover { background: rgba(255,255,255,0.05); }
+    .rank-cell { font-weight: 700; }
+    .rank-1 { color: #FFD700; }
+    .rank-2 { color: #C0C0C0; }
+    .rank-3 { color: #CD7F32; }
+    .pontos { color: #2ecc71; font-weight: 700; }
+    .user-info { display: flex; align-items: center; gap: 12px; }
+    .user-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
-  <h2>Ranking de Pontuação</h2>
+  <div class="container">
+    <div class="header">
+      <h1>🎯 Ranking de Pontuação</h1>
+      <a href="dashboard.html" class="btn-voltar">← Painel Admin</a>
+    </div>
 
-  <div class="filtros">
-    <label>Data Início: <input type="date" id="dataInicio"></label>
-    <label>Data Fim: <input type="date" id="dataFim"></label>
-    <button onclick="buscarRanking()">Buscar</button>
-    <button onclick="listarTodos()">Ranking Geral</button>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon">👥</div>
+        <div class="stat-value" id="totalJogadores">0</div>
+        <div class="stat-label">Jogadores Ativos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">⭐</div>
+        <div class="stat-value" id="totalPontos">0</div>
+        <div class="stat-label">Total de Pontos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">📊</div>
+        <div class="stat-value" id="mediaPontos">0</div>
+        <div class="stat-label">Média por Jogador</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🏆</div>
+        <div class="stat-value" id="maiorPontuacao">0</div>
+        <div class="stat-label">Maior Pontuação</div>
+      </div>
+    </div>
+
+    <div class="filters">
+      <div class="filter-group">
+        <label>Período</label>
+        <select id="periodo" onchange="filtrar()">
+          <option value="geral">Todo o Tempo</option>
+          <option value="mes">Este Mês</option>
+          <option value="semana">Esta Semana</option>
+          <option value="hoje">Hoje</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Ordenar por</label>
+        <select id="ordenar" onchange="filtrar()">
+          <option value="pontuacao">Pontuação Total</option>
+          <option value="xp">XP</option>
+          <option value="jogos">Jogos Participados</option>
+          <option value="acertos">Taxa de Acerto</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Buscar</label>
+        <input type="text" id="busca" placeholder="Nome do usuário..." oninput="filtrar()">
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:60px">#</th>
+            <th>Usuário</th>
+            <th>Jogos</th>
+            <th>Acertos</th>
+            <th>Taxa</th>
+            <th>Pontuação</th>
+          </tr>
+        </thead>
+        <tbody id="tabela"></tbody>
+      </table>
+    </div>
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Usuário</th>
-        <th>Pontuação Total</th>
-      </tr>
-    </thead>
-    <tbody id="tabelaRanking"></tbody>
-  </table>
+  <script>
+    const db = firebase.firestore();
+    let todosUsuarios = [];
 
-  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
-  <script src="firebase-init.js"></script>
-  <script src="js/pontuacao.js"></script>
+    document.addEventListener('DOMContentLoaded', carregarDados);
+
+    async function carregarDados() {
+      try {
+        const snap = await db.collection('usuarios').get();
+        todosUsuarios = [];
+        snap.forEach(doc => {
+          const u = doc.data();
+          todosUsuarios.push({
+            id: doc.id,
+            nome: u.nome || u.usuarioUnico || 'Usuário',
+            email: u.email || '',
+            pontuacao: u.pontuacao || u.xp || 0,
+            xp: u.xp || 0,
+            jogos: u.jogosParticipados || u.totalJogos || 0,
+            acertos: u.acertos || u.totalAcertos || 0,
+            respostas: u.respostas || u.totalRespostas || 0
+          });
+        });
+        
+        filtrar();
+      } catch (e) {
+        console.error('Erro:', e);
+      }
+    }
+
+    function filtrar() {
+      const ordenar = document.getElementById('ordenar').value;
+      const busca = document.getElementById('busca').value.toLowerCase();
+
+      let filtrados = todosUsuarios.filter(u => 
+        u.nome.toLowerCase().includes(busca) || u.email.toLowerCase().includes(busca)
+      );
+
+      // Ordenar
+      const campoOrdem = {
+        pontuacao: u => u.pontuacao,
+        xp: u => u.xp,
+        jogos: u => u.jogos,
+        acertos: u => u.respostas > 0 ? (u.acertos / u.respostas) : 0
+      };
+
+      filtrados.sort((a, b) => campoOrdem[ordenar](b) - campoOrdem[ordenar](a));
+
+      // Estatísticas
+      const ativos = filtrados.filter(u => u.pontuacao > 0 || u.jogos > 0);
+      const totalPontos = ativos.reduce((sum, u) => sum + u.pontuacao, 0);
+      
+      document.getElementById('totalJogadores').textContent = ativos.length;
+      document.getElementById('totalPontos').textContent = totalPontos.toLocaleString();
+      document.getElementById('mediaPontos').textContent = ativos.length > 0 ? Math.round(totalPontos / ativos.length) : 0;
+      document.getElementById('maiorPontuacao').textContent = filtrados.length > 0 ? filtrados[0].pontuacao.toLocaleString() : 0;
+
+      renderizar(filtrados.slice(0, 100));
+    }
+
+    function renderizar(usuarios) {
+      const tbody = document.getElementById('tabela');
+      
+      if (usuarios.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:rgba(255,255,255,0.5)">Nenhum usuário encontrado</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = usuarios.map((u, i) => {
+        const pos = i + 1;
+        const rankIcon = pos === 1 ? '🥇' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : pos + 'º';
+        const rankClass = pos <= 3 ? `rank-${pos}` : '';
+        const taxa = u.respostas > 0 ? Math.round((u.acertos / u.respostas) * 100) : 0;
+        const inicial = u.nome[0].toUpperCase();
+
+        return `
+          <tr>
+            <td class="rank-cell ${rankClass}">${rankIcon}</td>
+            <td>
+              <div class="user-info">
+                <div class="user-avatar">${inicial}</div>
+                <div>
+                  <div style="font-weight:600">${u.nome}</div>
+                  <div style="font-size:0.8em;color:rgba(255,255,255,0.5)">${u.email}</div>
+                </div>
+              </div>
+            </td>
+            <td>${u.jogos}</td>
+            <td>${u.acertos}/${u.respostas}</td>
+            <td>${taxa}%</td>
+            <td class="pontos">${u.pontuacao.toLocaleString()} ⭐</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  </script>
 </body>
 </html>
