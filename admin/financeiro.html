@@ -444,11 +444,30 @@
       } catch (e) { console.error(e); }
     }
 
+    // Cache de nomes de usuários
+    let cacheUsuarios = {};
+
     async function carregarCompras() {
       try {
         const snap = await db.collection('compras').orderBy('data', 'desc').limit(50).get();
         todasCompras = [];
         snap.forEach(doc => todasCompras.push({ id: doc.id, ...doc.data() }));
+        
+        // Buscar nomes dos usuários que não tem userName
+        const idsParaBuscar = [...new Set(todasCompras.filter(c => !c.userName).map(c => c.usuarioId))];
+        
+        for (const odId of idsParaBuscar) {
+          if (!cacheUsuarios[odId] && odId) {
+            try {
+              const userDoc = await db.collection('usuarios').doc(odId).get();
+              if (userDoc.exists) {
+                const userData = userDoc.data();
+                cacheUsuarios[odId] = userData.nome || userData.usuarioUnico || userData.email || odId.substring(0,8);
+              }
+            } catch (e) { /* ignora */ }
+          }
+        }
+        
         renderizarCompras();
       } catch (e) { console.error(e); }
     }
@@ -463,7 +482,7 @@
         const data = c.data?.toDate ? c.data.toDate() : new Date();
         const statusClass = c.status === 'aprovado' ? 'badge-aprovado' : 'badge-pendente';
         const statusText = c.status === 'aprovado' ? 'OK' : 'Pend';
-        const nome = c.userName || c.userEmail || c.usuarioId?.substring(0,8) || 'Anônimo';
+        const nome = c.userName || cacheUsuarios[c.usuarioId] || c.userEmail || c.usuarioId?.substring(0,8) || 'Anônimo';
         return `<tr><td>${nome}</td><td>${c.creditos || 0} 💎</td><td>R$ ${(c.valor || 0).toFixed(2)}</td><td>${data.toLocaleString('pt-BR')}</td><td><span class="badge ${statusClass}">${statusText}</span></td></tr>`;
       }).join('');
     }
@@ -531,10 +550,26 @@
           const dataC = c.data?.toDate ? c.data.toDate() : new Date(0);
           if (dataC < inicioMes) return; // Filtrar por data no JS
           const uid = c.usuarioId;
-          if (!porUsuario[uid]) porUsuario[uid] = { nome: c.userName || 'Anônimo', compras: 0, total: 0 };
+          if (!porUsuario[uid]) porUsuario[uid] = { odId: uid, nome: c.userName || cacheUsuarios[uid] || null, compras: 0, total: 0 };
           porUsuario[uid].compras++;
           porUsuario[uid].total += c.valor || 0;
         });
+        
+        // Buscar nomes que faltam
+        const semNome = Object.values(porUsuario).filter(u => !u.nome);
+        for (const u of semNome) {
+          if (!cacheUsuarios[u.odId] && u.odId) {
+            try {
+              const userDoc = await db.collection('usuarios').doc(u.odId).get();
+              if (userDoc.exists) {
+                const userData = userDoc.data();
+                cacheUsuarios[u.odId] = userData.nome || userData.usuarioUnico || userData.email || u.odId.substring(0,8);
+              }
+            } catch (e) { /* ignora */ }
+          }
+          u.nome = cacheUsuarios[u.odId] || u.odId?.substring(0,8) || 'Anônimo';
+        }
+        
         const top = Object.values(porUsuario).sort((a, b) => b.total - a.total).slice(0, 10);
         const tbody = document.getElementById('tabelaTop');
         if (top.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Nenhum</td></tr>'; return; }
