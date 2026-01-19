@@ -191,7 +191,7 @@
   </div>
 
   <script>
-    const db = firebase.firestore();
+    // db já declarado em firebase-config.js
     let todasIndicacoes = [];
     let usuarios = {};
 
@@ -199,30 +199,40 @@
 
     async function carregarDados() {
       try {
-        // Carregar usuários para mapear IDs para nomes
+        // Carregar todos os usuários
         const usersSnap = await db.collection('usuarios').get();
-        usersSnap.forEach(doc => {
-          usuarios[doc.id] = doc.data();
-        });
-
-        // Carregar indicações
-        const snap = await db.collection('usuarios').where('indicadoPor', '!=', null).get();
+        usuarios = {};
         todasIndicacoes = [];
-        snap.forEach(doc => {
+        
+        usersSnap.forEach(doc => {
           const data = doc.data();
-          if (data.indicadoPor) {
+          usuarios[doc.id] = data;
+          
+          // Verificar se tem indicador válido (não é "-", não é vazio, não é null)
+          const indicador = data.indicadoPor;
+          if (indicador && indicador !== '-' && indicador !== '' && indicador !== null) {
             todasIndicacoes.push({
               id: doc.id,
               ...data,
-              indicadorData: usuarios[data.indicadoPor] || {}
+              indicadorData: {} // Será preenchido depois
             });
           }
+        });
+        
+        // Preencher dados do indicador
+        todasIndicacoes.forEach(ind => {
+          ind.indicadorData = usuarios[ind.indicadoPor] || {};
         });
 
         atualizarEstatisticas();
         renderizar();
       } catch (e) {
         console.error('Erro:', e);
+        document.getElementById('tabela').innerHTML = `
+          <tr><td colspan="4" style="text-align:center;padding:40px;color:#e74c3c;">
+            Erro ao carregar: ${e.message}
+          </td></tr>
+        `;
       }
     }
 
