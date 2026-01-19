@@ -182,6 +182,7 @@
             <th>Indicado</th>
             <th>Indicador</th>
             <th>Data</th>
+            <th>Créditos</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -242,13 +243,16 @@
       inicioMes.setHours(0,0,0,0);
 
       const doMes = todasIndicacoes.filter(i => {
-        const data = i.criadoEm?.toDate ? i.criadoEm.toDate() : new Date(0);
+        let data = new Date(0);
+        if (i.dataCadastro) {
+          data = i.dataCadastro.toDate ? i.dataCadastro.toDate() : new Date(i.dataCadastro);
+        }
         return data >= inicioMes;
       });
 
       document.getElementById('totalIndicacoes').textContent = todasIndicacoes.length;
       document.getElementById('indicacoesMes').textContent = doMes.length;
-      document.getElementById('bonusPago').textContent = todasIndicacoes.length * 5; // 5 créditos por indicação
+      document.getElementById('bonusPago').textContent = todasIndicacoes.length * 2; // 2 créditos por indicação
 
       // Calcular top indicadores
       const porIndicador = {};
@@ -285,16 +289,16 @@
       const filtro = document.getElementById('filtro').value.toLowerCase();
 
       const filtradas = todasIndicacoes.filter(i => {
-        const nome = (i.nome || '').toLowerCase();
+        const nome = (i.nome || i.usuarioUnico || '').toLowerCase();
         const email = (i.email || '').toLowerCase();
-        const indicador = (i.indicadorData?.nome || '').toLowerCase();
+        const indicador = (i.indicadorData?.nome || i.indicadorData?.usuarioUnico || '').toLowerCase();
         return nome.includes(filtro) || email.includes(filtro) || indicador.includes(filtro);
       });
 
       if (filtradas.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="4">
+            <td colspan="5">
               <div class="empty-state">
                 <div class="icon">🔗</div>
                 <p>Nenhuma indicação encontrada</p>
@@ -306,8 +310,15 @@
       }
 
       tbody.innerHTML = filtradas.map(i => {
-        const data = i.criadoEm?.toDate ? i.criadoEm.toDate().toLocaleDateString('pt-BR') : '-';
-        const inicial = (i.nome || i.email || 'U')[0].toUpperCase();
+        // Usar dataCadastro ao invés de criadoEm
+        let data = '-';
+        if (i.dataCadastro) {
+          const dt = i.dataCadastro.toDate ? i.dataCadastro.toDate() : new Date(i.dataCadastro);
+          data = dt.toLocaleDateString('pt-BR');
+        }
+        
+        const nome = i.nome || i.usuarioUnico || 'Sem nome';
+        const inicial = nome[0].toUpperCase();
         const indicadorNome = i.indicadorData?.nome || i.indicadorData?.usuarioUnico || i.indicadoPor?.substring(0,8) || '-';
         
         return `
@@ -316,13 +327,14 @@
               <div class="user-info">
                 <div class="user-avatar">${inicial}</div>
                 <div class="user-details">
-                  <h4>${i.nome || 'Sem nome'}</h4>
+                  <h4>${nome}</h4>
                   <span>${i.email || '-'}</span>
                 </div>
               </div>
             </td>
             <td><strong>${indicadorNome}</strong></td>
             <td>${data}</td>
+            <td style="color: #2ecc71; font-weight: 700;">+2 💎</td>
             <td><span class="badge badge-success">✓ Válida</span></td>
           </tr>
         `;
