@@ -1,44 +1,337 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <title>Relatório da Partida - Yellup</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relatório de Jogos - Yellup Admin</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="/admin/js/firebase-config.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; background: #f9f9f9; }
-    h2 { margin-bottom: 20px; }
-    .bloco { background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
-    th { background: #f1c40f; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #fff;
+      padding: 20px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      padding: 20px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+    }
+    .header h1 { font-size: 1.8em; }
+    .btn-voltar {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      text-decoration: none;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 15px;
+      margin-bottom: 25px;
+    }
+    .stat-card {
+      background: rgba(0,0,0,0.3);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-icon { font-size: 1.8em; margin-bottom: 8px; }
+    .stat-value { font-size: 1.6em; font-weight: 700; }
+    .stat-value.verde { color: #2ecc71; }
+    .stat-value.azul { color: #3498db; }
+    .stat-value.amarelo { color: #f1c40f; }
+    .stat-label { color: rgba(255,255,255,0.6); font-size: 0.85em; margin-top: 5px; }
+    .filters {
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+      padding: 20px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      align-items: flex-end;
+    }
+    .filter-group { flex: 1; min-width: 150px; }
+    .filter-group label { display: block; margin-bottom: 5px; color: rgba(255,255,255,0.7); font-size: 0.85em; }
+    .filter-group input, .filter-group select {
+      width: 100%;
+      padding: 10px 15px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+    }
+    .btn-filtrar {
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      color: #1a1a2e;
+      padding: 10px 25px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .table-container {
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: rgba(255,215,0,0.2);
+      color: #FFD700;
+      padding: 15px;
+      text-align: left;
+    }
+    td { padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    tr:hover { background: rgba(255,255,255,0.05); }
+    .badge {
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.8em;
+      font-weight: 600;
+    }
+    .badge-live { background: rgba(231,76,60,0.3); color: #e74c3c; animation: pulse 1.5s infinite; }
+    .badge-finalizado { background: rgba(46,204,113,0.2); color: #2ecc71; }
+    .badge-agendado { background: rgba(52,152,219,0.2); color: #3498db; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .jogo-info { display: flex; align-items: center; gap: 15px; }
+    .jogo-times { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+    .vs { color: rgba(255,255,255,0.5); font-size: 0.9em; }
+    .empty-state { text-align: center; padding: 60px; color: rgba(255,255,255,0.5); }
+    .detalhe-btn {
+      background: rgba(255,255,255,0.1);
+      border: none;
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85em;
+    }
+    .detalhe-btn:hover { background: rgba(255,255,255,0.2); }
   </style>
 </head>
 <body>
-  <h2>Relatório da Partida</h2>
+  <div class="container">
+    <div class="header">
+      <h1>📊 Relatório de Jogos</h1>
+      <a href="dashboard.html" class="btn-voltar">← Painel Admin</a>
+    </div>
 
-  <div class="bloco">
-    <h3>Dados Gerais</h3>
-    <p>Status: <span id="status"></span></p>
-    <p>Período: <span id="periodo"></span></p>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon">🎮</div>
+        <div class="stat-value azul" id="totalJogos">0</div>
+        <div class="stat-label">Total de Jogos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🔴</div>
+        <div class="stat-value" id="jogosLive" style="color:#e74c3c">0</div>
+        <div class="stat-label">Ao Vivo Agora</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-value verde" id="finalizados">0</div>
+        <div class="stat-label">Finalizados</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">👥</div>
+        <div class="stat-value amarelo" id="totalParticipantes">0</div>
+        <div class="stat-label">Participações</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">💎</div>
+        <div class="stat-value verde" id="totalCreditos">0</div>
+        <div class="stat-label">Créditos Movimentados</div>
+      </div>
+    </div>
+
+    <div class="filters">
+      <div class="filter-group">
+        <label>Status</label>
+        <select id="filtroStatus" onchange="filtrar()">
+          <option value="">Todos</option>
+          <option value="ao_vivo">Ao Vivo</option>
+          <option value="finalizado">Finalizados</option>
+          <option value="agendado">Agendados</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Período</label>
+        <select id="filtroPeriodo" onchange="filtrar()">
+          <option value="">Todo o Tempo</option>
+          <option value="hoje">Hoje</option>
+          <option value="semana">Esta Semana</option>
+          <option value="mes">Este Mês</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Buscar Time</label>
+        <input type="text" id="busca" placeholder="Nome do time..." oninput="filtrar()">
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Jogo</th>
+            <th>Data/Hora</th>
+            <th>Status</th>
+            <th>Participantes</th>
+            <th>Pool</th>
+            <th>Ação</th>
+          </tr>
+        </thead>
+        <tbody id="tabela"></tbody>
+      </table>
+    </div>
   </div>
 
-  <div class="bloco">
-    <h3>Resumo da Participação</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Torcedores</th>
-          <th>Créditos Usados</th>
-          <th>Pontuação Média</th>
-        </tr>
-      </thead>
-      <tbody id="resumoTabela"></tbody>
-    </table>
-  </div>
+  <script>
+    const db = firebase.firestore();
+    let todosJogos = [];
 
-  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
-  <script src="firebase-init.js"></script>
-  <script src="js/relatorio-jogo.js"></script>
+    document.addEventListener('DOMContentLoaded', carregarDados);
+
+    async function carregarDados() {
+      try {
+        const snap = await db.collection('jogos').orderBy('dataHora', 'desc').limit(200).get();
+        todosJogos = [];
+        snap.forEach(doc => todosJogos.push({ id: doc.id, ...doc.data() }));
+        
+        atualizarEstatisticas();
+        filtrar();
+      } catch (e) {
+        console.error('Erro:', e);
+      }
+    }
+
+    function atualizarEstatisticas() {
+      const agora = new Date();
+      let live = 0, finalizados = 0, participantes = 0, creditos = 0;
+
+      todosJogos.forEach(j => {
+        if (j.status === 'ao_vivo' || j.status === 'live') live++;
+        if (j.status === 'finalizado' || j.status === 'encerrado') finalizados++;
+        participantes += (j.torcidaCasaCount || 0) + (j.torcidaForaCount || 0);
+        creditos += j.poolCreditosPagos || 0;
+      });
+
+      document.getElementById('totalJogos').textContent = todosJogos.length;
+      document.getElementById('jogosLive').textContent = live;
+      document.getElementById('finalizados').textContent = finalizados;
+      document.getElementById('totalParticipantes').textContent = participantes;
+      document.getElementById('totalCreditos').textContent = creditos;
+    }
+
+    function filtrar() {
+      const status = document.getElementById('filtroStatus').value;
+      const periodo = document.getElementById('filtroPeriodo').value;
+      const busca = document.getElementById('busca').value.toLowerCase();
+
+      const agora = new Date();
+      const inicioHoje = new Date(agora); inicioHoje.setHours(0,0,0,0);
+      const inicioSemana = new Date(agora); inicioSemana.setDate(agora.getDate() - 7);
+      const inicioMes = new Date(agora); inicioMes.setDate(1);
+
+      let filtrados = todosJogos.filter(j => {
+        // Status
+        if (status) {
+          const st = j.status || '';
+          if (status === 'ao_vivo' && st !== 'ao_vivo' && st !== 'live') return false;
+          if (status === 'finalizado' && st !== 'finalizado' && st !== 'encerrado') return false;
+          if (status === 'agendado' && st !== 'agendado' && st !== 'programado') return false;
+        }
+
+        // Período
+        if (periodo) {
+          const dataJogo = j.dataHora?.toDate ? j.dataHora.toDate() : new Date(0);
+          if (periodo === 'hoje' && dataJogo < inicioHoje) return false;
+          if (periodo === 'semana' && dataJogo < inicioSemana) return false;
+          if (periodo === 'mes' && dataJogo < inicioMes) return false;
+        }
+
+        // Busca
+        if (busca) {
+          const casa = (j.timeCasa || j.mandante || '').toLowerCase();
+          const fora = (j.timeFora || j.visitante || '').toLowerCase();
+          if (!casa.includes(busca) && !fora.includes(busca)) return false;
+        }
+
+        return true;
+      });
+
+      renderizar(filtrados);
+    }
+
+    function renderizar(jogos) {
+      const tbody = document.getElementById('tabela');
+
+      if (jogos.length === 0) {
+        tbody.innerHTML = `
+          <tr><td colspan="6">
+            <div class="empty-state">
+              <div style="font-size:3em;margin-bottom:15px">⚽</div>
+              <p>Nenhum jogo encontrado</p>
+            </div>
+          </td></tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = jogos.map(j => {
+        const timeCasa = j.timeCasa || j.mandante || 'Time A';
+        const timeFora = j.timeFora || j.visitante || 'Time B';
+        const dataHora = j.dataHora?.toDate ? j.dataHora.toDate().toLocaleString('pt-BR') : '-';
+        const participantes = (j.torcidaCasaCount || 0) + (j.torcidaForaCount || 0);
+        const pool = j.poolCreditosPagos || 0;
+
+        let statusBadge = '';
+        const st = j.status || 'agendado';
+        if (st === 'ao_vivo' || st === 'live') {
+          statusBadge = '<span class="badge badge-live">🔴 AO VIVO</span>';
+        } else if (st === 'finalizado' || st === 'encerrado') {
+          statusBadge = '<span class="badge badge-finalizado">✅ Finalizado</span>';
+        } else {
+          statusBadge = '<span class="badge badge-agendado">📅 Agendado</span>';
+        }
+
+        return `
+          <tr>
+            <td>
+              <div class="jogo-times">
+                <span>${timeCasa}</span>
+                <span class="vs">vs</span>
+                <span>${timeFora}</span>
+              </div>
+            </td>
+            <td>${dataHora}</td>
+            <td>${statusBadge}</td>
+            <td><strong>${participantes}</strong> jogadores</td>
+            <td style="color:#2ecc71;font-weight:700">${pool} 💎</td>
+            <td>
+              <button class="detalhe-btn" onclick="verDetalhes('${j.id}')">📊 Detalhes</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function verDetalhes(jogoId) {
+      window.location.href = `painel-jogo.html?id=${jogoId}`;
+    }
+  </script>
 </body>
 </html>
