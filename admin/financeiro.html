@@ -430,11 +430,15 @@
         const saquesSnap = await db.collection('vendas_creditos').where('status', '==', 'pendente').get();
         document.getElementById('saquesPendentes').textContent = saquesSnap.size;
 
-        const premiosSnap = await db.collection('transacoes').where('tipo', '==', 'credito').where('data', '>=', inicioMes).get();
+        // Buscar transações de prêmio (sem índice composto)
+        const premiosSnap = await db.collection('transacoes').where('tipo', '==', 'credito').limit(200).get();
         let premiosPagos = 0;
         premiosSnap.forEach(doc => {
           const t = doc.data();
-          if (t.categoria?.includes('premio')) premiosPagos += t.valor || 0;
+          const dataT = t.data?.toDate ? t.data.toDate() : new Date(0);
+          if (t.categoria?.includes('premio') && dataT >= inicioMes) {
+            premiosPagos += t.valor || 0;
+          }
         });
         document.getElementById('premiosPagos').textContent = premiosPagos + ' 💎';
       } catch (e) { console.error(e); }
@@ -517,10 +521,13 @@
     async function carregarTopCompradores() {
       try {
         const inicioMes = new Date(); inicioMes.setDate(1); inicioMes.setHours(0, 0, 0, 0);
-        const snap = await db.collection('compras').where('status', '==', 'approved').where('dataCompra', '>=', inicioMes).get();
+        // Buscar compras aprovadas (sem índice composto - filtra no JS)
+        const snap = await db.collection('compras').where('status', '==', 'approved').limit(500).get();
         const porUsuario = {};
         snap.forEach(doc => {
           const c = doc.data();
+          const dataC = c.dataCompra?.toDate ? c.dataCompra.toDate() : new Date(0);
+          if (dataC < inicioMes) return; // Filtrar por data no JS
           const uid = c.userId;
           if (!porUsuario[uid]) porUsuario[uid] = { nome: c.userName || 'Anônimo', compras: 0, total: 0 };
           porUsuario[uid].compras++;
