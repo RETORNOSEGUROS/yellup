@@ -692,6 +692,19 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
+  <!-- Modal Detalhes -->
+  <div class="modal" id="modalDetalhes">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h2 id="detalheTitulo">Detalhes do Torneio</h2>
+        <button class="modal-close" onclick="fecharModalDetalhes()">×</button>
+      </div>
+      <div class="modal-body" id="detalheBody">
+        <!-- Conteúdo dinâmico -->
+      </div>
+    </div>
+  </div>
+
   <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -1057,13 +1070,160 @@
     }
 
     function verDetalhes(id) {
-      // TODO: Implementar tela de detalhes
-      showToast('🚧 Em desenvolvimento');
+      const torneio = todosTorneios.find(t => t.id === id);
+      if (!torneio) return;
+
+      document.getElementById('detalheTitulo').textContent = torneio.nome || 'Torneio';
+      
+      const statusMap = {
+        'rascunho': { texto: 'Rascunho', cor: '#6b7280' },
+        'inscricoes_abertas': { texto: 'Inscrições Abertas', cor: '#10b981' },
+        'inscricoes_fechadas': { texto: 'Inscrições Fechadas', cor: '#f59e0b' },
+        'em_andamento': { texto: 'Em Andamento', cor: '#3b82f6' },
+        'finalizado': { texto: 'Finalizado', cor: '#6b7280' },
+        'cancelado': { texto: 'Cancelado', cor: '#ef4444' }
+      };
+      
+      const status = statusMap[torneio.status] || { texto: torneio.status, cor: '#6b7280' };
+      const dataInicio = torneio.agendamento?.dataInicio?.toDate?.() || null;
+      const dataInicioStr = dataInicio ? dataInicio.toLocaleString('pt-BR') : 'Não definido';
+      
+      const config = torneio.config || {};
+      const maxParticipantes = config.maxParticipantes === 0 || config.maxParticipantes === 9999 ? '∞' : config.maxParticipantes || 64;
+
+      let botoesAcao = '';
+      
+      if (torneio.status === 'inscricoes_abertas') {
+        botoesAcao = `
+          <button onclick="iniciarTorneio('${id}')" style="flex:1; padding: 14px; background: linear-gradient(135deg, #10b981, #059669); border: none; border-radius: 10px; color: #fff; font-weight: 700; cursor: pointer;">
+            🚀 Iniciar Torneio Agora
+          </button>
+        `;
+      } else if (torneio.status === 'em_andamento') {
+        botoesAcao = `
+          <button onclick="verAoVivo('${id}')" style="flex:1; padding: 14px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); border: none; border-radius: 10px; color: #fff; font-weight: 700; cursor: pointer;">
+            📺 Ver Ao Vivo
+          </button>
+          <button onclick="finalizarTorneio('${id}')" style="flex:1; padding: 14px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; border-radius: 10px; color: #fff; font-weight: 700; cursor: pointer;">
+            🏁 Finalizar Torneio
+          </button>
+        `;
+      } else if (torneio.status === 'rascunho') {
+        botoesAcao = `
+          <button onclick="publicarTorneioExistente('${id}'); fecharModalDetalhes();" style="flex:1; padding: 14px; background: linear-gradient(135deg, #ffb547, #ff8c42); border: none; border-radius: 10px; color: #0e141b; font-weight: 700; cursor: pointer;">
+            📢 Publicar Torneio
+          </button>
+        `;
+      }
+
+      document.getElementById('detalheBody').innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 15px;">
+          <!-- Status -->
+          <div style="text-align: center; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 12px;">
+            <span style="background: ${status.cor}; padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 0.9em;">
+              ${status.texto}
+            </span>
+          </div>
+
+          <!-- Info Grid -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; text-align: center;">
+              <div style="font-size: 1.8em; font-weight: 700; color: #ffb547;">${torneio.totalInscritos || 0}</div>
+              <div style="color: #a9b5c6; font-size: 0.85em;">de ${maxParticipantes} inscritos</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; text-align: center;">
+              <div style="font-size: 1.8em; font-weight: 700; color: #10b981;">${torneio.prizePool || 0} 💎</div>
+              <div style="color: #a9b5c6; font-size: 0.85em;">Prize Pool</div>
+            </div>
+          </div>
+
+          <!-- Detalhes -->
+          <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px;">
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+              <span style="color: #a9b5c6;">📅 Início:</span>
+              <span>${dataInicioStr}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+              <span style="color: #a9b5c6;">🎮 Estilo:</span>
+              <span>${config.estilo === 'sobrevivencia' ? '❤️ Sobrevivência' : '🎯 Pontuação'}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+              <span style="color: #a9b5c6;">💰 Taxa:</span>
+              <span>${config.taxaInscricao || 0} 💎</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0;">
+              <span style="color: #a9b5c6;">⏱️ Duração:</span>
+              <span>${config.duracaoFase || 15} minutos</span>
+            </div>
+          </div>
+
+          <!-- Ações -->
+          <div style="display: flex; gap: 10px; margin-top: 10px;">
+            ${botoesAcao}
+          </div>
+          
+          <button onclick="fecharModalDetalhes()" style="padding: 12px; background: rgba(255,255,255,0.1); border: none; border-radius: 10px; color: #fff; cursor: pointer;">
+            Fechar
+          </button>
+        </div>
+      `;
+      
+      document.getElementById('modalDetalhes').classList.add('active');
+    }
+
+    function fecharModalDetalhes() {
+      document.getElementById('modalDetalhes').classList.remove('active');
+    }
+
+    async function iniciarTorneio(id) {
+      if (!confirm('Tem certeza que deseja INICIAR o torneio agora? Os jogadores poderão começar a jogar imediatamente.')) {
+        return;
+      }
+      
+      try {
+        const torneio = todosTorneios.find(t => t.id === id);
+        const duracaoMinutos = torneio?.config?.duracaoFase || 15;
+        const dataFim = new Date(Date.now() + duracaoMinutos * 60 * 1000);
+        
+        await db.collection('torneios').doc(id).update({
+          status: 'em_andamento',
+          'agendamento.dataInicio': firebase.firestore.FieldValue.serverTimestamp(),
+          'agendamento.dataFim': firebase.firestore.Timestamp.fromDate(dataFim),
+          ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        showToast('🚀 Torneio iniciado!');
+        fecharModalDetalhes();
+        carregarTorneios();
+      } catch (error) {
+        console.error("Erro ao iniciar:", error);
+        showToast('❌ Erro ao iniciar torneio');
+      }
+    }
+
+    async function finalizarTorneio(id) {
+      if (!confirm('Tem certeza que deseja FINALIZAR o torneio? Isso encerrará o jogo para todos.')) {
+        return;
+      }
+      
+      try {
+        await db.collection('torneios').doc(id).update({
+          status: 'finalizado',
+          ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        showToast('🏁 Torneio finalizado!');
+        fecharModalDetalhes();
+        carregarTorneios();
+      } catch (error) {
+        console.error("Erro ao finalizar:", error);
+        showToast('❌ Erro ao finalizar torneio');
+      }
     }
 
     function verAoVivo(id) {
-      // TODO: Implementar visualização ao vivo
-      showToast('🚧 Em desenvolvimento');
+      // Abre a arena em nova aba para acompanhar
+      window.open(`../usuarios/arena-torneio.html?id=${id}&modo=espectador`, '_blank');
     }
 
     function editarTorneio(id) {
