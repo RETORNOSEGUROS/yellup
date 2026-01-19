@@ -858,6 +858,45 @@
           return;
         }
         
+        // Verificar se precisa iniciar automaticamente
+        if (torneioData.status === 'inscricoes_abertas') {
+          const dataInicio = torneioData.agendamento?.dataInicio?.toDate?.();
+          const agora = new Date();
+          
+          if (dataInicio && agora >= dataInicio) {
+            // Já passou da hora de início, iniciar automaticamente!
+            console.log("⏰ Hora de início chegou, iniciando torneio automaticamente...");
+            showToast('🚀 Iniciando torneio...');
+            
+            try {
+              const duracaoMinutos = torneioData.config?.duracaoFase || 15;
+              const dataFim = new Date(Date.now() + duracaoMinutos * 60 * 1000);
+              
+              await db.collection('torneios').doc(torneioId).update({
+                status: 'em_andamento',
+                'agendamento.dataInicio': firebase.firestore.FieldValue.serverTimestamp(),
+                'agendamento.dataFim': firebase.firestore.Timestamp.fromDate(dataFim)
+              });
+              
+              // Atualizar dados locais
+              torneioData.status = 'em_andamento';
+              torneioData.agendamento.dataFim = { toDate: () => dataFim };
+              
+            } catch (error) {
+              console.error("Erro ao iniciar torneio:", error);
+              // Se não conseguiu atualizar, redirecionar para lista
+              showToast('⏳ Aguardando início do torneio...');
+              setTimeout(() => window.location.href = 'torneios.html', 2000);
+              return;
+            }
+          } else {
+            // Ainda não chegou a hora
+            showToast('⏳ Torneio ainda não iniciou');
+            setTimeout(() => window.location.href = 'torneios.html', 2000);
+            return;
+          }
+        }
+        
         // Verificar status
         if (torneioData.status !== 'em_andamento') {
           if (torneioData.status === 'finalizado') {
