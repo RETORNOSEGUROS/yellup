@@ -1,61 +1,355 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <title>Transações por Usuário - Admin Yellup</title>
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-  <script src="../firebase/firebase-config.js"></script>
-  <script src="transacoes.js" defer></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transações - Yellup Admin</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="/admin/js/firebase-config.js"></script>
   <style>
-    body { font-family: Arial; padding: 20px; background: #f5f5f5; }
-    h1, h2 { color: #222; }
-    input, button {
-      padding: 10px;
-      margin: 5px;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #fff;
+      padding: 20px;
     }
-    input {
-      width: 100%;
-      max-width: 400px;
-      margin-bottom: 20px;
-    }
-    table { width: 100%; border-collapse: collapse; background: #fff; }
-    th, td { padding: 10px; border: 1px solid #ccc; text-align: center; }
-    th { background-color: #ffcc00; }
-    tr:nth-child(even) { background: #f9f9f9; }
-    form {
-      background: #fff;
-      padding: 15px;
-      border-radius: 8px;
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       margin-bottom: 30px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      padding: 20px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
     }
+    .header h1 { font-size: 1.8em; display: flex; align-items: center; gap: 10px; }
+    .btn-voltar {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      text-decoration: none;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 15px;
+      margin-bottom: 25px;
+    }
+    .stat-card {
+      background: rgba(0,0,0,0.3);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-value { font-size: 1.8em; font-weight: 700; }
+    .stat-value.verde { color: #2ecc71; }
+    .stat-value.vermelho { color: #e74c3c; }
+    .stat-value.azul { color: #3498db; }
+    .stat-label { color: rgba(255,255,255,0.6); font-size: 0.85em; margin-top: 5px; }
+    .filters {
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+      padding: 20px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      align-items: flex-end;
+    }
+    .filter-group { flex: 1; min-width: 150px; }
+    .filter-group label { display: block; margin-bottom: 5px; color: rgba(255,255,255,0.7); font-size: 0.85em; }
+    .filter-group input, .filter-group select {
+      width: 100%;
+      padding: 10px 15px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+    }
+    .btn-filtrar {
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      color: #1a1a2e;
+      padding: 10px 25px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .table-container {
+      background: rgba(0,0,0,0.3);
+      border-radius: 15px;
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: rgba(255,215,0,0.2);
+      color: #FFD700;
+      padding: 15px;
+      text-align: left;
+      font-weight: 600;
+    }
+    td { padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    tr:hover { background: rgba(255,255,255,0.05); }
+    .valor-positivo { color: #2ecc71; font-weight: 700; }
+    .valor-negativo { color: #e74c3c; font-weight: 700; }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 15px;
+      font-size: 0.75em;
+      font-weight: 600;
+    }
+    .badge-compra { background: rgba(46,204,113,0.2); color: #2ecc71; }
+    .badge-premio { background: rgba(241,196,15,0.2); color: #f1c40f; }
+    .badge-entrada { background: rgba(52,152,219,0.2); color: #3498db; }
+    .badge-saque { background: rgba(231,76,60,0.2); color: #e74c3c; }
+    .badge-bonus { background: rgba(155,89,182,0.2); color: #9b59b6; }
+    .badge-bolsa { background: rgba(26,188,156,0.2); color: #1abc9c; }
+    .empty-state { text-align: center; padding: 60px; color: rgba(255,255,255,0.5); }
+    .empty-state .icon { font-size: 3em; margin-bottom: 15px; }
+    .pagination {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .pagination button {
+      background: rgba(255,255,255,0.1);
+      border: none;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .pagination button:hover { background: rgba(255,255,255,0.2); }
+    .pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
   </style>
 </head>
 <body>
-  <h1>Transações por Usuário</h1>
+  <div class="container">
+    <div class="header">
+      <h1>💳 Transações</h1>
+      <a href="dashboard.html" class="btn-voltar">← Painel Admin</a>
+    </div>
 
-  <h2>Nova Transação Manual</h2>
-  <form id="formTransacao">
-    <input type="text" id="nomeUsuario" placeholder="Nome do usuário" required>
-    <input type="number" id="valor" placeholder="Valor (ex: 100 ou -50)" required>
-    <input type="text" id="tipo" placeholder="Tipo (ex: bônus, correção, prêmio)" required>
-    <button type="submit">Registrar Transação</button>
-  </form>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value verde" id="totalEntradas">0</div>
+        <div class="stat-label">💎 Entradas</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value vermelho" id="totalSaidas">0</div>
+        <div class="stat-label">📤 Saídas</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value azul" id="totalTransacoes">0</div>
+        <div class="stat-label">📊 Total Transações</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="saldoLiquido" style="color: #FFD700;">0</div>
+        <div class="stat-label">💰 Saldo Líquido</div>
+      </div>
+    </div>
 
-  <input type="text" id="filtroNome" placeholder="Buscar por nome..." oninput="filtrarTransacoes()">
+    <div class="filters">
+      <div class="filter-group">
+        <label>Buscar Usuário</label>
+        <input type="text" id="filtroUsuario" placeholder="Nome ou email...">
+      </div>
+      <div class="filter-group">
+        <label>Tipo</label>
+        <select id="filtroTipo">
+          <option value="">Todos</option>
+          <option value="credito">Crédito (+)</option>
+          <option value="debito">Débito (-)</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Categoria</label>
+        <select id="filtroCategoria">
+          <option value="">Todas</option>
+          <option value="compra">Compra</option>
+          <option value="premio">Prêmio</option>
+          <option value="entrada">Entrada Jogo</option>
+          <option value="saque">Saque</option>
+          <option value="bonus">Bônus</option>
+          <option value="bolsa">Bolsa</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Data Início</label>
+        <input type="date" id="dataInicio">
+      </div>
+      <div class="filter-group">
+        <label>Data Fim</label>
+        <input type="date" id="dataFim">
+      </div>
+      <button class="btn-filtrar" onclick="aplicarFiltros()">🔍 Filtrar</button>
+    </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Data</th>
-        <th>Usuário</th>
-        <th>Valor</th>
-        <th>Tipo</th>
-      </tr>
-    </thead>
-    <tbody id="tabelaTransacoes">
-    </tbody>
-  </table>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Data/Hora</th>
+            <th>Usuário</th>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th>Valor</th>
+          </tr>
+        </thead>
+        <tbody id="tabela"></tbody>
+      </table>
+    </div>
+
+    <div class="pagination">
+      <button id="btnAnterior" onclick="paginaAnterior()" disabled>← Anterior</button>
+      <span id="paginaAtual" style="padding: 10px;">Página 1</span>
+      <button id="btnProximo" onclick="proximaPagina()">Próximo →</button>
+    </div>
+  </div>
+
+  <script>
+    const db = firebase.firestore();
+    let todasTransacoes = [];
+    let transacoesFiltradas = [];
+    let usuarios = {};
+    let pagina = 1;
+    const porPagina = 20;
+
+    document.addEventListener('DOMContentLoaded', carregarDados);
+
+    async function carregarDados() {
+      try {
+        // Carregar usuários
+        const usersSnap = await db.collection('usuarios').get();
+        usersSnap.forEach(doc => {
+          const u = doc.data();
+          usuarios[doc.id] = u.nome || u.usuarioUnico || u.email || doc.id.substring(0,8);
+        });
+
+        // Carregar transações
+        const snap = await db.collection('transacoes').orderBy('data', 'desc').limit(500).get();
+        todasTransacoes = [];
+        snap.forEach(doc => todasTransacoes.push({ id: doc.id, ...doc.data() }));
+
+        transacoesFiltradas = [...todasTransacoes];
+        atualizarEstatisticas();
+        renderizar();
+      } catch (e) {
+        console.error('Erro:', e);
+      }
+    }
+
+    function atualizarEstatisticas() {
+      let entradas = 0, saidas = 0;
+      transacoesFiltradas.forEach(t => {
+        if (t.tipo === 'credito') entradas += t.valor || 0;
+        else saidas += t.valor || 0;
+      });
+
+      document.getElementById('totalEntradas').textContent = entradas;
+      document.getElementById('totalSaidas').textContent = saidas;
+      document.getElementById('totalTransacoes').textContent = transacoesFiltradas.length;
+      document.getElementById('saldoLiquido').textContent = entradas - saidas;
+    }
+
+    function aplicarFiltros() {
+      const usuario = document.getElementById('filtroUsuario').value.toLowerCase();
+      const tipo = document.getElementById('filtroTipo').value;
+      const categoria = document.getElementById('filtroCategoria').value;
+      const dataInicio = document.getElementById('dataInicio').value ? new Date(document.getElementById('dataInicio').value) : null;
+      const dataFim = document.getElementById('dataFim').value ? new Date(document.getElementById('dataFim').value + 'T23:59:59') : null;
+
+      transacoesFiltradas = todasTransacoes.filter(t => {
+        const nomeUsuario = (usuarios[t.usuarioId] || '').toLowerCase();
+        const dataT = t.data?.toDate ? t.data.toDate() : new Date(0);
+
+        if (usuario && !nomeUsuario.includes(usuario)) return false;
+        if (tipo && t.tipo !== tipo) return false;
+        if (categoria && !(t.categoria || '').includes(categoria)) return false;
+        if (dataInicio && dataT < dataInicio) return false;
+        if (dataFim && dataT > dataFim) return false;
+
+        return true;
+      });
+
+      pagina = 1;
+      atualizarEstatisticas();
+      renderizar();
+    }
+
+    function renderizar() {
+      const tbody = document.getElementById('tabela');
+      const inicio = (pagina - 1) * porPagina;
+      const fim = inicio + porPagina;
+      const paginadas = transacoesFiltradas.slice(inicio, fim);
+
+      if (paginadas.length === 0) {
+        tbody.innerHTML = `
+          <tr><td colspan="5">
+            <div class="empty-state">
+              <div class="icon">💳</div>
+              <p>Nenhuma transação encontrada</p>
+            </div>
+          </td></tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = paginadas.map(t => {
+        const data = t.data?.toDate ? t.data.toDate().toLocaleString('pt-BR') : '-';
+        const usuario = usuarios[t.usuarioId] || t.usuarioId?.substring(0,8) || '-';
+        const valorClass = t.tipo === 'credito' ? 'valor-positivo' : 'valor-negativo';
+        const valorPrefix = t.tipo === 'credito' ? '+' : '-';
+        const categoriaBadge = getBadgeCategoria(t.categoria);
+
+        return `
+          <tr>
+            <td>${data}</td>
+            <td>${usuario}</td>
+            <td>${t.descricao || '-'}</td>
+            <td><span class="badge ${categoriaBadge.class}">${categoriaBadge.text}</span></td>
+            <td class="${valorClass}">${valorPrefix}${t.valor || 0} 💎</td>
+          </tr>
+        `;
+      }).join('');
+
+      // Atualizar paginação
+      document.getElementById('paginaAtual').textContent = `Página ${pagina} de ${Math.ceil(transacoesFiltradas.length / porPagina)}`;
+      document.getElementById('btnAnterior').disabled = pagina === 1;
+      document.getElementById('btnProximo').disabled = fim >= transacoesFiltradas.length;
+    }
+
+    function getBadgeCategoria(cat) {
+      const badges = {
+        compra: { class: 'badge-compra', text: '🛒 Compra' },
+        premio: { class: 'badge-premio', text: '🏆 Prêmio' },
+        entrada: { class: 'badge-entrada', text: '🎮 Entrada' },
+        saque: { class: 'badge-saque', text: '💸 Saque' },
+        bonus: { class: 'badge-bonus', text: '🎁 Bônus' },
+        bolsa: { class: 'badge-bolsa', text: '📈 Bolsa' },
+        indicacao: { class: 'badge-bonus', text: '🔗 Indicação' }
+      };
+      
+      for (const [key, value] of Object.entries(badges)) {
+        if ((cat || '').toLowerCase().includes(key)) return value;
+      }
+      return { class: 'badge-compra', text: cat || 'Outro' };
+    }
+
+    function paginaAnterior() {
+      if (pagina > 1) { pagina--; renderizar(); }
+    }
+
+    function proximaPagina() {
+      if (pagina * porPagina < transacoesFiltradas.length) { pagina++; renderizar(); }
+    }
+  </script>
 </body>
 </html>
