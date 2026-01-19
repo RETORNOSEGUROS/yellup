@@ -847,11 +847,17 @@
         return;
       }
 
+      const agora = new Date();
+
       container.innerHTML = disponiveis.map(torneio => {
         const inscrito = torneio.participantes?.includes(currentUserId);
         const icone = getIconeTorneio(torneio.tipo);
         const statusBadge = getStatusBadge(torneio.status, inscrito);
         const dataTexto = formatarDataTorneio(torneio.dataInicio);
+        
+        // Verificar se já passou da hora de início
+        const jaComecou = torneio.dataInicio && agora >= torneio.dataInicio;
+        const podeEntrar = inscrito && (torneio.status === 'andamento' || jaComecou);
 
         return `
           <div class="torneio-card ${torneio.destaque ? 'destaque' : ''}">
@@ -887,7 +893,7 @@
                 <span class="premio-valor">${torneio.premio} 💎</span>
               </div>
 
-              ${inscrito && torneio.status === 'andamento' ? `
+              ${podeEntrar ? `
                 <button class="btn-inscrever btn-entrar" onclick="entrarArena('${torneio.id}')" style="background: linear-gradient(135deg, #10b981, #059669) !important;">
                   🎮 ENTRAR NA ARENA
                 </button>
@@ -895,7 +901,7 @@
                 <button class="btn-inscrever btn-inscrito" onclick="verTorneio('${torneio.id}')">
                   ✅ Inscrito - Ver Detalhes
                 </button>
-              ` : torneio.status === 'andamento' ? `
+              ` : torneio.status === 'andamento' || jaComecou ? `
                 <button class="btn-inscrever" disabled style="opacity: 0.5;">
                   ⏳ Torneio já começou
                 </button>
@@ -916,31 +922,46 @@
     function renderizarMeusTorneios() {
       const container = document.getElementById('meusTorneios');
       
-      const meus = torneios.filter(t => t.participantes?.includes(currentUserId));
+      // Filtrar apenas torneios não finalizados
+      const meus = torneios.filter(t => 
+        t.participantes?.includes(currentUserId) && 
+        t.status !== 'finalizado' && 
+        t.status !== 'cancelado'
+      );
 
       if (meus.length === 0) {
         container.innerHTML = `
           <div class="empty-state">
             <div class="empty-icon">📋</div>
-            <p>Você não está inscrito em nenhum torneio</p>
+            <p>Você não está inscrito em nenhum torneio ativo</p>
           </div>
         `;
         return;
       }
 
+      const agora = new Date();
+
       container.innerHTML = meus.map(torneio => {
         const icone = getIconeTorneio(torneio.tipo);
         const emAndamento = torneio.status === 'andamento';
-        const statusTexto = emAndamento ? '🟢 Em andamento' : '⏳ Aguardando início';
+        const jaComecou = torneio.dataInicio && agora >= torneio.dataInicio;
+        const podeEntrar = emAndamento || jaComecou;
+        
+        let statusTexto = '⏳ Aguardando início';
+        if (emAndamento) {
+          statusTexto = '🟢 Em andamento';
+        } else if (jaComecou) {
+          statusTexto = '🚀 Pronto para começar!';
+        }
 
         return `
-          <div class="meu-torneio" onclick="${emAndamento ? `entrarArena('${torneio.id}')` : `verTorneio('${torneio.id}')`}" style="${emAndamento ? 'border: 2px solid #10b981; background: rgba(16, 185, 129, 0.1);' : ''}">
+          <div class="meu-torneio" onclick="${podeEntrar ? `entrarArena('${torneio.id}')` : `verTorneio('${torneio.id}')`}" style="${podeEntrar ? 'border: 2px solid #10b981; background: rgba(16, 185, 129, 0.1);' : ''}">
             <div class="meu-torneio-icon">${icone}</div>
             <div class="meu-torneio-info">
               <div class="meu-torneio-nome">${torneio.nome}</div>
               <div class="meu-torneio-status">${statusTexto}</div>
             </div>
-            ${emAndamento ? `
+            ${podeEntrar ? `
               <div style="color: #10b981; font-weight: 700;">ENTRAR →</div>
             ` : `
               <div style="color: #ffb547;">→</div>
