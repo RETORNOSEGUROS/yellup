@@ -597,6 +597,22 @@
           </div>
         </div>
 
+        <!-- Seletor de Time (aparece quando escolhe Time Específico) -->
+        <div class="form-group" id="seletorTime" style="display: none;">
+          <label class="form-label">Selecione o Time</label>
+          <select class="form-input" id="torneioTimeId">
+            <option value="">Carregando times...</option>
+          </select>
+        </div>
+
+        <!-- Seletor de Campeonato (aparece quando escolhe Campeonato) -->
+        <div class="form-group" id="seletorCampeonato" style="display: none;">
+          <label class="form-label">Selecione o Campeonato</label>
+          <select class="form-input" id="torneioCampeonatoId">
+            <option value="">Carregando campeonatos...</option>
+          </select>
+        </div>
+
         <!-- Estilo de Jogo -->
         <div class="form-group">
           <label class="form-label">Estilo de Jogo</label>
@@ -923,6 +939,63 @@
       novoTorneio.tema = tema;
       document.querySelectorAll('[id^="tema"]').forEach(el => el.classList.remove('selected'));
       document.getElementById(`tema${tema.charAt(0).toUpperCase() + tema.slice(1)}`).classList.add('selected');
+      
+      // Mostrar/esconder seletores
+      document.getElementById('seletorTime').style.display = tema === 'time' ? 'block' : 'none';
+      document.getElementById('seletorCampeonato').style.display = tema === 'campeonato' ? 'block' : 'none';
+      
+      // Carregar dados se necessário
+      if (tema === 'time' && !timesCarregados) {
+        carregarTimes();
+      }
+      if (tema === 'campeonato' && !campeonatosCarregados) {
+        carregarCampeonatos();
+      }
+    }
+
+    var timesCarregados = false;
+    var campeonatosCarregados = false;
+
+    async function carregarTimes() {
+      try {
+        const snapshot = await db.collection('times').orderBy('nomeCompleto').get();
+        const select = document.getElementById('torneioTimeId');
+        select.innerHTML = '<option value="">Selecione um time...</option>';
+        
+        snapshot.forEach(doc => {
+          const time = doc.data();
+          const option = document.createElement('option');
+          option.value = doc.id;
+          option.textContent = time.nomeCompleto || time.nome || doc.id;
+          select.appendChild(option);
+        });
+        
+        timesCarregados = true;
+      } catch (error) {
+        console.error("Erro ao carregar times:", error);
+        document.getElementById('torneioTimeId').innerHTML = '<option value="">Erro ao carregar times</option>';
+      }
+    }
+
+    async function carregarCampeonatos() {
+      try {
+        const snapshot = await db.collection('campeonatos').orderBy('nome').get();
+        const select = document.getElementById('torneioCampeonatoId');
+        select.innerHTML = '<option value="">Selecione um campeonato...</option>';
+        
+        snapshot.forEach(doc => {
+          const camp = doc.data();
+          const option = document.createElement('option');
+          option.value = doc.id;
+          option.textContent = camp.nome || doc.id;
+          select.appendChild(option);
+        });
+        
+        campeonatosCarregados = true;
+      } catch (error) {
+        console.error("Erro ao carregar campeonatos:", error);
+        document.getElementById('torneioCampeonatoId').innerHTML = '<option value="">Erro ao carregar campeonatos</option>';
+      }
     }
 
     function selecionarEstilo(estilo) {
@@ -961,14 +1034,43 @@
       const inscricaoFecha = document.getElementById('torneioInscricaoFecha').value;
       const inicio = document.getElementById('torneioInicio').value;
 
+      // Pegar time ou campeonato selecionado
+      const timeId = document.getElementById('torneioTimeId').value;
+      const timeNome = document.getElementById('torneioTimeId').selectedOptions[0]?.textContent || null;
+      const campeonatoId = document.getElementById('torneioCampeonatoId').value;
+      const campeonatoNome = document.getElementById('torneioCampeonatoId').selectedOptions[0]?.textContent || null;
+
       if (!nome) {
         showToast('❌ Digite o nome do torneio');
+        return;
+      }
+
+      // Validar seleção de time/campeonato
+      if (novoTorneio.tema === 'time' && !timeId) {
+        showToast('❌ Selecione um time');
+        return;
+      }
+      if (novoTorneio.tema === 'campeonato' && !campeonatoId) {
+        showToast('❌ Selecione um campeonato');
         return;
       }
 
       if (!inscricaoAbre || !inscricaoFecha || !inicio) {
         showToast('❌ Preencha todas as datas');
         return;
+      }
+
+      // Montar objeto do tema
+      let temaObj = { tipo: novoTorneio.tema };
+      if (novoTorneio.tema === 'time') {
+        temaObj.id = timeId;
+        temaObj.nome = timeNome;
+      } else if (novoTorneio.tema === 'campeonato') {
+        temaObj.id = campeonatoId;
+        temaObj.nome = campeonatoNome;
+      } else {
+        temaObj.id = null;
+        temaObj.nome = 'Misto';
       }
 
       try {
@@ -980,11 +1082,7 @@
           nome,
           descricao,
           
-          tema: {
-            tipo: novoTorneio.tema,
-            id: null,
-            nome: novoTorneio.tema === 'misto' ? 'Misto' : null
-          },
+          tema: temaObj,
           
           config: {
             estilo: novoTorneio.estilo,
