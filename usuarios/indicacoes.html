@@ -461,11 +461,11 @@
           </div>
           <div class="step">
             <div class="step-number">3</div>
-            <div class="step-text">Você ganha <strong>10 créditos</strong> automaticamente!</div>
+            <div class="step-text">Você ganha <strong>2 créditos</strong> automaticamente!</div>
           </div>
           <div class="step">
             <div class="step-number">4</div>
-            <div class="step-text">Seu amigo ganha <strong>50 créditos</strong> de boas-vindas!</div>
+            <div class="step-text">Seu amigo ganha <strong>20 créditos</strong> de boas-vindas!</div>
           </div>
         </div>
       </div>
@@ -611,14 +611,28 @@
     async function carregarIndicados() {
       try {
         // Buscar todos usuários que foram indicados por mim
+        // Removido orderBy para evitar necessidade de índice composto
         const snapshot = await db.collection('usuarios')
           .where('indicadoPor', '==', currentUserId)
-          .orderBy('dataCadastro', 'desc')
           .get();
 
         const lista = document.getElementById('listaIndicados');
-        const totalIndicados = snapshot.size;
-        const creditosGanhos = totalIndicados * 10;
+        
+        // Converter para array e ordenar por data
+        let indicados = [];
+        snapshot.forEach(doc => {
+          indicados.push({ id: doc.id, ...doc.data() });
+        });
+        
+        // Ordenar por data de cadastro (mais recente primeiro)
+        indicados.sort((a, b) => {
+          const dataA = a.dataCadastro?.toDate ? a.dataCadastro.toDate() : new Date(0);
+          const dataB = b.dataCadastro?.toDate ? b.dataCadastro.toDate() : new Date(0);
+          return dataB - dataA;
+        });
+
+        const totalIndicados = indicados.length;
+        const creditosGanhos = totalIndicados * 2; // 2 créditos por indicação
 
         // Atualizar estatísticas
         document.getElementById('totalIndicados').textContent = totalIndicados;
@@ -629,9 +643,9 @@
         let ranking = [];
         todosUsuarios.forEach(doc => {
           const data = doc.data();
-          const indicados = data.indicados ? Object.keys(data.indicados).length : 0;
-          if (indicados > 0) {
-            ranking.push({ uid: doc.id, indicados });
+          const qtdIndicados = data.indicados ? Object.keys(data.indicados).length : 0;
+          if (qtdIndicados > 0) {
+            ranking.push({ uid: doc.id, indicados: qtdIndicados });
           }
         });
         ranking.sort((a, b) => b.indicados - a.indicados);
@@ -651,9 +665,8 @@
         }
 
         lista.innerHTML = '';
-        snapshot.forEach(doc => {
-          const indicado = doc.data();
-          const nome = indicado.usuarioUnico || indicado.usuario || indicado.nome;
+        indicados.forEach(indicado => {
+          const nome = indicado.usuarioUnico || indicado.usuario || indicado.nome || 'Usuário';
           const inicial = nome.charAt(0).toUpperCase();
           
           let dataCadastro = 'Data não disponível';
