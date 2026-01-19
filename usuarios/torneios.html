@@ -956,36 +956,55 @@
     function renderizarHistorico() {
       const container = document.getElementById('historicoTorneios');
       
-      // Simulando histórico
-      const historico = [
-        { nome: 'Copa Semanal #15', posicao: 1, premio: 100 },
-        { nome: 'Torneio Relâmpago', posicao: 3, premio: 10 },
-        { nome: 'Desafio do Dia', posicao: 5, premio: 0 }
-      ];
+      // Buscar torneios finalizados que o usuário participou
+      const finalizados = torneios.filter(t => 
+        t.status === 'finalizado' && 
+        t.participantes?.includes(currentUserId)
+      );
 
-      if (historico.length === 0) {
+      if (finalizados.length === 0) {
         container.innerHTML = `
           <div class="empty-state">
             <div class="empty-icon">📜</div>
-            <p>Você ainda não participou de torneios</p>
+            <p>Você ainda não participou de torneios finalizados</p>
           </div>
         `;
         return;
       }
 
-      container.innerHTML = historico.map(item => {
-        const posClasse = item.posicao === 1 ? 'ouro' : item.posicao === 2 ? 'prata' : item.posicao === 3 ? 'bronze' : '';
-        const posEmoji = item.posicao === 1 ? '🥇' : item.posicao === 2 ? '🥈' : item.posicao === 3 ? '🥉' : '';
+      container.innerHTML = finalizados.map(torneio => {
+        // Encontrar posição do usuário no resultado
+        let posicao = 0;
+        let premio = 0;
+        
+        if (torneio._original?.resultado?.ranking) {
+          const meuResultado = torneio._original.resultado.ranking.find(r => r.odId === currentUserId);
+          if (meuResultado) {
+            posicao = meuResultado.posicao || 0;
+          }
+        }
+        
+        // Verificar se ganhou prêmio
+        if (torneio._original?.resultado?.primeiro?.odId === currentUserId) {
+          premio = torneio._original.resultado.primeiro.premio || 0;
+        } else if (torneio._original?.resultado?.segundo?.odId === currentUserId) {
+          premio = torneio._original.resultado.segundo.premio || 0;
+        } else if (torneio._original?.resultado?.terceiro?.odId === currentUserId) {
+          premio = torneio._original.resultado.terceiro.premio || 0;
+        }
+        
+        const posClasse = posicao === 1 ? 'ouro' : posicao === 2 ? 'prata' : posicao === 3 ? 'bronze' : '';
+        const posEmoji = posicao === 1 ? '🥇' : posicao === 2 ? '🥈' : posicao === 3 ? '🥉' : '';
 
         return `
-          <div class="meu-torneio">
+          <div class="meu-torneio" onclick="window.location.href='resultado-torneio.html?id=${torneio.id}'">
             <div class="meu-torneio-icon">🏆</div>
             <div class="meu-torneio-info">
-              <div class="meu-torneio-nome">${item.nome}</div>
-              <div class="meu-torneio-status">${item.premio > 0 ? '+' + item.premio + ' 💎' : 'Sem prêmio'}</div>
+              <div class="meu-torneio-nome">${torneio.nome}</div>
+              <div class="meu-torneio-status">${premio > 0 ? '+' + premio + ' 💎' : 'Sem prêmio'}</div>
             </div>
             <div class="meu-torneio-posicao">
-              <div class="posicao-valor ${posClasse}">${posEmoji || item.posicao + 'º'}</div>
+              <div class="posicao-valor ${posClasse}">${posEmoji || (posicao > 0 ? posicao + 'º' : '-')}</div>
               <div class="posicao-label">Posição</div>
             </div>
           </div>
