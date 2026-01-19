@@ -407,14 +407,14 @@
         const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
         const inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
 
-        const comprasSnap = await db.collection('compras').where('status', '==', 'approved').get();
+        const comprasSnap = await db.collection('compras').where('status', '==', 'aprovado').get();
 
         let receitaTotal = 0, receitaMes = 0, comprasHoje = 0, totalCompras = 0;
 
         comprasSnap.forEach(doc => {
           const c = doc.data();
-          const valor = c.valorPago || c.preco || 0;
-          const data = c.dataCompra?.toDate ? c.dataCompra.toDate() : new Date();
+          const valor = c.valor || 0;
+          const data = c.data?.toDate ? c.data.toDate() : new Date();
           
           receitaTotal += valor;
           totalCompras++;
@@ -446,7 +446,7 @@
 
     async function carregarCompras() {
       try {
-        const snap = await db.collection('compras').orderBy('dataCompra', 'desc').limit(50).get();
+        const snap = await db.collection('compras').orderBy('data', 'desc').limit(50).get();
         todasCompras = [];
         snap.forEach(doc => todasCompras.push({ id: doc.id, ...doc.data() }));
         renderizarCompras();
@@ -460,9 +460,11 @@
         return;
       }
       tbody.innerHTML = todasCompras.slice(0, 15).map(c => {
-        const data = c.dataCompra?.toDate ? c.dataCompra.toDate() : new Date();
-        const statusClass = c.status === 'approved' ? 'badge-aprovado' : 'badge-pendente';
-        return `<tr><td>${c.userName || 'Anônimo'}</td><td>${c.creditos || 0} 💎</td><td>R$ ${(c.valorPago || 0).toFixed(2)}</td><td>${data.toLocaleString('pt-BR')}</td><td><span class="badge ${statusClass}">${c.status === 'approved' ? 'OK' : 'Pend'}</span></td></tr>`;
+        const data = c.data?.toDate ? c.data.toDate() : new Date();
+        const statusClass = c.status === 'aprovado' ? 'badge-aprovado' : 'badge-pendente';
+        const statusText = c.status === 'aprovado' ? 'OK' : 'Pend';
+        const nome = c.userName || c.userEmail || c.usuarioId?.substring(0,8) || 'Anônimo';
+        return `<tr><td>${nome}</td><td>${c.creditos || 0} 💎</td><td>R$ ${(c.valor || 0).toFixed(2)}</td><td>${data.toLocaleString('pt-BR')}</td><td><span class="badge ${statusClass}">${statusText}</span></td></tr>`;
       }).join('');
     }
 
@@ -522,16 +524,16 @@
       try {
         const inicioMes = new Date(); inicioMes.setDate(1); inicioMes.setHours(0, 0, 0, 0);
         // Buscar compras aprovadas (sem índice composto - filtra no JS)
-        const snap = await db.collection('compras').where('status', '==', 'approved').limit(500).get();
+        const snap = await db.collection('compras').where('status', '==', 'aprovado').limit(500).get();
         const porUsuario = {};
         snap.forEach(doc => {
           const c = doc.data();
-          const dataC = c.dataCompra?.toDate ? c.dataCompra.toDate() : new Date(0);
+          const dataC = c.data?.toDate ? c.data.toDate() : new Date(0);
           if (dataC < inicioMes) return; // Filtrar por data no JS
-          const uid = c.userId;
+          const uid = c.usuarioId;
           if (!porUsuario[uid]) porUsuario[uid] = { nome: c.userName || 'Anônimo', compras: 0, total: 0 };
           porUsuario[uid].compras++;
-          porUsuario[uid].total += c.valorPago || 0;
+          porUsuario[uid].total += c.valor || 0;
         });
         const top = Object.values(porUsuario).sort((a, b) => b.total - a.total).slice(0, 10);
         const tbody = document.getElementById('tabelaTop');
@@ -543,7 +545,7 @@
     function atualizarGraficos() {
       const dias = periodoGrafico === '7d' ? 7 : periodoGrafico === '30d' ? 30 : 90;
       const receitaPorDia = {};
-      const compraPorPacote = { '10': 0, '30': 0, '60': 0, '150': 0, 'Outro': 0 };
+      const compraPorPacote = { '10': 0, '30': 0, '60': 0, '75': 0, '150': 0, '200': 0, 'Outro': 0 };
 
       for (let i = dias - 1; i >= 0; i--) {
         const d = new Date(); d.setDate(d.getDate() - i);
@@ -552,16 +554,18 @@
 
       const limite = new Date(); limite.setDate(limite.getDate() - dias);
       todasCompras.forEach(c => {
-        if (c.status !== 'approved') return;
-        const data = c.dataCompra?.toDate ? c.dataCompra.toDate() : new Date();
+        if (c.status !== 'aprovado') return;
+        const data = c.data?.toDate ? c.data.toDate() : new Date();
         if (data < limite) return;
         const key = data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-        if (receitaPorDia[key] !== undefined) receitaPorDia[key] += c.valorPago || 0;
+        if (receitaPorDia[key] !== undefined) receitaPorDia[key] += c.valor || 0;
         const cred = c.creditos || 0;
         if (cred === 10) compraPorPacote['10']++;
         else if (cred === 30) compraPorPacote['30']++;
         else if (cred === 60) compraPorPacote['60']++;
+        else if (cred === 75) compraPorPacote['75']++;
         else if (cred === 150) compraPorPacote['150']++;
+        else if (cred === 200) compraPorPacote['200']++;
         else compraPorPacote['Outro']++;
       });
 
@@ -575,7 +579,7 @@
       if (chartPacotes) chartPacotes.destroy();
       chartPacotes = new Chart(document.getElementById('chartPacotes'), {
         type: 'doughnut',
-        data: { labels: Object.keys(compraPorPacote).map(k => k + ' créd'), datasets: [{ data: Object.values(compraPorPacote), backgroundColor: ['#3498db', '#9b59b6', '#e74c3c', '#f39c12', '#95a5a6'] }] },
+        data: { labels: Object.keys(compraPorPacote).map(k => k + ' créd'), datasets: [{ data: Object.values(compraPorPacote), backgroundColor: ['#3498db', '#9b59b6', '#e74c3c', '#1abc9c', '#f39c12', '#e67e22', '#95a5a6'] }] },
         options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#a9b5c6' } } } }
       });
     }
