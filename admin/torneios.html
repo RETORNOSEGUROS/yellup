@@ -1221,22 +1221,141 @@
     }
 
     async function finalizarTorneio(id) {
-      if (!confirm('Tem certeza que deseja FINALIZAR o torneio? Isso encerrará o jogo para todos.')) {
+      if (!confirm('Tem certeza que deseja FINALIZAR o torneio? Isso vai calcular o ranking e distribuir os prêmios.')) {
         return;
       }
       
+      showToast('🏁 Calculando resultado...');
+      
       try {
-        await db.collection('torneios').doc(id).update({
-          status: 'finalizado',
-          ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
+        // Buscar dados do torneio
+        const torneioDoc = await db.collection('torneios').doc(id).get();
+        const torneioAtual = torneioDoc.data();
+        
+        if (torneioAtual.status === 'finalizado') {
+          showToast('⚠️ Torneio já foi finalizado');
+          fecharModalDetalhes();
+          carregarTorneios();
+          return;
+        }
+        
+        // Buscar ranking final (ordenado por pontos)
+        const participacoesSnap = await db.collection('torneios').doc(id)
+          .collection('participacoes').orderBy('pontos', 'desc').get();
+        
+        let ranking = [];
+        participacoesSnap.forEach(doc => {
+          ranking.push({ odId: doc.id, ...doc.data() });
         });
         
-        showToast('🏁 Torneio finalizado!');
+        // Calcular prêmios
+        const prizePool = torneioAtual.prizePool || 0;
+        const distribuicao = torneioAtual.config?.distribuicaoPremio || { primeiro: 50, segundo: 30, terceiro: 20 };
+        
+        const premio1 = Math.floor(prizePool * distribuicao.primeiro / 100);
+        const premio2 = Math.floor(prizePool * distribuicao.segundo / 100);
+        const premio3 = Math.floor(prizePool * distribuicao.terceiro / 100);
+        
+        console.log("Prize Pool:", prizePool, "Prêmios:", premio1, premio2, premio3);
+        console.log("Ranking:", ranking);
+        
+        // Resultado final
+        const resultado = {
+          primeiro: ranking[0] ? { ...ranking[0], premio: premio1 } : null,
+          segundo: ranking[1] ? { ...ranking[1], premio: premio2 } : null,
+          terceiro: ranking[2] ? { ...ranking[2], premio: premio3 } : null,
+          ranking: ranking.map((r, i) => ({
+            posicao: i + 1,
+            odId: r.odId,
+            odNome: r.odNome,
+            pontos: r.pontos || 0,
+            acertos: r.acertos || 0,
+            erros: r.erros || 0
+          }))
+        };
+        
+        // Distribuir prêmios para top 3
+        if (ranking[0] && premio1 > 0) {
+          await db.collection('usuarios').doc(ranking[0].odId).update({
+            creditos: firebase.firestore.FieldValue.increment(premio1),
+            'torneios.vitorias': firebase.firestore.FieldValue.increment(1),
+            'torneios.creditosGanhos': firebase.firestore.FieldValue.increment(premio1),
+            'torneios.totalTorneios': firebase.firestore.FieldValue.increment(1)
+          });
+          
+          await db.collection('transacoes').add({
+            usuarioId: ranking[0].odId,
+            tipo: 'credito',
+            valor: premio1,
+            descricao: `🥇 1º lugar no torneio ${torneioAtual.nome} (+${premio1} créditos)`,
+            torneioId: id,
+            data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          console.log("✅ Prêmio 1º lugar distribuído:", ranking[0].odNome, premio1);
+        }
+        
+        if (ranking[1] && premio2 > 0) {
+          await db.collection('usuarios').doc(ranking[1].odId).update({
+            creditos: firebase.firestore.FieldValue.increment(premio2),
+            'torneios.top3': firebase.firestore.FieldValue.increment(1),
+            'torneios.creditosGanhos': firebase.firestore.FieldValue.increment(premio2),
+            'torneios.totalTorneios': firebase.firestore.FieldValue.increment(1)
+          });
+          
+          await db.collection('transacoes').add({
+            usuarioId: ranking[1].odId,
+            tipo: 'credito',
+            valor: premio2,
+            descricao: `🥈 2º lugar no torneio ${torneioAtual.nome} (+${premio2} créditos)`,
+            torneioId: id,
+            data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          console.log("✅ Prêmio 2º lugar distribuído:", ranking[1].odNome, premio2);
+        }
+        
+        if (ranking[2] && premio3 > 0) {
+          await db.collection('usuarios').doc(ranking[2].odId).update({
+            creditos: firebase.firestore.FieldValue.increment(premio3),
+            'torneios.top3': firebase.firestore.FieldValue.increment(1),
+            'torneios.creditosGanhos': firebase.firestore.FieldValue.increment(premio3),
+            'torneios.totalTorneios': firebase.firestore.FieldValue.increment(1)
+          });
+          
+          await db.collection('transacoes').add({
+            usuarioId: ranking[2].odId,
+            tipo: 'credito',
+            valor: premio3,
+            descricao: `🥉 3º lugar no torneio ${torneioAtual.nome} (+${premio3} créditos)`,
+            torneioId: id,
+            data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          console.log("✅ Prêmio 3º lugar distribuído:", ranking[2].odNome, premio3);
+        }
+        
+        // Atualizar estatísticas dos demais participantes
+        for (let i = 3; i < ranking.length; i++) {
+          try {
+            await db.collection('usuarios').doc(ranking[i].odId).update({
+              'torneios.totalTorneios': firebase.firestore.FieldValue.increment(1)
+            });
+          } catch (e) { console.error("Erro ao atualizar participante:", e); }
+        }
+        
+        // Marcar torneio como finalizado
+        await db.collection('torneios').doc(id).update({
+          status: 'finalizado',
+          resultado: resultado,
+          dataFinalizacao: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        const vencedor = ranking[0]?.odNome || 'Ninguém';
+        showToast(`🏆 Torneio finalizado! Vencedor: ${vencedor}`);
         fecharModalDetalhes();
         carregarTorneios();
+        
       } catch (error) {
-        console.error("Erro ao finalizar:", error);
-        showToast('❌ Erro ao finalizar torneio');
+        console.error("Erro ao finalizar torneio:", error);
+        showToast('❌ Erro ao finalizar: ' + error.message);
       }
     }
 
