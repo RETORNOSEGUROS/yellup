@@ -278,23 +278,22 @@
                 <span class="icon">🔍</span>
                 <input type="text" id="busca" placeholder="Buscar pergunta..." oninput="buscarPerguntas()">
             </div>
+            <select class="filter-select" id="filtroTipo" onchange="filtrarPorTipo()">
+                <option value="">Todos os Tipos</option>
+                <option value="time">⚽ Perguntas de Times</option>
+                <option value="campeonato">🏆 Perguntas de Campeonatos</option>
+            </select>
             <select class="filter-select" id="filtroTime" onchange="filtrarPerguntas()">
                 <option value="">Todos os Times</option>
+            </select>
+            <select class="filter-select" id="filtroCampeonato" onchange="filtrarPerguntas()" style="display: none;">
+                <option value="">Todos os Campeonatos</option>
             </select>
             <select class="filter-select" id="filtroDificuldade" onchange="filtrarPerguntas()">
                 <option value="">Todas as Dificuldades</option>
                 <option value="facil">🟢 Fácil</option>
                 <option value="medio">🟡 Médio</option>
                 <option value="dificil">🔴 Difícil</option>
-            </select>
-            <select class="filter-select" id="filtroLiga" onchange="filtrarPerguntas()">
-                <option value="">Todas as Ligas</option>
-                <option value="serie_a">🇧🇷 Série A</option>
-                <option value="serie_b">🇧🇷 Série B</option>
-                <option value="libertadores">🏆 Libertadores</option>
-                <option value="champions">⭐ Champions</option>
-                <option value="premier">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier</option>
-                <option value="laliga">🇪🇸 La Liga</option>
             </select>
             <button class="btn btn-info" onclick="exportarCSV()">📥 Exportar</button>
         </div>
@@ -306,7 +305,7 @@
                     <tr>
                         <th>Pergunta</th>
                         <th>Alternativas</th>
-                        <th>Time</th>
+                        <th>Time/Campeonato</th>
                         <th>Dificuldade</th>
                         <th>Pontos</th>
                         <th>Ações</th>
@@ -367,14 +366,33 @@
 
             <div class="form-row">
                 <div class="form-group">
+                    <label>Tipo de Pergunta</label>
+                    <select id="tipoPergunta" onchange="alternarTipoPergunta()">
+                        <option value="time">⚽ Pergunta de Time</option>
+                        <option value="campeonato">🏆 Pergunta de Campeonato</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Pontuação (1-10)</label>
+                    <input type="number" id="pontuacao" value="5" min="1" max="10">
+                </div>
+            </div>
+
+            <div class="form-row" id="rowTime">
+                <div class="form-group" style="width: 100%;">
                     <label>Time Relacionado</label>
                     <select id="timeId">
                         <option value="">Geral (sem time)</option>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label>Pontuação</label>
-                    <input type="number" id="pontuacao" value="10" min="1" max="100">
+            </div>
+
+            <div class="form-row" id="rowCampeonato" style="display: none;">
+                <div class="form-group" style="width: 100%;">
+                    <label>Campeonato Relacionado</label>
+                    <select id="campeonatoId">
+                        <option value="">Geral (sem campeonato)</option>
+                    </select>
                 </div>
             </div>
 
@@ -388,16 +406,8 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Liga</label>
-                    <select id="liga">
-                        <option value="">Geral</option>
-                        <option value="serie_a">🇧🇷 Série A</option>
-                        <option value="serie_b">🇧🇷 Série B</option>
-                        <option value="libertadores">🏆 Libertadores</option>
-                        <option value="champions">⭐ Champions</option>
-                        <option value="premier">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League</option>
-                        <option value="laliga">🇪🇸 La Liga</option>
-                    </select>
+                    <label>Fonte</label>
+                    <input type="text" id="fonte" placeholder="Wikipedia, CONMEBOL, etc">
                 </div>
             </div>
 
@@ -436,7 +446,9 @@
         let todasPerguntas = [];
         let perguntasFiltradas = [];
         let todosTimes = [];
+        let todosCampeonatos = [];
         let timesMap = {};
+        let campeonatosMap = {};
         let paginaAtual = 1;
         const porPagina = 15;
 
@@ -457,6 +469,7 @@
 
         async function carregarTimes() {
             try {
+                // Carregar times
                 const snap = await db.collection('times').orderBy('nome').get();
                 todosTimes = [];
                 snap.forEach(doc => {
@@ -465,21 +478,76 @@
                     timesMap[doc.id] = t;
                 });
 
-                // Popular selects
+                // Popular selects de times
                 const selectTime = document.getElementById('timeId');
                 const selectFiltro = document.getElementById('filtroTime');
 
-                let options = '<option value="">Geral (sem time)</option>';
+                let optionsTimes = '<option value="">Geral (sem time)</option>';
                 todosTimes.forEach(t => {
-                    options += `<option value="${t.id}">${t.nome}</option>`;
+                    optionsTimes += `<option value="${t.id}">${t.nome}</option>`;
                 });
 
-                selectTime.innerHTML = options;
+                selectTime.innerHTML = optionsTimes;
                 selectFiltro.innerHTML = '<option value="">Todos os Times</option>' + 
                     todosTimes.map(t => `<option value="${t.id}">${t.nome}</option>`).join('');
 
+                // Carregar campeonatos
+                const snapCamp = await db.collection('campeonatos').orderBy('nome').get();
+                todosCampeonatos = [];
+                snapCamp.forEach(doc => {
+                    const c = { id: doc.id, ...doc.data() };
+                    todosCampeonatos.push(c);
+                    campeonatosMap[doc.id] = c;
+                });
+
+                // Popular selects de campeonatos
+                const selectCampeonato = document.getElementById('campeonatoId');
+                const selectFiltroCamp = document.getElementById('filtroCampeonato');
+
+                let optionsCamp = '<option value="">Geral (sem campeonato)</option>';
+                todosCampeonatos.forEach(c => {
+                    optionsCamp += `<option value="${c.id}">${c.nome}</option>`;
+                });
+
+                selectCampeonato.innerHTML = optionsCamp;
+                selectFiltroCamp.innerHTML = '<option value="">Todos os Campeonatos</option>' + 
+                    todosCampeonatos.map(c => `<option value="${c.id}">🏆 ${c.nome}</option>`).join('');
+
+                console.log(`✅ Carregados ${todosTimes.length} times e ${todosCampeonatos.length} campeonatos`);
+
             } catch (error) {
-                console.error('Erro ao carregar times:', error);
+                console.error('Erro ao carregar times/campeonatos:', error);
+            }
+        }
+
+        // Alternar entre filtro de Time e Campeonato
+        function filtrarPorTipo() {
+            const tipo = document.getElementById('filtroTipo').value;
+            
+            document.getElementById('filtroTime').style.display = (tipo === '' || tipo === 'time') ? 'block' : 'none';
+            document.getElementById('filtroCampeonato').style.display = (tipo === '' || tipo === 'campeonato') ? 'block' : 'none';
+            
+            // Limpar seleções
+            if (tipo === 'time') {
+                document.getElementById('filtroCampeonato').value = '';
+            } else if (tipo === 'campeonato') {
+                document.getElementById('filtroTime').value = '';
+            }
+            
+            filtrarPerguntas();
+        }
+
+        // Alternar tipo no modal
+        function alternarTipoPergunta() {
+            const tipo = document.getElementById('tipoPergunta').value;
+            document.getElementById('rowTime').style.display = tipo === 'time' ? 'flex' : 'none';
+            document.getElementById('rowCampeonato').style.display = tipo === 'campeonato' ? 'flex' : 'none';
+            
+            // Limpar seleção do outro tipo
+            if (tipo === 'time') {
+                document.getElementById('campeonatoId').value = '';
+            } else {
+                document.getElementById('timeId').value = '';
             }
         }
 
@@ -528,7 +596,19 @@
 
             let html = '';
             perguntasPagina.forEach(p => {
-                const time = timesMap[p.timeId] || { nome: 'Geral' };
+                // Determinar se é pergunta de time ou campeonato
+                let temaInfo = { tipo: 'geral', nome: 'Geral', icone: '📝' };
+                
+                if (p.timeId && timesMap[p.timeId]) {
+                    temaInfo = { tipo: 'time', nome: timesMap[p.timeId].nome, icone: '⚽' };
+                } else if (p.campeonatoId && campeonatosMap[p.campeonatoId]) {
+                    temaInfo = { tipo: 'campeonato', nome: campeonatosMap[p.campeonatoId].nome, icone: '🏆' };
+                } else if (p.campeonatoNome) {
+                    temaInfo = { tipo: 'campeonato', nome: p.campeonatoNome, icone: '🏆' };
+                } else if (p.timeNome) {
+                    temaInfo = { tipo: 'time', nome: p.timeNome, icone: '⚽' };
+                }
+
                 const dif = (p.dificuldade || 'medio').toLowerCase();
                 const difBadge = {
                     'facil': 'badge-facil',
@@ -553,13 +633,15 @@
                     </div>`;
                 }).join('');
 
+                const badgeClass = temaInfo.tipo === 'campeonato' ? 'style="background: linear-gradient(135deg, #f39c12, #e67e22);"' : '';
+
                 html += `
                     <tr>
                         <td class="pergunta-text">${(p.pergunta || '').substring(0, 80)}${(p.pergunta || '').length > 80 ? '...' : ''}</td>
                         <td><div class="alternativas">${alternativas}</div></td>
-                        <td><span class="time-badge">⚽ ${time.nome}</span></td>
+                        <td><span class="time-badge" ${badgeClass}>${temaInfo.icone} ${temaInfo.nome}</span></td>
                         <td><span class="badge ${difBadge}">${difText}</span></td>
-                        <td>${p.pontuacao || 10} pts</td>
+                        <td>${p.pontuacao || 5} pts</td>
                         <td>
                             <div class="actions">
                                 <button class="btn btn-success btn-sm" onclick="editarPergunta('${p.id}')">✏️</button>
@@ -585,19 +667,35 @@
         }
 
         function filtrarPerguntas() {
+            const tipo = document.getElementById('filtroTipo').value;
             const timeId = document.getElementById('filtroTime').value;
+            const campeonatoId = document.getElementById('filtroCampeonato').value;
             const dificuldade = document.getElementById('filtroDificuldade').value;
-            const liga = document.getElementById('filtroLiga').value;
             const termo = document.getElementById('busca').value.toLowerCase();
 
             perguntasFiltradas = todasPerguntas.filter(p => {
+                // Filtro por texto
                 if (termo) {
                     const pergunta = (p.pergunta || '').toLowerCase();
                     if (!pergunta.includes(termo)) return false;
                 }
+                
+                // Filtro por tipo (time ou campeonato)
+                if (tipo === 'time') {
+                    if (!p.timeId) return false;
+                } else if (tipo === 'campeonato') {
+                    if (!p.campeonatoId) return false;
+                }
+                
+                // Filtro por time específico
                 if (timeId && p.timeId !== timeId) return false;
+                
+                // Filtro por campeonato específico
+                if (campeonatoId && p.campeonatoId !== campeonatoId) return false;
+                
+                // Filtro por dificuldade
                 if (dificuldade && (p.dificuldade || 'medio') !== dificuldade) return false;
-                if (liga && p.liga !== liga) return false;
+                
                 return true;
             });
 
@@ -631,10 +729,14 @@
             document.getElementById('altC').value = '';
             document.getElementById('altD').value = '';
             document.querySelectorAll('input[name="correta"]').forEach(r => r.checked = false);
+            document.getElementById('tipoPergunta').value = 'time';
             document.getElementById('timeId').value = '';
-            document.getElementById('pontuacao').value = '10';
+            document.getElementById('campeonatoId').value = '';
+            document.getElementById('pontuacao').value = '5';
             document.getElementById('dificuldade').value = 'medio';
-            document.getElementById('liga').value = '';
+            document.getElementById('fonte').value = '';
+            document.getElementById('rowTime').style.display = 'flex';
+            document.getElementById('rowCampeonato').style.display = 'none';
             document.getElementById('modalPergunta').classList.add('active');
         }
 
@@ -661,10 +763,24 @@
                 r.checked = r.value === correta;
             });
 
-            document.getElementById('timeId').value = p.timeId || '';
-            document.getElementById('pontuacao').value = p.pontuacao || 10;
+            // Determinar tipo (time ou campeonato)
+            if (p.campeonatoId) {
+                document.getElementById('tipoPergunta').value = 'campeonato';
+                document.getElementById('campeonatoId').value = p.campeonatoId;
+                document.getElementById('timeId').value = '';
+                document.getElementById('rowTime').style.display = 'none';
+                document.getElementById('rowCampeonato').style.display = 'flex';
+            } else {
+                document.getElementById('tipoPergunta').value = 'time';
+                document.getElementById('timeId').value = p.timeId || '';
+                document.getElementById('campeonatoId').value = '';
+                document.getElementById('rowTime').style.display = 'flex';
+                document.getElementById('rowCampeonato').style.display = 'none';
+            }
+
+            document.getElementById('pontuacao').value = p.pontuacao || 5;
             document.getElementById('dificuldade').value = p.dificuldade || 'medio';
-            document.getElementById('liga').value = p.liga || '';
+            document.getElementById('fonte').value = p.fonte || '';
             document.getElementById('modalPergunta').classList.add('active');
         }
 
@@ -683,6 +799,8 @@
                 return;
             }
 
+            const tipoPergunta = document.getElementById('tipoPergunta').value;
+
             // CORREÇÃO: Salvar no formato correto (alternativas como objeto)
             const dados = {
                 pergunta,
@@ -693,15 +811,30 @@
                     D: document.getElementById('altD').value.trim()
                 },
                 correta: corretaRadio.value,
-                timeId: document.getElementById('timeId').value || null,
-                pontuacao: parseInt(document.getElementById('pontuacao').value) || 10,
+                pontuacao: parseInt(document.getElementById('pontuacao').value) || 5,
                 dificuldade: document.getElementById('dificuldade').value,
-                liga: document.getElementById('liga').value || null
+                fonte: document.getElementById('fonte').value.trim() || null
             };
 
-            // Adicionar nome do time se selecionado
-            if (dados.timeId && timesMap[dados.timeId]) {
-                dados.timeNome = timesMap[dados.timeId].nome;
+            // Adicionar time ou campeonato conforme o tipo
+            if (tipoPergunta === 'time') {
+                const timeId = document.getElementById('timeId').value;
+                dados.timeId = timeId || null;
+                if (timeId && timesMap[timeId]) {
+                    dados.timeNome = timesMap[timeId].nome;
+                }
+                // Remover campos de campeonato se existirem
+                dados.campeonatoId = null;
+                dados.campeonatoNome = null;
+            } else if (tipoPergunta === 'campeonato') {
+                const campeonatoId = document.getElementById('campeonatoId').value;
+                dados.campeonatoId = campeonatoId || null;
+                if (campeonatoId && campeonatosMap[campeonatoId]) {
+                    dados.campeonatoNome = campeonatosMap[campeonatoId].nome;
+                }
+                // Remover campos de time se existirem
+                dados.timeId = null;
+                dados.timeNome = null;
             }
 
             try {
@@ -734,15 +867,32 @@
         }
 
         function exportarCSV() {
-            let csv = 'Pergunta,Alt A,Alt B,Alt C,Alt D,Correta,Time,Dificuldade,Pontos\n';
+            let csv = 'Pergunta,Alt A,Alt B,Alt C,Alt D,Correta,Tipo,Time/Campeonato,Dificuldade,Pontos\n';
             perguntasFiltradas.forEach(p => {
-                const time = timesMap[p.timeId]?.nome || 'Geral';
+                // Determinar tipo e nome
+                let tipo = 'Geral';
+                let nome = 'Geral';
+                
+                if (p.timeId && timesMap[p.timeId]) {
+                    tipo = 'Time';
+                    nome = timesMap[p.timeId].nome;
+                } else if (p.campeonatoId && campeonatosMap[p.campeonatoId]) {
+                    tipo = 'Campeonato';
+                    nome = campeonatosMap[p.campeonatoId].nome;
+                } else if (p.campeonatoNome) {
+                    tipo = 'Campeonato';
+                    nome = p.campeonatoNome;
+                } else if (p.timeNome) {
+                    tipo = 'Time';
+                    nome = p.timeNome;
+                }
+
                 // CORREÇÃO: Usar a função helper para extrair alternativas
                 const altA = getAlternativa(p, 'A');
                 const altB = getAlternativa(p, 'B');
                 const altC = getAlternativa(p, 'C');
                 const altD = getAlternativa(p, 'D');
-                csv += `"${(p.pergunta || '').replace(/"/g, '""')}","${altA}","${altB}","${altC}","${altD}","${p.correta}","${time}","${p.dificuldade || 'medio'}",${p.pontuacao || 10}\n`;
+                csv += `"${(p.pergunta || '').replace(/"/g, '""')}","${altA}","${altB}","${altC}","${altD}","${p.correta}","${tipo}","${nome}","${p.dificuldade || 'medio'}",${p.pontuacao || 5}\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv' });
