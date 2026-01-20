@@ -1,141 +1,229 @@
 /**
  * YELLUP - Utilitário de Bandeiras para Times
- * 
- * Adicione este código em suas páginas para exibir bandeiras junto aos nomes dos times.
- * 
- * USO:
- * 1. Inclua este script na página OU copie as funções para seu JS existente
- * 2. Use: formatarTimeComBandeira(time) para obter o HTML com bandeira
- * 3. Use: getBandeira(codigoPais) para obter apenas o emoji da bandeira
+ * Versão 2.0 - Funciona com codigoPais OU pais (nome)
  */
 
-// Mapeamento de código de país para emoji de bandeira
-const BANDEIRAS = {
-    // América do Sul
+// Mapeamento de código ISO para emoji
+const BANDEIRAS_ISO = {
     'BR': '🇧🇷', 'AR': '🇦🇷', 'UY': '🇺🇾', 'CO': '🇨🇴', 'CL': '🇨🇱',
     'PE': '🇵🇪', 'EC': '🇪🇨', 'PY': '🇵🇾', 'VE': '🇻🇪', 'BO': '🇧🇴',
-    
-    // América do Norte e Central
     'US': '🇺🇸', 'MX': '🇲🇽', 'CA': '🇨🇦', 'CR': '🇨🇷', 'HN': '🇭🇳',
-    'SV': '🇸🇻', 'GT': '🇬🇹', 'PA': '🇵🇦', 'JM': '🇯🇲', 'TT': '🇹🇹',
-    'HT': '🇭🇹', 'CU': '🇨🇺',
-    
-    // Europa
     'ES': '🇪🇸', 'IT': '🇮🇹', 'DE': '🇩🇪', 'FR': '🇫🇷', 'GB': '🇬🇧',
     'PT': '🇵🇹', 'NL': '🇳🇱', 'BE': '🇧🇪', 'CH': '🇨🇭', 'AT': '🇦🇹',
     'PL': '🇵🇱', 'UA': '🇺🇦', 'CZ': '🇨🇿', 'RO': '🇷🇴', 'HU': '🇭🇺',
     'GR': '🇬🇷', 'SE': '🇸🇪', 'DK': '🇩🇰', 'NO': '🇳🇴', 'FI': '🇫🇮',
     'IE': '🇮🇪', 'RS': '🇷🇸', 'HR': '🇭🇷', 'SK': '🇸🇰', 'SI': '🇸🇮',
     'BG': '🇧🇬', 'RU': '🇷🇺', 'TR': '🇹🇷', 'IS': '🇮🇸', 'CY': '🇨🇾',
-    'BA': '🇧🇦', 'ME': '🇲🇪', 'AL': '🇦🇱', 'MK': '🇲🇰', 'XK': '🇽🇰',
-    'LU': '🇱🇺', 'MT': '🇲🇹', 'MC': '🇲🇨', 'AD': '🇦🇩', 'LI': '🇱🇮',
-    'BY': '🇧🇾', 'MD': '🇲🇩', 'EE': '🇪🇪', 'LV': '🇱🇻', 'LT': '🇱🇹',
+    'JP': '🇯🇵', 'CN': '🇨🇳', 'KR': '🇰🇷', 'TH': '🇹🇭', 'VN': '🇻🇳',
+    'SA': '🇸🇦', 'AE': '🇦🇪', 'QA': '🇶🇦', 'KW': '🇰🇼', 'IL': '🇮🇱',
+    'MA': '🇲🇦', 'EG': '🇪🇬', 'TN': '🇹🇳', 'NG': '🇳🇬', 'ZA': '🇿🇦',
+    'AU': '🇦🇺', 'NZ': '🇳🇿', 'SC': '🏴󠁧󠁢󠁳󠁣󠁴󠁿'
+};
+
+// Mapeamento de NOME do país (português) para emoji
+const BANDEIRAS_NOME = {
+    // América do Sul
+    'brasil': '🇧🇷',
+    'argentina': '🇦🇷',
+    'uruguai': '🇺🇾',
+    'paraguai': '🇵🇾',
+    'chile': '🇨🇱',
+    'colômbia': '🇨🇴',
+    'colombia': '🇨🇴',
+    'peru': '🇵🇪',
+    'equador': '🇪🇨',
+    'venezuela': '🇻🇪',
+    'bolívia': '🇧🇴',
+    'bolivia': '🇧🇴',
+    
+    // América do Norte e Central
+    'estados unidos': '🇺🇸',
+    'eua': '🇺🇸',
+    'usa': '🇺🇸',
+    'méxico': '🇲🇽',
+    'mexico': '🇲🇽',
+    'canadá': '🇨🇦',
+    'canada': '🇨🇦',
+    
+    // Europa
+    'espanha': '🇪🇸',
+    'itália': '🇮🇹',
+    'italia': '🇮🇹',
+    'alemanha': '🇩🇪',
+    'frança': '🇫🇷',
+    'franca': '🇫🇷',
+    'inglaterra': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+    'reino unido': '🇬🇧',
+    'portugal': '🇵🇹',
+    'holanda': '🇳🇱',
+    'países baixos': '🇳🇱',
+    'paises baixos': '🇳🇱',
+    'bélgica': '🇧🇪',
+    'belgica': '🇧🇪',
+    'suíça': '🇨🇭',
+    'suica': '🇨🇭',
+    'áustria': '🇦🇹',
+    'austria': '🇦🇹',
+    'polônia': '🇵🇱',
+    'polonia': '🇵🇱',
+    'ucrânia': '🇺🇦',
+    'ucrania': '🇺🇦',
+    'república tcheca': '🇨🇿',
+    'republica tcheca': '🇨🇿',
+    'tchéquia': '🇨🇿',
+    'tchequia': '🇨🇿',
+    'romênia': '🇷🇴',
+    'romenia': '🇷🇴',
+    'hungria': '🇭🇺',
+    'grécia': '🇬🇷',
+    'grecia': '🇬🇷',
+    'suécia': '🇸🇪',
+    'suecia': '🇸🇪',
+    'dinamarca': '🇩🇰',
+    'noruega': '🇳🇴',
+    'finlândia': '🇫🇮',
+    'finlandia': '🇫🇮',
+    'irlanda': '🇮🇪',
+    'sérvia': '🇷🇸',
+    'serbia': '🇷🇸',
+    'croácia': '🇭🇷',
+    'croacia': '🇭🇷',
+    'eslováquia': '🇸🇰',
+    'eslovaquia': '🇸🇰',
+    'eslovênia': '🇸🇮',
+    'eslovenia': '🇸🇮',
+    'bulgária': '🇧🇬',
+    'bulgaria': '🇧🇬',
+    'rússia': '🇷🇺',
+    'russia': '🇷🇺',
+    'turquia': '🇹🇷',
+    'islândia': '🇮🇸',
+    'islandia': '🇮🇸',
+    'escócia': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+    'escocia': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+    'país de gales': '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+    'pais de gales': '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+    'gales': '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+    'mônaco': '🇲🇨',
+    'monaco': '🇲🇨',
     
     // Ásia
-    'JP': '🇯🇵', 'CN': '🇨🇳', 'KR': '🇰🇷', 'KP': '🇰🇵', 'TH': '🇹🇭',
-    'VN': '🇻🇳', 'ID': '🇮🇩', 'MY': '🇲🇾', 'PH': '🇵🇭', 'SG': '🇸🇬',
-    'IN': '🇮🇳', 'PK': '🇵🇰', 'BD': '🇧🇩', 'HK': '🇭🇰', 'TW': '🇹🇼',
+    'japão': '🇯🇵',
+    'japao': '🇯🇵',
+    'china': '🇨🇳',
+    'coreia do sul': '🇰🇷',
+    'coréia do sul': '🇰🇷',
+    'tailândia': '🇹🇭',
+    'tailandia': '🇹🇭',
+    'vietnã': '🇻🇳',
+    'vietna': '🇻🇳',
     
     // Oriente Médio
-    'SA': '🇸🇦', 'AE': '🇦🇪', 'QA': '🇶🇦', 'KW': '🇰🇼', 'BH': '🇧🇭',
-    'OM': '🇴🇲', 'IR': '🇮🇷', 'IQ': '🇮🇶', 'IL': '🇮🇱', 'JO': '🇯🇴',
-    'LB': '🇱🇧', 'SY': '🇸🇾',
-    
-    // Cáucaso
-    'GE': '🇬🇪', 'AM': '🇦🇲', 'AZ': '🇦🇿',
+    'arábia saudita': '🇸🇦',
+    'arabia saudita': '🇸🇦',
+    'emirados árabes': '🇦🇪',
+    'emirados arabes unidos': '🇦🇪',
+    'catar': '🇶🇦',
+    'qatar': '🇶🇦',
+    'israel': '🇮🇱',
     
     // África
-    'MA': '🇲🇦', 'EG': '🇪🇬', 'TN': '🇹🇳', 'DZ': '🇩🇿', 'NG': '🇳🇬',
-    'SN': '🇸🇳', 'GH': '🇬🇭', 'CI': '🇨🇮', 'CM': '🇨🇲', 'ZA': '🇿🇦',
-    'KE': '🇰🇪', 'ET': '🇪🇹', 'ML': '🇲🇱', 'BF': '🇧🇫', 'AO': '🇦🇴',
-    'MZ': '🇲🇿', 'ZM': '🇿🇲', 'ZW': '🇿🇼', 'UG': '🇺🇬', 'TZ': '🇹🇿',
-    'RW': '🇷🇼', 'CD': '🇨🇩', 'CG': '🇨🇬', 'GA': '🇬🇦', 'GN': '🇬🇳',
-    'GW': '🇬🇼', 'GQ': '🇬🇶', 'CV': '🇨🇻', 'MG': '🇲🇬', 'MU': '🇲🇺',
+    'marrocos': '🇲🇦',
+    'egito': '🇪🇬',
+    'tunísia': '🇹🇳',
+    'tunisia': '🇹🇳',
+    'nigéria': '🇳🇬',
+    'nigeria': '🇳🇬',
+    'áfrica do sul': '🇿🇦',
+    'africa do sul': '🇿🇦',
     
     // Oceania
-    'AU': '🇦🇺', 'NZ': '🇳🇿', 'FJ': '🇫🇯', 'PG': '🇵🇬',
-    
-    // Ásia Central
-    'KZ': '🇰🇿', 'UZ': '🇺🇿', 'AF': '🇦🇫',
+    'austrália': '🇦🇺',
+    'australia': '🇦🇺',
+    'nova zelândia': '🇳🇿',
+    'nova zelandia': '🇳🇿'
 };
 
 /**
- * Retorna o emoji da bandeira para um código de país
- * @param {string} codigoPais - Código ISO do país (ex: 'BR', 'ES')
- * @returns {string} Emoji da bandeira ou 🏳️ se não encontrar
+ * Retorna o emoji da bandeira
+ * Aceita código ISO (BR, ES) ou nome do país (Brasil, Espanha)
  */
-function getBandeira(codigoPais) {
-    return BANDEIRAS[codigoPais] || '🏳️';
+function getBandeira(codigoOuNome) {
+    if (!codigoOuNome) return '⚽';
+    
+    // Primeiro tenta por código ISO (maiúsculo)
+    const codigo = String(codigoOuNome).toUpperCase().trim();
+    if (BANDEIRAS_ISO[codigo]) {
+        return BANDEIRAS_ISO[codigo];
+    }
+    
+    // Depois tenta por nome do país (minúsculo, sem acentos)
+    const nome = String(codigoOuNome).toLowerCase().trim();
+    if (BANDEIRAS_NOME[nome]) {
+        return BANDEIRAS_NOME[nome];
+    }
+    
+    // Fallback: bola de futebol
+    return '⚽';
 }
 
 /**
- * Formata o nome do time com bandeira para exibição
- * @param {Object} time - Objeto do time com nome e codigoPais
- * @returns {string} Nome formatado com bandeira (ex: "🇧🇷 Corinthians - SP")
+ * Formata o nome do time com bandeira
+ * Tenta usar codigoPais, depois pais, depois mostra só o nome
  */
 function formatarTimeComBandeira(time) {
-    const bandeira = getBandeira(time.codigoPais);
+    if (!time || !time.nome) return 'Time desconhecido';
+    
+    // Tenta obter bandeira por codigoPais ou pais
+    const bandeira = getBandeira(time.codigoPais) !== '⚽' 
+        ? getBandeira(time.codigoPais) 
+        : getBandeira(time.pais);
+    
     return `${bandeira} ${time.nome}`;
 }
 
 /**
- * Formata o nome do time para uso em selects/dropdowns
- * Bandeira no início para fácil identificação visual
- * @param {Object} time - Objeto do time
- * @returns {string} Nome formatado para select
+ * Formata para uso em selects
  */
 function formatarTimeParaSelect(time) {
-    const bandeira = getBandeira(time.codigoPais);
-    return `${bandeira} ${time.nome}`;
+    return formatarTimeComBandeira(time);
 }
 
 /**
- * Cria um elemento HTML para exibir time com bandeira
- * @param {Object} time - Objeto do time
- * @returns {string} HTML string com bandeira e nome
+ * Cria elemento HTML
  */
 function criarElementoTime(time) {
-    const bandeira = getBandeira(time.codigoPais);
-    return `<span class="time-com-bandeira">
-        <span class="bandeira">${bandeira}</span>
-        <span class="nome-time">${time.nome}</span>
-    </span>`;
+    const texto = formatarTimeComBandeira(time);
+    return `<span class="time-com-bandeira">${texto}</span>`;
 }
 
 /**
- * Popula um select com times, ordenados por nome, com bandeiras
- * @param {string} selectId - ID do elemento select
- * @param {Array} times - Array de times [{id, nome, codigoPais, tipo, ...}]
- * @param {string} [valorSelecionado] - Valor a ser pré-selecionado
- * @param {string} [filtroTipo] - 'clube', 'selecao' ou null para todos
+ * Popula select com times
  */
 function popularSelectTimes(selectId, times, valorSelecionado = '', filtroTipo = null) {
     const select = document.getElementById(selectId);
     if (!select) return;
     
-    // Filtrar por tipo se especificado
     let timesFiltrados = filtroTipo 
         ? times.filter(t => t.tipo === filtroTipo)
         : times;
     
-    // Ordenar por nome
     const timesOrdenados = [...timesFiltrados].sort((a, b) => 
-        a.nome.localeCompare(b.nome, 'pt-BR')
+        (a.nome || '').localeCompare(b.nome || '', 'pt-BR')
     );
     
-    // Limpar e adicionar opção padrão
     const placeholder = filtroTipo === 'selecao' 
         ? 'Selecione uma seleção...' 
         : filtroTipo === 'clube' 
             ? 'Selecione um clube...'
             : 'Selecione um time...';
+    
     select.innerHTML = `<option value="">${placeholder}</option>`;
     
-    // Adicionar times
     timesOrdenados.forEach(time => {
         const option = document.createElement('option');
         option.value = time.id;
-        option.textContent = formatarTimeParaSelect(time);
+        option.textContent = formatarTimeComBandeira(time);
         if (time.id === valorSelecionado) {
             option.selected = true;
         }
@@ -143,41 +231,26 @@ function popularSelectTimes(selectId, times, valorSelecionado = '', filtroTipo =
     });
 }
 
-/**
- * Popula um select APENAS com clubes (exclui seleções)
- */
 function popularSelectClubes(selectId, times, valorSelecionado = '') {
     popularSelectTimes(selectId, times, valorSelecionado, 'clube');
 }
 
-/**
- * Popula um select APENAS com seleções (exclui clubes)
- */
 function popularSelectSelecoes(selectId, times, valorSelecionado = '') {
     popularSelectTimes(selectId, times, valorSelecionado, 'selecao');
 }
 
-/**
- * Verifica se um time é seleção
- * @param {Object} time - Objeto do time
- * @returns {boolean}
- */
 function isSelecao(time) {
-    return time.tipo === 'selecao';
+    return time && time.tipo === 'selecao';
 }
 
-/**
- * Verifica se um time é clube
- * @param {Object} time - Objeto do time
- * @returns {boolean}
- */
 function isClube(time) {
-    return time.tipo === 'clube';
+    return time && time.tipo === 'clube';
 }
 
-// Exportar funções para uso global
+// Exportar para uso global
 if (typeof window !== 'undefined') {
-    window.BANDEIRAS = BANDEIRAS;
+    window.BANDEIRAS_ISO = BANDEIRAS_ISO;
+    window.BANDEIRAS_NOME = BANDEIRAS_NOME;
     window.getBandeira = getBandeira;
     window.formatarTimeComBandeira = formatarTimeComBandeira;
     window.formatarTimeParaSelect = formatarTimeParaSelect;
@@ -188,6 +261,3 @@ if (typeof window !== 'undefined') {
     window.isSelecao = isSelecao;
     window.isClube = isClube;
 }
-
-// Para uso com módulos ES6
-// export { BANDEIRAS, getBandeira, formatarTimeComBandeira, formatarTimeParaSelect, criarElementoTime, popularSelectTimes, popularSelectClubes, popularSelectSelecoes, isSelecao, isClube };
