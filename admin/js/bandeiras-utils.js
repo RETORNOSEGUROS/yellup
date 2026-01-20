@@ -105,20 +105,31 @@ function criarElementoTime(time) {
 /**
  * Popula um select com times, ordenados por nome, com bandeiras
  * @param {string} selectId - ID do elemento select
- * @param {Array} times - Array de times [{id, nome, codigoPais, ...}]
+ * @param {Array} times - Array de times [{id, nome, codigoPais, tipo, ...}]
  * @param {string} [valorSelecionado] - Valor a ser pré-selecionado
+ * @param {string} [filtroTipo] - 'clube', 'selecao' ou null para todos
  */
-function popularSelectTimes(selectId, times, valorSelecionado = '') {
+function popularSelectTimes(selectId, times, valorSelecionado = '', filtroTipo = null) {
     const select = document.getElementById(selectId);
     if (!select) return;
     
+    // Filtrar por tipo se especificado
+    let timesFiltrados = filtroTipo 
+        ? times.filter(t => t.tipo === filtroTipo)
+        : times;
+    
     // Ordenar por nome
-    const timesOrdenados = [...times].sort((a, b) => 
+    const timesOrdenados = [...timesFiltrados].sort((a, b) => 
         a.nome.localeCompare(b.nome, 'pt-BR')
     );
     
     // Limpar e adicionar opção padrão
-    select.innerHTML = '<option value="">Selecione um time...</option>';
+    const placeholder = filtroTipo === 'selecao' 
+        ? 'Selecione uma seleção...' 
+        : filtroTipo === 'clube' 
+            ? 'Selecione um clube...'
+            : 'Selecione um time...';
+    select.innerHTML = `<option value="">${placeholder}</option>`;
     
     // Adicionar times
     timesOrdenados.forEach(time => {
@@ -132,6 +143,38 @@ function popularSelectTimes(selectId, times, valorSelecionado = '') {
     });
 }
 
+/**
+ * Popula um select APENAS com clubes (exclui seleções)
+ */
+function popularSelectClubes(selectId, times, valorSelecionado = '') {
+    popularSelectTimes(selectId, times, valorSelecionado, 'clube');
+}
+
+/**
+ * Popula um select APENAS com seleções (exclui clubes)
+ */
+function popularSelectSelecoes(selectId, times, valorSelecionado = '') {
+    popularSelectTimes(selectId, times, valorSelecionado, 'selecao');
+}
+
+/**
+ * Verifica se um time é seleção
+ * @param {Object} time - Objeto do time
+ * @returns {boolean}
+ */
+function isSelecao(time) {
+    return time.tipo === 'selecao';
+}
+
+/**
+ * Verifica se um time é clube
+ * @param {Object} time - Objeto do time
+ * @returns {boolean}
+ */
+function isClube(time) {
+    return time.tipo === 'clube';
+}
+
 // Exportar funções para uso global
 if (typeof window !== 'undefined') {
     window.BANDEIRAS = BANDEIRAS;
@@ -140,7 +183,11 @@ if (typeof window !== 'undefined') {
     window.formatarTimeParaSelect = formatarTimeParaSelect;
     window.criarElementoTime = criarElementoTime;
     window.popularSelectTimes = popularSelectTimes;
+    window.popularSelectClubes = popularSelectClubes;
+    window.popularSelectSelecoes = popularSelectSelecoes;
+    window.isSelecao = isSelecao;
+    window.isClube = isClube;
 }
 
 // Para uso com módulos ES6
-// export { BANDEIRAS, getBandeira, formatarTimeComBandeira, formatarTimeParaSelect, criarElementoTime, popularSelectTimes };
+// export { BANDEIRAS, getBandeira, formatarTimeComBandeira, formatarTimeParaSelect, criarElementoTime, popularSelectTimes, popularSelectClubes, popularSelectSelecoes, isSelecao, isClube };
