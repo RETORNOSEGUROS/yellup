@@ -864,22 +864,77 @@
         return;
       }
 
-      // Carregar perguntas do Firebase
+      // Carregar perguntas do Firebase FILTRADAS por campeonato/liga
       try {
-        const snapshot = await db.collection('perguntas').limit(100).get();
-        
         let todasPerguntas = [];
-        snapshot.forEach(doc => {
+
+        // Primeiro tenta buscar por campeonatoId (perguntas específicas de campeonatos)
+        console.log(`🔍 Buscando perguntas para: ${ligaSelecionada}`);
+        
+        const snapshotCampeonato = await db.collection('perguntas')
+          .where('campeonatoId', '==', ligaSelecionada)
+          .limit(100)
+          .get();
+        
+        snapshotCampeonato.forEach(doc => {
           todasPerguntas.push({ id: doc.id, ...doc.data() });
         });
+
+        console.log(`📊 Perguntas por campeonatoId '${ligaSelecionada}': ${todasPerguntas.length}`);
+
+        // Se não encontrou por campeonatoId, tenta pelo campo 'liga'
+        if (todasPerguntas.length === 0) {
+          const snapshotLiga = await db.collection('perguntas')
+            .where('liga', '==', ligaSelecionada)
+            .limit(100)
+            .get();
+          
+          snapshotLiga.forEach(doc => {
+            todasPerguntas.push({ id: doc.id, ...doc.data() });
+          });
+
+          console.log(`📊 Perguntas por liga '${ligaSelecionada}': ${todasPerguntas.length}`);
+        }
+
+        // Se ainda não encontrou, busca perguntas gerais (fallback)
+        if (todasPerguntas.length === 0) {
+          console.log('⚠️ Nenhuma pergunta específica encontrada, buscando gerais...');
+          const snapshotGeral = await db.collection('perguntas').limit(100).get();
+          snapshotGeral.forEach(doc => {
+            todasPerguntas.push({ id: doc.id, ...doc.data() });
+          });
+        }
+
+        // Filtrar por dificuldade se selecionada
+        if (dificuldadeSelecionada && dificuldadeSelecionada !== 'todas') {
+          const dificuldadeMap = {
+            'facil': [1, 2, 3, 4],
+            'medio': [5, 6, 7],
+            'dificil': [8, 9, 10]
+          };
+          const pontosFaixa = dificuldadeMap[dificuldadeSelecionada];
+          
+          if (pontosFaixa) {
+            const perguntasFiltradas = todasPerguntas.filter(p => {
+              const pontos = p.pontuacao || 5;
+              return pontosFaixa.includes(pontos);
+            });
+            // Só usa o filtro se sobrar perguntas suficientes
+            if (perguntasFiltradas.length >= 5) {
+              todasPerguntas = perguntasFiltradas;
+            }
+          }
+        }
 
         // Embaralhar e pegar 10
         perguntas = shuffleArray(todasPerguntas).slice(0, 10);
 
         if (perguntas.length === 0) {
-          showToast('❌ Nenhuma pergunta disponível');
+          showToast('❌ Nenhuma pergunta disponível para esta liga');
           return;
         }
+
+        console.log(`✅ ${perguntas.length} perguntas selecionadas para o quiz`);
 
         // Resetar variáveis
         perguntaAtual = 0;
