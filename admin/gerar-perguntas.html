@@ -433,10 +433,10 @@
       <div class="form-group">
         <label>Quantidade de perguntas:</label>
         <select class="form-control" id="qtdPerguntas" onchange="atualizarPrompt()">
-          <option value="10">10 perguntas</option>
-          <option value="20" selected>20 perguntas</option>
+          <option value="20">20 perguntas</option>
           <option value="30">30 perguntas</option>
-          <option value="50">50 perguntas</option>
+          <option value="50" selected>50 perguntas</option>
+          <option value="100">100 perguntas (completo)</option>
         </select>
       </div>
     </div>
@@ -647,49 +647,107 @@
     const timeNome = opt.dataset.nome;
     const timePais = opt.dataset.pais;
     const timeId = select.value;
+    const upperName = timeNome.toUpperCase();
     
-    const prompt = `Você é um especialista em futebol. Crie ${qtd} perguntas de quiz sobre o time "${timeNome}" (${timePais}).
+    // Cálculos de distribuição
+    const faceis = Math.round(qtd * 0.30);
+    const medias = Math.round(qtd * 0.40);
+    const dificeis = qtd - faceis - medias;
+    
+    const prompt = `OBJETIVO:
+Gerar ${qtd} perguntas REAIS, ÚNICAS e VERIFICADAS sobre o time "${timeNome}" (${timePais}) para o sistema Yellup.
 
-REGRAS IMPORTANTES:
-1. Perguntas sobre: história, títulos, jogadores históricos, estádio, rivalidades, curiosidades
-2. Cada pergunta deve ter exatamente 4 alternativas (A, B, C, D)
-3. Apenas UMA alternativa correta
-4. Variar dificuldade: ${Math.round(qtd * 0.25)} fáceis (3 pts), ${Math.round(qtd * 0.5)} médias (5 pts), ${Math.round(qtd * 0.25)} difíceis (8 pts)
-5. Informações devem ser VERIFICÁVEIS e atuais (até 2024)
-6. Incluir fonte de cada informação
-7. NÃO repetir perguntas similares
-
-RESPONDA APENAS COM O JSON ABAIXO (sem texto adicional):
+📌 FORMATO OBRIGATÓRIO (JSON para Firestore):
 
 {
-  "timeId": "${timeId}",
-  "timeNome": "${timeNome}",
-  "perguntas": [
-    {
-      "pergunta": "Texto da pergunta aqui?",
-      "alternativas": {
-        "A": "Opção A",
-        "B": "Opção B",
-        "C": "Opção C",
-        "D": "Opção D"
-      },
-      "correta": "B",
-      "pontuacao": 5,
-      "fonte": "Site oficial / Wikipedia / etc",
-      "dificuldade": "media"
-    }
-  ]
+  "${timeId.substring(0,8)}-001": {
+    "pergunta": "Texto da pergunta?",
+    "alternativas": {
+      "A": "Alternativa A",
+      "B": "Alternativa B",
+      "C": "Alternativa C",
+      "D": "Alternativa D"
+    },
+    "correta": "B",
+    "pontuacao": 5,
+    "timeId": "${timeId}",
+    "timeNome": "${timeNome}",
+    "fonte": "Transfermarkt / Wikipedia / Site oficial",
+    "dificuldade": "media"
+  }
 }
 
-CATEGORIAS SUGERIDAS:
-- ${Math.ceil(qtd * 0.2)} sobre história e fundação
-- ${Math.ceil(qtd * 0.2)} sobre títulos e conquistas
-- ${Math.ceil(qtd * 0.2)} sobre jogadores históricos/atuais
-- ${Math.ceil(qtd * 0.15)} sobre estádio e torcida
-- ${Math.ceil(qtd * 0.15)} sobre rivalidades e clássicos
-- ${Math.ceil(qtd * 0.1)} sobre curiosidades
+📋 REGRAS ESSENCIAIS:
 
-Gere EXATAMENTE ${qtd} perguntas diversificadas e interessantes!`;
+1. ESTRUTURA:
+   - Exatamente 4 alternativas: A, B, C, D
+   - Uma ÚNICA resposta correta
+   - IDs sequenciais: ${timeId.substring(0,8)}-001 até ${timeId.substring(0,8)}-${String(qtd).padStart(3,'0')}
+
+2. PONTUAÇÃO (1 a 10):
+   - 1-3: Fácil (${faceis} perguntas)
+   - 4-6: Média (${medias} perguntas)
+   - 7-10: Difícil (${dificeis} perguntas)
+
+3. DISTRIBUIÇÃO DE RESPOSTAS:
+   - Letras corretas EQUILIBRADAS entre A, B, C, D
+   - Evitar padrões repetitivos (não 5x a mesma letra seguida)
+
+4. RESTRIÇÕES TEMPORAIS:
+   - EVITAR perguntas atemporais ("quem é o maior artilheiro?")
+   - USAR recortes definidos ("artilheiro do Brasileirão 2022", "na final de 2021")
+
+5. VALIDAÇÃO OBRIGATÓRIA:
+   - Toda informação deve ser VERIFICÁVEL em fontes confiáveis
+   - Fontes: Transfermarkt, Wikipedia, FIFA, CBF, site oficial do clube
+   - Conferir: posição do jogador, ano do título, contexto histórico
+
+🎯 TEMAS RECOMENDADOS (distribuir entre as ${qtd}):
+
+HISTÓRIA (10%):
+- Fundação, primeiro estádio, primeira partida
+- Mudanças de nome, cores originais
+
+TÍTULOS E CONQUISTAS (20%):
+- Campeonatos nacionais com ano específico
+- Títulos internacionais, copas
+
+JOGADORES MARCANTES (25%):
+- Artilheiros por temporada/competição
+- Ídolos históricos, goleiros lendários
+- Quem fez gol em final específica
+
+MOMENTOS HISTÓRICOS (20%):
+- Jogos épicos com placar e ano
+- Gol da classificação em mata-mata
+- Viradas históricas, goleadas
+
+TÉCNICOS E BASTIDORES (10%):
+- Técnicos campeões
+- Contratações marcantes com valor
+- Vendas recordes
+
+CURIOSIDADES (15%):
+- Mascote, apelidos, hino
+- Trechos de músicas da torcida
+- Rivalidades e clássicos
+- Recordes específicos
+
+⚠️ PROIBIDO:
+- Repetir perguntas (mesmo com palavras trocadas)
+- Perguntas polêmicas ou opinativas
+- Placeholders ou textos genéricos
+- Informações não verificáveis
+
+✅ CHECKLIST FINAL:
+□ ${qtd} perguntas únicas sobre ${upperName}
+□ Nenhuma repetição
+□ Pontuação equilibrada (1-10)
+□ Letras A/B/C/D distribuídas
+□ Todas as informações verificadas
+□ Formato JSON correto para Firefoo
+
+GERE O JSON COMPLETO COM AS ${qtd} PERGUNTAS:`;
 
     promptText.textContent = prompt;
   }
@@ -735,14 +793,29 @@ Gere EXATAMENTE ${qtd} perguntas diversificadas e interessantes!`;
       
       // Aceitar vários formatos
       if (data.perguntas && Array.isArray(data.perguntas)) {
-        // Formato com timeId no root
+        // Formato 1: { perguntas: [...], timeId, timeNome }
         perguntasParaImportar = data.perguntas.map(p => ({
           ...p,
           timeId: p.timeId || data.timeId,
           timeNome: p.timeNome || data.timeNome
         }));
       } else if (Array.isArray(data)) {
+        // Formato 2: Array direto [...]
         perguntasParaImportar = data;
+      } else if (typeof data === 'object' && !Array.isArray(data)) {
+        // Formato 3: Objeto com chaves (Firefoo) { "id-001": {...}, "id-002": {...} }
+        const keys = Object.keys(data);
+        // Verificar se parece com perguntas (tem campo pergunta ou alternativas)
+        const firstKey = keys[0];
+        if (firstKey && data[firstKey] && (data[firstKey].pergunta || data[firstKey].alternativas)) {
+          perguntasParaImportar = keys.map(key => ({
+            ...data[key],
+            _docId: key // Guardar o ID para usar no Firestore
+          }));
+          log(`Formato Firefoo detectado: ${keys.length} documentos`, 'info');
+        } else {
+          throw new Error('Formato não reconhecido');
+        }
       } else {
         throw new Error('Formato não reconhecido');
       }
@@ -842,7 +915,10 @@ Gere EXATAMENTE ${qtd} perguntas diversificadas e interessantes!`;
         const lote = perguntasParaImportar.slice(i, i + batchSize);
         
         lote.forEach(pergunta => {
-          const docRef = db.collection('perguntas').doc();
+          // Usar docId personalizado se existir, senão auto-gerar
+          const docRef = pergunta._docId 
+            ? db.collection('perguntas').doc(pergunta._docId)
+            : db.collection('perguntas').doc();
           
           const alternativas = {
             A: String(pergunta.alternativas?.A || pergunta.alternativas?.a || ''),
@@ -851,15 +927,18 @@ Gere EXATAMENTE ${qtd} perguntas diversificadas e interessantes!`;
             D: String(pergunta.alternativas?.D || pergunta.alternativas?.d || '')
           };
           
+          // Remover _docId antes de salvar
+          const { _docId, ...dadosPergunta } = pergunta;
+          
           batch.set(docRef, {
-            pergunta: String(pergunta.pergunta || ''),
+            pergunta: String(dadosPergunta.pergunta || ''),
             alternativas: alternativas,
-            correta: String(pergunta.correta || 'A').toUpperCase(),
-            pontuacao: Number(pergunta.pontuacao) || 5,
-            timeId: String(pergunta.timeId || ''),
-            timeNome: String(pergunta.timeNome || ''),
-            fonte: String(pergunta.fonte || ''),
-            dificuldade: String(pergunta.dificuldade || 'media'),
+            correta: String(dadosPergunta.correta || 'A').toUpperCase(),
+            pontuacao: Number(dadosPergunta.pontuacao) || 5,
+            timeId: String(dadosPergunta.timeId || ''),
+            timeNome: String(dadosPergunta.timeNome || ''),
+            fonte: String(dadosPergunta.fonte || ''),
+            dificuldade: String(dadosPergunta.dificuldade || 'media'),
             criadoEm: firebase.firestore.FieldValue.serverTimestamp()
           });
         });
