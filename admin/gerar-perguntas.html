@@ -6,8 +6,9 @@
     <title>Gerar Perguntas - Yellup Admin</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="../js/firebase-init.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         * {
@@ -859,18 +860,11 @@
     </div>
     
     <script>
-        // Firebase config
-        const firebaseConfig = {
-            apiKey: "AIzaSyD3RTC6lHxo9GUriLCpSi1xb5SPXEY3slk",
-            authDomain: "yellup-app.firebaseapp.com",
-            projectId: "yellup-app",
-            storageBucket: "yellup-app.firebasestorage.app",
-            messagingSenderId: "424362602498",
-            appId: "1:424362602498:android:ca13ae6a82db4dad9b868e"
-        };
+        // Firebase Config - painel-yellup
+        // Firebase já inicializado pelo firebase-init.js
+        // db já está disponível globalmente
         
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
+        console.log('Firebase conectado');
         
         // Variáveis globais
         let times = [];
@@ -882,12 +876,24 @@
         let promptGeradoCamp = '';
         
         // Inicialização
-        document.addEventListener('DOMContentLoaded', () => {
-            carregarTimes();
-            carregarCampeonatos();
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('Página carregada, iniciando...');
+            
             setupTabs();
             setupUploads();
             setupTemaCheckboxes();
+            
+            // Carregar dados do Firebase
+            try {
+                await Promise.all([
+                    carregarTimes(),
+                    carregarCampeonatos()
+                ]);
+                console.log('Dados carregados com sucesso!');
+            } catch (err) {
+                console.error('Erro na inicialização:', err);
+                showToast('Erro ao conectar com Firebase', 'error');
+            }
         });
         
         // Setup tabs
@@ -1046,32 +1052,66 @@
         
         // Carregar dados do Firebase
         async function carregarTimes() {
+            const select = document.getElementById('selectTime');
+            select.innerHTML = '<option value="">Carregando times...</option>';
+            
             try {
+                console.log('Carregando times...');
                 const snapshot = await db.collection('times').orderBy('nome').get();
+                console.log('Times encontrados:', snapshot.size);
+                
                 times = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 
-                const select = document.getElementById('selectTime');
                 select.innerHTML = '<option value="">Selecione um time...</option>';
+                
+                if (times.length === 0) {
+                    select.innerHTML = '<option value="">Nenhum time encontrado</option>';
+                    showToast('Nenhum time encontrado no Firebase', 'error');
+                    return;
+                }
+                
                 times.forEach(time => {
                     select.innerHTML += `<option value="${time.id}">${time.nome}</option>`;
                 });
+                
+                console.log('Times carregados:', times.length);
+                
             } catch (err) {
                 console.error('Erro ao carregar times:', err);
+                select.innerHTML = '<option value="">Erro ao carregar times</option>';
+                showToast('Erro ao carregar times: ' + err.message, 'error');
             }
         }
         
         async function carregarCampeonatos() {
+            const select = document.getElementById('selectCampeonato');
+            select.innerHTML = '<option value="">Carregando campeonatos...</option>';
+            
             try {
+                console.log('Carregando campeonatos...');
                 const snapshot = await db.collection('campeonatos').orderBy('nome').get();
+                console.log('Campeonatos encontrados:', snapshot.size);
+                
                 campeonatos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 
-                const select = document.getElementById('selectCampeonato');
                 select.innerHTML = '<option value="">Selecione um campeonato...</option>';
+                
+                if (campeonatos.length === 0) {
+                    select.innerHTML = '<option value="">Nenhum campeonato encontrado</option>';
+                    showToast('Nenhum campeonato encontrado no Firebase', 'error');
+                    return;
+                }
+                
                 campeonatos.forEach(camp => {
                     select.innerHTML += `<option value="${camp.id}">${camp.nome}</option>`;
                 });
+                
+                console.log('Campeonatos carregados:', campeonatos.length);
+                
             } catch (err) {
                 console.error('Erro ao carregar campeonatos:', err);
+                select.innerHTML = '<option value="">Erro ao carregar campeonatos</option>';
+                showToast('Erro ao carregar campeonatos: ' + err.message, 'error');
             }
         }
         
