@@ -592,19 +592,30 @@
     /* Botão Cancelar Ordem */
     .btn-cancel-order {
       padding: 8px 16px;
-      background: rgba(239, 68, 68, 0.2);
+      background: rgba(239, 68, 68, 0.15);
       border: 1px solid rgba(239, 68, 68, 0.4);
       border-radius: 8px;
-      color: var(--danger);
+      color: #ef4444;
       font-weight: 600;
-      font-size: 0.85em;
+      font-size: 0.8em;
       cursor: pointer;
       transition: all 0.3s ease;
       font-family: 'Poppins', sans-serif;
     }
     .btn-cancel-order:hover {
-      background: rgba(239, 68, 68, 0.3);
-      border-color: var(--danger);
+      background: rgba(239, 68, 68, 0.25);
+      border-color: #ef4444;
+    }
+
+    /* Botão desabilitado */
+    .btn-buy:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background: #6b7280;
+    }
+    .btn-buy:disabled:hover {
+      background: #6b7280;
+      transform: none;
     }
 
     /* Responsive */
@@ -704,7 +715,6 @@
     <!-- Tab: Carteira -->
     <div id="tab-carteira" class="tab-content" style="display: none;">
       <h3 class="section-title">💼 Minhas Cotas</h3>
-      <!-- CORREÇÃO: Adicionar filtro na carteira -->
       <div class="search-box">
         <input type="text" class="search-input" id="carteiraSearchInput" placeholder="🔍 Buscar time na carteira..." oninput="filterCarteira()">
       </div>
@@ -936,7 +946,7 @@
     let minhasCotas = {};   // Minhas cotas
     let ordensAbertas = []; // Minhas ordens
     let ordens = {};        // Ordens por time (para compra)
-    let dividendosRecebidos = 0; // CORREÇÃO: Total de dividendos recebidos
+    let dividendosRecebidos = 0; // Total de dividendos recebidos
 
     let modalTimeAtual = null;
 
@@ -980,7 +990,7 @@
         // Carregar minhas ordens
         await carregarMinhasOrdens();
 
-        // CORREÇÃO: Carregar dividendos recebidos
+        // Carregar dividendos recebidos
         await carregarDividendosRecebidos();
 
         // Renderizar
@@ -1036,39 +1046,59 @@
     }
 
     async function carregarOrdensAbertas() {
-      const ordensSnap = await db.collection('bolsa_ordens')
-        .where('tipo', '==', 'venda')
-        .where('status', 'in', ['aberta', 'parcial'])
-        .get();
+      // CORREÇÃO: Query simplificada para evitar erro de índice composto
+      // Busca todas as ordens de venda e filtra no JavaScript
+      try {
+        const ordensSnap = await db.collection('bolsa_ordens')
+          .where('tipo', '==', 'venda')
+          .get();
 
-      ordens = {};
-      ordensSnap.forEach(doc => {
-        const data = doc.data();
-        if (!ordens[data.timeId]) {
-          ordens[data.timeId] = [];
-        }
-        ordens[data.timeId].push({ id: doc.id, ...data });
-      });
+        ordens = {};
+        ordensSnap.forEach(doc => {
+          const data = doc.data();
+          // Filtrar apenas ordens abertas ou parciais
+          if (data.status === 'aberta' || data.status === 'parcial') {
+            if (!ordens[data.timeId]) {
+              ordens[data.timeId] = [];
+            }
+            ordens[data.timeId].push({ id: doc.id, ...data });
+          }
+        });
 
-      // Ordenar por preço (menor primeiro)
-      Object.keys(ordens).forEach(timeId => {
-        ordens[timeId].sort((a, b) => a.precoUnitario - b.precoUnitario);
-      });
+        // Ordenar por preço (menor primeiro)
+        Object.keys(ordens).forEach(timeId => {
+          ordens[timeId].sort((a, b) => a.precoUnitario - b.precoUnitario);
+        });
+        
+        console.log('Ordens carregadas:', Object.keys(ordens).length, 'times com ordens');
+      } catch (error) {
+        console.error('Erro ao carregar ordens:', error);
+        ordens = {};
+      }
     }
 
     async function carregarMinhasOrdens() {
-      const ordensSnap = await db.collection('bolsa_ordens')
-        .where('userId', '==', currentUser.uid)
-        .where('status', 'in', ['aberta', 'parcial'])
-        .get();
+      // CORREÇÃO: Query simplificada para evitar erro de índice composto
+      try {
+        const ordensSnap = await db.collection('bolsa_ordens')
+          .where('userId', '==', currentUser.uid)
+          .get();
 
-      ordensAbertas = [];
-      ordensSnap.forEach(doc => {
-        ordensAbertas.push({ id: doc.id, ...doc.data() });
-      });
+        ordensAbertas = [];
+        ordensSnap.forEach(doc => {
+          const data = doc.data();
+          // Filtrar apenas ordens abertas ou parciais
+          if (data.status === 'aberta' || data.status === 'parcial') {
+            ordensAbertas.push({ id: doc.id, ...data });
+          }
+        });
+      } catch (error) {
+        console.error('Erro ao carregar minhas ordens:', error);
+        ordensAbertas = [];
+      }
     }
 
-    // CORREÇÃO: Função para carregar dividendos recebidos
+    // Função para carregar dividendos recebidos
     async function carregarDividendosRecebidos() {
       try {
         const divSnap = await db.collection('bolsa_dividendos').get();
@@ -1112,16 +1142,18 @@
         const volume = m.volumeDia || 0;
         volumeTotal += volume;
 
-        // Menor preço à venda e total de cotas disponíveis
-        const ordensTime = ordens[time.id] || [];
-        // CORREÇÃO: Filtrar ordens do próprio usuário
-        const ordensOutros = ordensTime.filter(o => o.userId !== currentUser.uid);
+        // CORREÇÃO: Filtrar ordens do próprio usuário (não pode comprar de si mesmo)
+        const todasOrdensTime = ordens[time.id] || [];
+        const ordensOutros = todasOrdensTime.filter(o => o.userId !== currentUser.uid);
+        
+        // Menor preço à venda e total de cotas disponíveis DE OUTROS USUÁRIOS
         const menorPrecoVenda = ordensOutros.length > 0 ? ordensOutros[0].precoUnitario : precoAlgo;
         const cotasDisponiveis = ordensOutros.reduce((sum, o) => sum + o.quantidadeRestante, 0);
 
         // CORREÇÃO: Verificar se possui todas as cotas
         const minhaCota = minhasCotas[time.id];
-        const possuiTodas = minhaCota && minhaCota.quantidade >= COTAS_POR_TIME;
+        const minhasQtd = minhaCota ? minhaCota.quantidade : 0;
+        const possuiTodas = minhasQtd >= COTAS_POR_TIME;
 
         const varClass = variacao > 0 ? 'positive' : variacao < 0 ? 'negative' : 'neutral';
         const varIcon = variacao > 0 ? '▲' : variacao < 0 ? '▼' : '●';
@@ -1131,14 +1163,17 @@
         let corDisponivel = '#6b7280';
         if (possuiTodas) {
           textoDisponivel = 'Você possui todas';
-          corDisponivel = '#f59e0b';
+          corDisponivel = '#f59e0b'; // amarelo
         } else if (cotasDisponiveis > 0) {
           textoDisponivel = cotasDisponiveis + ' cotas';
-          corDisponivel = '#10b981';
+          corDisponivel = '#10b981'; // verde
         } else {
           textoDisponivel = 'Dono inicial';
-          corDisponivel = '#3b82f6';
+          corDisponivel = '#3b82f6'; // azul
         }
+
+        // CORREÇÃO: Preço de mercado deve mostrar o menor preço à venda real
+        const precoMostrar = cotasDisponiveis > 0 ? menorPrecoVenda : precoAlgo;
 
         html += `
           <tr data-time="${time.nome.toLowerCase()}">
@@ -1155,7 +1190,7 @@
               </div>
             </td>
             <td class="price-algo">${precoAlgo.toFixed(2)} cr</td>
-            <td class="price-market">${menorPrecoVenda.toFixed(2)} cr</td>
+            <td class="price-market">${precoMostrar.toFixed(2)} cr</td>
             <td><span class="variation ${varClass}">${varIcon} ${variacao >= 0 ? '+' : ''}${variacao.toFixed(2)}%</span></td>
             <td class="dividend">${dividendos.toFixed(3)} cr</td>
             <td>${volume}</td>
@@ -1185,7 +1220,6 @@
       });
     }
 
-    // CORREÇÃO: Função para filtrar carteira
     function filterCarteira() {
       const search = document.getElementById('carteiraSearchInput').value.toLowerCase();
       document.querySelectorAll('#portfolioGrid .portfolio-card').forEach(card => {
@@ -1287,7 +1321,7 @@
                 <div style="font-weight: 700; color: var(--accent);">${ordem.precoUnitario.toFixed(2)} cr/cota</div>
                 <div style="font-size: 0.85em; color: var(--text-secondary);">Total: ${(ordem.quantidadeRestante * ordem.precoUnitario).toFixed(2)} cr</div>
               </div>
-              <button class="btn-cancel-order" onclick="cancelarOrdem('${ordem.id}')">Cancelar</button>
+              <button class="btn-cancel-order" onclick="cancelarOrdem('${ordem.id}')">✕ Cancelar</button>
             </div>
           </div>
         `;
@@ -1298,7 +1332,7 @@
 
     // CORREÇÃO: Função para cancelar ordens
     async function cancelarOrdem(ordemId) {
-      if (!confirm('Tem certeza que deseja cancelar esta ordem?')) return;
+      if (!confirm('Tem certeza que deseja cancelar esta ordem de venda?')) return;
       
       try {
         await db.collection('bolsa_ordens').doc(ordemId).update({
@@ -1319,18 +1353,19 @@
 
     async function renderizarHistorico() {
       const list = document.getElementById('historicoList');
-      list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+      list.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div> Carregando...</div>';
       
       try {
-        // Queries separadas SEM orderBy (evita erro de índice composto)
+        // CORREÇÃO: Queries sem orderBy para evitar erro de índice composto
         const [compras, vendas] = await Promise.all([
-          db.collection('bolsa_transacoes').where('compradorId', '==', currentUser.uid).limit(25).get(),
-          db.collection('bolsa_transacoes').where('vendedorId', '==', currentUser.uid).limit(25).get()
+          db.collection('bolsa_transacoes').where('compradorId', '==', currentUser.uid).limit(30).get(),
+          db.collection('bolsa_transacoes').where('vendedorId', '==', currentUser.uid).limit(30).get()
         ]);
 
         const transacoes = [];
         compras.forEach(doc => transacoes.push({ ...doc.data(), tipo: 'compra' }));
         vendas.forEach(doc => transacoes.push({ ...doc.data(), tipo: 'venda' }));
+        // Ordenar no JavaScript
         transacoes.sort((a, b) => (b.dataTransacao?.toMillis() || 0) - (a.dataTransacao?.toMillis() || 0));
 
         if (transacoes.length === 0) {
@@ -1360,7 +1395,7 @@
 
         list.innerHTML = html;
       } catch (error) {
-        console.error(error);
+        console.error('Erro ao carregar histórico:', error);
         list.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">Erro ao carregar</div></div>`;
       }
     }
@@ -1380,12 +1415,13 @@
       modalTimeAtual = time;
       const m = metricas[timeId] || {};
       
-      // CORREÇÃO: Filtrar ordens do próprio usuário (não pode comprar suas próprias ordens)
-      const ordensTime = (ordens[timeId] || []).filter(o => o.userId !== currentUser.uid);
+      // CORREÇÃO: Filtrar ordens do próprio usuário (não pode comprar de si mesmo)
+      const todasOrdensTime = ordens[timeId] || [];
+      const ordensOutros = todasOrdensTime.filter(o => o.userId !== currentUser.uid);
 
       const precoAlgo = m.precoAlgoritmo || PRECO_INICIAL;
-      const menorPrecoVenda = ordensTime.length > 0 ? ordensTime[0].precoUnitario : precoAlgo;
-      const cotasDisp = ordensTime.reduce((sum, o) => sum + o.quantidadeRestante, 0);
+      const menorPrecoVenda = ordensOutros.length > 0 ? ordensOutros[0].precoUnitario : precoAlgo;
+      const cotasDisp = ordensOutros.reduce((sum, o) => sum + o.quantidadeRestante, 0);
       const dividendos = m.mediaDividendos || 0;
       const diferenca = precoAlgo > 0 ? ((menorPrecoVenda - precoAlgo) / precoAlgo * 100) : 0;
       const jogosRetorno = dividendos > 0 ? Math.ceil(menorPrecoVenda / dividendos) : 999;
@@ -1402,7 +1438,7 @@
       
       // CORREÇÃO: Mostrar informação mais clara sobre disponibilidade
       if (cotasDisp > 0) {
-        document.getElementById('cotasDisponiveis').textContent = cotasDisp + ' cotas disponíveis';
+        document.getElementById('cotasDisponiveis').textContent = cotasDisp + ' cotas de outros usuários';
       } else {
         document.getElementById('cotasDisponiveis').textContent = 'Disponível do dono inicial';
       }
@@ -1410,7 +1446,7 @@
       document.getElementById('inputQtdCompra').value = 1;
       document.getElementById('inputQtdCompra').max = cotasDisp > 0 ? cotasDisp : 1000;
 
-      // Indicador de negócio
+      // CORREÇÃO: Indicador de negócio melhorado
       const indicator = document.getElementById('dealIndicator');
       if (cotasDisp === 0) {
         indicator.className = 'deal-indicator good';
@@ -1438,8 +1474,9 @@
     function calcularTotalCompra() {
       const qtd = parseInt(document.getElementById('inputQtdCompra').value) || 0;
       // CORREÇÃO: Filtrar ordens do próprio usuário
-      const ordensTime = (ordens[modalTimeAtual?.id] || []).filter(o => o.userId !== currentUser.uid);
-      const preco = ordensTime.length > 0 ? ordensTime[0].precoUnitario : (metricas[modalTimeAtual?.id]?.precoAlgoritmo || PRECO_INICIAL);
+      const todasOrdensTime = ordens[modalTimeAtual?.id] || [];
+      const ordensOutros = todasOrdensTime.filter(o => o.userId !== currentUser.uid);
+      const preco = ordensOutros.length > 0 ? ordensOutros[0].precoUnitario : (metricas[modalTimeAtual?.id]?.precoAlgoritmo || PRECO_INICIAL);
       const total = qtd * preco;
 
       document.getElementById('summaryQtdCompra').textContent = qtd + ' cotas';
@@ -1461,39 +1498,35 @@
       const qtdDesejada = parseInt(document.getElementById('inputQtdCompra').value) || 0;
       if (qtdDesejada <= 0) return showToast('❌ Quantidade inválida');
 
-      // CORREÇÃO: Filtrar ordens que não são do próprio usuário
-      const ordensTime = (ordens[modalTimeAtual.id] || []).filter(o => o.userId !== currentUser.uid);
+      // CORREÇÃO: Filtrar ordens do próprio usuário
+      const todasOrdensTime = ordens[modalTimeAtual.id] || [];
+      const ordensOutros = todasOrdensTime.filter(o => o.userId !== currentUser.uid);
       
-      if (ordensTime.length === 0) {
+      if (ordensOutros.length === 0) {
         // Comprar do dono inicial
         await comprarDoDonoInicial(qtdDesejada);
         return;
       }
 
-      // CORREÇÃO: Calcular total de cotas disponíveis em TODAS as ordens
-      const totalDisponivel = ordensTime.reduce((sum, o) => sum + o.quantidadeRestante, 0);
+      // CORREÇÃO: Calcular total disponível em TODAS as ordens de outros usuários
+      const totalDisponivel = ordensOutros.reduce((sum, o) => sum + o.quantidadeRestante, 0);
       
       if (totalDisponivel < qtdDesejada) {
         return showToast(`❌ Apenas ${totalDisponivel} cotas disponíveis para compra`);
       }
 
-      // CORREÇÃO: Calcular valor total comprando de múltiplas ordens (menor preço primeiro)
+      // CORREÇÃO: Comprar de múltiplas ordens se necessário
       let qtdRestante = qtdDesejada;
       let valorTotalCompra = 0;
-      const comprasPorOrdem = []; // [{ordem, qtd, valor}]
+      const comprasPorOrdem = [];
       
-      for (const ordem of ordensTime) {
+      for (const ordem of ordensOutros) {
         if (qtdRestante <= 0) break;
         
         const qtdDestaOrdem = Math.min(qtdRestante, ordem.quantidadeRestante);
         const valorDestaOrdem = qtdDestaOrdem * ordem.precoUnitario;
         
-        comprasPorOrdem.push({
-          ordem: ordem,
-          qtd: qtdDestaOrdem,
-          valor: valorDestaOrdem
-        });
-        
+        comprasPorOrdem.push({ ordem, qtd: qtdDestaOrdem, valor: valorDestaOrdem });
         valorTotalCompra += valorDestaOrdem;
         qtdRestante -= qtdDestaOrdem;
       }
@@ -1512,16 +1545,14 @@
 
         // 2. Para cada ordem, processar a compra
         for (const compra of comprasPorOrdem) {
-          const ordem = compra.ordem;
-          
           // Creditar vendedor
-          batch.update(db.collection('usuarios').doc(ordem.userId), {
+          batch.update(db.collection('usuarios').doc(compra.ordem.userId), {
             creditos: firebase.firestore.FieldValue.increment(compra.valor)
           });
 
           // Atualizar ordem
-          const novaQtdOrdem = ordem.quantidadeRestante - compra.qtd;
-          batch.update(db.collection('bolsa_ordens').doc(ordem.id), {
+          const novaQtdOrdem = compra.ordem.quantidadeRestante - compra.qtd;
+          batch.update(db.collection('bolsa_ordens').doc(compra.ordem.id), {
             quantidadeRestante: novaQtdOrdem,
             status: novaQtdOrdem <= 0 ? 'concluida' : 'parcial',
             dataAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
@@ -1531,12 +1562,12 @@
           batch.set(db.collection('bolsa_transacoes').doc(), {
             timeId: modalTimeAtual.id,
             timeNome: modalTimeAtual.nome,
-            vendedorId: ordem.userId,
-            vendedorNome: ordem.usuarioNome,
+            vendedorId: compra.ordem.userId,
+            vendedorNome: compra.ordem.usuarioNome,
             compradorId: currentUser.uid,
             compradorNome: currentUserData.usuarioUnico || currentUserData.nome,
             quantidade: compra.qtd,
-            precoUnitario: ordem.precoUnitario,
+            precoUnitario: compra.ordem.precoUnitario,
             valorTotal: compra.valor,
             dataTransacao: firebase.firestore.FieldValue.serverTimestamp()
           });
@@ -1588,7 +1619,7 @@
         await batch.commit();
 
         const msgOrdens = comprasPorOrdem.length > 1 ? ` (de ${comprasPorOrdem.length} vendedores)` : '';
-        showToast(`✅ Compra realizada! ${qtdDesejada} cotas por ${valorTotalCompra} cr${msgOrdens}`);
+        showToast(`✅ Compra realizada! ${qtdDesejada} cotas por ${valorTotalCompra.toFixed(2)} cr${msgOrdens}`);
         fecharModal('modalComprar');
         await carregarDadosUsuario();
         await carregarMinhasCotas();
@@ -1779,7 +1810,7 @@
           dataAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
         });
 
-        showToast(`✅ Ordem criada! ${qtd} cotas a ${preco} cr`);
+        showToast(`✅ Ordem criada! ${qtd} cotas a ${preco} cr cada`);
         fecharModal('modalVender');
         await carregarMinhasOrdens();
         await carregarOrdensAbertas();
