@@ -887,6 +887,12 @@
           🟢 Bom negócio! Preço igual ou abaixo do algoritmo
         </div>
 
+        <!-- Lista de Ordens Disponíveis -->
+        <div id="listaOrdensDisponiveis" style="margin: 15px 0; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; max-height: 120px; overflow-y: auto;">
+          <small style="color: var(--text-secondary);">📋 Ordens disponíveis:</small>
+          <div id="ordensListaCompra" style="margin-top: 8px;"></div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Quantidade de cotas</label>
           <input type="number" class="form-input" id="inputQtdCompra" min="1" value="1" oninput="calcularTotalCompra()">
@@ -906,6 +912,7 @@
             <span>Total a pagar</span>
             <span class="summary-value" id="summaryTotalCompra">1.00 cr</span>
           </div>
+          <div id="summaryDetalhes" style="text-align: center; margin-top: 5px;"></div>
         </div>
 
         <div class="modal-actions">
@@ -1531,9 +1538,9 @@
       
       // CORREÇÃO: Mostrar informação mais clara sobre disponibilidade
       if (cotasDisp > 0) {
-        document.getElementById('cotasDisponiveis').textContent = cotasDisp + ' cotas de outros usuários';
+        document.getElementById('cotasDisponiveis').textContent = cotasDisp + ' cotas disponíveis';
       } else {
-        document.getElementById('cotasDisponiveis').textContent = 'Disponível do dono inicial';
+        document.getElementById('cotasDisponiveis').textContent = 'Nenhuma ordem de venda';
       }
       
       document.getElementById('inputQtdCompra').value = 1;
@@ -1555,6 +1562,24 @@
         indicator.innerHTML = '🔴 Cuidado! Preço muito acima do justo';
       }
 
+      // NOVO: Preencher lista de ordens disponíveis
+      const listaOrdens = document.getElementById('ordensListaCompra');
+      const containerLista = document.getElementById('listaOrdensDisponiveis');
+      if (ordensOutros.length > 0) {
+        containerLista.style.display = 'block';
+        let htmlLista = '';
+        ordensOutros.forEach((o, i) => {
+          const corLinha = i === 0 ? 'var(--success)' : 'var(--text-secondary)';
+          htmlLista += `<div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: ${corLinha};">
+            <span>${o.quantidadeRestante} cotas de ${o.usuarioNome}</span>
+            <span style="font-weight: 600;">${o.precoUnitario} cr</span>
+          </div>`;
+        });
+        listaOrdens.innerHTML = htmlLista;
+      } else {
+        containerLista.style.display = 'none';
+      }
+
       // Atualizar camisa
       const jersey = document.querySelector('#modalComprarJersey path');
       jersey.setAttribute('fill', time.primaria || '#28a745');
@@ -1569,12 +1594,40 @@
       // CORREÇÃO: Filtrar ordens do próprio usuário
       const todasOrdensTime = ordens[modalTimeAtual?.id] || [];
       const ordensOutros = todasOrdensTime.filter(o => o.userId !== currentUser.uid);
-      const preco = ordensOutros.length > 0 ? ordensOutros[0].precoUnitario : (metricas[modalTimeAtual?.id]?.precoAlgoritmo || PRECO_INICIAL);
-      const total = qtd * preco;
+      
+      // CORREÇÃO: Calcular valor real somando preços de cada ordem
+      let qtdRestante = qtd;
+      let valorTotal = 0;
+      let detalhes = [];
+      
+      for (const ordem of ordensOutros) {
+        if (qtdRestante <= 0) break;
+        
+        const qtdDestaOrdem = Math.min(qtdRestante, ordem.quantidadeRestante);
+        const valorDestaOrdem = qtdDestaOrdem * ordem.precoUnitario;
+        
+        valorTotal += valorDestaOrdem;
+        qtdRestante -= qtdDestaOrdem;
+        
+        detalhes.push(`${qtdDestaOrdem}x ${ordem.precoUnitario} cr`);
+      }
+      
+      // Calcular preço médio
+      const precoMedio = qtd > 0 ? valorTotal / qtd : 0;
 
       document.getElementById('summaryQtdCompra').textContent = qtd + ' cotas';
-      document.getElementById('summaryPrecoCompra').textContent = preco.toFixed(2) + ' cr';
-      document.getElementById('summaryTotalCompra').textContent = total.toFixed(2) + ' cr';
+      document.getElementById('summaryPrecoCompra').textContent = precoMedio.toFixed(2) + ' cr (médio)';
+      document.getElementById('summaryTotalCompra').textContent = valorTotal.toFixed(2) + ' cr';
+      
+      // Mostrar detalhamento se houver múltiplas ordens
+      const detalheEl = document.getElementById('summaryDetalhes');
+      if (detalheEl) {
+        if (detalhes.length > 1) {
+          detalheEl.innerHTML = '<small style="color: var(--text-secondary);">(' + detalhes.join(' + ') + ')</small>';
+        } else {
+          detalheEl.innerHTML = '';
+        }
+      }
     }
 
     async function confirmarCompra() {
@@ -1718,102 +1771,6 @@
         await carregarDadosUsuario();
         await carregarMinhasCotas();
         await carregarOrdensAbertas();
-        renderizarTabelaMercado();
-
-      } catch (error) {
-        console.error(error);
-        showToast('❌ Erro ao processar compra');
-      }
-    }
-
-    async function comprarDoDonoInicial(qtd) {
-      const precoAlgo = metricas[modalTimeAtual.id]?.precoAlgoritmo || PRECO_INICIAL;
-      const valorTotal = qtd * precoAlgo;
-
-      if ((currentUserData.creditos || 0) < valorTotal) {
-        return showToast('❌ Créditos insuficientes');
-      }
-
-      // Verificar se dono inicial tem cotas
-      const cotaDonoSnap = await db.collection('bolsa_cotas')
-        .where('timeId', '==', modalTimeAtual.id)
-        .where('userId', '==', DONO_INICIAL_ID)
-        .get();
-
-      if (cotaDonoSnap.empty) {
-        return showToast('❌ Sem cotas disponíveis');
-      }
-
-      const cotaDono = cotaDonoSnap.docs[0];
-      if (cotaDono.data().quantidade < qtd) {
-        return showToast(`❌ Apenas ${cotaDono.data().quantidade} cotas disponíveis`);
-      }
-
-      try {
-        const batch = db.batch();
-
-        // Debitar comprador
-        batch.update(db.collection('usuarios').doc(currentUser.uid), {
-          creditos: firebase.firestore.FieldValue.increment(-valorTotal)
-        });
-
-        // Creditar dono inicial
-        batch.update(db.collection('usuarios').doc(DONO_INICIAL_ID), {
-          creditos: firebase.firestore.FieldValue.increment(valorTotal)
-        });
-
-        // Criar/atualizar cotas comprador
-        const cotaComprador = await db.collection('bolsa_cotas')
-          .where('timeId', '==', modalTimeAtual.id)
-          .where('userId', '==', currentUser.uid)
-          .get();
-
-        if (cotaComprador.empty) {
-          batch.set(db.collection('bolsa_cotas').doc(), {
-            timeId: modalTimeAtual.id,
-            timeNome: modalTimeAtual.nome,
-            userId: currentUser.uid,
-            usuarioNome: currentUserData.usuarioUnico || currentUserData.nome,
-            quantidade: qtd,
-            precoMedioAquisicao: precoAlgo,
-            dataAquisicao: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        } else {
-          const cotaDoc = cotaComprador.docs[0];
-          const cotaAtual = cotaDoc.data();
-          const novaQtd = cotaAtual.quantidade + qtd;
-          const novoPreco = ((cotaAtual.quantidade * cotaAtual.precoMedioAquisicao) + (qtd * precoAlgo)) / novaQtd;
-          batch.update(cotaDoc.ref, { quantidade: novaQtd, precoMedioAquisicao: novoPreco });
-        }
-
-        // Diminuir cotas do dono inicial
-        const novaQtdDono = cotaDono.data().quantidade - qtd;
-        if (novaQtdDono <= 0) {
-          batch.delete(cotaDono.ref);
-        } else {
-          batch.update(cotaDono.ref, { quantidade: novaQtdDono });
-        }
-
-        // Registrar transação
-        batch.set(db.collection('bolsa_transacoes').doc(), {
-          timeId: modalTimeAtual.id,
-          timeNome: modalTimeAtual.nome,
-          vendedorId: DONO_INICIAL_ID,
-          vendedorNome: 'guruh',
-          compradorId: currentUser.uid,
-          compradorNome: currentUserData.usuarioUnico || currentUserData.nome,
-          quantidade: qtd,
-          precoUnitario: precoAlgo,
-          valorTotal: valorTotal,
-          dataTransacao: firebase.firestore.FieldValue.serverTimestamp()
-        });
-
-        await batch.commit();
-
-        showToast(`✅ Compra realizada! ${qtd} cotas de ${modalTimeAtual.nome}`);
-        fecharModal('modalComprar');
-        await carregarDadosUsuario();
-        await carregarMinhasCotas();
         renderizarTabelaMercado();
 
       } catch (error) {
