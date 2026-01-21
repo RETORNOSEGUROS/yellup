@@ -589,6 +589,24 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* Botão Cancelar Ordem */
+    .btn-cancel-order {
+      padding: 8px 16px;
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      border-radius: 8px;
+      color: var(--danger);
+      font-weight: 600;
+      font-size: 0.85em;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Poppins', sans-serif;
+    }
+    .btn-cancel-order:hover {
+      background: rgba(239, 68, 68, 0.3);
+      border-color: var(--danger);
+    }
+
     /* Responsive */
     @media (max-width: 768px) {
       .stock-table th:nth-child(4),
@@ -686,6 +704,10 @@
     <!-- Tab: Carteira -->
     <div id="tab-carteira" class="tab-content" style="display: none;">
       <h3 class="section-title">💼 Minhas Cotas</h3>
+      <!-- CORREÇÃO: Adicionar filtro na carteira -->
+      <div class="search-box">
+        <input type="text" class="search-input" id="carteiraSearchInput" placeholder="🔍 Buscar time na carteira..." oninput="filterCarteira()">
+      </div>
       <div class="portfolio-grid" id="portfolioGrid">
         <div class="empty-state">
           <div class="empty-icon">📭</div>
@@ -888,7 +910,7 @@
     // ==================== CONSTANTES ====================
     const DONO_INICIAL_ID = 'GfpBgfT9e8g5GaTQruvX6YcwtE23';
     const COTAS_POR_TIME = 1000;
-    const PRECO_INICIAL = 1.00;
+    const PRECO_INICIAL = 500.00;
 
     // Pesos de valorização/desvalorização
     const CONFIG_VALORIZACAO = {
@@ -914,6 +936,7 @@
     let minhasCotas = {};   // Minhas cotas
     let ordensAbertas = []; // Minhas ordens
     let ordens = {};        // Ordens por time (para compra)
+    let dividendosRecebidos = 0; // CORREÇÃO: Total de dividendos recebidos
 
     let modalTimeAtual = null;
 
@@ -956,6 +979,9 @@
 
         // Carregar minhas ordens
         await carregarMinhasOrdens();
+
+        // CORREÇÃO: Carregar dividendos recebidos
+        await carregarDividendosRecebidos();
 
         // Renderizar
         renderizarTabelaMercado();
@@ -1042,6 +1068,29 @@
       });
     }
 
+    // CORREÇÃO: Função para carregar dividendos recebidos
+    async function carregarDividendosRecebidos() {
+      try {
+        const divSnap = await db.collection('bolsa_dividendos').get();
+        dividendosRecebidos = 0;
+        
+        divSnap.forEach(doc => {
+          const div = doc.data();
+          if (div.pagamentos && Array.isArray(div.pagamentos)) {
+            div.pagamentos.forEach(pag => {
+              if (pag.userId === currentUser.uid) {
+                dividendosRecebidos += pag.valor || 0;
+              }
+            });
+          }
+        });
+        
+        document.getElementById('dividendosRecebidos').textContent = dividendosRecebidos.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+      } catch (error) {
+        console.error('Erro ao carregar dividendos:', error);
+      }
+    }
+
     // ==================== RENDERIZAR ====================
     function renderizarTabelaMercado() {
       const tbody = document.getElementById('stockTableBody');
@@ -1065,11 +1114,31 @@
 
         // Menor preço à venda e total de cotas disponíveis
         const ordensTime = ordens[time.id] || [];
-        const menorPrecoVenda = ordensTime.length > 0 ? ordensTime[0].precoUnitario : precoAlgo;
-        const cotasDisponiveis = ordensTime.reduce((sum, o) => sum + o.quantidadeRestante, 0);
+        // CORREÇÃO: Filtrar ordens do próprio usuário
+        const ordensOutros = ordensTime.filter(o => o.userId !== currentUser.uid);
+        const menorPrecoVenda = ordensOutros.length > 0 ? ordensOutros[0].precoUnitario : precoAlgo;
+        const cotasDisponiveis = ordensOutros.reduce((sum, o) => sum + o.quantidadeRestante, 0);
+
+        // CORREÇÃO: Verificar se possui todas as cotas
+        const minhaCota = minhasCotas[time.id];
+        const possuiTodas = minhaCota && minhaCota.quantidade >= COTAS_POR_TIME;
 
         const varClass = variacao > 0 ? 'positive' : variacao < 0 ? 'negative' : 'neutral';
         const varIcon = variacao > 0 ? '▲' : variacao < 0 ? '▼' : '●';
+
+        // CORREÇÃO: Texto da coluna "À Venda" mais informativo
+        let textoDisponivel = '';
+        let corDisponivel = '#6b7280';
+        if (possuiTodas) {
+          textoDisponivel = 'Você possui todas';
+          corDisponivel = '#f59e0b';
+        } else if (cotasDisponiveis > 0) {
+          textoDisponivel = cotasDisponiveis + ' cotas';
+          corDisponivel = '#10b981';
+        } else {
+          textoDisponivel = 'Dono inicial';
+          corDisponivel = '#3b82f6';
+        }
 
         html += `
           <tr data-time="${time.nome.toLowerCase()}">
@@ -1090,12 +1159,12 @@
             <td><span class="variation ${varClass}">${varIcon} ${variacao >= 0 ? '+' : ''}${variacao.toFixed(2)}%</span></td>
             <td class="dividend">${dividendos.toFixed(3)} cr</td>
             <td>${volume}</td>
-            <td style="color: ${cotasDisponiveis > 0 ? '#10b981' : '#6b7280'}; font-weight: 600;">
-              ${cotasDisponiveis > 0 ? cotasDisponiveis + ' cotas' : '-'}
+            <td style="color: ${corDisponivel}; font-weight: 600;">
+              ${textoDisponivel}
             </td>
             <td>
               <div class="actions-cell">
-                <button class="btn-buy" onclick="abrirModalCompra('${time.id}')">Comprar</button>
+                <button class="btn-buy" onclick="abrirModalCompra('${time.id}')" ${possuiTodas ? 'disabled title="Você já possui todas as cotas"' : ''}>Comprar</button>
                 <button class="btn-sell" onclick="abrirModalVenda('${time.id}')">Vender</button>
               </div>
             </td>
@@ -1113,6 +1182,15 @@
       document.querySelectorAll('#stockTableBody tr').forEach(row => {
         const timeNome = row.getAttribute('data-time') || '';
         row.style.display = timeNome.includes(search) ? '' : 'none';
+      });
+    }
+
+    // CORREÇÃO: Função para filtrar carteira
+    function filterCarteira() {
+      const search = document.getElementById('carteiraSearchInput').value.toLowerCase();
+      document.querySelectorAll('#portfolioGrid .portfolio-card').forEach(card => {
+        const timeNome = card.getAttribute('data-time') || '';
+        card.style.display = timeNome.includes(search) ? '' : 'none';
       });
     }
 
@@ -1146,7 +1224,7 @@
         const lucro = ((preco - (cota.precoMedioAquisicao || PRECO_INICIAL)) * cota.quantidade).toFixed(2);
 
         html += `
-          <div class="portfolio-card">
+          <div class="portfolio-card" data-time="${(time.nome || '').toLowerCase()}">
             <div class="portfolio-header">
               <div class="portfolio-team">
                 <svg class="team-jersey" viewBox="0 0 100 120" style="width: 35px; height: 40px;">
@@ -1204,9 +1282,12 @@
                 <span style="font-size: 0.85em; color: var(--text-secondary);">${ordem.quantidadeRestante}/${ordem.quantidade} cotas</span>
               </div>
             </div>
-            <div style="text-align: right;">
-              <div style="font-weight: 700; color: var(--accent);">${ordem.precoUnitario.toFixed(2)} cr/cota</div>
-              <div style="font-size: 0.85em; color: var(--text-secondary);">Total: ${(ordem.quantidadeRestante * ordem.precoUnitario).toFixed(2)} cr</div>
+            <div style="display: flex; align-items: center; gap: 15px;">
+              <div style="text-align: right;">
+                <div style="font-weight: 700; color: var(--accent);">${ordem.precoUnitario.toFixed(2)} cr/cota</div>
+                <div style="font-size: 0.85em; color: var(--text-secondary);">Total: ${(ordem.quantidadeRestante * ordem.precoUnitario).toFixed(2)} cr</div>
+              </div>
+              <button class="btn-cancel-order" onclick="cancelarOrdem('${ordem.id}')">Cancelar</button>
             </div>
           </div>
         `;
@@ -1215,13 +1296,36 @@
       list.innerHTML = html;
     }
 
-    async function renderizarHistorico() {
-      const list = document.getElementById('historicoList');
+    // CORREÇÃO: Função para cancelar ordens
+    async function cancelarOrdem(ordemId) {
+      if (!confirm('Tem certeza que deseja cancelar esta ordem?')) return;
       
       try {
+        await db.collection('bolsa_ordens').doc(ordemId).update({
+          status: 'cancelada',
+          dataAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        showToast('✅ Ordem cancelada com sucesso!');
+        await carregarMinhasOrdens();
+        await carregarOrdensAbertas();
+        renderizarOrdens();
+        renderizarTabelaMercado();
+      } catch (error) {
+        console.error('Erro ao cancelar ordem:', error);
+        showToast('❌ Erro ao cancelar ordem');
+      }
+    }
+
+    async function renderizarHistorico() {
+      const list = document.getElementById('historicoList');
+      list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+      
+      try {
+        // Queries separadas SEM orderBy (evita erro de índice composto)
         const [compras, vendas] = await Promise.all([
-          db.collection('bolsa_transacoes').where('compradorId', '==', currentUser.uid).orderBy('dataTransacao', 'desc').limit(25).get(),
-          db.collection('bolsa_transacoes').where('vendedorId', '==', currentUser.uid).orderBy('dataTransacao', 'desc').limit(25).get()
+          db.collection('bolsa_transacoes').where('compradorId', '==', currentUser.uid).limit(25).get(),
+          db.collection('bolsa_transacoes').where('vendedorId', '==', currentUser.uid).limit(25).get()
         ]);
 
         const transacoes = [];
@@ -1263,6 +1367,13 @@
 
     // ==================== MODAL COMPRAR ====================
     function abrirModalCompra(timeId) {
+      // CORREÇÃO: Verificar se já possui todas as cotas
+      const minhaCota = minhasCotas[timeId];
+      if (minhaCota && minhaCota.quantidade >= COTAS_POR_TIME) {
+        showToast('❌ Você já possui todas as ' + COTAS_POR_TIME + ' cotas deste time!');
+        return;
+      }
+
       const time = allTimes.find(t => t.id === timeId);
       if (!time) return;
 
@@ -1325,6 +1436,14 @@
 
     async function confirmarCompra() {
       if (!modalTimeAtual) return;
+
+      // CORREÇÃO: Verificar se já possui todas as cotas
+      const minhaCota = minhasCotas[modalTimeAtual.id];
+      if (minhaCota && minhaCota.quantidade >= COTAS_POR_TIME) {
+        showToast('❌ Você já possui todas as ' + COTAS_POR_TIME + ' cotas deste time!');
+        fecharModal('modalComprar');
+        return;
+      }
 
       const qtd = parseInt(document.getElementById('inputQtdCompra').value) || 0;
       if (qtd <= 0) return showToast('❌ Quantidade inválida');
