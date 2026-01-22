@@ -1464,7 +1464,7 @@
           <strong id="freeCredits">5/5</strong>
         </div>
         <div class="credit-badge paid">
-          <span>💎 Créditos Pagos:</span>
+          <span>💎 Créditos:</span>
           <strong id="paidCredits">0</strong>
         </div>
       </div>
@@ -2866,35 +2866,31 @@
     
     // Calcular créditos estimados para cada posição
     function calcularCreditosEstimados(totalParticipantes) {
-      if (totalCreditosPagosJogo < 100) {
-        return []; // Mínimo 100 créditos para premiar
+      if (totalCreditosPagosJogo <= 0 || totalParticipantes <= 0) {
+        return []; // Sem créditos ou participantes
       }
       
       // NOVA DISTRIBUIÇÃO:
-      // 20% casa, 40% ranking, 10% sortudo vencedor, 5% sortudo popular, 25% cotistas bolsa
-      const totalPremios = Math.floor(totalCreditosPagosJogo * 0.80);
-      const totalRanking = Math.floor(totalCreditosPagosJogo * 0.40); // 40% do total
+      // 5% fundo, 50% ranking, 10% sortudo vencedor, 5% sortudo popular, 30% cotistas
+      const totalRanking = Math.floor(totalCreditosPagosJogo * 0.50); // 50% do total
       
-      // Determinar quantos premiar baseado no total de ranking
-      let quantosPremiar = 10;
-      if (totalRanking < 6) quantosPremiar = 1;
-      else if (totalRanking < 16) quantosPremiar = 3;
-      else if (totalRanking < 31) quantosPremiar = 5;
-      else if (totalRanking < 51) quantosPremiar = 7;
+      // Premiar até 100 colocados
+      let quantosPremiar = Math.min(100, totalParticipantes);
       
-      quantosPremiar = Math.min(quantosPremiar, totalParticipantes);
-      
-      // Calcular pesos ativos
-      const pesosAtivos = PESOS_RANKING.slice(0, quantosPremiar);
-      const somaPesosAtivos = pesosAtivos.reduce((a, b) => a + b, 0);
+      // Calcular pesos (distribuição decrescente)
+      const pesos = [];
+      for (let i = 0; i < quantosPremiar; i++) {
+        pesos.push(Math.max(1, 100 - i));
+      }
+      const somaPesos = pesos.reduce((a, b) => a + b, 0);
       
       // Distribuir créditos
       const creditos = [];
       let distribuido = 0;
       
       for (let i = 0; i < quantosPremiar; i++) {
-        const valor = Math.floor(totalRanking * pesosAtivos[i] / somaPesosAtivos);
-        creditos.push(valor);
+        const valor = Math.floor(totalRanking * pesos[i] / somaPesos);
+        creditos.push(Math.max(1, valor)); // Mínimo 1 crédito
         distribuido += valor;
       }
       
@@ -2907,36 +2903,29 @@
     }
     
     // Atualizar info de premiação na interface
-    function atualizarInfoPremiacao(totalCreditos, totalParticipantes) {
+    function atualizarInfoPremiacao(totalCreditos, totalParticipantes, creditosAdmin = 0) {
       const infoEl = document.getElementById("premiacaoInfo");
       if (!infoEl) return;
       
-      if (totalCreditos < 100) {
-        const faltam = 100 - totalCreditos;
-        infoEl.innerHTML = `
-          <div class="premiacao-aviso">
-            ⚠️ Faltam <strong>${faltam}</strong> créditos para ativar a premiação!
-            <br><small>Mínimo: 100 créditos pagos</small>
+      const totalPote = totalCreditos + creditosAdmin;
+      const premioRanking = Math.floor(totalPote * 0.50);      // 50% ranking
+      const premioSortudoVencedor = Math.floor(totalPote * 0.10); // 10% sortudo vencedor
+      const premioSortudoPopular = Math.floor(totalPote * 0.05);  // 5% sortudo popular
+      const premioCotistas = Math.floor(totalPote * 0.30);        // 30% cotistas
+      
+      let adminInfo = creditosAdmin > 0 ? `<small style="color: #2ecc71;">(inclui ${creditosAdmin} do admin)</small>` : '';
+      
+      infoEl.innerHTML = `
+        <div class="premiacao-ativa">
+          🏆 <strong>${totalPote}</strong> créditos em jogo! ${adminInfo}
+          <div class="premiacao-breakdown">
+            <span>🏅 Top ${Math.min(100, totalParticipantes || 0)}: ${premioRanking} 💎</span>
+            <span>🎰 Sortudo: ${premioSortudoVencedor} 💎</span>
+            <span>🍀 Popular: ${premioSortudoPopular} 💎</span>
+            <span>📈 Cotistas: ${premioCotistas} YC</span>
           </div>
-        `;
-      } else {
-        const premioRanking = Math.floor(totalCreditos * 0.40);
-        const premioSortudoVencedor = Math.floor(totalCreditos * 0.10);
-        const premioSortudoPopular = Math.floor(totalCreditos * 0.05);
-        const premioCotistas = Math.floor(totalCreditos * 0.25);
-        
-        infoEl.innerHTML = `
-          <div class="premiacao-ativa">
-            💰 <strong>${totalCreditos}</strong> créditos em jogo!
-            <div class="premiacao-breakdown">
-              <span>🏅 Top ${Math.min(10, totalParticipantes)}: ${premioRanking} 💎</span>
-              <span>🎰 Sortudo: ${premioSortudoVencedor} 💎</span>
-              <span>🍀 Popular: ${premioSortudoPopular} 💎</span>
-              <span>📈 Cotistas: ${premioCotistas} 💎</span>
-            </div>
-          </div>
-        `;
-      }
+        </div>
+      `;
     }
     
     // ===================================
