@@ -3040,16 +3040,16 @@
         const totalSortudoPopularYC = parseFloat((totalPoolYC * 0.05).toFixed(2));  // 5% Sortudo Popular
         const totalCotistasYC = parseFloat((totalPoolYC * 0.30).toFixed(2));  // 30% Cotistas Bolsa
         
-        // DISTRIBUIÇÃO CRÉDITOS: mesma proporção para top 100 (sem fundo)
-        const totalRankingCreditos = Math.floor(totalPoolCreditos * 0.50);
-        const totalSortudoCreditos = Math.floor(totalPoolCreditos * 0.15); // vencedor + popular
+        // DISTRIBUIÇÃO CRÉDITOS: 100% para ranking e sortudos
+        const totalRankingCreditos = Math.floor(totalPoolCreditos * 0.85); // 85% ranking
+        const totalSortudoCreditos = Math.floor(totalPoolCreditos * 0.15); // 15% sortudos
         
         console.log(`💰 Pool YC (pagos): ${totalPoolYC} YC`);
         console.log(`💵 Pool Créditos (total): ${totalPoolCreditos} cr`);
         console.log(`🏆 Fundo Final Ano: ${fundoFinalAnoYC} YC (5%)`);
-        console.log(`🏅 Ranking: ${totalRankingYC} YC (50%) / ${totalRankingCreditos} cr`);
+        console.log(`🏅 Ranking: ${totalRankingYC} YC (50%) / ${totalRankingCreditos} cr (85%)`);
         console.log(`📈 Cotistas: ${totalCotistasYC} YC (30%)`);
-        console.log(`🎰 Sortudos: ${totalSortudoVencedorYC + totalSortudoPopularYC} YC (15%)`);
+        console.log(`🎰 Sortudos: ${totalSortudoVencedorYC + totalSortudoPopularYC} YC (15%) / ${totalSortudoCreditos} cr (15%)`);
         
         
         // ===== CALCULAR PRÊMIOS DO RANKING =====
@@ -3108,11 +3108,15 @@
         
         // Sortear pessoa do time vencedor
         let sortudoVencedor = null;
+        const creditosSortudoVencedor = Math.floor(totalSortudoCreditos * 0.67); // 10% do total (67% dos 15%)
+        const creditosSortudoPopular = totalSortudoCreditos - creditosSortudoVencedor; // 5% do total (33% dos 15%)
+        
         if (timeVencedor.torcedores.length > 0) {
           const indice = Math.floor(Math.random() * timeVencedor.torcedores.length);
           sortudoVencedor = {
             ...timeVencedor.torcedores[indice],
             yc: totalSortudoVencedorYC,
+            creditos: creditosSortudoVencedor,
             time: timeVencedor.nome
           };
         }
@@ -3124,6 +3128,7 @@
           sortudoPopular = {
             ...timePopular.torcedores[indice],
             yc: totalSortudoPopularYC,
+            creditos: creditosSortudoPopular,
             time: timePopular.nome
           };
         }
@@ -3153,22 +3158,38 @@
           }
         }
         
-        // Sortudo vencedor (YC se houver pool)
-        if (sortudoVencedor && sortudoVencedor.yc > 0) {
+        // Sortudo vencedor (YC + Créditos)
+        if (sortudoVencedor) {
           const userRef = db.collection("usuarios").doc(sortudoVencedor.odId);
-          batch.update(userRef, {
-            yc: firebase.firestore.FieldValue.increment(sortudoVencedor.yc)
-          });
-          console.log(`🎰 ${sortudoVencedor.nome}: +${sortudoVencedor.yc} YC (Sortudo Vencedor)`);
+          const updates = {};
+          if (sortudoVencedor.yc > 0) {
+            updates.yc = firebase.firestore.FieldValue.increment(sortudoVencedor.yc);
+          }
+          if (sortudoVencedor.creditos > 0) {
+            updates.creditos = firebase.firestore.FieldValue.increment(sortudoVencedor.creditos);
+            updates.creditosBonus = firebase.firestore.FieldValue.increment(sortudoVencedor.creditos);
+          }
+          if (Object.keys(updates).length > 0) {
+            batch.update(userRef, updates);
+            console.log(`🎰 ${sortudoVencedor.nome}: +${sortudoVencedor.creditos} cr${sortudoVencedor.yc > 0 ? ` + ${sortudoVencedor.yc} YC` : ''} (Sortudo Vencedor)`);
+          }
         }
         
-        // Sortudo popular (YC se houver pool)
-        if (sortudoPopular && sortudoPopular.yc > 0) {
+        // Sortudo popular (YC + Créditos)
+        if (sortudoPopular) {
           const userRef = db.collection("usuarios").doc(sortudoPopular.odId);
-          batch.update(userRef, {
-            yc: firebase.firestore.FieldValue.increment(sortudoPopular.yc)
-          });
-          console.log(`🍀 ${sortudoPopular.nome}: +${sortudoPopular.yc} YC (Sortudo Popular)`);
+          const updates = {};
+          if (sortudoPopular.yc > 0) {
+            updates.yc = firebase.firestore.FieldValue.increment(sortudoPopular.yc);
+          }
+          if (sortudoPopular.creditos > 0) {
+            updates.creditos = firebase.firestore.FieldValue.increment(sortudoPopular.creditos);
+            updates.creditosBonus = firebase.firestore.FieldValue.increment(sortudoPopular.creditos);
+          }
+          if (Object.keys(updates).length > 0) {
+            batch.update(userRef, updates);
+            console.log(`🍀 ${sortudoPopular.nome}: +${sortudoPopular.creditos} cr${sortudoPopular.yc > 0 ? ` + ${sortudoPopular.yc} YC` : ''} (Sortudo Popular)`);
+          }
         }
         
         // ===== DISTRIBUIR PARA COTISTAS DA BOLSA (25%) EM YC =====
