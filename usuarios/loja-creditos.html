@@ -333,44 +333,56 @@
           <div class="package-credits">10 Créditos</div>
         </div>
         <div class="package-price">
-          <div class="package-value">R$ 4,90</div>
-          <div class="package-per-credit">R$ 0,49/crédito</div>
+          <div class="package-value">R$ 6,90</div>
+          <div class="package-per-credit">R$ 0,69/crédito</div>
         </div>
       </div>
 
       <div class="package-card" onclick="selecionarPacote(2)">
         <div class="package-icon">💎💎</div>
         <div class="package-info">
-          <div class="package-credits">30 Créditos</div>
+          <div class="package-credits">18 Créditos</div>
+          <div class="package-bonus">+2 bônus</div>
+        </div>
+        <div class="package-price">
+          <div class="package-value">R$ 12,60</div>
+          <div class="package-per-credit">R$ 0,63/crédito</div>
+        </div>
+      </div>
+
+      <div class="package-card" onclick="selecionarPacote(3)">
+        <div class="package-icon">💎💎💎</div>
+        <div class="package-info">
+          <div class="package-credits">45 Créditos</div>
           <div class="package-bonus">+5 bônus</div>
         </div>
         <div class="package-price">
-          <div class="package-value">R$ 12,90</div>
-          <div class="package-per-credit">R$ 0,37/crédito</div>
+          <div class="package-value">R$ 28,00</div>
+          <div class="package-per-credit">R$ 0,56/crédito</div>
         </div>
       </div>
 
-      <div class="package-card popular" onclick="selecionarPacote(3)">
-        <div class="package-icon">💎💎💎</div>
+      <div class="package-card popular" onclick="selecionarPacote(4)">
+        <div class="package-icon">💎💎💎💎</div>
         <div class="package-info">
-          <div class="package-credits">60 Créditos</div>
-          <div class="package-bonus">+15 bônus</div>
+          <div class="package-credits">90 Créditos</div>
+          <div class="package-bonus">+10 bônus</div>
         </div>
         <div class="package-price">
-          <div class="package-value">R$ 24,90</div>
-          <div class="package-per-credit">R$ 0,33/crédito</div>
+          <div class="package-value">R$ 52,00</div>
+          <div class="package-per-credit">R$ 0,52/crédito</div>
         </div>
       </div>
 
-      <div class="package-card best" onclick="selecionarPacote(4)">
+      <div class="package-card best" onclick="selecionarPacote(5)">
         <div class="package-icon">👑</div>
         <div class="package-info">
-          <div class="package-credits">150 Créditos</div>
-          <div class="package-bonus">+50 bônus</div>
+          <div class="package-credits">180 Créditos</div>
+          <div class="package-bonus">+20 bônus</div>
         </div>
         <div class="package-price">
-          <div class="package-value">R$ 49,90</div>
-          <div class="package-per-credit">R$ 0,25/crédito</div>
+          <div class="package-value">R$ 98,00</div>
+          <div class="package-per-credit">R$ 0,49/crédito</div>
         </div>
       </div>
 
@@ -476,13 +488,14 @@
     const auth = firebase.auth();
 
     // ============================================
-    // DADOS DOS PACOTES
+    // DADOS DOS PACOTES (Novos valores - Janeiro 2026)
     // ============================================
     const PACOTES = [
-      { id: 1, creditos: 10, preco: 4.90 },
-      { id: 2, creditos: 30, preco: 12.90 },
-      { id: 3, creditos: 60, preco: 24.90 },
-      { id: 4, creditos: 150, preco: 49.90 }
+      { id: 1, creditos: 10, bonus: 0, preco: 6.90 },      // R$ 0,69/cr - Iniciante
+      { id: 2, creditos: 18, bonus: 2, preco: 12.60 },     // R$ 0,63/cr - Básico
+      { id: 3, creditos: 45, bonus: 5, preco: 28.00 },     // R$ 0,56/cr - Popular
+      { id: 4, creditos: 90, bonus: 10, preco: 52.00 },    // R$ 0,52/cr - Premium
+      { id: 5, creditos: 180, bonus: 20, preco: 98.00 }    // R$ 0,49/cr - Melhor Valor
     ];
 
     // ============================================
@@ -599,13 +612,18 @@
           }
         }
 
-        // Extrair créditos da external_reference (formato: pacoteId_creditos_bonus_userId_timestamp)
+        // Extrair créditos e bônus da external_reference (formato: pacoteId_creditos_bonus_userId_timestamp)
         let creditos = 10; // Default
+        let bonus = 0;
         let pacoteId = 1;
         
         if (externalRef) {
           const parts = externalRef.split('_');
-          if (parts.length >= 2) {
+          if (parts.length >= 3) {
+            pacoteId = parseInt(parts[0]) || 1;
+            creditos = parseInt(parts[1]) || 10;
+            bonus = parseInt(parts[2]) || 0;
+          } else if (parts.length >= 2) {
             pacoteId = parseInt(parts[0]) || 1;
             creditos = parseInt(parts[1]) || 10;
           }
@@ -613,16 +631,23 @@
 
         // Se não conseguiu extrair, usar o pacote
         const pacote = PACOTES.find(p => p.id === pacoteId);
-        if (pacote && creditos === 10) {
-          creditos = pacote.creditos;
+        if (pacote) {
+          if (creditos === 10 && pacote.creditos !== 10) {
+            creditos = pacote.creditos;
+          }
+          if (bonus === 0 && pacote.bonus > 0) {
+            bonus = pacote.bonus;
+          }
         }
 
-        console.log('💎 Créditos a adicionar:', creditos);
+        const totalCreditos = creditos + bonus;
+        console.log('💎 Créditos a adicionar:', creditos, '+ bônus:', bonus, '= total:', totalCreditos);
 
-        // 1. Creditar o usuário
+        // 1. Creditar o usuário (créditos pagos são só os comprados, não o bônus)
         await db.collection('usuarios').doc(currentUserId).update({
-          creditos: firebase.firestore.FieldValue.increment(creditos),
-          creditosPagos: firebase.firestore.FieldValue.increment(creditos)
+          creditos: firebase.firestore.FieldValue.increment(totalCreditos),
+          creditosPagos: firebase.firestore.FieldValue.increment(creditos), // Só os pagos, sem bônus
+          creditosBonus: firebase.firestore.FieldValue.increment(bonus)     // Bônus separado
         });
 
         // 2. Registrar pagamento (evita duplicação)
@@ -630,6 +655,8 @@
           await db.collection('pagamentos_mp').doc(String(paymentId)).set({
             usuarioId: currentUserId,
             creditos: creditos,
+            bonus: bonus,
+            totalCreditos: totalCreditos,
             status: 'aprovado',
             externalReference: externalRef || '',
             processadoEm: firebase.firestore.FieldValue.serverTimestamp()
@@ -643,7 +670,9 @@
           userEmail: auth.currentUser?.email || '',
           pacoteId: pacoteId,
           creditos: creditos,
-          valor: pacote?.preco || 4.90,
+          bonus: bonus,
+          totalCreditos: totalCreditos,
+          valor: pacote?.preco || 6.90,
           metodoPagamento: 'mercadopago',
           paymentId: paymentId || 'pix_' + Date.now(),
           status: 'aprovado',
@@ -651,11 +680,12 @@
         });
 
         // 4. Atualizar saldo na tela
-        const novoSaldo = (currentUserData?.creditos || 0) + creditos;
+        const novoSaldo = (currentUserData?.creditos || 0) + totalCreditos;
         document.getElementById('currentBalance').textContent = novoSaldo;
         if (currentUserData) currentUserData.creditos = novoSaldo;
 
-        showToast(`🎉 +${creditos} créditos adicionados com sucesso!`);
+        const bonusMsg = bonus > 0 ? ` (+${bonus} bônus!)` : '';
+        showToast(`🎉 +${totalCreditos} créditos adicionados com sucesso!${bonusMsg}`);
         console.log('✅ Pagamento processado!');
 
       } catch (error) {
@@ -685,7 +715,7 @@
           body: JSON.stringify({
             pacoteId: pacote.id,
             creditos: pacote.creditos,
-            bonus: 0,
+            bonus: pacote.bonus || 0,
             preco: pacote.preco,
             userId: currentUserId,
             userEmail: auth.currentUser?.email || '',
@@ -752,7 +782,7 @@
         // Query simples sem orderBy (evita necessidade de índice composto)
         const snapshot = await db.collection('compras')
           .where('usuarioId', '==', currentUserId)
-          .limit(20)
+          .limit(30)
           .get();
 
         const container = document.getElementById('purchaseHistory');
@@ -764,8 +794,35 @@
 
         // Converter para array e ordenar por data (mais recente primeiro)
         let compras = [];
+        const agora = new Date();
+        const cincoHorasMs = 5 * 60 * 60 * 1000; // 5 horas em milissegundos
+        
         snapshot.forEach(doc => {
-          compras.push({ id: doc.id, ...doc.data() });
+          const compra = { id: doc.id, ...doc.data() };
+          
+          // Verificar se é pendente com mais de 5 horas
+          if (compra.status === 'pendente') {
+            const dataCompra = compra.data?.toDate ? compra.data.toDate() : new Date();
+            const diffMs = agora.getTime() - dataCompra.getTime();
+            
+            if (diffMs > cincoHorasMs) {
+              // Atualizar status para 'expirado' no Firestore
+              db.collection('compras').doc(doc.id).update({
+                status: 'expirado',
+                expiradoEm: firebase.firestore.FieldValue.serverTimestamp()
+              }).catch(err => console.log('Erro ao expirar compra:', err));
+              
+              // Não adiciona na lista (não mostra)
+              return;
+            }
+          }
+          
+          // Não mostrar compras expiradas
+          if (compra.status === 'expirado') {
+            return;
+          }
+          
+          compras.push(compra);
         });
         
         compras.sort((a, b) => {
@@ -773,6 +830,11 @@
           const dataB = b.data?.toDate ? b.data.toDate().getTime() : 0;
           return dataB - dataA; // Mais recente primeiro
         });
+
+        if (compras.length === 0) {
+          container.innerHTML = '<p style="text-align: center; color: #a9b5c6; padding: 20px;">Você ainda não fez nenhuma compra</p>';
+          return;
+        }
 
         let html = '';
         compras.slice(0, 10).forEach(compra => {
@@ -789,10 +851,14 @@
             statusText = '❌ Cancelado';
           }
           
+          // Mostrar total com bônus se houver
+          const totalCreditos = compra.totalCreditos || compra.creditos || 0;
+          const bonusText = compra.bonus > 0 ? ` <span style="color: #10b981;">(+${compra.bonus})</span>` : '';
+          
           html += `
             <div class="history-item">
               <div>
-                <div style="font-weight: 600;">💎 ${compra.creditos || 0} créditos</div>
+                <div style="font-weight: 600;">💎 ${totalCreditos} créditos${bonusText}</div>
                 <div style="font-size: 0.8em; color: #a9b5c6;">${dataStr}</div>
               </div>
               <div style="text-align: right;">
@@ -812,7 +878,7 @@
       }
     }
 
-    console.log('✅ Loja de Créditos v4.0 - Versão Limpa');
+    console.log('✅ Loja de Créditos v5.0 - Novos Preços + Bônus + Limpeza Pendentes');
   </script>
 
 </body>
