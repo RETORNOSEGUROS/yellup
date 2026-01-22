@@ -1160,6 +1160,8 @@
       padding: 12px;
       border-radius: 10px;
       color: #2ecc71;
+      text-align: center;
+      font-size: 1.1em;
     }
     
     .premiacao-breakdown {
@@ -1562,8 +1564,8 @@
         
         <!-- Info de Premiação -->
         <div class="premiacao-info" id="premiacaoInfo">
-          <div class="premiacao-aviso">
-            ⚠️ Aguardando créditos...
+          <div class="premiacao-ativa">
+            🏆 Carregando premiação...
           </div>
         </div>
         
@@ -1621,6 +1623,7 @@
     let jogoStatus = null;           // Status calculado (agendado, ao_vivo, finalizado)
     let jogoDataInicio = null;       // ✅ NOVO: Data/hora de início do jogo
     let jogoDataFim = null;          // ✅ NOVO: Data/hora de fim do jogo
+    let jogoCreditosIniciais = 0;    // ✅ NOVO: Créditos iniciais do admin
     let statusCheckInterval = null;  // ✅ NOVO: Intervalo para checar status
     let premiacaoExecutada = false;  // ✅ NOVO: Flag para evitar premiar múltiplas vezes
 
@@ -1798,6 +1801,10 @@
         
         console.log("📅 Horário início:", jogoDataInicio);
         console.log("📅 Horário fim:", jogoDataFim);
+
+        // ✅ NOVO: Salvar créditos iniciais do admin
+        jogoCreditosIniciais = jogo.creditosIniciais || 0;
+        console.log("💰 Créditos iniciais do admin:", jogoCreditosIniciais);
 
         document.getElementById("matchLeague").textContent = jogo.liga || jogo.campeonato || "Partida";
         
@@ -2822,7 +2829,7 @@
 
         if (ranking.length === 0) {
           rankingList.innerHTML = '<li style="text-align: center; color: var(--text-secondary); padding: 40px;">Nenhuma pontuação ainda. Seja o primeiro!</li>';
-          atualizarInfoPremiacao(0, 0);
+          atualizarInfoPremiacao(0, 0, jogoCreditosIniciais);
           return;
         }
 
@@ -2856,8 +2863,8 @@
           rankingList.appendChild(li);
         });
         
-        // Atualizar info de premiação
-        atualizarInfoPremiacao(totalCreditosPagosJogo, ranking.length);
+        // Atualizar info de premiação (inclui créditos do admin)
+        atualizarInfoPremiacao(totalCreditosPagosJogo, ranking.length, jogoCreditosIniciais);
 
       } catch (error) {
         console.error("❌ Erro ao carregar ranking:", error);
@@ -2908,24 +2915,21 @@
       if (!infoEl) return;
       
       const totalPote = totalCreditos + creditosAdmin;
-      const premioRanking = Math.floor(totalPote * 0.50);      // 50% ranking
-      const premioSortudoVencedor = Math.floor(totalPote * 0.10); // 10% sortudo vencedor
-      const premioSortudoPopular = Math.floor(totalPote * 0.05);  // 5% sortudo popular
-      const premioCotistas = Math.floor(totalPote * 0.30);        // 30% cotistas
       
-      let adminInfo = creditosAdmin > 0 ? `<small style="color: #2ecc71;">(inclui ${creditosAdmin} do admin)</small>` : '';
-      
-      infoEl.innerHTML = `
-        <div class="premiacao-ativa">
-          🏆 <strong>${totalPote}</strong> créditos em jogo! ${adminInfo}
-          <div class="premiacao-breakdown">
-            <span>🏅 Top ${Math.min(100, totalParticipantes || 0)}: ${premioRanking} 💎</span>
-            <span>🎰 Sortudo: ${premioSortudoVencedor} 💎</span>
-            <span>🍀 Popular: ${premioSortudoPopular} 💎</span>
-            <span>📈 Cotistas: ${premioCotistas} YC</span>
+      if (totalPote > 0) {
+        let adminInfo = creditosAdmin > 0 ? ` <small style="color: #2ecc71;">(+${creditosAdmin} bônus)</small>` : '';
+        infoEl.innerHTML = `
+          <div class="premiacao-ativa">
+            🏆 <strong>${totalPote}</strong> créditos em jogo!${adminInfo}
           </div>
-        </div>
-      `;
+        `;
+      } else {
+        infoEl.innerHTML = `
+          <div class="premiacao-ativa">
+            🏆 <strong>0</strong> créditos em jogo!
+          </div>
+        `;
+      }
     }
     
     // ===================================
