@@ -3033,22 +3033,24 @@
         // Pool de créditos normais (pagos + bônus)
         const totalPoolCreditos = totalCreditosUsados;
         
-        // DISTRIBUIÇÃO YC: 20% casa, 40% ranking (top 10), 10% sortudo vencedor, 5% sortudo popular, 25% cotistas
-        const taxaCasaYC = parseFloat((totalPoolYC * 0.20).toFixed(2));
-        const totalRankingYC = parseFloat((totalPoolYC * 0.40).toFixed(2));
-        const totalSortudoVencedorYC = parseFloat((totalPoolYC * 0.10).toFixed(2));
-        const totalSortudoPopularYC = parseFloat((totalPoolYC * 0.05).toFixed(2));
-        const totalCotistasYC = parseFloat((totalPoolYC * 0.25).toFixed(2));
+        // DISTRIBUIÇÃO YC: 5% fundo final ano, 50% ranking (top 10), 10% sortudo vencedor, 5% sortudo popular, 30% cotistas
+        const fundoFinalAnoYC = parseFloat((totalPoolYC * 0.05).toFixed(2));  // 5% Fundo Final de Ano
+        const totalRankingYC = parseFloat((totalPoolYC * 0.50).toFixed(2));   // 50% Ranking
+        const totalSortudoVencedorYC = parseFloat((totalPoolYC * 0.10).toFixed(2)); // 10% Sortudo Vencedor
+        const totalSortudoPopularYC = parseFloat((totalPoolYC * 0.05).toFixed(2));  // 5% Sortudo Popular
+        const totalCotistasYC = parseFloat((totalPoolYC * 0.30).toFixed(2));  // 30% Cotistas Bolsa
         
-        // DISTRIBUIÇÃO CRÉDITOS: mesma proporção para top 100
-        const taxaCasaCreditos = Math.floor(totalPoolCreditos * 0.20);
-        const totalRankingCreditos = Math.floor(totalPoolCreditos * 0.40);
+        // DISTRIBUIÇÃO CRÉDITOS: mesma proporção para top 100 (sem fundo)
+        const totalRankingCreditos = Math.floor(totalPoolCreditos * 0.50);
         const totalSortudoCreditos = Math.floor(totalPoolCreditos * 0.15); // vencedor + popular
         
         console.log(`💰 Pool YC (pagos): ${totalPoolYC} YC`);
         console.log(`💵 Pool Créditos (total): ${totalPoolCreditos} cr`);
-        console.log(`🏠 Casa: ${taxaCasaYC} YC / ${taxaCasaCreditos} cr`);
-        console.log(`🏅 Ranking: ${totalRankingYC} YC (top 10) / ${totalRankingCreditos} cr (top 100)`);
+        console.log(`🏆 Fundo Final Ano: ${fundoFinalAnoYC} YC (5%)`);
+        console.log(`🏅 Ranking: ${totalRankingYC} YC (50%) / ${totalRankingCreditos} cr`);
+        console.log(`📈 Cotistas: ${totalCotistasYC} YC (30%)`);
+        console.log(`🎰 Sortudos: ${totalSortudoVencedorYC + totalSortudoPopularYC} YC (15%)`);
+        
         
         // ===== CALCULAR PRÊMIOS DO RANKING =====
         // Top 10: ganham YC + Créditos | Top 11-100: ganham só Créditos
@@ -3284,7 +3286,7 @@
           totalCreditosUsados: totalCreditosUsados,
           totalPoolYC: totalPoolYC,
           totalPoolCreditos: totalPoolCreditos,
-          taxaCasaYC: taxaCasaYC,
+          fundoFinalAnoYC: fundoFinalAnoYC,
           totalRankingYC: totalRankingYC,
           totalRankingCreditos: totalRankingCreditos,
           totalCotistasYC: totalCotistasYC,
@@ -3304,6 +3306,21 @@
           premiacaoData: firebase.firestore.FieldValue.serverTimestamp(),
           premiacaoDetalhes
         });
+        
+        // ===== 🏆 ACUMULAR FUNDO FINAL DE ANO =====
+        if (fundoFinalAnoYC > 0) {
+          const fundoRef = db.collection("bolsa_config").doc("fundo_final_ano");
+          batch.set(fundoRef, {
+            totalAcumulado: firebase.firestore.FieldValue.increment(fundoFinalAnoYC),
+            ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp(),
+            historico: firebase.firestore.FieldValue.arrayUnion({
+              jogoId: jogoId,
+              valor: fundoFinalAnoYC,
+              data: new Date().toISOString()
+            })
+          }, { merge: true });
+          console.log(`🏆 Fundo Final de Ano: +${fundoFinalAnoYC} YC acumulado`);
+        }
         
         // ===== 📈 ATUALIZAR PREÇOS DOS TIMES NA BOLSA (SEMPRE EXECUTA) =====
         try {
