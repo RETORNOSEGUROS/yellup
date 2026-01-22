@@ -218,9 +218,24 @@
         .form-group select option { background: #fff; color: #000; }
 
         .time-selector { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
-        .time-selector select { flex: 1; padding: 15px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.1); color: white; font-size: 14px; }
-        .time-selector select option { background: #fff; color: #000; }
+        .time-selector .time-input-wrapper { flex: 1; position: relative; }
+        .time-selector input[type="text"] { width: 100%; padding: 15px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.1); color: white; font-size: 14px; }
+        .time-selector input[type="text"]:focus { outline: none; border-color: #FFD700; }
         .time-selector .vs { font-size: 24px; font-weight: 700; color: #FFD700; }
+        
+        /* Autocomplete dropdown */
+        .autocomplete-list {
+            position: absolute; top: 100%; left: 0; right: 0; z-index: 1000;
+            background: #1a1a2e; border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px; max-height: 200px; overflow-y: auto; display: none;
+        }
+        .autocomplete-list.show { display: block; }
+        .autocomplete-item {
+            padding: 12px 15px; cursor: pointer; color: white;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .autocomplete-item:hover, .autocomplete-item.selected { background: rgba(255, 215, 0, 0.2); }
+        .autocomplete-item:last-child { border-bottom: none; }
 
         .loading { text-align: center; color: rgba(255, 255, 255, 0.6); padding: 40px; }
 
@@ -417,13 +432,17 @@
             <input type="hidden" id="jogoId">
 
             <div class="time-selector">
-                <select id="timeCasa">
-                    <option value="">Selecione o time da casa</option>
-                </select>
+                <div class="time-input-wrapper">
+                    <input type="text" id="timeCasaInput" placeholder="Digite o time da casa..." autocomplete="off">
+                    <input type="hidden" id="timeCasa">
+                    <div class="autocomplete-list" id="listaCasa"></div>
+                </div>
                 <span class="vs">VS</span>
-                <select id="timeVisitante">
-                    <option value="">Selecione o visitante</option>
-                </select>
+                <div class="time-input-wrapper">
+                    <input type="text" id="timeVisitanteInput" placeholder="Digite o visitante..." autocomplete="off">
+                    <input type="hidden" id="timeVisitante">
+                    <div class="autocomplete-list" id="listaVisitante"></div>
+                </div>
             </div>
 
             <div class="form-row">
@@ -448,11 +467,26 @@
                 </div>
                 <div class="form-group">
                     <label>🏆 Liga/Campeonato</label>
-                    <input type="text" id="liga" placeholder="Ex: Amistoso">
+                    <select id="liga">
+                        <option value="">Selecione...</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>💰 Créditos p/ Torcer</label>
                     <input type="number" id="creditosEntrada" placeholder="0 = grátis" min="0" value="0">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>🎁 Créditos Iniciais (Admin)</label>
+                    <input type="number" id="creditosIniciais" placeholder="0" min="0" value="0">
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <div class="info-box" style="margin: 0;">
+                        💡 Créditos que o admin adiciona ao pote de premiação
+                    </div>
                 </div>
             </div>
 
@@ -531,6 +565,7 @@
                 window.location.href = "login.html";
             } else {
                 carregarTimes();
+                carregarCampeonatos();
                 carregarJogos();
             }
         });
@@ -638,22 +673,108 @@
                     timesMap[doc.id] = t;
                 });
 
-                // Popular selects
-                const selectCasa = document.getElementById('timeCasa');
-                const selectVisitante = document.getElementById('timeVisitante');
+                // Popular select de filtro
                 const selectFiltro = document.getElementById('filtroTime');
-
-                let options = '<option value="">Selecione...</option>';
+                let optionsFiltro = '<option value="">Todos os Times</option>';
                 todosTimes.forEach(t => {
-                    options += `<option value="${t.id}">${formatarTimeComBandeira(t)}</option>`;
+                    optionsFiltro += `<option value="${t.id}">${formatarTimeComBandeira(t)}</option>`;
                 });
+                selectFiltro.innerHTML = optionsFiltro;
 
-                selectCasa.innerHTML = options;
-                selectVisitante.innerHTML = options;
-                selectFiltro.innerHTML = '<option value="">Todos os Times</option>' + options.replace('<option value="">Selecione...</option>', '');
+                // Configurar autocomplete para os inputs de time
+                setupAutocomplete('timeCasaInput', 'timeCasa', 'listaCasa');
+                setupAutocomplete('timeVisitanteInput', 'timeVisitante', 'listaVisitante');
 
             } catch (error) {
                 console.error('Erro ao carregar times:', error);
+            }
+        }
+
+        // Função para configurar autocomplete
+        function setupAutocomplete(inputId, hiddenId, listId) {
+            const input = document.getElementById(inputId);
+            const hidden = document.getElementById(hiddenId);
+            const list = document.getElementById(listId);
+
+            input.addEventListener('input', function() {
+                const valor = this.value.toLowerCase().trim();
+                hidden.value = ''; // Limpa seleção anterior
+                
+                if (valor.length < 1) {
+                    list.classList.remove('show');
+                    return;
+                }
+
+                // Filtrar times
+                const filtrados = todosTimes.filter(t => 
+                    t.nome.toLowerCase().includes(valor) ||
+                    (t.pais && t.pais.toLowerCase().includes(valor))
+                ).slice(0, 10); // Máximo 10 resultados
+
+                if (filtrados.length === 0) {
+                    list.classList.remove('show');
+                    return;
+                }
+
+                // Renderizar lista
+                list.innerHTML = filtrados.map(t => `
+                    <div class="autocomplete-item" data-id="${t.id}" data-nome="${t.nome}">
+                        ${formatarTimeComBandeira(t)}
+                    </div>
+                `).join('');
+
+                // Eventos de clique
+                list.querySelectorAll('.autocomplete-item').forEach(item => {
+                    item.addEventListener('click', function() {
+                        input.value = this.dataset.nome;
+                        hidden.value = this.dataset.id;
+                        list.classList.remove('show');
+                    });
+                });
+
+                list.classList.add('show');
+            });
+
+            // Fechar lista ao clicar fora
+            document.addEventListener('click', function(e) {
+                if (!input.contains(e.target) && !list.contains(e.target)) {
+                    list.classList.remove('show');
+                }
+            });
+        }
+
+        // Carregar campeonatos da coleção
+        async function carregarCampeonatos() {
+            try {
+                const snap = await db.collection('campeonatos').orderBy('nome').get();
+                const select = document.getElementById('liga');
+                
+                let options = '<option value="">Selecione...</option>';
+                options += '<option value="Amistoso">Amistoso</option>';
+                
+                snap.forEach(doc => {
+                    const c = doc.data();
+                    options += `<option value="${c.nome}">${c.nome}</option>`;
+                });
+                
+                options += '<option value="outro">➕ Outro (digitar)</option>';
+                select.innerHTML = options;
+                
+            } catch (error) {
+                console.error('Erro ao carregar campeonatos:', error);
+                // Fallback com opções padrão
+                const select = document.getElementById('liga');
+                select.innerHTML = `
+                    <option value="">Selecione...</option>
+                    <option value="Amistoso">Amistoso</option>
+                    <option value="Brasileirão Série A">Brasileirão Série A</option>
+                    <option value="Brasileirão Série B">Brasileirão Série B</option>
+                    <option value="Copa do Brasil">Copa do Brasil</option>
+                    <option value="Libertadores">Libertadores</option>
+                    <option value="Sul-Americana">Sul-Americana</option>
+                    <option value="Champions League">Champions League</option>
+                    <option value="outro">➕ Outro (digitar)</option>
+                `;
             }
         }
 
@@ -856,13 +977,16 @@
         function abrirModal() {
             document.getElementById('modalTitulo').textContent = '➕ Novo Jogo';
             document.getElementById('jogoId').value = '';
+            document.getElementById('timeCasaInput').value = '';
             document.getElementById('timeCasa').value = '';
+            document.getElementById('timeVisitanteInput').value = '';
             document.getElementById('timeVisitante').value = '';
             document.getElementById('dataInicio').value = '';
             document.getElementById('dataFim').value = '';
             document.getElementById('status').value = 'agendado';
             document.getElementById('liga').value = '';
             document.getElementById('creditosEntrada').value = '0';
+            document.getElementById('creditosIniciais').value = '0';
             document.getElementById('patrocinadoresContainer').innerHTML = '';
             document.getElementById('modalJogo').classList.add('active');
         }
@@ -877,19 +1001,28 @@
 
             document.getElementById('modalTitulo').textContent = '✏️ Editar Jogo';
             document.getElementById('jogoId').value = id;
+            
+            // Preencher times com autocomplete
+            const timeCasa = timesMap[j.timeCasaId];
+            const timeVisitante = timesMap[j.timeForaId];
+            document.getElementById('timeCasaInput').value = timeCasa ? timeCasa.nome : '';
             document.getElementById('timeCasa').value = j.timeCasaId || '';
+            document.getElementById('timeVisitanteInput').value = timeVisitante ? timeVisitante.nome : '';
             document.getElementById('timeVisitante').value = j.timeForaId || '';
+            
             document.getElementById('status').value = j.status || 'agendado';
             document.getElementById('liga').value = j.liga || j.campeonato || '';
             document.getElementById('creditosEntrada').value = j.creditosEntrada || 0;
+            document.getElementById('creditosIniciais').value = j.creditosIniciais || 0;
 
+            // CORREÇÃO: Converter data para formato local corretamente
             if (j.dataInicio?.toDate) {
                 const d = j.dataInicio.toDate();
-                document.getElementById('dataInicio').value = d.toISOString().slice(0, 16);
+                document.getElementById('dataInicio').value = formatarDataLocal(d);
             }
             if (j.dataFim?.toDate) {
                 const d = j.dataFim.toDate();
-                document.getElementById('dataFim').value = d.toISOString().slice(0, 16);
+                document.getElementById('dataFim').value = formatarDataLocal(d);
             }
 
             // Carregar patrocinadores
@@ -899,6 +1032,16 @@
             }
 
             document.getElementById('modalJogo').classList.add('active');
+        }
+
+        // Função auxiliar para formatar data no formato local
+        function formatarDataLocal(date) {
+            const ano = date.getFullYear();
+            const mes = String(date.getMonth() + 1).padStart(2, '0');
+            const dia = String(date.getDate()).padStart(2, '0');
+            const hora = String(date.getHours()).padStart(2, '0');
+            const minuto = String(date.getMinutes()).padStart(2, '0');
+            return `${ano}-${mes}-${dia}T${hora}:${minuto}`;
         }
 
         // ===================================
@@ -1014,6 +1157,7 @@
                 status: statusCalculado, // Status calculado automaticamente
                 liga: document.getElementById('liga').value || 'Amistoso',
                 creditosEntrada: parseInt(document.getElementById('creditosEntrada').value) || 0,
+                creditosIniciais: parseInt(document.getElementById('creditosIniciais').value) || 0,
                 patrocinadores: coletarPatrocinadores(),
                 dataInicio,
                 dataFim
