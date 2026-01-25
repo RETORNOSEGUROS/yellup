@@ -1179,6 +1179,88 @@
       border-radius: 6px;
     }
     
+    /* ========== BARRA DE COMPARTILHAMENTO ========== */
+    .share-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, rgba(26, 26, 46, 0.98), rgba(22, 33, 62, 0.98));
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 12px 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 15px;
+      z-index: 1000;
+    }
+
+    .share-bar-text {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 0.85em;
+      margin-right: 5px;
+    }
+
+    .share-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 25px;
+      font-size: 0.85em;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.3s ease;
+      border: none;
+      cursor: pointer;
+    }
+
+    .share-btn-whatsapp {
+      background: linear-gradient(135deg, #25D366, #128C7E);
+      color: white;
+    }
+
+    .share-btn-whatsapp:hover {
+      transform: scale(1.05);
+      box-shadow: 0 5px 20px rgba(37, 211, 102, 0.4);
+    }
+
+    .share-btn-instagram {
+      background: linear-gradient(135deg, #833AB4, #FD1D1D, #F77737);
+      color: white;
+    }
+
+    .share-btn-instagram:hover {
+      transform: scale(1.05);
+      box-shadow: 0 5px 20px rgba(131, 58, 180, 0.4);
+    }
+
+    .share-btn-icon {
+      font-size: 1.2em;
+    }
+
+    @media (max-width: 500px) {
+      .share-bar {
+        padding: 10px 15px;
+        gap: 10px;
+      }
+      
+      .share-bar-text {
+        display: none;
+      }
+      
+      .share-btn {
+        padding: 8px 12px;
+        font-size: 0.8em;
+      }
+    }
+    
+    /* Espaço extra no container para não sobrepor a barra */
+    .container {
+      padding-bottom: 70px;
+    }
+    
     /* Modal de Premiação */
     .premiacao-modal-overlay {
       position: fixed;
@@ -2019,6 +2101,9 @@
         jogoStatus = 'finalizado';
         console.log("🏁 Jogo finalizado");
         
+        // ✅ BLOQUEAR CHAT QUANDO TERMINA
+        bloquearChat();
+        
         // ✅ NOVO: Se acabou de finalizar, executar premiação
         if (statusAnterior !== 'finalizado' && !premiacaoExecutada) {
           setTimeout(() => {
@@ -2028,6 +2113,30 @@
       }
       
       atualizarBotaoBaseadoNoStatus();
+    }
+    
+    // ✅ BLOQUEAR CHAT APÓS TÉRMINO
+    function bloquearChat() {
+      const teamInput = document.getElementById("teamChatInput");
+      const generalInput = document.getElementById("generalChatInput");
+      
+      if (teamInput) {
+        teamInput.disabled = true;
+        teamInput.placeholder = "🏁 Chat encerrado";
+      }
+      
+      if (generalInput) {
+        generalInput.disabled = true;
+        generalInput.placeholder = "🏁 Chat encerrado";
+      }
+      
+      // Desabilitar botões de envio
+      const sendBtns = document.querySelectorAll(".chat-send-btn");
+      sendBtns.forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = "0.5";
+        btn.style.cursor = "not-allowed";
+      });
     }
     
     // ✅ NOVA FUNÇÃO: Verificar status a cada 10 segundos
@@ -2592,6 +2701,9 @@
 
         await db.collection("usuarios").doc(uid).update(updates);
 
+        // ✅ SALVAR NA SUBCOLEÇÃO DE PARTICIPANTES (timeout = erro)
+        await atualizarParticipante(false, 0, 10, !temGratis);
+
         await updateFreePlays();
 
         // ✅ FECHAR MODAL após 3 segundos
@@ -2730,6 +2842,10 @@
 
         await db.collection("usuarios").doc(uid).update(updates);
 
+        // ✅ SALVAR NA SUBCOLEÇÃO DE PARTICIPANTES (para premiação automática)
+        const usouCreditoPago = !temGratis && creditosPagos > 0 && creditosBonus <= 0;
+        await atualizarParticipante(acertou, pontosFinais, tempoResposta, usouCreditoPago);
+
         // Atualizar interface
         await updateFreePlays();
         await updateStats();
@@ -2749,6 +2865,76 @@
       } catch (error) {
         console.error("❌ Erro ao processar resposta:", error);
         alert("Erro ao salvar resposta. Tente novamente!");
+      }
+    }
+
+    // ===================================
+    // 📊 ATUALIZAR PARTICIPANTE NA SUBCOLEÇÃO
+    // ===================================
+    async function atualizarParticipante(acertou, pontosGanhos, tempoResposta, usouCreditoPago) {
+      try {
+        const participanteRef = db.collection("jogos").doc(jogoId)
+          .collection("participantes").doc(uid);
+        
+        const participanteDoc = await participanteRef.get();
+        
+        if (participanteDoc.exists) {
+          // Atualizar participante existente
+          const updates = {
+            atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+          };
+          
+          if (acertou) {
+            updates.pontos = firebase.firestore.FieldValue.increment(pontosGanhos);
+            updates.acertos = firebase.firestore.FieldValue.increment(1);
+            updates.tempoSoma = firebase.firestore.FieldValue.increment(tempoResposta);
+            updates.tempoQuantidade = firebase.firestore.FieldValue.increment(1);
+          } else {
+            updates.erros = firebase.firestore.FieldValue.increment(1);
+          }
+          
+          if (usouCreditoPago) {
+            updates.creditosPagos = firebase.firestore.FieldValue.increment(1);
+          }
+          
+          await participanteRef.update(updates);
+          
+        } else {
+          // Criar novo participante
+          const userDoc = await db.collection("usuarios").doc(uid).get();
+          const userData = userDoc.data() || {};
+          const nomeUsuario = userData.usuarioUnico || userData.usuario || userData.nome || "Anônimo";
+          
+          // Determinar nome do time
+          let timeNome = "Time";
+          if (timeTorcida === timeCasaId && timeCasaData) {
+            timeNome = timeCasaData.nome || "Time Casa";
+          } else if (timeTorcida === timeForaId && timeForaData) {
+            timeNome = timeForaData.nome || "Time Fora";
+          }
+          
+          await participanteRef.set({
+            odId: uid,
+            nome: nomeUsuario,
+            pontos: acertou ? pontosGanhos : 0,
+            tempoSoma: acertou ? tempoResposta : 0,
+            tempoQuantidade: acertou ? 1 : 0,
+            tempoMedio: acertou ? tempoResposta : 0,
+            timeId: timeTorcida,
+            timeNome: timeNome,
+            creditosPagos: usouCreditoPago ? 1 : 0,
+            acertos: acertou ? 1 : 0,
+            erros: acertou ? 0 : 1,
+            criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+            atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+        
+        console.log("✅ Participante atualizado na subcoleção");
+        
+      } catch (error) {
+        console.error("❌ Erro ao atualizar participante:", error);
+        // Não bloquear o jogo se falhar - é apenas para premiação
       }
     }
 
@@ -2894,6 +3080,12 @@
     let cachedUserData = null;
     
     async function sendMessage(type) {
+      // ✅ BLOQUEAR CHAT SE JOGO JÁ TERMINOU
+      if (jogoStatus === 'finalizado') {
+        showToast("🏁 Chat encerrado! O jogo já terminou.");
+        return;
+      }
+      
       const inputId = type === "team" ? "teamChatInput" : "generalChatInput";
       const input = document.getElementById(inputId);
       const mensagem = input.value.trim();
@@ -3147,548 +3339,245 @@
       }
       
       console.log("🏆 Iniciando premiação automática...");
+      showToast("🏁 Calculando premiação...");
       
       try {
         // Verificar se o jogo já foi premiado
         const jogoDoc = await db.collection("jogos").doc(jogoId).get();
         const jogoData = jogoDoc.data();
         
-        if (jogoData.premiado) {
-          console.log("✅ Jogo já foi premiado anteriormente");
+        if (jogoData.premiado && jogoData.premiacaoDetalhes) {
+          console.log("✅ Jogo já foi premiado anteriormente!");
           premiacaoExecutada = true;
           mostrarResultadoPremiacao(jogoData.premiacaoDetalhes);
           return;
         }
         
-        // Buscar todos os usuários do jogo
-        const usuarios = await db.collection("usuarios").get();
+        // ✅ BUSCAR DA SUBCOLEÇÃO DE PARTICIPANTES (qualquer usuário pode ler!)
+        const participantesSnap = await db.collection("jogos").doc(jogoId)
+          .collection("participantes").get();
+        
+        console.log(`👥 Participantes encontrados: ${participantesSnap.size}`);
+        
+        if (participantesSnap.empty) {
+          console.log("⚠️ Nenhum participante, não há premiação");
+          premiacaoExecutada = true;
+          mostrarAguardandoPremiacao();
+          return;
+        }
+        
+        // Montar array de participantes
         const participantes = [];
         let totalCreditosPagos = 0;
-        let totalCreditosUsados = 0; // NOVO: Créditos totais usados (pagos + bônus)
         
         const estatisticas = {
-          timeCasa: { pontos: 0, torcedores: [], nome: timeCasaData?.nome },
-          timeFora: { pontos: 0, torcedores: [], nome: timeForaData?.nome }
+          timeCasa: { pontos: 0, torcedores: [], nome: timeCasaData?.nome || 'Time Casa' },
+          timeFora: { pontos: 0, torcedores: [], nome: timeForaData?.nome || 'Time Fora' }
         };
         
-        usuarios.forEach(doc => {
-          const user = doc.data();
-          const odId = doc.id;
-          const timeUser = user.torcidas?.[jogoId];
-          
-          if (timeUser !== timeCasaId && timeUser !== timeForaId) return;
-          
-          const pontos = user.pontuacoes?.[jogoId] || 0;
-          const creditosPagos = user.creditosPagosJogo?.[jogoId] || 0;
-          const totalRespostas = user.contadorRespostas?.[jogoId] || 0;
-          const creditosUsadosUsuario = Math.max(0, totalRespostas - 5); // NOVO: Descontar 5 grátis
-          
-          totalCreditosPagos += creditosPagos;
-          totalCreditosUsados += creditosUsadosUsuario; // NOVO
+        participantesSnap.forEach(doc => {
+          const p = doc.data();
+          const pontos = p.pontos || 0;
+          const creditosPagos = p.creditosPagos || 0;
           
           // Calcular tempo médio
-          const tempoData = user.tempoRespostas?.[jogoId];
           let tempoMedio = 10;
-          if (tempoData && tempoData.quantidade > 0) {
-            tempoMedio = tempoData.soma / tempoData.quantidade;
+          if (p.tempoQuantidade > 0) {
+            tempoMedio = p.tempoSoma / p.tempoQuantidade;
           }
           
-          const nome = user.usuarioUnico || user.usuario || user.nome || "Anônimo";
+          participantes.push({
+            odId: p.odId,
+            nome: p.nome,
+            pontos: pontos,
+            tempoMedio: tempoMedio,
+            timeId: p.timeId,
+            timeNome: p.timeNome,
+            creditosPagos: creditosPagos
+          });
           
-          // Adicionar aos participantes se tiver pontos
-          if (pontos > 0) {
-            participantes.push({ odId, nome, pontos, tempoMedio, timeId: timeUser, creditosUsados: creditosUsadosUsuario });
-          }
+          totalCreditosPagos += creditosPagos;
           
           // Estatísticas por time
-          if (timeUser === timeCasaId) {
+          if (p.timeId === timeCasaId) {
             estatisticas.timeCasa.pontos += pontos;
-            estatisticas.timeCasa.torcedores.push({ odId, nome });
-          } else {
+            estatisticas.timeCasa.torcedores.push({ odId: p.odId, nome: p.nome });
+          } else if (p.timeId === timeForaId) {
             estatisticas.timeFora.pontos += pontos;
-            estatisticas.timeFora.torcedores.push({ odId, nome });
+            estatisticas.timeFora.torcedores.push({ odId: p.odId, nome: p.nome });
           }
         });
         
-        console.log(`💰 Total créditos PAGOS: ${totalCreditosPagos}`);
-        console.log(`💵 Total créditos USADOS (pagos+bônus): ${totalCreditosUsados}`);
-        console.log(`👥 Total participantes com pontos: ${participantes.length}`);
-        
-        // Ordenar participantes por pontos e tempo
+        // Ordenar por pontos e tempo
         participantes.sort((a, b) => {
           if (b.pontos !== a.pontos) return b.pontos - a.pontos;
           return a.tempoMedio - b.tempoMedio;
         });
         
-        // ===== NOVA LÓGICA: CRÉDITOS PARA TOP 100 + YC PARA TOP 10 =====
+        // Calcular pools
+        const creditosIniciais = jogoData.creditosIniciais || 0;
+        const totalPool = totalCreditosPagos + creditosIniciais;
         const YC_POR_CREDITO = 2;
-        
-        // Pool de YC (só créditos PAGOS)
         const totalPoolYC = totalCreditosPagos * YC_POR_CREDITO;
         
-        // Pool de créditos normais (pagos + bônus)
-        const totalPoolCreditos = totalCreditosUsados;
+        console.log(`💰 Pool total: ${totalPool} créditos (${totalCreditosPagos} pagos + ${creditosIniciais} admin)`);
+        console.log(`💎 Pool YC: ${totalPoolYC}`);
         
-        // DISTRIBUIÇÃO YC: 5% fundo final ano, 50% ranking (top 10), 10% sortudo vencedor, 5% sortudo popular, 30% cotistas
-        const fundoFinalAnoYC = parseFloat((totalPoolYC * 0.05).toFixed(2));  // 5% Fundo Final de Ano
-        const totalRankingYC = parseFloat((totalPoolYC * 0.50).toFixed(2));   // 50% Ranking
-        const totalSortudoVencedorYC = parseFloat((totalPoolYC * 0.10).toFixed(2)); // 10% Sortudo Vencedor
-        const totalSortudoPopularYC = parseFloat((totalPoolYC * 0.05).toFixed(2));  // 5% Sortudo Popular
-        const totalCotistasYC = parseFloat((totalPoolYC * 0.30).toFixed(2));  // 30% Cotistas Bolsa
+        // Distribuição YC: 5% fundo, 50% ranking, 10% sortudo vencedor, 5% sortudo popular, 30% cotistas
+        const fundoFinalAnoYC = parseFloat((totalPoolYC * 0.05).toFixed(2));
+        const totalRankingYC = parseFloat((totalPoolYC * 0.50).toFixed(2));
+        const totalSortudoVencedorYC = parseFloat((totalPoolYC * 0.10).toFixed(2));
+        const totalSortudoPopularYC = parseFloat((totalPoolYC * 0.05).toFixed(2));
+        const totalCotistasYC = parseFloat((totalPoolYC * 0.30).toFixed(2));
         
-        // DISTRIBUIÇÃO CRÉDITOS: 100% para ranking e sortudos
-        const totalRankingCreditos = Math.floor(totalPoolCreditos * 0.85); // 85% ranking
-        const totalSortudoCreditos = Math.floor(totalPoolCreditos * 0.15); // 15% sortudos
+        // Distribuição Créditos: 85% ranking, 15% sortudos
+        const totalRankingCreditos = Math.floor(totalPool * 0.85);
+        const totalSortudoCreditos = Math.floor(totalPool * 0.15);
+        const creditosSortudoVencedor = Math.floor(totalSortudoCreditos * 0.67);
+        const creditosSortudoPopular = totalSortudoCreditos - creditosSortudoVencedor;
         
-        console.log(`💰 Pool YC (pagos): ${totalPoolYC} YC`);
-        console.log(`💵 Pool Créditos (total): ${totalPoolCreditos} cr`);
-        console.log(`🏆 Fundo Final Ano: ${fundoFinalAnoYC} YC (5%)`);
-        console.log(`🏅 Ranking: ${totalRankingYC} YC (50%) / ${totalRankingCreditos} cr (85%)`);
-        console.log(`📈 Cotistas: ${totalCotistasYC} YC (30%)`);
-        console.log(`🎰 Sortudos: ${totalSortudoVencedorYC + totalSortudoPopularYC} YC (15%) / ${totalSortudoCreditos} cr (15%)`);
-        
-        
-        // ===== CALCULAR PRÊMIOS DO RANKING =====
-        // Top 10: ganham YC + Créditos | Top 11-100: ganham só Créditos
-        const PESOS_TOP10 = [25, 18, 14, 11, 9, 7, 6, 5, 3, 2]; // 100%
+        // Calcular pesos para distribuição do ranking
+        const PESOS_TOP10 = [25, 18, 14, 11, 9, 7, 6, 5, 3, 2];
         const somaPesosTop10 = PESOS_TOP10.reduce((a, b) => a + b, 0);
         
-        // Pesos para top 100 (distribuição decrescente)
-        const PESOS_TOP100 = [];
-        for (let i = 0; i < 100; i++) {
-          PESOS_TOP100.push(Math.max(1, 100 - i)); // 100, 99, 98... 1
+        const top100 = participantes.slice(0, 100);
+        const pesosTop100 = [];
+        for (let i = 0; i < top100.length; i++) {
+          pesosTop100.push(Math.max(1, 100 - i));
         }
-        const somaPesosTop100 = PESOS_TOP100.reduce((a, b) => a + b, 0);
+        const somaPesosTop100 = pesosTop100.reduce((a, b) => a + b, 0) || 1;
         
-        const quantosPremiarCreditos = Math.min(100, participantes.length);
-        const quantosPremiarYC = Math.min(10, participantes.length);
-        
+        // Premiar ranking
         const premiosRanking = [];
         
-        for (let i = 0; i < quantosPremiarCreditos; i++) {
-          // Créditos para top 100
-          const creditos = Math.floor(totalRankingCreditos * PESOS_TOP100[i] / somaPesosTop100);
-          
-          // YC só para top 10
+        for (let i = 0; i < top100.length; i++) {
+          const p = top100[i];
+          const posicao = i + 1;
+          const creditos = Math.floor(totalRankingCreditos * pesosTop100[i] / somaPesosTop100);
           let yc = 0;
-          if (i < 10 && totalPoolYC > 0) {
+          
+          if (i < 10 && totalRankingYC > 0) {
             yc = parseFloat((totalRankingYC * PESOS_TOP10[i] / somaPesosTop10).toFixed(2));
           }
           
           premiosRanking.push({
-            ...participantes[i],
-            posicao: i + 1,
-            yc: yc,
-            creditos: Math.max(1, creditos) // Mínimo 1 crédito
+            odId: p.odId,
+            nome: p.nome,
+            posicao: posicao,
+            pontos: p.pontos,
+            creditos: creditos,
+            yc: yc
           });
+          
+          // Creditar o usuário
+          if (creditos > 0 || yc > 0) {
+            try {
+              await db.collection('usuarios').doc(p.odId).update({
+                creditos: firebase.firestore.FieldValue.increment(creditos),
+                creditosBonus: firebase.firestore.FieldValue.increment(creditos),
+                yc: firebase.firestore.FieldValue.increment(yc)
+              });
+              console.log(`✅ ${posicao}º ${p.nome}: +${creditos} créditos, +${yc} YC`);
+            } catch (e) {
+              console.error(`❌ Erro ao premiar ${p.nome}:`, e);
+            }
+          }
         }
         
-        // ===== SORTEAR VENCEDOR (time com mais pontos) =====
-        let timeVencedor = estatisticas.timeCasa;
-        let timePopular = estatisticas.timeCasa;
-        
-        if (estatisticas.timeFora.pontos > estatisticas.timeCasa.pontos) {
-          timeVencedor = estatisticas.timeFora;
-        } else if (estatisticas.timeFora.pontos === estatisticas.timeCasa.pontos) {
-          // Empate: sortear
-          timeVencedor = Math.random() < 0.5 ? estatisticas.timeCasa : estatisticas.timeFora;
-        }
-        
-        // Time com mais torcedores
-        if (estatisticas.timeFora.torcedores.length > estatisticas.timeCasa.torcedores.length) {
-          timePopular = estatisticas.timeFora;
-        } else if (estatisticas.timeFora.torcedores.length === estatisticas.timeCasa.torcedores.length) {
-          // Empate: sortear
-          timePopular = Math.random() < 0.5 ? estatisticas.timeCasa : estatisticas.timeFora;
-        }
-        
-        // Sortear pessoa do time vencedor
+        // Sortudo Vencedor (time que ganhou mais pontos)
         let sortudoVencedor = null;
-        const creditosSortudoVencedor = Math.floor(totalSortudoCreditos * 0.67); // 10% do total (67% dos 15%)
-        const creditosSortudoPopular = totalSortudoCreditos - creditosSortudoVencedor; // 5% do total (33% dos 15%)
+        const timeVencedor = estatisticas.timeCasa.pontos > estatisticas.timeFora.pontos ? 'timeCasa' : 
+                             estatisticas.timeFora.pontos > estatisticas.timeCasa.pontos ? 'timeFora' : null;
         
-        if (timeVencedor.torcedores.length > 0) {
-          const indice = Math.floor(Math.random() * timeVencedor.torcedores.length);
+        if (timeVencedor && estatisticas[timeVencedor].torcedores.length > 0) {
+          const torcedoresVencedor = estatisticas[timeVencedor].torcedores;
+          const sorteado = torcedoresVencedor[Math.floor(Math.random() * torcedoresVencedor.length)];
+          
           sortudoVencedor = {
-            ...timeVencedor.torcedores[indice],
-            yc: totalSortudoVencedorYC,
+            odId: sorteado.odId,
+            nome: sorteado.nome,
+            time: estatisticas[timeVencedor].nome,
             creditos: creditosSortudoVencedor,
-            time: timeVencedor.nome
+            yc: totalSortudoVencedorYC
           };
+          
+          try {
+            await db.collection('usuarios').doc(sorteado.odId).update({
+              creditos: firebase.firestore.FieldValue.increment(creditosSortudoVencedor),
+              creditosBonus: firebase.firestore.FieldValue.increment(creditosSortudoVencedor),
+              yc: firebase.firestore.FieldValue.increment(totalSortudoVencedorYC)
+            });
+            console.log(`🎰 Sortudo Vencedor: ${sorteado.nome} +${creditosSortudoVencedor} cr, +${totalSortudoVencedorYC} YC`);
+          } catch (e) {
+            console.error("❌ Erro ao premiar sortudo vencedor:", e);
+          }
         }
         
-        // Sortear pessoa do time popular
+        // Sortudo Popular (time com mais torcedores)
         let sortudoPopular = null;
-        if (timePopular.torcedores.length > 0) {
-          const indice = Math.floor(Math.random() * timePopular.torcedores.length);
-          sortudoPopular = {
-            ...timePopular.torcedores[indice],
-            yc: totalSortudoPopularYC,
-            creditos: creditosSortudoPopular,
-            time: timePopular.nome
-          };
-        }
+        const timePopular = estatisticas.timeCasa.torcedores.length > estatisticas.timeFora.torcedores.length ? 'timeCasa' : 
+                            estatisticas.timeFora.torcedores.length > estatisticas.timeCasa.torcedores.length ? 'timeFora' : 
+                            (Math.random() > 0.5 ? 'timeCasa' : 'timeFora');
         
-        // ===== DISTRIBUIR PRÊMIOS (YC + Créditos) =====
-        const batch = db.batch();
-        
-        // Ranking: Créditos para top 100 + YC para top 10
-        for (const premio of premiosRanking) {
-          const userRef = db.collection("usuarios").doc(premio.odId);
-          const updates = {};
+        if (estatisticas[timePopular].torcedores.length > 0) {
+          let torcedoresPopular = estatisticas[timePopular].torcedores;
           
-          // Créditos para todos do top 100
-          if (premio.creditos > 0) {
-            updates.creditos = firebase.firestore.FieldValue.increment(premio.creditos);
-            updates.creditosBonus = firebase.firestore.FieldValue.increment(premio.creditos);
+          // Remover o sortudo vencedor da lista (se existir)
+          if (sortudoVencedor) {
+            torcedoresPopular = torcedoresPopular.filter(t => t.odId !== sortudoVencedor.odId);
           }
           
-          // YC só para top 10
-          if (premio.yc > 0) {
-            updates.yc = firebase.firestore.FieldValue.increment(premio.yc);
-          }
-          
-          if (Object.keys(updates).length > 0) {
-            batch.update(userRef, updates);
-            console.log(`🏅 ${premio.nome} (${premio.posicao}º): +${premio.creditos} cr${premio.yc > 0 ? ` + ${premio.yc} YC` : ''}`);
-          }
-        }
-        
-        // Sortudo vencedor (YC + Créditos)
-        if (sortudoVencedor) {
-          const userRef = db.collection("usuarios").doc(sortudoVencedor.odId);
-          const updates = {};
-          if (sortudoVencedor.yc > 0) {
-            updates.yc = firebase.firestore.FieldValue.increment(sortudoVencedor.yc);
-          }
-          if (sortudoVencedor.creditos > 0) {
-            updates.creditos = firebase.firestore.FieldValue.increment(sortudoVencedor.creditos);
-            updates.creditosBonus = firebase.firestore.FieldValue.increment(sortudoVencedor.creditos);
-          }
-          if (Object.keys(updates).length > 0) {
-            batch.update(userRef, updates);
-            console.log(`🎰 ${sortudoVencedor.nome}: +${sortudoVencedor.creditos} cr${sortudoVencedor.yc > 0 ? ` + ${sortudoVencedor.yc} YC` : ''} (Sortudo Vencedor)`);
-          }
-        }
-        
-        // Sortudo popular (YC + Créditos)
-        if (sortudoPopular) {
-          const userRef = db.collection("usuarios").doc(sortudoPopular.odId);
-          const updates = {};
-          if (sortudoPopular.yc > 0) {
-            updates.yc = firebase.firestore.FieldValue.increment(sortudoPopular.yc);
-          }
-          if (sortudoPopular.creditos > 0) {
-            updates.creditos = firebase.firestore.FieldValue.increment(sortudoPopular.creditos);
-            updates.creditosBonus = firebase.firestore.FieldValue.increment(sortudoPopular.creditos);
-          }
-          if (Object.keys(updates).length > 0) {
-            batch.update(userRef, updates);
-            console.log(`🍀 ${sortudoPopular.nome}: +${sortudoPopular.creditos} cr${sortudoPopular.yc > 0 ? ` + ${sortudoPopular.yc} YC` : ''} (Sortudo Popular)`);
-          }
-        }
-        
-        // ===== DISTRIBUIR PARA COTISTAS DA BOLSA (25%) EM YC =====
-        let cotistasPremiados = [];
-        let cotasCasa = [];
-        let cotasFora = [];
-        let totalCotasCasa = 0;
-        let totalCotasFora = 0;
-        let premioCotasCasaYC = 0;
-        let premioCotasForaYC = 0;
-        
-        // Buscar cotas dos times (necessário também para variação de preço)
-        try {
-          const cotasCasaSnapshot = await db.collection("bolsa_cotas")
-            .where("timeId", "==", timeCasaId)
-            .get();
-          
-          const cotasForaSnapshot = await db.collection("bolsa_cotas")
-            .where("timeId", "==", timeForaId)
-            .get();
-          
-          cotasCasaSnapshot.forEach(doc => {
-            const cota = doc.data();
-            cotasCasa.push({ odId: cota.userId, odNome: cota.usuarioNome, quantidade: cota.quantidade || 0 });
-            totalCotasCasa += cota.quantidade || 0;
-          });
-          
-          cotasForaSnapshot.forEach(doc => {
-            const cota = doc.data();
-            cotasFora.push({ odId: cota.userId, odNome: cota.usuarioNome, quantidade: cota.quantidade || 0 });
-            totalCotasFora += cota.quantidade || 0;
-          });
-          
-          // Determinar time vencedor da partida (pelo resultado real ou por pontos)
-          let percentualCasa = 0.5;  // Empate padrão
-          let percentualFora = 0.5;
-          
-          if (estatisticas.timeCasa.pontos > estatisticas.timeFora.pontos) {
-            percentualCasa = 0.7;  // Time casa venceu: 70%
-            percentualFora = 0.3;  // Time fora: 30%
-          } else if (estatisticas.timeFora.pontos > estatisticas.timeCasa.pontos) {
-            percentualCasa = 0.3;  // Time casa: 30%
-            percentualFora = 0.7;  // Time fora venceu: 70%
-          }
-          
-          premioCotasCasaYC = parseFloat((totalCotistasYC * percentualCasa).toFixed(2));
-          premioCotasForaYC = parseFloat((totalCotistasYC * percentualFora).toFixed(2));
-          
-          // Calcular YC por cota para verificar mínimo
-          const ycPorCotaCasa = totalCotasCasa > 0 ? premioCotasCasaYC / totalCotasCasa : 0;
-          const ycPorCotaFora = totalCotasFora > 0 ? premioCotasForaYC / totalCotasFora : 0;
-          
-          console.log(`📈 Cotistas Casa: ${premioCotasCasaYC} YC (${ycPorCotaCasa.toFixed(4)} YC/cota)`);
-          console.log(`📈 Cotistas Fora: ${premioCotasForaYC} YC (${ycPorCotaFora.toFixed(4)} YC/cota)`);
-          
-          // Distribuir para cotistas do time da casa (só se >= 0.01 YC por cota)
-          if (totalCotasCasa > 0 && ycPorCotaCasa >= 0.01) {
-            for (const cotista of cotasCasa) {
-              if (cotista.quantidade > 0) {
-                const ycCotista = parseFloat((ycPorCotaCasa * cotista.quantidade).toFixed(2));
-                
-                if (ycCotista >= 0.01) {
-                  const userRef = db.collection("usuarios").doc(cotista.odId);
-                  batch.update(userRef, {
-                    yc: firebase.firestore.FieldValue.increment(ycCotista)
-                  });
-                  cotistasPremiados.push({
-                    odId: cotista.odId,
-                    nome: cotista.odNome,
-                    yc: ycCotista,
-                    time: estatisticas.timeCasa.nome,
-                    cotas: cotista.quantidade
-                  });
-                  console.log(`📈 ${cotista.odNome}: +${ycCotista} YC (${cotista.quantidade} cotas ${estatisticas.timeCasa.nome})`);
-                }
-              }
+          if (torcedoresPopular.length > 0) {
+            const sorteadoPopular = torcedoresPopular[Math.floor(Math.random() * torcedoresPopular.length)];
+            
+            sortudoPopular = {
+              odId: sorteadoPopular.odId,
+              nome: sorteadoPopular.nome,
+              time: estatisticas[timePopular].nome,
+              creditos: creditosSortudoPopular,
+              yc: totalSortudoPopularYC
+            };
+            
+            try {
+              await db.collection('usuarios').doc(sorteadoPopular.odId).update({
+                creditos: firebase.firestore.FieldValue.increment(creditosSortudoPopular),
+                creditosBonus: firebase.firestore.FieldValue.increment(creditosSortudoPopular),
+                yc: firebase.firestore.FieldValue.increment(totalSortudoPopularYC)
+              });
+              console.log(`🍀 Sortudo Popular: ${sorteadoPopular.nome} +${creditosSortudoPopular} cr, +${totalSortudoPopularYC} YC`);
+            } catch (e) {
+              console.error("❌ Erro ao premiar sortudo popular:", e);
             }
-          } else if (totalCotasCasa > 0) {
-            console.log(`⚠️ YC por cota casa (${ycPorCotaCasa.toFixed(4)}) < 0.01 - não distribui`);
           }
-          
-          // Distribuir para cotistas do time de fora (só se >= 0.01 YC por cota)
-          if (totalCotasFora > 0 && ycPorCotaFora >= 0.01) {
-            for (const cotista of cotasFora) {
-              if (cotista.quantidade > 0) {
-                const ycCotista = parseFloat((ycPorCotaFora * cotista.quantidade).toFixed(2));
-                
-                if (ycCotista >= 0.01) {
-                  const userRef = db.collection("usuarios").doc(cotista.odId);
-                  batch.update(userRef, {
-                    yc: firebase.firestore.FieldValue.increment(ycCotista)
-                  });
-                  cotistasPremiados.push({
-                    odId: cotista.odId,
-                    nome: cotista.odNome,
-                    yc: ycCotista,
-                    time: estatisticas.timeFora.nome,
-                    cotas: cotista.quantidade
-                  });
-                  console.log(`📈 ${cotista.odNome}: +${ycCotista} YC (${cotista.quantidade} cotas ${estatisticas.timeFora.nome})`);
-                }
-              }
-            }
-          } else if (totalCotasFora > 0) {
-            console.log(`⚠️ YC por cota fora (${ycPorCotaFora.toFixed(4)}) < 0.01 - não distribui`);
-          }
-          
-        } catch (e) {
-          console.error("Erro ao distribuir para cotistas:", e);
         }
         
-        // Marcar jogo como premiado
+        // Montar detalhes da premiação
         const premiacaoDetalhes = {
-          totalCreditosPagos: totalCreditosPagos,
-          totalCreditosUsados: totalCreditosUsados,
-          totalPoolYC: totalPoolYC,
-          totalPoolCreditos: totalPoolCreditos,
-          fundoFinalAnoYC: fundoFinalAnoYC,
-          totalRankingYC: totalRankingYC,
-          totalRankingCreditos: totalRankingCreditos,
-          totalCotistasYC: totalCotistasYC,
+          totalPago: totalPool,
+          creditosIniciais: creditosIniciais,
+          totalYC: totalPoolYC,
+          taxaCasa: Math.floor(totalPool * 0.20),
           ranking: premiosRanking,
-          sortudoVencedor,
-          sortudoPopular,
-          cotistas: cotistasPremiados,
+          sortudoVencedor: sortudoVencedor,
+          sortudoPopular: sortudoPopular,
+          fundoFinalAnoYC: fundoFinalAnoYC,
+          totalCotistasYC: totalCotistasYC,
           estatisticas: {
             timeCasa: { nome: estatisticas.timeCasa.nome, pontos: estatisticas.timeCasa.pontos, torcedores: estatisticas.timeCasa.torcedores.length },
             timeFora: { nome: estatisticas.timeFora.nome, pontos: estatisticas.timeFora.pontos, torcedores: estatisticas.timeFora.torcedores.length }
-          }
+          },
+          processadoEm: new Date().toISOString(),
+          processadoPor: 'automatico'
         };
         
-        const jogoRef = db.collection("jogos").doc(jogoId);
-        batch.update(jogoRef, {
+        // Salvar no jogo como premiado
+        await db.collection("jogos").doc(jogoId).update({
           premiado: true,
-          premiacaoData: firebase.firestore.FieldValue.serverTimestamp(),
-          premiacaoDetalhes
+          premiacaoDetalhes: premiacaoDetalhes
         });
         
-        // ===== 🏆 ACUMULAR FUNDO FINAL DE ANO =====
-        if (fundoFinalAnoYC > 0) {
-          const fundoRef = db.collection("bolsa_config").doc("fundo_final_ano");
-          batch.set(fundoRef, {
-            totalAcumulado: firebase.firestore.FieldValue.increment(fundoFinalAnoYC),
-            ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp(),
-            historico: firebase.firestore.FieldValue.arrayUnion({
-              jogoId: jogoId,
-              valor: fundoFinalAnoYC,
-              data: new Date().toISOString()
-            })
-          }, { merge: true });
-          console.log(`🏆 Fundo Final de Ano: +${fundoFinalAnoYC} YC acumulado`);
-        }
-        
-        // ===== 📈 ATUALIZAR PREÇOS DOS TIMES NA BOLSA (SEMPRE EXECUTA) =====
-        try {
-          console.log("📈 Atualizando preços da bolsa...");
-          
-          // Configuração de valorização
-          const VALORIZACAO = {
-            porVitoriaPontuacao: 3,      // +3% se venceu em pontos
-            porVitoriaTorcida: 2,        // +2% se venceu em torcedores
-            porDerrotaPontuacao: -2,     // -2% se perdeu em pontos
-            porDerrotaTorcida: -1.5,     // -1.5% se perdeu em torcedores
-            porJogo: 0.5,                // +0.5% só por jogar
-            porPonto: 0.005,             // +0.005% por ponto feito pela torcida
-            porTorcedor: 0.05,           // +0.05% por torcedor
-            maxVariacao: 15              // Máximo ±15% por jogo
-          };
-          
-          // Buscar métricas atuais dos times
-          const metricaCasaDoc = await db.collection("bolsa_metricas_time").doc(timeCasaId).get();
-          const metricaForaDoc = await db.collection("bolsa_metricas_time").doc(timeForaId).get();
-          
-          const metricaCasa = metricaCasaDoc.exists ? metricaCasaDoc.data() : { precoAlgoritmo: 500, mediaDividendos: 0 };
-          const metricaFora = metricaForaDoc.exists ? metricaForaDoc.data() : { precoAlgoritmo: 500, mediaDividendos: 0 };
-          
-          // Calcular variação para TIME DA CASA
-          let variacaoCasa = VALORIZACAO.porJogo; // Base: jogou = +0.5%
-          variacaoCasa += estatisticas.timeCasa.pontos * VALORIZACAO.porPonto;
-          variacaoCasa += estatisticas.timeCasa.torcedores.length * VALORIZACAO.porTorcedor;
-          
-          if (estatisticas.timeCasa.pontos > estatisticas.timeFora.pontos) {
-            variacaoCasa += VALORIZACAO.porVitoriaPontuacao;
-          } else if (estatisticas.timeCasa.pontos < estatisticas.timeFora.pontos) {
-            variacaoCasa += VALORIZACAO.porDerrotaPontuacao;
-          }
-          
-          if (estatisticas.timeCasa.torcedores.length > estatisticas.timeFora.torcedores.length) {
-            variacaoCasa += VALORIZACAO.porVitoriaTorcida;
-          } else if (estatisticas.timeCasa.torcedores.length < estatisticas.timeFora.torcedores.length) {
-            variacaoCasa += VALORIZACAO.porDerrotaTorcida;
-          }
-          
-          variacaoCasa = Math.max(-VALORIZACAO.maxVariacao, Math.min(VALORIZACAO.maxVariacao, variacaoCasa));
-          
-          // Calcular variação para TIME DE FORA
-          let variacaoFora = VALORIZACAO.porJogo;
-          variacaoFora += estatisticas.timeFora.pontos * VALORIZACAO.porPonto;
-          variacaoFora += estatisticas.timeFora.torcedores.length * VALORIZACAO.porTorcedor;
-          
-          if (estatisticas.timeFora.pontos > estatisticas.timeCasa.pontos) {
-            variacaoFora += VALORIZACAO.porVitoriaPontuacao;
-          } else if (estatisticas.timeFora.pontos < estatisticas.timeCasa.pontos) {
-            variacaoFora += VALORIZACAO.porDerrotaPontuacao;
-          }
-          
-          if (estatisticas.timeFora.torcedores.length > estatisticas.timeCasa.torcedores.length) {
-            variacaoFora += VALORIZACAO.porVitoriaTorcida;
-          } else if (estatisticas.timeFora.torcedores.length < estatisticas.timeCasa.torcedores.length) {
-            variacaoFora += VALORIZACAO.porDerrotaTorcida;
-          }
-          
-          variacaoFora = Math.max(-VALORIZACAO.maxVariacao, Math.min(VALORIZACAO.maxVariacao, variacaoFora));
-          
-          // Calcular novos preços (mínimo 1 cr)
-          const precoFinalCasa = Math.max(1, Math.round(metricaCasa.precoAlgoritmo * (1 + variacaoCasa / 100)));
-          const precoFinalFora = Math.max(1, Math.round(metricaFora.precoAlgoritmo * (1 + variacaoFora / 100)));
-          
-          // Calcular dividendo por cota (YC distribuído / total de cotas)
-          const dividendoPorCotaCasa = totalCotasCasa > 0 ? premioCotasCasaYC / totalCotasCasa : 0;
-          const dividendoPorCotaFora = totalCotasFora > 0 ? premioCotasForaYC / totalCotasFora : 0;
-          
-          // Nova média de dividendos (média móvel 10 jogos)
-          const jogosParaMedia = 10;
-          const novaDividendoMediaCasa = ((metricaCasa.mediaDividendos || 0) * (jogosParaMedia - 1) + dividendoPorCotaCasa) / jogosParaMedia;
-          const novaDividendoMediaFora = ((metricaFora.mediaDividendos || 0) * (jogosParaMedia - 1) + dividendoPorCotaFora) / jogosParaMedia;
-          
-          console.log(`📊 ${estatisticas.timeCasa.nome}: ${metricaCasa.precoAlgoritmo} → ${precoFinalCasa} cr (${variacaoCasa >= 0 ? '+' : ''}${variacaoCasa.toFixed(2)}%)`);
-          console.log(`📊 ${estatisticas.timeFora.nome}: ${metricaFora.precoAlgoritmo} → ${precoFinalFora} cr (${variacaoFora >= 0 ? '+' : ''}${variacaoFora.toFixed(2)}%)`);
-          
-          // Atualizar métricas do time da casa
-          batch.set(db.collection("bolsa_metricas_time").doc(timeCasaId), {
-            timeId: timeCasaId,
-            timeNome: estatisticas.timeCasa.nome,
-            precoAlgoritmo: precoFinalCasa,
-            precoMercado: precoFinalCasa,
-            variacaoDia: variacaoCasa,
-            mediaDividendos: parseFloat(novaDividendoMediaCasa.toFixed(4)),
-            ultimaDividendo: dividendoPorCotaCasa,
-            ultimoJogoId: jogoId,
-            ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge: true });
-          
-          // Atualizar métricas do time de fora
-          batch.set(db.collection("bolsa_metricas_time").doc(timeForaId), {
-            timeId: timeForaId,
-            timeNome: estatisticas.timeFora.nome,
-            precoAlgoritmo: precoFinalFora,
-            precoMercado: precoFinalFora,
-            variacaoDia: variacaoFora,
-            mediaDividendos: parseFloat(novaDividendoMediaFora.toFixed(4)),
-            ultimaDividendo: dividendoPorCotaFora,
-            ultimoJogoId: jogoId,
-            ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge: true });
-          
-          // Registrar dividendos no histórico
-          batch.set(db.collection("bolsa_dividendos").doc(), {
-            jogoId: jogoId,
-            dataJogo: firebase.firestore.FieldValue.serverTimestamp(),
-            times: {
-              [timeCasaId]: {
-                nome: estatisticas.timeCasa.nome,
-                dividendoPorCota: dividendoPorCotaCasa,
-                totalDistribuido: premioCotasCasaYC,
-                totalCotas: totalCotasCasa,
-                pontosTorcida: estatisticas.timeCasa.pontos,
-                numTorcedores: estatisticas.timeCasa.torcedores.length,
-                variacaoPreco: variacaoCasa,
-                precoAnterior: metricaCasa.precoAlgoritmo,
-                precoNovo: precoFinalCasa
-              },
-              [timeForaId]: {
-                nome: estatisticas.timeFora.nome,
-                dividendoPorCota: dividendoPorCotaFora,
-                totalDistribuido: premioCotasForaYC,
-                totalCotas: totalCotasFora,
-                pontosTorcida: estatisticas.timeFora.pontos,
-                numTorcedores: estatisticas.timeFora.torcedores.length,
-                variacaoPreco: variacaoFora,
-                precoAnterior: metricaFora.precoAlgoritmo,
-                precoNovo: precoFinalFora
-              }
-            }
-          });
-          
-          // Adicionar info da bolsa nos detalhes
-          premiacaoDetalhes.bolsa = {
-            timeCasa: { precoAnterior: metricaCasa.precoAlgoritmo, precoNovo: precoFinalCasa, variacao: variacaoCasa, dividendoPorCota: dividendoPorCotaCasa },
-            timeFora: { precoAnterior: metricaFora.precoAlgoritmo, precoNovo: precoFinalFora, variacao: variacaoFora, dividendoPorCota: dividendoPorCotaFora }
-          };
-          
-          console.log("✅ Preços da bolsa atualizados!");
-          
-        } catch (bolsaError) {
-          console.error("❌ Erro ao atualizar preços da bolsa:", bolsaError);
-        }
-        
-        // Executar batch
-        await batch.commit();
-        
+        console.log("🏆 PREMIAÇÃO PROCESSADA COM SUCESSO!");
         premiacaoExecutada = true;
-        console.log("✅ Premiação executada com sucesso!");
         
         // Mostrar resultado
         mostrarResultadoPremiacao(premiacaoDetalhes);
@@ -3696,8 +3585,24 @@
       } catch (error) {
         console.error("❌ Erro na premiação:", error);
         showToast("❌ Erro ao processar premiação");
+        // Marcar como verificado para não ficar tentando
+        premiacaoExecutada = true;
+        mostrarAguardandoPremiacao();
       }
     }
+    
+    // Mostrar mensagem de aguardando premiação
+    function mostrarAguardandoPremiacao() {
+      const btnAnswer = document.getElementById("btnAnswer");
+      if (btnAnswer) {
+        btnAnswer.innerHTML = `<span style="display: flex; align-items: center; gap: 8px;">
+          🏁 Jogo Encerrado
+        </span>`;
+        btnAnswer.disabled = true;
+        btnAnswer.style.background = "linear-gradient(135deg, #95a5a6, #7f8c8d)";
+      }
+    }
+    
     
     // Mostrar resultado da premiação
     function mostrarResultadoPremiacao(detalhes) {
@@ -4198,7 +4103,31 @@
       }, duration);
     }
 
-    console.log("✅ Yellup Game v7.0 - Chat em tempo real + Status por horário!");
+    console.log("✅ Yellup Game v8.0 - Premiação Automática + Chat Bloqueado!");
+  </script>
+
+  <!-- Barra de Compartilhamento -->
+  <div class="share-bar">
+    <span class="share-bar-text">📣 Convide amigos:</span>
+    <a href="#" class="share-btn share-btn-whatsapp" onclick="compartilharWhatsApp()" title="Convidar pelo WhatsApp">
+      <span class="share-btn-icon">📱</span>
+      <span>WhatsApp</span>
+    </a>
+    <a href="https://instagram.com/yellup.app" target="_blank" class="share-btn share-btn-instagram" title="Seguir no Instagram">
+      <span class="share-btn-icon">📸</span>
+      <span>@yellup.app</span>
+    </a>
+  </div>
+
+  <script>
+    // Função para compartilhar no WhatsApp
+    function compartilharWhatsApp() {
+      const jogoInfo = document.getElementById('matchTitle')?.textContent || 'uma partida incrível';
+      const url = window.location.href;
+      const texto = `🎮 Vem jogar comigo no Yellup!\n\n⚽ ${jogoInfo}\n\nResponda perguntas sobre futebol e ganhe prêmios!\n\n👉 ${url}`;
+      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(texto)}`;
+      window.open(whatsappUrl, '_blank');
+    }
   </script>
 
 </body>
