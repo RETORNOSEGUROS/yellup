@@ -2686,37 +2686,24 @@
         const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
         const temGratis = jogadasUsadasNesteJogo < 5;
 
-        // ✅ DEFINIR VARIÁVEIS PARA USO POSTERIOR
-        const creditosBonus = userData.creditosBonus || 0;
-        const creditosPagos = userData.creditosPagos || 0;
-        let usouCreditoPago = false;
-
         const updates = {
           // ✅ GLOBAL: Salvar perguntas por TIME (não por jogo)
           [`perguntasRespondidas_${timeTorcida}`]: firebase.firestore.FieldValue.arrayUnion(currentQuestion.id)
         };
 
+        // ✅ TIMEOUT NÃO DESCONTA CRÉDITOS - apenas registra jogada grátis se ainda tiver
         if (temGratis) {
           updates[`jogadasGratisPorJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
-          console.log(`✅ Usando jogada grátis (${jogadasUsadasNesteJogo + 1}/5) neste jogo`);
+          console.log(`✅ Timeout em jogada grátis (${jogadasUsadasNesteJogo + 1}/5) - sem desconto`);
         } else {
-          // Descontar crédito
-          updates.creditos = firebase.firestore.FieldValue.increment(-1);
-          
-          if (creditosBonus > 0) {
-            updates.creditosBonus = firebase.firestore.FieldValue.increment(-1);
-            console.log(`🎁 Descontando 1 crédito bônus (timeout)`);
-          } else if (creditosPagos > 0) {
-            updates.creditosPagos = firebase.firestore.FieldValue.increment(-1);
-            usouCreditoPago = true;
-            console.log(`💎 Descontando 1 crédito pago (timeout)`);
-          }
+          // ✅ NÃO DESCONTA CRÉDITO - protege usuário de bugs/conexão lenta
+          console.log(`⏰ Timeout - crédito NÃO descontado (proteção ao usuário)`);
         }
 
         await db.collection("usuarios").doc(uid).update(updates);
 
-        // ✅ SALVAR NA SUBCOLEÇÃO DE PARTICIPANTES (timeout = erro)
-        await atualizarParticipante(false, 0, 10, usouCreditoPago);
+        // ✅ SALVAR NA SUBCOLEÇÃO DE PARTICIPANTES (timeout = erro, sem crédito pago)
+        await atualizarParticipante(false, 0, 10, false);
 
         await updateFreePlays();
 
