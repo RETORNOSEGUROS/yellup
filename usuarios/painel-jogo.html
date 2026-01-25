@@ -1968,6 +1968,7 @@
         await loadRanking();       // Carrega ranking
         await carregarPatrocinadores(); // ✅ NOVO: Carrega patrocinadores da partida
         startGameTimer();          // Inicia timer do jogo
+        iniciarAtualizacaoAutomatica(); // ✅ NOVO: Atualiza ranking/stats em tempo real
         
         document.getElementById("loadingScreen").style.display = "none";
         document.getElementById("mainContainer").classList.add("loaded");
@@ -2164,6 +2165,121 @@
           }
         }
       }, 10000); // 10 segundos
+    }
+    
+    // ===================================
+    // 🔄 ATUALIZAÇÃO AUTOMÁTICA EM TEMPO REAL
+    // ===================================
+    let rankingUpdateInterval = null;
+    let statsUpdateInterval = null;
+    
+    function iniciarAtualizacaoAutomatica() {
+      // Limpar intervalos anteriores se existirem
+      if (rankingUpdateInterval) clearInterval(rankingUpdateInterval);
+      if (statsUpdateInterval) clearInterval(statsUpdateInterval);
+      
+      console.log("🔄 Iniciando atualização automática...");
+      
+      // ✅ ATUALIZAR RANKING A CADA 15 SEGUNDOS
+      rankingUpdateInterval = setInterval(async () => {
+        if (jogoStatus === 'ao_vivo') {
+          console.log("🏆 Atualizando ranking automaticamente...");
+          await loadRanking();
+        }
+      }, 15000); // 15 segundos
+      
+      // ✅ ATUALIZAR FORÇA DA TORCIDA E PONTUAÇÃO A CADA 10 SEGUNDOS
+      statsUpdateInterval = setInterval(async () => {
+        if (jogoStatus === 'ao_vivo') {
+          console.log("📊 Atualizando estatísticas automaticamente...");
+          await atualizarForcaTorcida();
+        }
+      }, 10000); // 10 segundos
+    }
+    
+    // ✅ FUNÇÃO PARA ATUALIZAR FORÇA DA TORCIDA EM TEMPO REAL
+    async function atualizarForcaTorcida() {
+      try {
+        // Buscar dados atualizados do jogo
+        const jogoDoc = await db.collection("jogos").doc(jogoId).get();
+        if (!jogoDoc.exists) return;
+        
+        const jogo = jogoDoc.data();
+        
+        // Atualizar contadores de torcedores
+        const torcidaCasa = jogo.torcidaCasaCount || 0;
+        const torcidaFora = jogo.torcidaForaCount || 0;
+        const totalTorcedores = torcidaCasa + torcidaFora;
+        
+        // Calcular percentuais da torcida
+        let percentTorcidaCasa = 50, percentTorcidaFora = 50;
+        if (totalTorcedores > 0) {
+          percentTorcidaCasa = Math.round((torcidaCasa / totalTorcedores) * 100);
+          percentTorcidaFora = 100 - percentTorcidaCasa;
+        }
+        
+        // ✅ Atualizar contadores de torcedores nos cards
+        const teamATorcidaEl = document.getElementById("teamATorcida");
+        const teamBTorcidaEl = document.getElementById("teamBTorcida");
+        
+        if (teamATorcidaEl) teamATorcidaEl.textContent = torcidaCasa;
+        if (teamBTorcidaEl) teamBTorcidaEl.textContent = torcidaFora;
+        
+        // ✅ Atualizar barras de força da torcida
+        const forceTorcidaAEl = document.getElementById("forceTorcidaA");
+        const forceTorcidaBEl = document.getElementById("forceTorcidaB");
+        const forceTorcidaAPercEl = document.getElementById("forceTorcidaAPerc");
+        const forceTorcidaBPercEl = document.getElementById("forceTorcidaBPerc");
+        
+        if (forceTorcidaAEl) forceTorcidaAEl.style.width = `${percentTorcidaCasa}%`;
+        if (forceTorcidaBEl) forceTorcidaBEl.style.width = `${percentTorcidaFora}%`;
+        if (forceTorcidaAPercEl) forceTorcidaAPercEl.textContent = `${percentTorcidaCasa}%`;
+        if (forceTorcidaBPercEl) forceTorcidaBPercEl.textContent = `${percentTorcidaFora}%`;
+        
+        // ✅ BUSCAR PONTUAÇÃO ATUALIZADA DOS TIMES (da subcoleção participantes)
+        const participantesSnap = await db.collection("jogos").doc(jogoId)
+          .collection("participantes").get();
+        
+        let pontosCasa = 0, pontosFora = 0;
+        
+        participantesSnap.forEach(doc => {
+          const p = doc.data();
+          if (p.timeId === timeCasaId) {
+            pontosCasa += p.pontos || 0;
+          } else if (p.timeId === timeForaId) {
+            pontosFora += p.pontos || 0;
+          }
+        });
+        
+        // ✅ Atualizar pontuação nos cards
+        const teamAPontosEl = document.getElementById("teamAPontos");
+        const teamBPontosEl = document.getElementById("teamBPontos");
+        
+        if (teamAPontosEl) teamAPontosEl.textContent = pontosCasa;
+        if (teamBPontosEl) teamBPontosEl.textContent = pontosFora;
+        
+        // ✅ Atualizar barras de pontuação
+        const totalPontos = pontosCasa + pontosFora;
+        let percentPontosCasa = 50, percentPontosFora = 50;
+        
+        if (totalPontos > 0) {
+          percentPontosCasa = Math.round((pontosCasa / totalPontos) * 100);
+          percentPontosFora = 100 - percentPontosCasa;
+        }
+        
+        const forcePontosAEl = document.getElementById("forcePontosA");
+        const forcePontosBEl = document.getElementById("forcePontosB");
+        const forcePontosAPercEl = document.getElementById("forcePontosAPerc");
+        const forcePontosBPercEl = document.getElementById("forcePontosBPerc");
+        
+        if (forcePontosAEl) forcePontosAEl.style.width = `${percentPontosCasa}%`;
+        if (forcePontosBEl) forcePontosBEl.style.width = `${percentPontosFora}%`;
+        if (forcePontosAPercEl) forcePontosAPercEl.textContent = `${percentPontosCasa}%`;
+        if (forcePontosBPercEl) forcePontosBPercEl.textContent = `${percentPontosFora}%`;
+        
+      } catch (error) {
+        console.error("❌ Erro ao atualizar força da torcida:", error);
+      }
     }
     
     // ✅ FUNÇÃO ATUALIZADA: Atualizar botão baseado no status calculado
@@ -4158,7 +4274,7 @@
       window.open(whatsappUrl, '_blank');
     }
 
-    console.log("✅ Yellup Game v8.0 - Premiação Automática + Chat Bloqueado!");
+    console.log("✅ Yellup Game v9.0 - Atualização em Tempo Real!");
   </script>
 
   <!-- Barra de Compartilhamento -->
