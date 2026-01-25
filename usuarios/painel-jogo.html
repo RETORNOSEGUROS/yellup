@@ -3978,16 +3978,19 @@
         ? `<img src="${sponsor.logoUrl}" alt="${sponsor.nome}" class="sponsor-logo-img">`
         : `<div class="sponsor-logo">${sponsor.logo || '🎁'}</div>`;
       
+      // Usar campo 'pontos' se existir, senão usa 'creditos' como fallback
+      const pontosPatrocinador = sponsor.pontos || sponsor.creditos || 10;
+      
       popup.innerHTML = `
         <div class="sponsor-header">📢 Patrocinador da Partida</div>
         ${logoDisplay}
         <div class="sponsor-name">${sponsor.nome}</div>
         ${sponsor.descricao ? `<div class="sponsor-desc">${sponsor.descricao}</div>` : ''}
         <div class="sponsor-reward">
-          🎁 Visite o site e ganhe <strong>${sponsor.creditos}</strong> crédito${sponsor.creditos > 1 ? 's' : ''}!
+          🏆 Visite o site e ganhe <strong>+${pontosPatrocinador}</strong> ponto${pontosPatrocinador > 1 ? 's' : ''} na partida!
         </div>
         <button class="sponsor-btn" onclick="resgatarPatrocinador()">
-          🌐 Visitar e Resgatar
+          🌐 Visitar e Ganhar Pontos
         </button>
         <button class="sponsor-skip" onclick="fecharPatrocinador()">
           Pular desta vez
@@ -4014,11 +4017,12 @@
       }, 15000);
     }
     
-    // Resgatar patrocinador (abre site + credita pontos)
+    // Resgatar patrocinador (abre site + dá PONTOS na partida)
     async function resgatarPatrocinador() {
       if (!patrocinadorPendente) return;
       
       const sponsor = patrocinadorPendente;
+      const pontosGanhos = sponsor.pontos || sponsor.creditos || 10;
       
       try {
         // Abrir site do patrocinador em nova aba
@@ -4026,25 +4030,43 @@
           window.open(sponsor.url, '_blank');
         }
         
-        // Creditar pontos ao usuário
+        // ✅ DAR PONTOS NA PARTIDA (não créditos)
         await db.collection('usuarios').doc(uid).update({
-          creditos: firebase.firestore.FieldValue.increment(sponsor.creditos),
+          // Pontos na partida
+          [`pontuacoes.${jogoId}`]: firebase.firestore.FieldValue.increment(pontosGanhos),
+          // XP global
+          xp: firebase.firestore.FieldValue.increment(pontosGanhos),
           // Salvar histórico de patrocinadores resgatados
           [`patrocinadoresResgatados.${jogoId}`]: firebase.firestore.FieldValue.arrayUnion({
             nome: sponsor.nome,
-            creditos: sponsor.creditos,
+            pontos: pontosGanhos,
             timestamp: new Date().toISOString()
           }),
           // Avançar para próximo patrocinador
           [`patrocinadorIndex.${jogoId}`]: (patrocinadorAtualIndex + 1) % patrocinadoresJogo.length
         });
         
+        // ✅ ATUALIZAR SUBCOLEÇÃO DE PARTICIPANTES
+        const participanteRef = db.collection("jogos").doc(jogoId)
+          .collection("participantes").doc(uid);
+        
+        const participanteDoc = await participanteRef.get();
+        if (participanteDoc.exists) {
+          await participanteRef.update({
+            pontos: firebase.firestore.FieldValue.increment(pontosGanhos),
+            atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+        
         // Avançar índice local
         patrocinadorAtualIndex = (patrocinadorAtualIndex + 1) % patrocinadoresJogo.length;
         
-        showToast(`🎁 +${sponsor.creditos} crédito${sponsor.creditos > 1 ? 's' : ''} de ${sponsor.nome}!`);
+        showToast(`🏆 +${pontosGanhos} ponto${pontosGanhos > 1 ? 's' : ''} de ${sponsor.nome}!`);
         fecharPatrocinador();
-        updateFreePlays();
+        
+        // ✅ ATUALIZAR RANKING E STATS
+        await updateStats();
+        await loadRanking();
         
       } catch (e) {
         console.error("Erro ao resgatar patrocinador:", e);
@@ -4120,11 +4142,27 @@
   </div>
 
   <script>
-    // Função para compartilhar no WhatsApp
+    // Função para compartilhar no WhatsApp com código de indicação
     function compartilharWhatsApp() {
       const jogoInfo = document.getElementById('matchTitle')?.textContent || 'uma partida incrível';
-      const url = window.location.href;
-      const texto = `🎮 Vem jogar comigo no Yellup!\n\n⚽ ${jogoInfo}\n\nResponda perguntas sobre futebol e ganhe prêmios!\n\n👉 ${url}`;
+      const urlJogo = window.location.href;
+      
+      // Pegar apelido do usuário para link de indicação
+      let linkIndicacao = '';
+      if (typeof cachedUserData !== 'undefined' && cachedUserData) {
+        const meuApelido = cachedUserData.usuarioUnico || cachedUserData.usuario;
+        if (meuApelido) {
+          linkIndicacao = `${window.location.origin}/usuarios/cadastro.html?ref=${meuApelido}`;
+        }
+      }
+      
+      let texto;
+      if (linkIndicacao) {
+        texto = `🎮 Vem jogar comigo no Yellup!\n\n⚽ ${jogoInfo}\n\n🆕 Ainda não tem conta? Cadastre-se e ganhe 20 créditos:\n👉 ${linkIndicacao}\n\n✅ Já tem conta? Entre direto no jogo:\n👉 ${urlJogo}`;
+      } else {
+        texto = `🎮 Vem jogar comigo no Yellup!\n\n⚽ ${jogoInfo}\n\nResponda perguntas sobre futebol e ganhe prêmios!\n\n👉 ${urlJogo}`;
+      }
+      
       const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(texto)}`;
       window.open(whatsappUrl, '_blank');
     }
