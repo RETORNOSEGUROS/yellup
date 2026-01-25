@@ -2686,6 +2686,11 @@
         const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
         const temGratis = jogadasUsadasNesteJogo < 5;
 
+        // ✅ DEFINIR VARIÁVEIS PARA USO POSTERIOR
+        const creditosBonus = userData.creditosBonus || 0;
+        const creditosPagos = userData.creditosPagos || 0;
+        let usouCreditoPago = false;
+
         const updates = {
           // ✅ GLOBAL: Salvar perguntas por TIME (não por jogo)
           [`perguntasRespondidas_${timeTorcida}`]: firebase.firestore.FieldValue.arrayUnion(currentQuestion.id)
@@ -2695,14 +2700,23 @@
           updates[`jogadasGratisPorJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
           console.log(`✅ Usando jogada grátis (${jogadasUsadasNesteJogo + 1}/5) neste jogo`);
         } else {
+          // Descontar crédito
           updates.creditos = firebase.firestore.FieldValue.increment(-1);
-          console.log(`💎 Descontando 1 crédito pago`);
+          
+          if (creditosBonus > 0) {
+            updates.creditosBonus = firebase.firestore.FieldValue.increment(-1);
+            console.log(`🎁 Descontando 1 crédito bônus (timeout)`);
+          } else if (creditosPagos > 0) {
+            updates.creditosPagos = firebase.firestore.FieldValue.increment(-1);
+            usouCreditoPago = true;
+            console.log(`💎 Descontando 1 crédito pago (timeout)`);
+          }
         }
 
         await db.collection("usuarios").doc(uid).update(updates);
 
         // ✅ SALVAR NA SUBCOLEÇÃO DE PARTICIPANTES (timeout = erro)
-        await atualizarParticipante(false, 0, 10, !temGratis);
+        await atualizarParticipante(false, 0, 10, usouCreditoPago);
 
         await updateFreePlays();
 
@@ -2797,13 +2811,16 @@
           [`perguntasRespondidas_${timeTorcida}`]: firebase.firestore.FieldValue.arrayUnion(currentQuestion.id)
         };
 
+        // ✅ DEFINIR VARIÁVEIS FORA DO IF PARA USO POSTERIOR
+        const creditosBonus = userData.creditosBonus || 0;
+        const creditosPagos = userData.creditosPagos || 0;
+        let usouCreditoPago = false;
+
         if (temGratis) {
           updates[`jogadasGratisPorJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
           console.log(`✅ Usando jogada grátis (${jogadasUsadasNesteJogo + 1}/5) neste jogo`);
         } else {
           // ✅ SISTEMA DE CRÉDITOS SEPARADOS (Bônus vs Pagos)
-          const creditosBonus = userData.creditosBonus || 0;
-          const creditosPagos = userData.creditosPagos || 0;
           const creditosTotal = userData.creditos || 0;
           
           if (creditosTotal > 0) {
@@ -2818,6 +2835,7 @@
               // Não tem bônus? Desconta do pago (ENTRA no pool)
               updates.creditosPagos = firebase.firestore.FieldValue.increment(-1);
               updates[`creditosPagosJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
+              usouCreditoPago = true; // ✅ Marcar que usou crédito pago
               console.log(`💎 Descontando 1 crédito pago (${creditosPagos - 1} restantes) → Entra no pool!`);
               
               // ✅ Contabilizar no pool do jogo (só créditos pagos)
@@ -2843,7 +2861,6 @@
         await db.collection("usuarios").doc(uid).update(updates);
 
         // ✅ SALVAR NA SUBCOLEÇÃO DE PARTICIPANTES (para premiação automática)
-        const usouCreditoPago = !temGratis && creditosPagos > 0 && creditosBonus <= 0;
         await atualizarParticipante(acertou, pontosFinais, tempoResposta, usouCreditoPago);
 
         // Atualizar interface
