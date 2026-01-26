@@ -2928,12 +2928,21 @@
             // Desconta 1 crédito do usuário
             updates.creditos = firebase.firestore.FieldValue.increment(-1);
             
-            // ✅ ENTRA NO POOL DO JOGO (para premiação)
-            await db.collection("jogos").doc(jogoId).update({
-              poolCreditos: firebase.firestore.FieldValue.increment(1)
-            });
-            
-            console.log(`💎 Descontando 1 crédito (${creditosTotal - 1} restantes) → Entra no pool!`);
+            // ✅ ENTRA NO POOL DO JOGO (para premiação) - não bloqueia se falhar
+            try {
+              await db.collection("jogos").doc(jogoId).update({
+                poolCreditos: firebase.firestore.FieldValue.increment(1)
+              });
+              console.log(`💎 Descontando 1 crédito (${creditosTotal - 1} restantes) → Entra no pool!`);
+            } catch (poolError) {
+              console.error("⚠️ Erro ao atualizar pool (não crítico):", poolError);
+              // Continua mesmo se falhar - o importante é descontar do usuário
+            }
+          } else {
+            // Sem créditos - não deveria chegar aqui, mas por segurança
+            console.error("❌ Tentou responder sem créditos!");
+            alert("❌ Você não tem créditos disponíveis!");
+            return;
           }
         }
 
