@@ -4231,9 +4231,12 @@
         const jogoDoc = await db.collection("jogos").doc(jogoId).get();
         const jogo = jogoDoc.data();
         
+        console.log("📢 Dados do jogo:", jogo);
+        console.log("📢 Patrocinadores no jogo:", jogo.patrocinadores);
+        
         if (jogo.patrocinadores && jogo.patrocinadores.length > 0) {
           patrocinadoresJogo = jogo.patrocinadores;
-          console.log(`📢 ${patrocinadoresJogo.length} patrocinadores carregados`);
+          console.log(`📢 ${patrocinadoresJogo.length} patrocinadores carregados:`, patrocinadoresJogo.map(p => p.nome));
         } else {
           console.log("📢 Nenhum patrocinador cadastrado para esta partida");
           patrocinadoresJogo = [];
@@ -4244,6 +4247,8 @@
         const userData = userDoc.data() || {};
         patrocinadorAtualIndex = userData.patrocinadorIndex?.[jogoId] || 0;
         contadorRespostas = userData.contadorRespostas?.[jogoId] || 0;
+        
+        console.log(`📢 Índice atual: ${patrocinadorAtualIndex}, Contador respostas: ${contadorRespostas}`);
         
       } catch (error) {
         console.error("❌ Erro ao carregar patrocinadores:", error);
@@ -4268,16 +4273,20 @@
     
     // Mostrar patrocinador atual
     function mostrarPatrocinador() {
+      console.log(`📢 mostrarPatrocinador() - patrocinadoresJogo.length: ${patrocinadoresJogo.length}, índice: ${patrocinadorAtualIndex}`);
+      
       if (patrocinadoresJogo.length === 0) {
         console.log("📢 Nenhum patrocinador disponível");
         return;
       }
       
       // Pegar patrocinador atual (ciclo)
-      const sponsor = patrocinadoresJogo[patrocinadorAtualIndex % patrocinadoresJogo.length];
+      const indexReal = patrocinadorAtualIndex % patrocinadoresJogo.length;
+      const sponsor = patrocinadoresJogo[indexReal];
       patrocinadorPendente = sponsor;
       
-      console.log(`📢 Mostrando patrocinador: ${sponsor.nome} (${patrocinadorAtualIndex + 1}/${patrocinadoresJogo.length})`);
+      console.log(`📢 Mostrando patrocinador [${indexReal}]: ${sponsor.nome} (${patrocinadorAtualIndex + 1}/${patrocinadoresJogo.length})`);
+      console.log(`📢 Todos patrocinadores:`, patrocinadoresJogo.map((p, i) => `${i}: ${p.nome}`));
       
       // Remover popup anterior se existir
       const existingPopup = document.getElementById('sponsorPopup');
@@ -4377,7 +4386,7 @@
         patrocinadorAtualIndex = (patrocinadorAtualIndex + 1) % patrocinadoresJogo.length;
         
         showToast(`🏆 +${pontosGanhos} ponto${pontosGanhos > 1 ? 's' : ''} de ${sponsor.nome}!`);
-        fecharPatrocinador();
+        fecharPatrocinador(true); // true = já incrementou, não incrementar novamente
         
         // ✅ ATUALIZAR RANKING E STATS
         await updateStats();
@@ -4389,7 +4398,7 @@
       }
     }
 
-    function fecharPatrocinador() {
+    function fecharPatrocinador(jaIncrementou = false) {
       if (sponsorTimeout) {
         clearTimeout(sponsorTimeout);
         sponsorTimeout = null;
@@ -4398,13 +4407,20 @@
       if (popup) popup.remove();
       patrocinadorPendente = null;
       
-      // Avançar para próximo patrocinador mesmo pulando
-      patrocinadorAtualIndex = (patrocinadorAtualIndex + 1) % Math.max(1, patrocinadoresJogo.length);
-      
-      // Salvar índice
-      db.collection("usuarios").doc(uid).update({
-        [`patrocinadorIndex.${jogoId}`]: patrocinadorAtualIndex
-      }).catch(e => console.error("Erro ao salvar índice:", e));
+      // Só avança se NÃO foi incrementado antes (ex: ao pular ou timeout)
+      if (!jaIncrementou) {
+        const antigoIndex = patrocinadorAtualIndex;
+        patrocinadorAtualIndex = (patrocinadorAtualIndex + 1) % Math.max(1, patrocinadoresJogo.length);
+        
+        console.log(`📢 fecharPatrocinador() - Índice: ${antigoIndex} → ${patrocinadorAtualIndex} (total: ${patrocinadoresJogo.length})`);
+        
+        // Salvar índice
+        db.collection("usuarios").doc(uid).update({
+          [`patrocinadorIndex.${jogoId}`]: patrocinadorAtualIndex
+        }).catch(e => console.error("Erro ao salvar índice:", e));
+      } else {
+        console.log(`📢 fecharPatrocinador() - Índice já foi incrementado, não incrementa novamente`);
+      }
     }
     
     // ✅ FUNÇÃO TOAST - Mensagens temporárias
