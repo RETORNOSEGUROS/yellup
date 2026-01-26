@@ -2371,6 +2371,22 @@
         perguntasRespondidas = user[`perguntasRespondidas_${timeTorcida}`] || [];
         console.log("📝 Perguntas já respondidas deste time (GLOBAL):", perguntasRespondidas.length);
 
+        // ✅ NOVO: Carregar acertos/erros e conquistas do jogo atual
+        // Para não mostrar "Primeiro Gol" toda vez que atualiza
+        const participanteDoc = await db.collection("jogos").doc(jogoId)
+          .collection("participantes").doc(uid).get();
+        
+        if (participanteDoc.exists) {
+          const participante = participanteDoc.data();
+          totalAcertos = participante.acertos || 0;
+          totalErros = participante.erros || 0;
+          console.log(`📊 Acertos/Erros carregados: ${totalAcertos}/${totalErros}`);
+        }
+        
+        // Carregar conquistas já desbloqueadas neste jogo
+        conquistasDesbloqueadas = user[`conquistas_${jogoId}`] || [];
+        console.log(`🏅 Conquistas já desbloqueadas: ${conquistasDesbloqueadas.length}`);
+
         await updateFreePlays();
 
       } catch (error) {
@@ -2567,17 +2583,35 @@
       try {
         const btnAnswer = document.getElementById("btnAnswer");
         
-        // ✅ Recalcular status antes de verificar (caso tenha mudado)
-        calcularStatusDoJogo();
+        // ✅ VERIFICAR STATUS DO JOGO NO FIREBASE (em tempo real)
+        const jogoDoc = await db.collection("jogos").doc(jogoId).get();
+        const jogoAtual = jogoDoc.data();
+        
+        // Recalcular status baseado nos dados atuais
+        const agora = new Date();
+        const inicio = jogoAtual.dataHora?.toDate?.() || new Date(jogoAtual.dataHora);
+        const fimJogo = jogoAtual.fimJogo?.toDate?.() || (jogoAtual.fimJogo ? new Date(jogoAtual.fimJogo) : null);
+        
+        let statusAtual = 'agendado';
+        if (fimJogo && agora >= fimJogo) {
+          statusAtual = 'finalizado';
+        } else if (agora >= inicio) {
+          statusAtual = 'ao_vivo';
+        }
+        
+        // Atualizar variável global
+        jogoStatus = statusAtual;
         
         // ✅ Verificar se o jogo está ao vivo
         if (jogoStatus !== 'ao_vivo') {
           if (jogoStatus === 'agendado') {
-            const agora = new Date();
-            const diffMin = Math.ceil((jogoDataInicio - agora) / 60000);
+            const diffMin = Math.ceil((inicio - agora) / 60000);
             alert(`⏳ O jogo ainda não começou!\n\nComeça em ${diffMin} minutos.\nAguarde o horário de início.`);
           } else if (jogoStatus === 'finalizado') {
             alert("🏁 Este jogo já foi finalizado!\n\nVeja o ranking final e aguarde a próxima partida.");
+            // Atualizar interface para estado finalizado
+            atualizarBotaoBaseadoNoStatus();
+            await loadRanking(); // Recarregar ranking para mostrar resultado
           }
           atualizarBotaoBaseadoNoStatus();
           return;
@@ -3827,39 +3861,53 @@
           }
         }
         
-        // Sortudo Popular (time com mais torcedores)
+        // Sortudo Popular (time com mais torcedores, ou outro time se não tiver candidatos)
         let sortudoPopular = null;
         const timePopular = estatisticas.timeCasa.torcedores.length > estatisticas.timeFora.torcedores.length ? 'timeCasa' : 
                             estatisticas.timeFora.torcedores.length > estatisticas.timeCasa.torcedores.length ? 'timeFora' : 
                             (Math.random() > 0.5 ? 'timeCasa' : 'timeFora');
+        const timeAlternativo = timePopular === 'timeCasa' ? 'timeFora' : 'timeCasa';
         
-        if (estatisticas[timePopular].torcedores.length > 0) {
-          let torcedoresPopular = estatisticas[timePopular].torcedores;
+        // Tentar primeiro no time popular
+        let torcedoresPopular = [...estatisticas[timePopular].torcedores];
+        let timeEscolhido = timePopular;
+        
+        // Remover o sortudo vencedor da lista (se existir)
+        if (sortudoVencedor) {
+          torcedoresPopular = torcedoresPopular.filter(t => t.odId !== sortudoVencedor.odId);
+        }
+        
+        // Se não sobrou ninguém, tentar no time alternativo
+        if (torcedoresPopular.length === 0 && estatisticas[timeAlternativo].torcedores.length > 0) {
+          torcedoresPopular = [...estatisticas[timeAlternativo].torcedores];
+          timeEscolhido = timeAlternativo;
           
-          // Remover o sortudo vencedor da lista (se existir)
+          // Remover sortudo vencedor também do alternativo
           if (sortudoVencedor) {
             torcedoresPopular = torcedoresPopular.filter(t => t.odId !== sortudoVencedor.odId);
           }
+        }
+        
+        if (torcedoresPopular.length > 0) {
+          const sorteadoPopular = torcedoresPopular[Math.floor(Math.random() * torcedoresPopular.length)];
           
-          if (torcedoresPopular.length > 0) {
-            const sorteadoPopular = torcedoresPopular[Math.floor(Math.random() * torcedoresPopular.length)];
-            
-            sortudoPopular = {
-              odId: sorteadoPopular.odId,
-              nome: sorteadoPopular.nome,
-              time: estatisticas[timePopular].nome,
-              creditos: creditosSortudoPopular
-            };
-            
-            try {
-              await db.collection('usuarios').doc(sorteadoPopular.odId).update({
-                creditos: firebase.firestore.FieldValue.increment(creditosSortudoPopular)
-              });
-              console.log(`🍀 Sortudo Popular: ${sorteadoPopular.nome} +${creditosSortudoPopular} créditos`);
-            } catch (e) {
-              console.error("❌ Erro ao premiar sortudo popular:", e);
-            }
+          sortudoPopular = {
+            odId: sorteadoPopular.odId,
+            nome: sorteadoPopular.nome,
+            time: estatisticas[timeEscolhido].nome,
+            creditos: creditosSortudoPopular
+          };
+          
+          try {
+            await db.collection('usuarios').doc(sorteadoPopular.odId).update({
+              creditos: firebase.firestore.FieldValue.increment(creditosSortudoPopular)
+            });
+            console.log(`🍀 Sortudo Popular: ${sorteadoPopular.nome} +${creditosSortudoPopular} créditos`);
+          } catch (e) {
+            console.error("❌ Erro ao premiar sortudo popular:", e);
           }
+        } else {
+          console.log(`⚠️ Sortudo Popular: Não há candidatos (mesma pessoa ganhou vencedor e era única)`);
         }
         
         // ============================================
@@ -4169,31 +4217,43 @@
       if (totalAcertos === 1 && !conquistasDesbloqueadas.includes('primeiroAcerto')) {
         mostrarConquista(CONQUISTAS.primeiroAcerto);
         conquistasDesbloqueadas.push('primeiroAcerto');
+        salvarConquistas();
       }
 
       // Streak 3
       if (streak === 3 && !conquistasDesbloqueadas.includes('streak3')) {
         mostrarConquista(CONQUISTAS.streak3);
         conquistasDesbloqueadas.push('streak3');
+        salvarConquistas();
       }
 
       // Streak 5
       if (streak === 5 && !conquistasDesbloqueadas.includes('streak5')) {
         mostrarConquista(CONQUISTAS.streak5);
         conquistasDesbloqueadas.push('streak5');
+        salvarConquistas();
       }
 
       // Streak 10
       if (streak === 10 && !conquistasDesbloqueadas.includes('streak10')) {
         mostrarConquista(CONQUISTAS.streak10);
         conquistasDesbloqueadas.push('streak10');
+        salvarConquistas();
       }
 
       // 10 acertos sem errar
       if (totalAcertos >= 10 && totalErros === 0 && !conquistasDesbloqueadas.includes('perfeito')) {
         mostrarConquista(CONQUISTAS.perfeito);
         conquistasDesbloqueadas.push('perfeito');
+        salvarConquistas();
       }
+    }
+    
+    // ✅ NOVO: Salvar conquistas no Firebase
+    function salvarConquistas() {
+      db.collection("usuarios").doc(uid).update({
+        [`conquistas_${jogoId}`]: conquistasDesbloqueadas
+      }).catch(e => console.error("Erro ao salvar conquistas:", e));
     }
 
     // ===================================
