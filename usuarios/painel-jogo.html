@@ -2917,43 +2917,23 @@
           [`perguntasRespondidas_${timeTorcida}`]: firebase.firestore.FieldValue.arrayUnion(currentQuestion.id)
         };
 
-        // ✅ DEFINIR VARIÁVEIS FORA DO IF PARA USO POSTERIOR
-        const creditosBonus = userData.creditosBonus || 0;
-        const creditosPagos = userData.creditosPagos || 0;
-        let usouCreditoPago = false;
-
         if (temGratis) {
           updates[`jogadasGratisPorJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
           console.log(`✅ Usando jogada grátis (${jogadasUsadasNesteJogo + 1}/5) neste jogo`);
         } else {
-          // ✅ SISTEMA DE CRÉDITOS SEPARADOS (Bônus vs Pagos)
+          // ✅ SISTEMA SIMPLIFICADO - Todo crédito é igual
           const creditosTotal = userData.creditos || 0;
           
           if (creditosTotal > 0) {
-            // Sempre desconta do total visível
+            // Desconta 1 crédito do usuário
             updates.creditos = firebase.firestore.FieldValue.increment(-1);
             
-            // ✅ TODO CRÉDITO ENTRA NO POOL DE CRÉDITOS (para premiação)
+            // ✅ ENTRA NO POOL DO JOGO (para premiação)
             await db.collection("jogos").doc(jogoId).update({
               poolCreditos: firebase.firestore.FieldValue.increment(1)
             });
             
-            if (creditosBonus > 0) {
-              // Tem bônus? Desconta do bônus
-              updates.creditosBonus = firebase.firestore.FieldValue.increment(-1);
-              console.log(`🎁 Descontando 1 crédito bônus (${creditosBonus - 1} restantes) → Entra no pool de créditos!`);
-            } else if (creditosPagos > 0) {
-              // Não tem bônus? Desconta do pago
-              updates.creditosPagos = firebase.firestore.FieldValue.increment(-1);
-              updates[`creditosPagosJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
-              usouCreditoPago = true;
-              console.log(`💎 Descontando 1 crédito pago (${creditosPagos - 1} restantes) → Entra no pool de créditos + YC!`);
-              
-              // ✅ SÓ CRÉDITOS PAGOS GERAM YC (pool separado)
-              await db.collection("jogos").doc(jogoId).update({
-                poolCreditosPagos: firebase.firestore.FieldValue.increment(1)
-              });
-            }
+            console.log(`💎 Descontando 1 crédito (${creditosTotal - 1} restantes) → Entra no pool!`);
           }
         }
 
@@ -2972,7 +2952,7 @@
         await db.collection("usuarios").doc(uid).update(updates);
 
         // ✅ SALVAR NA SUBCOLEÇÃO DE PARTICIPANTES (para premiação automática)
-        await atualizarParticipante(acertou, pontosFinais, tempoResposta, usouCreditoPago);
+        await atualizarParticipante(acertou, pontosFinais, tempoResposta);
 
         // Atualizar interface
         await updateFreePlays();
@@ -2999,7 +2979,7 @@
     // ===================================
     // 📊 ATUALIZAR PARTICIPANTE NA SUBCOLEÇÃO
     // ===================================
-    async function atualizarParticipante(acertou, pontosGanhos, tempoResposta, usouCreditoPago) {
+    async function atualizarParticipante(acertou, pontosGanhos, tempoResposta) {
       try {
         const participanteRef = db.collection("jogos").doc(jogoId)
           .collection("participantes").doc(uid);
@@ -3019,10 +2999,6 @@
             updates.tempoQuantidade = firebase.firestore.FieldValue.increment(1);
           } else {
             updates.erros = firebase.firestore.FieldValue.increment(1);
-          }
-          
-          if (usouCreditoPago) {
-            updates.creditosPagos = firebase.firestore.FieldValue.increment(1);
           }
           
           await participanteRef.update(updates);
@@ -3050,7 +3026,6 @@
             tempoMedio: acertou ? tempoResposta : 0,
             timeId: timeTorcida,
             timeNome: timeNome,
-            creditosPagos: usouCreditoPago ? 1 : 0,
             acertos: acertou ? 1 : 0,
             erros: acertou ? 0 : 1,
             criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
@@ -3274,19 +3249,17 @@
     const SOMA_PESOS = PESOS_RANKING.reduce((a, b) => a + b, 0); // 34.75
     
     // Variáveis globais para estatísticas do jogo
-    let totalCreditosPagosJogo = 0;  // Pool total de créditos (bônus + pagos)
-    let totalCreditosPagosRealJogo = 0;  // Só créditos pagos (para YC)
+    let totalCreditosPagosJogo = 0;  // Pool total de créditos
     let estatisticasTimes = { casa: { pontos: 0, torcedores: 0 }, fora: { pontos: 0, torcedores: 0 } };
     
     async function loadRanking() {
       try {
-        // ✅ BUSCAR POOLS DO DOCUMENTO DO JOGO
+        // ✅ BUSCAR POOL DE CRÉDITOS DO DOCUMENTO DO JOGO
         const jogoDoc = await db.collection("jogos").doc(jogoId).get();
         const jogoData = jogoDoc.data() || {};
-        totalCreditosPagosJogo = jogoData.poolCreditos || 0;  // Total (bônus + pagos)
-        totalCreditosPagosRealJogo = jogoData.poolCreditosPagos || 0;  // Só pagos (para YC)
+        totalCreditosPagosJogo = jogoData.poolCreditos || 0;
         
-        console.log(`💰 Pool de créditos: ${totalCreditosPagosJogo} (${totalCreditosPagosRealJogo} pagos geram YC)`);
+        console.log(`💰 Pool de créditos: ${totalCreditosPagosJogo}`);
         
         const usuarios = await db.collection("usuarios").get();
         const ranking = [];
@@ -3400,16 +3373,22 @@
     
     // Calcular créditos estimados para cada posição
     function calcularCreditosEstimados(totalParticipantes) {
-      // ✅ MESMA LÓGICA DA PREMIAÇÃO REAL
-      // Taxa Yellup: 5%, Ranking: 80%, Sortudos: 15%
+      // ✅ NOVA DISTRIBUIÇÃO: 60% ranking, 25% cotistas, 15% sortudos
       const totalPool = totalCreditosPagosJogo + (jogoCreditosIniciais || 0);
       
       if (totalPool <= 0 || totalParticipantes <= 0) {
         return []; // Sem créditos ou participantes
       }
       
-      // 80% do pool vai para o ranking
-      const totalRanking = Math.floor(totalPool * 0.80);
+      // Função de arredondamento: >= 0.5 arredonda para cima, mínimo 1
+      function arredondar(valor) {
+        if (valor <= 0) return 0;
+        const arredondado = valor % 1 >= 0.5 ? Math.ceil(valor) : Math.floor(valor);
+        return Math.max(1, arredondado);
+      }
+      
+      // 60% do pool vai para o ranking
+      const totalRanking = arredondar(totalPool * 0.60);
       
       // Percentuais fixos para top 10
       const PERCENTUAIS_RANKING = [30, 20, 15, 10, 7, 5, 4, 3, 3, 3];
@@ -3424,18 +3403,18 @@
         const somaPercentuais = percentuaisAjustados.reduce((a, b) => a + b, 0);
         
         for (let i = 0; i < numParticipantes; i++) {
-          const valor = Math.round(totalRanking * percentuaisAjustados[i] / somaPercentuais);
+          const valor = arredondar(totalRanking * percentuaisAjustados[i] / somaPercentuais);
           creditos.push(valor);
           distribuido += valor;
         }
       } else {
         // Muitos participantes: top 10 com percentuais fixos
-        const creditosTop10 = Math.floor(totalRanking * 0.70);
+        const creditosTop10 = arredondar(totalRanking * 0.70);
         const creditosRestante = totalRanking - creditosTop10;
         
         // Top 10
         for (let i = 0; i < 10; i++) {
-          const valor = Math.round(creditosTop10 * PERCENTUAIS_RANKING[i] / 100);
+          const valor = arredondar(creditosTop10 * PERCENTUAIS_RANKING[i] / 100);
           creditos.push(valor);
           distribuido += valor;
         }
@@ -3445,7 +3424,7 @@
         for (let i = 10; i < numParticipantes; i++) {
           const peso = Math.max(1, restantes - (i - 10));
           const somaRestante = (restantes * (restantes + 1)) / 2;
-          const valor = Math.max(1, Math.round(creditosRestante * peso / somaRestante));
+          const valor = arredondar(creditosRestante * peso / somaRestante);
           creditos.push(valor);
           distribuido += valor;
         }
@@ -3522,12 +3501,9 @@
           return;
         }
         
-        // ✅ DOIS POOLS SEPARADOS:
-        // - poolCreditos: total (bônus + pagos) → para distribuir CRÉDITOS
-        // - poolCreditosPagos: só pagos → para calcular YC
+        // ✅ POOL ÚNICO DE CRÉDITOS (simplificado)
         const poolCreditos = jogoData.poolCreditos || 0;
-        const poolCreditosPagos = jogoData.poolCreditosPagos || 0;
-        console.log(`💰 Pool de créditos: ${poolCreditos} (${poolCreditosPagos} pagos geram YC)`);
+        console.log(`💰 Pool de créditos: ${poolCreditos}`);
         
         // Montar array de participantes
         const participantes = [];
@@ -3540,7 +3516,6 @@
         participantesSnap.forEach(doc => {
           const p = doc.data();
           const pontos = p.pontos || 0;
-          const creditosPagos = p.creditosPagos || 0;
           
           // Calcular tempo médio
           let tempoMedio = 10;
@@ -3554,8 +3529,7 @@
             pontos: pontos,
             tempoMedio: tempoMedio,
             timeId: p.timeId,
-            timeNome: p.timeNome,
-            creditosPagos: creditosPagos
+            timeNome: p.timeNome
           });
           
           // Estatísticas por time
@@ -3574,41 +3548,35 @@
           return a.tempoMedio - b.tempoMedio;
         });
         
-        // ✅ CALCULAR POOLS SEPARADOS
+        // ✅ POOL TOTAL DE CRÉDITOS (para premiação)
         const creditosIniciais = jogoData.creditosIniciais || 0;
-        
-        // Pool de CRÉDITOS: bônus + pagos + admin (para premiação em créditos)
         const totalPoolCreditos = poolCreditos + creditosIniciais;
         
-        // Pool de YC: só créditos PAGOS geram YC (invisível, só no final)
-        const YC_POR_CREDITO = 2;
-        const totalPoolYC = poolCreditosPagos * YC_POR_CREDITO;
-        
         console.log(`💰 Pool CRÉDITOS: ${totalPoolCreditos} (${poolCreditos} gastos + ${creditosIniciais} admin)`);
-        console.log(`💎 Pool YC: ${totalPoolYC} (${poolCreditosPagos} pagos × ${YC_POR_CREDITO})`);
         
-        // Distribuição YC: 5% fundo, 50% ranking, 10% sortudo vencedor, 5% sortudo popular, 30% cotistas
-        const fundoFinalAnoYC = parseFloat((totalPoolYC * 0.05).toFixed(4));
-        const totalRankingYC = parseFloat((totalPoolYC * 0.50).toFixed(4));
-        const totalSortudoVencedorYC = parseFloat((totalPoolYC * 0.10).toFixed(4));
-        const totalSortudoPopularYC = parseFloat((totalPoolYC * 0.05).toFixed(4));
-        const totalCotistasYC = parseFloat((totalPoolYC * 0.30).toFixed(4));
+        // ============================================
+        // ✅ NOVA DISTRIBUIÇÃO SIMPLIFICADA (só créditos)
+        // - 60% Ranking (top 100)
+        // - 25% Cotistas (proporcional aos pontos)
+        // - 15% Sortudos
+        // ============================================
         
-        // ✅ DISTRIBUIÇÃO CORRETA DE CRÉDITOS:
-        // - Taxa Yellup: 5%
-        // - Ranking: 80%
-        // - Sortudos: 15%
-        // = 100%
-        const taxaYellup = Math.floor(totalPoolCreditos * 0.05);
-        const totalRankingCreditos = Math.floor(totalPoolCreditos * 0.80);
-        const totalSortudoCreditos = Math.floor(totalPoolCreditos * 0.15);
-        const creditosSortudoVencedor = Math.floor(totalSortudoCreditos * 0.67);
+        // Função de arredondamento: >= 0.5 arredonda para cima, mínimo 1
+        function arredondar(valor) {
+          if (valor <= 0) return 0;
+          const arredondado = valor % 1 >= 0.5 ? Math.ceil(valor) : Math.floor(valor);
+          return Math.max(1, arredondado);
+        }
+        
+        const totalRankingCreditos = arredondar(totalPoolCreditos * 0.60);
+        const totalCotistasCreditos = arredondar(totalPoolCreditos * 0.25);
+        const totalSortudoCreditos = arredondar(totalPoolCreditos * 0.15);
+        const creditosSortudoVencedor = arredondar(totalSortudoCreditos * 0.67);
         const creditosSortudoPopular = totalSortudoCreditos - creditosSortudoVencedor;
         
-        console.log(`💰 Distribuição: Taxa ${taxaYellup} (5%) | Ranking ${totalRankingCreditos} (80%) | Sortudos ${totalSortudoCreditos} (15%)`);
+        console.log(`💰 Distribuição: Ranking ${totalRankingCreditos} (60%) | Cotistas ${totalCotistasCreditos} (25%) | Sortudos ${totalSortudoCreditos} (15%)`);
         
-        // ✅ PESOS MAIS AGRESSIVOS PARA DISTRIBUIÇÃO GRADUAL
-        // Percentuais fixos para top 10, depois decresce
+        // ✅ PERCENTUAIS PARA RANKING
         const PERCENTUAIS_RANKING = [30, 20, 15, 10, 7, 5, 4, 3, 3, 3]; // Top 10 = 100%
         
         const top100 = participantes.slice(0, 100);
@@ -3624,18 +3592,18 @@
           const somaPercentuais = percentuaisAjustados.reduce((a, b) => a + b, 0);
           
           for (let i = 0; i < numParticipantes; i++) {
-            const creditos = Math.round(totalRankingCreditos * percentuaisAjustados[i] / somaPercentuais);
+            const creditos = arredondar(totalRankingCreditos * percentuaisAjustados[i] / somaPercentuais);
             creditosPorPosicao.push(creditos);
             creditosDistribuidos += creditos;
           }
         } else {
           // Muitos participantes: top 10 com percentuais fixos, resto divide o que sobrar
-          const creditosTop10 = Math.floor(totalRankingCreditos * 0.70); // 70% para top 10
+          const creditosTop10 = arredondar(totalRankingCreditos * 0.70); // 70% para top 10
           const creditosRestante = totalRankingCreditos - creditosTop10;
           
           // Top 10
           for (let i = 0; i < 10; i++) {
-            const creditos = Math.round(creditosTop10 * PERCENTUAIS_RANKING[i] / 100);
+            const creditos = arredondar(creditosTop10 * PERCENTUAIS_RANKING[i] / 100);
             creditosPorPosicao.push(creditos);
             creditosDistribuidos += creditos;
           }
@@ -3645,24 +3613,19 @@
           for (let i = 10; i < numParticipantes; i++) {
             const peso = Math.max(1, restantes - (i - 10));
             const somaRestante = (restantes * (restantes + 1)) / 2;
-            const creditos = Math.max(1, Math.round(creditosRestante * peso / somaRestante));
+            const creditos = arredondar(creditosRestante * peso / somaRestante);
             creditosPorPosicao.push(creditos);
             creditosDistribuidos += creditos;
           }
         }
         
-        // ✅ Ajustar diferença (se sobrou ou faltou créditos)
-        const diferenca = totalRankingCreditos - creditosDistribuidos;
-        if (diferenca !== 0 && creditosPorPosicao.length > 0) {
-          creditosPorPosicao[0] += diferenca; // Ajusta no 1º lugar
+        // Ajustar diferença no 1º lugar
+        const diferencaRanking = totalRankingCreditos - creditosDistribuidos;
+        if (diferencaRanking !== 0 && creditosPorPosicao.length > 0) {
+          creditosPorPosicao[0] += diferencaRanking;
         }
         
-        console.log(`💰 Distribuição de créditos:`, creditosPorPosicao);
-        console.log(`💰 Total ranking: ${totalRankingCreditos}, Distribuído: ${creditosPorPosicao.reduce((a,b) => a+b, 0)}`);
-        
-        // Calcular YC para top 10
-        const PESOS_TOP10_YC = [25, 18, 14, 11, 9, 7, 6, 5, 3, 2];
-        const somaPesosTop10YC = PESOS_TOP10_YC.reduce((a, b) => a + b, 0);
+        console.log(`🏆 Ranking - créditos por posição:`, creditosPorPosicao);
         
         // Premiar ranking
         const premiosRanking = [];
@@ -3671,35 +3634,143 @@
           const p = top100[i];
           const posicao = i + 1;
           const creditos = creditosPorPosicao[i] || 0;
-          let yc = 0;
-          
-          if (i < 10 && totalRankingYC > 0) {
-            yc = parseFloat((totalRankingYC * PESOS_TOP10_YC[i] / somaPesosTop10YC).toFixed(2));
-          }
           
           premiosRanking.push({
             odId: p.odId,
             nome: p.nome,
             posicao: posicao,
             pontos: p.pontos,
-            creditos: creditos,
-            yc: yc
+            creditos: creditos
           });
           
           // Creditar o usuário
-          if (creditos > 0 || yc > 0) {
+          if (creditos > 0) {
             try {
               await db.collection('usuarios').doc(p.odId).update({
-                creditos: firebase.firestore.FieldValue.increment(creditos),
-                creditosBonus: firebase.firestore.FieldValue.increment(creditos),
-                yc: firebase.firestore.FieldValue.increment(yc)
+                creditos: firebase.firestore.FieldValue.increment(creditos)
               });
-              console.log(`✅ ${posicao}º ${p.nome}: +${creditos} créditos, +${yc} YC`);
+              console.log(`✅ ${posicao}º ${p.nome}: +${creditos} créditos`);
             } catch (e) {
               console.error(`❌ Erro ao premiar ${p.nome}:`, e);
             }
           }
         }
+        
+        // ============================================
+        // ✅ COTISTAS - Proporcional aos pontos de cada time
+        // ============================================
+        const premiosCotistas = [];
+        const totalPontos = estatisticas.timeCasa.pontos + estatisticas.timeFora.pontos;
+        
+        if (totalPontos > 0 && totalCotistasCreditos > 0) {
+          // Calcular proporção de cada time
+          const proporcaoCasa = estatisticas.timeCasa.pontos / totalPontos;
+          const proporcaoFora = estatisticas.timeFora.pontos / totalPontos;
+          
+          const creditosCotistaCasa = arredondar(totalCotistasCreditos * proporcaoCasa);
+          const creditosCotistaFora = totalCotistasCreditos - creditosCotistaCasa; // Garante que soma 100%
+          
+          console.log(`📈 Cotistas - Casa: ${creditosCotistaCasa} (${(proporcaoCasa*100).toFixed(1)}%) | Fora: ${creditosCotistaFora} (${(proporcaoFora*100).toFixed(1)}%)`);
+          
+          // Buscar cotistas de cada time e distribuir
+          try {
+            // Cotistas do time da casa
+            if (creditosCotistaCasa > 0) {
+              const cotistaCasaSnap = await db.collection('times').doc(timeCasaId)
+                .collection('cotistas').get();
+              
+              if (!cotistaCasaSnap.empty) {
+                let totalCotas = 0;
+                const cotistasCasa = [];
+                
+                cotistaCasaSnap.forEach(doc => {
+                  const c = doc.data();
+                  totalCotas += c.quantidade || 0;
+                  cotistasCasa.push({ odId: doc.id, ...c });
+                });
+                
+                if (totalCotas > 0) {
+                  let distribuido = 0;
+                  for (let i = 0; i < cotistasCasa.length; i++) {
+                    const c = cotistasCasa[i];
+                    const proporcao = (c.quantidade || 0) / totalCotas;
+                    let creditos = arredondar(creditosCotistaCasa * proporcao);
+                    
+                    // Último cotista recebe o restante
+                    if (i === cotistasCasa.length - 1) {
+                      creditos = creditosCotistaCasa - distribuido;
+                    }
+                    
+                    if (creditos > 0) {
+                      await db.collection('usuarios').doc(c.odId).update({
+                        creditos: firebase.firestore.FieldValue.increment(creditos)
+                      });
+                      premiosCotistas.push({
+                        odId: c.odId,
+                        time: estatisticas.timeCasa.nome,
+                        cotas: c.quantidade,
+                        creditos: creditos
+                      });
+                      distribuido += creditos;
+                      console.log(`📈 Cotista ${c.odId}: +${creditos} cr (${c.quantidade} cotas de ${estatisticas.timeCasa.nome})`);
+                    }
+                  }
+                }
+              }
+            }
+            
+            // Cotistas do time de fora
+            if (creditosCotistaFora > 0) {
+              const cotistaForaSnap = await db.collection('times').doc(timeForaId)
+                .collection('cotistas').get();
+              
+              if (!cotistaForaSnap.empty) {
+                let totalCotas = 0;
+                const cotistasFora = [];
+                
+                cotistaForaSnap.forEach(doc => {
+                  const c = doc.data();
+                  totalCotas += c.quantidade || 0;
+                  cotistasFora.push({ odId: doc.id, ...c });
+                });
+                
+                if (totalCotas > 0) {
+                  let distribuido = 0;
+                  for (let i = 0; i < cotistasFora.length; i++) {
+                    const c = cotistasFora[i];
+                    const proporcao = (c.quantidade || 0) / totalCotas;
+                    let creditos = arredondar(creditosCotistaFora * proporcao);
+                    
+                    // Último cotista recebe o restante
+                    if (i === cotistasFora.length - 1) {
+                      creditos = creditosCotistaFora - distribuido;
+                    }
+                    
+                    if (creditos > 0) {
+                      await db.collection('usuarios').doc(c.odId).update({
+                        creditos: firebase.firestore.FieldValue.increment(creditos)
+                      });
+                      premiosCotistas.push({
+                        odId: c.odId,
+                        time: estatisticas.timeFora.nome,
+                        cotas: c.quantidade,
+                        creditos: creditos
+                      });
+                      distribuido += creditos;
+                      console.log(`📈 Cotista ${c.odId}: +${creditos} cr (${c.quantidade} cotas de ${estatisticas.timeFora.nome})`);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error("❌ Erro ao premiar cotistas:", e);
+          }
+        }
+        
+        // ============================================
+        // ✅ SORTUDOS
+        // ============================================
         
         // Sortudo Vencedor (time que ganhou mais pontos)
         let sortudoVencedor = null;
@@ -3714,17 +3785,14 @@
             odId: sorteado.odId,
             nome: sorteado.nome,
             time: estatisticas[timeVencedor].nome,
-            creditos: creditosSortudoVencedor,
-            yc: totalSortudoVencedorYC
+            creditos: creditosSortudoVencedor
           };
           
           try {
             await db.collection('usuarios').doc(sorteado.odId).update({
-              creditos: firebase.firestore.FieldValue.increment(creditosSortudoVencedor),
-              creditosBonus: firebase.firestore.FieldValue.increment(creditosSortudoVencedor),
-              yc: firebase.firestore.FieldValue.increment(totalSortudoVencedorYC)
+              creditos: firebase.firestore.FieldValue.increment(creditosSortudoVencedor)
             });
-            console.log(`🎰 Sortudo Vencedor: ${sorteado.nome} +${creditosSortudoVencedor} cr, +${totalSortudoVencedorYC} YC`);
+            console.log(`🎰 Sortudo Vencedor: ${sorteado.nome} +${creditosSortudoVencedor} créditos`);
           } catch (e) {
             console.error("❌ Erro ao premiar sortudo vencedor:", e);
           }
@@ -3751,36 +3819,35 @@
               odId: sorteadoPopular.odId,
               nome: sorteadoPopular.nome,
               time: estatisticas[timePopular].nome,
-              creditos: creditosSortudoPopular,
-              yc: totalSortudoPopularYC
+              creditos: creditosSortudoPopular
             };
             
             try {
               await db.collection('usuarios').doc(sorteadoPopular.odId).update({
-                creditos: firebase.firestore.FieldValue.increment(creditosSortudoPopular),
-                creditosBonus: firebase.firestore.FieldValue.increment(creditosSortudoPopular),
-                yc: firebase.firestore.FieldValue.increment(totalSortudoPopularYC)
+                creditos: firebase.firestore.FieldValue.increment(creditosSortudoPopular)
               });
-              console.log(`🍀 Sortudo Popular: ${sorteadoPopular.nome} +${creditosSortudoPopular} cr, +${totalSortudoPopularYC} YC`);
+              console.log(`🍀 Sortudo Popular: ${sorteadoPopular.nome} +${creditosSortudoPopular} créditos`);
             } catch (e) {
               console.error("❌ Erro ao premiar sortudo popular:", e);
             }
           }
         }
         
-        // Montar detalhes da premiação
+        // ============================================
+        // ✅ SALVAR DETALHES DA PREMIAÇÃO
+        // ============================================
         const premiacaoDetalhes = {
-          totalPago: totalPoolCreditos,
-          poolCreditos: poolCreditos,
-          poolCreditosPagos: poolCreditosPagos,
+          totalPool: totalPoolCreditos,
           creditosIniciais: creditosIniciais,
-          totalYC: totalPoolYC,
-          taxaYellup: taxaYellup,
+          distribuicao: {
+            ranking: { percentual: 60, total: totalRankingCreditos },
+            cotistas: { percentual: 25, total: totalCotistasCreditos },
+            sortudos: { percentual: 15, total: totalSortudoCreditos }
+          },
           ranking: premiosRanking,
+          cotistas: premiosCotistas,
           sortudoVencedor: sortudoVencedor,
           sortudoPopular: sortudoPopular,
-          fundoFinalAnoYC: fundoFinalAnoYC,
-          totalCotistasYC: totalCotistasYC,
           estatisticas: {
             timeCasa: { nome: estatisticas.timeCasa.nome, pontos: estatisticas.timeCasa.pontos, torcedores: estatisticas.timeCasa.torcedores.length },
             timeFora: { nome: estatisticas.timeFora.nome, pontos: estatisticas.timeFora.pontos, torcedores: estatisticas.timeFora.torcedores.length }
@@ -3829,6 +3896,24 @@
         return;
       }
       
+      // Criar lista de cotistas se existir
+      let cotistasHtml = '';
+      if (detalhes.cotistas && detalhes.cotistas.length > 0) {
+        cotistasHtml = `
+          <div class="premiacao-secao">
+            <h3>📈 Cotistas</h3>
+            <ul class="premiacao-lista cotistas-lista">
+              ${detalhes.cotistas.map(c => `
+                <li>
+                  <span>👤 ${c.odId.substring(0, 8)}... (${c.cotas} cotas - ${c.time})</span>
+                  <span>+${c.creditos} 💎</span>
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        `;
+      }
+      
       // Criar modal de resultado
       const modal = document.createElement("div");
       modal.className = "premiacao-modal-overlay";
@@ -3837,12 +3922,12 @@
           <h2>🏆 RESULTADO DA PREMIAÇÃO</h2>
           
           <div class="premiacao-total">
-            💰 Total em jogo: <strong>${detalhes.totalPago}</strong> créditos
-            <br><small>Taxa Yellup: ${detalhes.taxaYellup} créditos (5%)</small>
+            💰 Total em jogo: <strong>${detalhes.totalPool}</strong> créditos
+            <br><small>Ranking: 60% | Cotistas: 25% | Sortudos: 15%</small>
           </div>
           
           <div class="premiacao-secao">
-            <h3>🏅 Ranking</h3>
+            <h3>🏅 Ranking (${detalhes.distribuicao?.ranking?.total || 0} cr)</h3>
             <ul class="premiacao-lista">
               ${detalhes.ranking.map(p => `
                 <li>
@@ -3852,6 +3937,8 @@
               `).join('')}
             </ul>
           </div>
+          
+          ${cotistasHtml}
           
           <div class="premiacao-sorteios">
             <div class="premiacao-sortudo">
