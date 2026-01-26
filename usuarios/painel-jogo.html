@@ -1735,6 +1735,12 @@
         <div class="multiplier-badge" id="multiplierBadge" style="display: none;">
           <span>⚡ x<span id="multiplierValue">1</span></span>
         </div>
+        <!-- ✅ NOVO: Contador de respostas -->
+        <div class="streak-badge" id="respostasBadge" style="background: linear-gradient(135deg, #3498db, #2980b9);">
+          <span class="streak-icon">📝</span>
+          <span class="streak-count" id="respostasCount">0</span>
+          <span class="streak-label">respostas</span>
+        </div>
       </div>
 
       <button class="btn-answer" id="btnAnswer" onclick="getQuestion()">
@@ -3266,7 +3272,13 @@
         // ✅ BUSCAR POOL DE CRÉDITOS DO DOCUMENTO DO JOGO
         const jogoDoc = await db.collection("jogos").doc(jogoId).get();
         const jogoData = jogoDoc.data() || {};
+        
+        // Tentar ler poolCreditos, se não existir, usar poolCreditosPagos como fallback
         totalCreditosPagosJogo = jogoData.poolCreditos || 0;
+        if (totalCreditosPagosJogo === 0 && jogoData.poolCreditosPagos) {
+          totalCreditosPagosJogo = jogoData.poolCreditosPagos;
+          console.log(`📢 Ranking usando fallback poolCreditosPagos: ${totalCreditosPagosJogo}`);
+        }
         
         console.log(`💰 Pool de créditos: ${totalCreditosPagosJogo}`);
         
@@ -3511,7 +3523,15 @@
         }
         
         // ✅ POOL ÚNICO DE CRÉDITOS (simplificado)
-        const poolCreditos = jogoData.poolCreditos || 0;
+        // Tentar ler poolCreditos, se não existir, usar creditosPagosJogo como fallback
+        let poolCreditos = jogoData.poolCreditos || 0;
+        
+        // ✅ FALLBACK: Se poolCreditos é 0 mas há créditos gastos antigos
+        if (poolCreditos === 0 && jogoData.poolCreditosPagos) {
+          poolCreditos = jogoData.poolCreditosPagos;
+          console.log(`📢 Usando fallback poolCreditosPagos: ${poolCreditos}`);
+        }
+        
         console.log(`💰 Pool de créditos: ${poolCreditos}`);
         
         // Montar array de participantes
@@ -4248,6 +4268,10 @@
         patrocinadorAtualIndex = userData.patrocinadorIndex?.[jogoId] || 0;
         contadorRespostas = userData.contadorRespostas?.[jogoId] || 0;
         
+        // ✅ Atualizar contador na interface
+        const respostasEl = document.getElementById('respostasCount');
+        if (respostasEl) respostasEl.textContent = contadorRespostas;
+        
         console.log(`📢 Índice atual: ${patrocinadorAtualIndex}, Contador respostas: ${contadorRespostas}`);
         
       } catch (error) {
@@ -4259,6 +4283,10 @@
     // Verificar se deve mostrar patrocinador (a cada 5 respostas)
     function verificarPatrocinador() {
       contadorRespostas++;
+      
+      // ✅ Atualizar contador na interface
+      const respostasEl = document.getElementById('respostasCount');
+      if (respostasEl) respostasEl.textContent = contadorRespostas;
       
       // Salvar contador no usuário
       db.collection("usuarios").doc(uid).update({
