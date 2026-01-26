@@ -2933,18 +2933,23 @@
             // Sempre desconta do total visível
             updates.creditos = firebase.firestore.FieldValue.increment(-1);
             
+            // ✅ TODO CRÉDITO ENTRA NO POOL DE CRÉDITOS (para premiação)
+            await db.collection("jogos").doc(jogoId).update({
+              poolCreditos: firebase.firestore.FieldValue.increment(1)
+            });
+            
             if (creditosBonus > 0) {
-              // Tem bônus? Desconta do bônus (NÃO entra no pool)
+              // Tem bônus? Desconta do bônus
               updates.creditosBonus = firebase.firestore.FieldValue.increment(-1);
-              console.log(`🎁 Descontando 1 crédito bônus (${creditosBonus - 1} restantes)`);
+              console.log(`🎁 Descontando 1 crédito bônus (${creditosBonus - 1} restantes) → Entra no pool de créditos!`);
             } else if (creditosPagos > 0) {
-              // Não tem bônus? Desconta do pago (ENTRA no pool)
+              // Não tem bônus? Desconta do pago
               updates.creditosPagos = firebase.firestore.FieldValue.increment(-1);
               updates[`creditosPagosJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
-              usouCreditoPago = true; // ✅ Marcar que usou crédito pago
-              console.log(`💎 Descontando 1 crédito pago (${creditosPagos - 1} restantes) → Entra no pool!`);
+              usouCreditoPago = true;
+              console.log(`💎 Descontando 1 crédito pago (${creditosPagos - 1} restantes) → Entra no pool de créditos + YC!`);
               
-              // ✅ Contabilizar no pool do jogo (só créditos pagos)
+              // ✅ SÓ CRÉDITOS PAGOS GERAM YC (pool separado)
               await db.collection("jogos").doc(jogoId).update({
                 poolCreditosPagos: firebase.firestore.FieldValue.increment(1)
               });
@@ -3269,16 +3274,24 @@
     const SOMA_PESOS = PESOS_RANKING.reduce((a, b) => a + b, 0); // 34.75
     
     // Variáveis globais para estatísticas do jogo
-    let totalCreditosPagosJogo = 0;
+    let totalCreditosPagosJogo = 0;  // Pool total de créditos (bônus + pagos)
+    let totalCreditosPagosRealJogo = 0;  // Só créditos pagos (para YC)
     let estatisticasTimes = { casa: { pontos: 0, torcedores: 0 }, fora: { pontos: 0, torcedores: 0 } };
     
     async function loadRanking() {
       try {
+        // ✅ BUSCAR POOLS DO DOCUMENTO DO JOGO
+        const jogoDoc = await db.collection("jogos").doc(jogoId).get();
+        const jogoData = jogoDoc.data() || {};
+        totalCreditosPagosJogo = jogoData.poolCreditos || 0;  // Total (bônus + pagos)
+        totalCreditosPagosRealJogo = jogoData.poolCreditosPagos || 0;  // Só pagos (para YC)
+        
+        console.log(`💰 Pool de créditos: ${totalCreditosPagosJogo} (${totalCreditosPagosRealJogo} pagos geram YC)`);
+        
         const usuarios = await db.collection("usuarios").get();
         const ranking = [];
         
         // Reset estatísticas
-        totalCreditosPagosJogo = 0;
         estatisticasTimes = { 
           casa: { pontos: 0, torcedores: 0, nome: timeCasaData?.nome || 'Time A' }, 
           fora: { pontos: 0, torcedores: 0, nome: timeForaData?.nome || 'Time B' } 
@@ -3300,10 +3313,6 @@
           }
 
           const pontos = user.pontuacoes?.[jogoId] || 0;
-          
-          // Somar créditos pagos neste jogo
-          const creditosPagos = user.creditosPagosJogo?.[jogoId] || 0;
-          totalCreditosPagosJogo += creditosPagos;
           
           // Somar pontos por time
           if (timeUser === timeCasaId) {
@@ -3391,37 +3400,60 @@
     
     // Calcular créditos estimados para cada posição
     function calcularCreditosEstimados(totalParticipantes) {
-      if (totalCreditosPagosJogo <= 0 || totalParticipantes <= 0) {
+      // ✅ MESMA LÓGICA DA PREMIAÇÃO REAL
+      // 85% para ranking (considerando pool total incluindo créditos admin)
+      const totalPool = totalCreditosPagosJogo + (jogoCreditosIniciais || 0);
+      
+      if (totalPool <= 0 || totalParticipantes <= 0) {
         return []; // Sem créditos ou participantes
       }
       
-      // NOVA DISTRIBUIÇÃO:
-      // 5% fundo, 50% ranking, 10% sortudo vencedor, 5% sortudo popular, 30% cotistas
-      const totalRanking = Math.floor(totalCreditosPagosJogo * 0.50); // 50% do total
+      const totalRanking = Math.floor(totalPool * 0.85);
       
-      // Premiar até 100 colocados
-      let quantosPremiar = Math.min(100, totalParticipantes);
+      // Percentuais fixos para top 10
+      const PERCENTUAIS_RANKING = [30, 20, 15, 10, 7, 5, 4, 3, 3, 3];
       
-      // Calcular pesos (distribuição decrescente)
-      const pesos = [];
-      for (let i = 0; i < quantosPremiar; i++) {
-        pesos.push(Math.max(1, 100 - i));
-      }
-      const somaPesos = pesos.reduce((a, b) => a + b, 0);
-      
-      // Distribuir créditos
+      const numParticipantes = Math.min(100, totalParticipantes);
       const creditos = [];
       let distribuido = 0;
       
-      for (let i = 0; i < quantosPremiar; i++) {
-        const valor = Math.floor(totalRanking * pesos[i] / somaPesos);
-        creditos.push(Math.max(1, valor)); // Mínimo 1 crédito
-        distribuido += valor;
+      if (numParticipantes <= 10) {
+        // Poucos participantes: usar percentuais fixos ajustados
+        const percentuaisAjustados = PERCENTUAIS_RANKING.slice(0, numParticipantes);
+        const somaPercentuais = percentuaisAjustados.reduce((a, b) => a + b, 0);
+        
+        for (let i = 0; i < numParticipantes; i++) {
+          const valor = Math.round(totalRanking * percentuaisAjustados[i] / somaPercentuais);
+          creditos.push(valor);
+          distribuido += valor;
+        }
+      } else {
+        // Muitos participantes: top 10 com percentuais fixos
+        const creditosTop10 = Math.floor(totalRanking * 0.70);
+        const creditosRestante = totalRanking - creditosTop10;
+        
+        // Top 10
+        for (let i = 0; i < 10; i++) {
+          const valor = Math.round(creditosTop10 * PERCENTUAIS_RANKING[i] / 100);
+          creditos.push(valor);
+          distribuido += valor;
+        }
+        
+        // Posições 11+
+        const restantes = numParticipantes - 10;
+        for (let i = 10; i < numParticipantes; i++) {
+          const peso = Math.max(1, restantes - (i - 10));
+          const somaRestante = (restantes * (restantes + 1)) / 2;
+          const valor = Math.max(1, Math.round(creditosRestante * peso / somaRestante));
+          creditos.push(valor);
+          distribuido += valor;
+        }
       }
       
-      // Sobra vai pro primeiro
-      if (creditos.length > 0) {
-        creditos[0] += (totalRanking - distribuido);
+      // Ajustar diferença no 1º lugar
+      const diferenca = totalRanking - distribuido;
+      if (diferenca !== 0 && creditos.length > 0) {
+        creditos[0] += diferenca;
       }
       
       return creditos;
@@ -3489,9 +3521,15 @@
           return;
         }
         
+        // ✅ DOIS POOLS SEPARADOS:
+        // - poolCreditos: total (bônus + pagos) → para distribuir CRÉDITOS
+        // - poolCreditosPagos: só pagos → para calcular YC
+        const poolCreditos = jogoData.poolCreditos || 0;
+        const poolCreditosPagos = jogoData.poolCreditosPagos || 0;
+        console.log(`💰 Pool de créditos: ${poolCreditos} (${poolCreditosPagos} pagos geram YC)`);
+        
         // Montar array de participantes
         const participantes = [];
-        let totalCreditosPagos = 0;
         
         const estatisticas = {
           timeCasa: { pontos: 0, torcedores: [], nome: timeCasaData?.nome || 'Time Casa' },
@@ -3519,8 +3557,6 @@
             creditosPagos: creditosPagos
           });
           
-          totalCreditosPagos += creditosPagos;
-          
           // Estatísticas por time
           if (p.timeId === timeCasaId) {
             estatisticas.timeCasa.pontos += pontos;
@@ -3537,38 +3573,88 @@
           return a.tempoMedio - b.tempoMedio;
         });
         
-        // Calcular pools
+        // ✅ CALCULAR POOLS SEPARADOS
         const creditosIniciais = jogoData.creditosIniciais || 0;
-        const totalPool = totalCreditosPagos + creditosIniciais;
-        const YC_POR_CREDITO = 2;
-        const totalPoolYC = totalCreditosPagos * YC_POR_CREDITO;
         
-        console.log(`💰 Pool total: ${totalPool} créditos (${totalCreditosPagos} pagos + ${creditosIniciais} admin)`);
-        console.log(`💎 Pool YC: ${totalPoolYC}`);
+        // Pool de CRÉDITOS: bônus + pagos + admin (para premiação em créditos)
+        const totalPoolCreditos = poolCreditos + creditosIniciais;
+        
+        // Pool de YC: só créditos PAGOS geram YC (invisível, só no final)
+        const YC_POR_CREDITO = 2;
+        const totalPoolYC = poolCreditosPagos * YC_POR_CREDITO;
+        
+        console.log(`💰 Pool CRÉDITOS: ${totalPoolCreditos} (${poolCreditos} gastos + ${creditosIniciais} admin)`);
+        console.log(`💎 Pool YC: ${totalPoolYC} (${poolCreditosPagos} pagos × ${YC_POR_CREDITO})`);
         
         // Distribuição YC: 5% fundo, 50% ranking, 10% sortudo vencedor, 5% sortudo popular, 30% cotistas
-        const fundoFinalAnoYC = parseFloat((totalPoolYC * 0.05).toFixed(2));
-        const totalRankingYC = parseFloat((totalPoolYC * 0.50).toFixed(2));
-        const totalSortudoVencedorYC = parseFloat((totalPoolYC * 0.10).toFixed(2));
-        const totalSortudoPopularYC = parseFloat((totalPoolYC * 0.05).toFixed(2));
-        const totalCotistasYC = parseFloat((totalPoolYC * 0.30).toFixed(2));
+        const fundoFinalAnoYC = parseFloat((totalPoolYC * 0.05).toFixed(4));
+        const totalRankingYC = parseFloat((totalPoolYC * 0.50).toFixed(4));
+        const totalSortudoVencedorYC = parseFloat((totalPoolYC * 0.10).toFixed(4));
+        const totalSortudoPopularYC = parseFloat((totalPoolYC * 0.05).toFixed(4));
+        const totalCotistasYC = parseFloat((totalPoolYC * 0.30).toFixed(4));
         
         // Distribuição Créditos: 85% ranking, 15% sortudos
-        const totalRankingCreditos = Math.floor(totalPool * 0.85);
-        const totalSortudoCreditos = Math.floor(totalPool * 0.15);
+        const totalRankingCreditos = Math.floor(totalPoolCreditos * 0.85);
+        const totalSortudoCreditos = Math.floor(totalPoolCreditos * 0.15);
         const creditosSortudoVencedor = Math.floor(totalSortudoCreditos * 0.67);
         const creditosSortudoPopular = totalSortudoCreditos - creditosSortudoVencedor;
         
-        // Calcular pesos para distribuição do ranking
-        const PESOS_TOP10 = [25, 18, 14, 11, 9, 7, 6, 5, 3, 2];
-        const somaPesosTop10 = PESOS_TOP10.reduce((a, b) => a + b, 0);
+        // ✅ PESOS MAIS AGRESSIVOS PARA DISTRIBUIÇÃO GRADUAL
+        // Percentuais fixos para top 10, depois decresce
+        const PERCENTUAIS_RANKING = [30, 20, 15, 10, 7, 5, 4, 3, 3, 3]; // Top 10 = 100%
         
         const top100 = participantes.slice(0, 100);
-        const pesosTop100 = [];
-        for (let i = 0; i < top100.length; i++) {
-          pesosTop100.push(Math.max(1, 100 - i));
+        const numParticipantes = top100.length;
+        
+        // Calcular créditos para cada posição
+        const creditosPorPosicao = [];
+        let creditosDistribuidos = 0;
+        
+        if (numParticipantes <= 10) {
+          // Poucos participantes: usar percentuais fixos ajustados
+          const percentuaisAjustados = PERCENTUAIS_RANKING.slice(0, numParticipantes);
+          const somaPercentuais = percentuaisAjustados.reduce((a, b) => a + b, 0);
+          
+          for (let i = 0; i < numParticipantes; i++) {
+            const creditos = Math.round(totalRankingCreditos * percentuaisAjustados[i] / somaPercentuais);
+            creditosPorPosicao.push(creditos);
+            creditosDistribuidos += creditos;
+          }
+        } else {
+          // Muitos participantes: top 10 com percentuais fixos, resto divide o que sobrar
+          const creditosTop10 = Math.floor(totalRankingCreditos * 0.70); // 70% para top 10
+          const creditosRestante = totalRankingCreditos - creditosTop10;
+          
+          // Top 10
+          for (let i = 0; i < 10; i++) {
+            const creditos = Math.round(creditosTop10 * PERCENTUAIS_RANKING[i] / 100);
+            creditosPorPosicao.push(creditos);
+            creditosDistribuidos += creditos;
+          }
+          
+          // Posições 11-100: distribuição decrescente
+          const restantes = numParticipantes - 10;
+          for (let i = 10; i < numParticipantes; i++) {
+            const peso = Math.max(1, restantes - (i - 10));
+            const somaRestante = (restantes * (restantes + 1)) / 2;
+            const creditos = Math.max(1, Math.round(creditosRestante * peso / somaRestante));
+            creditosPorPosicao.push(creditos);
+            creditosDistribuidos += creditos;
+          }
         }
-        const somaPesosTop100 = pesosTop100.reduce((a, b) => a + b, 0) || 1;
+        
+        // ✅ Ajustar diferença (se sobrou ou faltou créditos)
+        const diferenca = totalRankingCreditos - creditosDistribuidos;
+        if (diferenca !== 0 && creditosPorPosicao.length > 0) {
+          creditosPorPosicao[0] += diferenca; // Ajusta no 1º lugar
+        }
+        
+        console.log(`💰 Distribuição de créditos:`, creditosPorPosicao);
+        console.log(`💰 Total ranking: ${totalRankingCreditos}, Distribuído: ${creditosPorPosicao.reduce((a,b) => a+b, 0)}`);
+        
+        // Calcular YC para top 10
+        const PESOS_TOP10_YC = [25, 18, 14, 11, 9, 7, 6, 5, 3, 2];
+        const somaPesosTop10YC = PESOS_TOP10_YC.reduce((a, b) => a + b, 0);
         
         // Premiar ranking
         const premiosRanking = [];
@@ -3576,11 +3662,11 @@
         for (let i = 0; i < top100.length; i++) {
           const p = top100[i];
           const posicao = i + 1;
-          const creditos = Math.floor(totalRankingCreditos * pesosTop100[i] / somaPesosTop100);
+          const creditos = creditosPorPosicao[i] || 0;
           let yc = 0;
           
           if (i < 10 && totalRankingYC > 0) {
-            yc = parseFloat((totalRankingYC * PESOS_TOP10[i] / somaPesosTop10).toFixed(2));
+            yc = parseFloat((totalRankingYC * PESOS_TOP10_YC[i] / somaPesosTop10YC).toFixed(2));
           }
           
           premiosRanking.push({
@@ -3676,10 +3762,12 @@
         
         // Montar detalhes da premiação
         const premiacaoDetalhes = {
-          totalPago: totalPool,
+          totalPago: totalPoolCreditos,
+          poolCreditos: poolCreditos,
+          poolCreditosPagos: poolCreditosPagos,
           creditosIniciais: creditosIniciais,
           totalYC: totalPoolYC,
-          taxaCasa: Math.floor(totalPool * 0.20),
+          taxaCasa: Math.floor(totalPoolCreditos * 0.20),
           ranking: premiosRanking,
           sortudoVencedor: sortudoVencedor,
           sortudoPopular: sortudoPopular,
