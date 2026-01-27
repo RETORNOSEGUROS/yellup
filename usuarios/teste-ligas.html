@@ -112,6 +112,53 @@
       color: #a9b5c6;
     }
 
+    /* Search Box */
+    .search-section {
+      margin-bottom: 20px;
+    }
+
+    .search-box {
+      position: relative;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 15px 20px 15px 50px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 14px;
+      color: #e7eef7;
+      font-size: 1em;
+      font-family: 'Poppins', sans-serif;
+      transition: all 0.3s ease;
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: rgba(255, 181, 71, 0.5);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .search-input::placeholder {
+      color: #a9b5c6;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 1.2em;
+      color: #a9b5c6;
+    }
+
+    .search-count {
+      text-align: right;
+      font-size: 0.8em;
+      color: #a9b5c6;
+      margin-top: 8px;
+    }
+
     /* Ligas Grid */
     .section-title {
       font-size: 1.2em;
@@ -122,11 +169,31 @@
       gap: 10px;
     }
 
+    .ligas-wrapper {
+      max-height: 400px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+      padding-right: 5px;
+    }
+
+    .ligas-wrapper::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .ligas-wrapper::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+    }
+
+    .ligas-wrapper::-webkit-scrollbar-thumb {
+      background: rgba(255, 181, 71, 0.5);
+      border-radius: 3px;
+    }
+
     .ligas-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 15px;
-      margin-bottom: 30px;
     }
 
     .liga-card {
@@ -143,13 +210,17 @@
 
     .liga-card:hover {
       border-color: rgba(255, 181, 71, 0.5);
-      transform: translateY(-5px);
+      transform: translateY(-3px);
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
     }
 
     .liga-card.selected {
       border-color: #ffb547;
       background: linear-gradient(135deg, rgba(255, 181, 71, 0.15) 0%, rgba(255, 140, 66, 0.1) 100%);
+    }
+
+    .liga-card.hidden {
+      display: none;
     }
 
     .liga-flag {
@@ -159,28 +230,27 @@
 
     .liga-name {
       font-weight: 700;
-      font-size: 0.95em;
+      font-size: 0.9em;
       margin-bottom: 5px;
+      line-height: 1.3;
     }
 
     .liga-questions {
-      font-size: 0.8em;
+      font-size: 0.75em;
       color: #a9b5c6;
     }
 
-    .liga-best {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(16, 185, 129, 0.2);
-      color: #10b981;
-      font-size: 0.7em;
-      padding: 3px 8px;
-      border-radius: 10px;
+    /* No results */
+    .no-results {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 40px;
+      color: #a9b5c6;
     }
 
     /* Loading */
     .loading-ligas {
+      grid-column: 1 / -1;
       text-align: center;
       padding: 40px;
       color: #a9b5c6;
@@ -567,12 +637,29 @@
         </div>
       </div>
 
+      <!-- Search -->
+      <div class="search-section">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input 
+            type="text" 
+            class="search-input" 
+            id="searchInput" 
+            placeholder="Buscar liga..." 
+            oninput="filtrarLigas()"
+          >
+        </div>
+        <div class="search-count" id="searchCount"></div>
+      </div>
+
       <!-- Ligas -->
       <div class="section-title">⚽ Escolha uma Liga</div>
-      <div class="ligas-grid" id="ligasGrid">
-        <div class="loading-ligas">
-          <div class="loading-spinner"></div>
-          <p>Carregando ligas...</p>
+      <div class="ligas-wrapper">
+        <div class="ligas-grid" id="ligasGrid">
+          <div class="loading-ligas">
+            <div class="loading-spinner"></div>
+            <p>Carregando ligas...</p>
+          </div>
         </div>
       </div>
 
@@ -700,6 +787,7 @@
     let ligaSelecionada = null;
     let ligaSelecionadaNome = null;
     let campeonatosData = {}; // Armazena dados dos campeonatos carregados
+    let totalLigas = 0;
     let perguntas = [];
     let perguntaAtual = 0;
     let acertos = 0;
@@ -765,7 +853,7 @@
         
         if (snapshot.empty) {
           ligasGrid.innerHTML = `
-            <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #a9b5c6;">
+            <div class="no-results">
               <p>😕 Nenhuma liga disponível no momento</p>
             </div>
           `;
@@ -774,8 +862,9 @@
 
         // Limpar grid
         ligasGrid.innerHTML = '';
+        totalLigas = snapshot.size;
 
-        // Mapear emojis para cada tipo de campeonato (pode customizar)
+        // Mapear emojis para cada tipo de campeonato
         const emojisDefault = ['🏆', '⚽', '🥇', '🎖️', '🏅', '⭐'];
         let emojiIndex = 0;
 
@@ -783,8 +872,11 @@
           const campeonato = doc.data();
           const id = doc.id;
           
-          // Armazenar dados do campeonato
-          campeonatosData[id] = campeonato;
+          // Armazenar dados do campeonato (incluindo o ID do documento)
+          campeonatosData[id] = {
+            ...campeonato,
+            docId: id
+          };
 
           // Contar perguntas (se houver array de perguntas no documento)
           const numPerguntas = campeonato.perguntas ? campeonato.perguntas.length : 0;
@@ -797,6 +889,7 @@
           const card = document.createElement('div');
           card.className = 'liga-card';
           card.dataset.liga = id;
+          card.dataset.nome = (campeonato.nome || id).toLowerCase();
           card.onclick = () => selecionarLiga(id, campeonato.nome || id);
           
           card.innerHTML = `
@@ -808,16 +901,69 @@
           ligasGrid.appendChild(card);
         });
 
+        // Atualizar contador
+        atualizarContador(totalLigas, totalLigas);
+
         console.log(`✅ ${snapshot.size} campeonatos carregados`);
 
       } catch (error) {
         console.error('Erro ao carregar ligas:', error);
         ligasGrid.innerHTML = `
-          <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #ef4444;">
+          <div class="no-results">
             <p>❌ Erro ao carregar ligas</p>
             <p style="font-size: 0.8em; margin-top: 10px;">${error.message}</p>
           </div>
         `;
+      }
+    }
+
+    // ===================================
+    // 🔍 FILTRAR LIGAS
+    // ===================================
+    function filtrarLigas() {
+      const termo = document.getElementById('searchInput').value.toLowerCase().trim();
+      const cards = document.querySelectorAll('.liga-card');
+      let visiveis = 0;
+
+      cards.forEach(card => {
+        const nome = card.dataset.nome || '';
+        const liga = card.dataset.liga || '';
+        
+        if (nome.includes(termo) || liga.includes(termo)) {
+          card.classList.remove('hidden');
+          visiveis++;
+        } else {
+          card.classList.add('hidden');
+        }
+      });
+
+      atualizarContador(visiveis, totalLigas);
+
+      // Mostrar mensagem se não houver resultados
+      const ligasGrid = document.getElementById('ligasGrid');
+      let noResults = ligasGrid.querySelector('.no-results');
+      
+      if (visiveis === 0 && termo !== '') {
+        if (!noResults) {
+          noResults = document.createElement('div');
+          noResults.className = 'no-results';
+          noResults.innerHTML = `<p>😕 Nenhuma liga encontrada para "${termo}"</p>`;
+          ligasGrid.appendChild(noResults);
+        }
+      } else if (noResults) {
+        noResults.remove();
+      }
+    }
+
+    // ===================================
+    // 📊 ATUALIZAR CONTADOR
+    // ===================================
+    function atualizarContador(visiveis, total) {
+      const countEl = document.getElementById('searchCount');
+      if (visiveis === total) {
+        countEl.textContent = `${total} ligas disponíveis`;
+      } else {
+        countEl.textContent = `${visiveis} de ${total} ligas`;
       }
     }
 
@@ -840,6 +986,17 @@
     }
 
     // ===================================
+    // 🔧 NORMALIZAR TEXTO PARA BUSCA
+    // ===================================
+    function normalizarTexto(texto) {
+      return texto
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+        .replace(/[^a-z0-9]/g, ''); // Remove caracteres especiais
+    }
+
+    // ===================================
     // 🎮 INICIAR TESTE
     // ===================================
     async function iniciarTeste() {
@@ -850,65 +1007,99 @@
 
       try {
         let todasPerguntas = [];
-        
-        console.log(`🔍 Buscando perguntas para: ${ligaSelecionada}`);
-
-        // 1. Primeiro tenta buscar do array de perguntas dentro do documento do campeonato
         const campeonato = campeonatosData[ligaSelecionada];
         
+        console.log(`🔍 Buscando perguntas para: ${ligaSelecionada}`);
+        console.log('📋 Dados do campeonato:', campeonato);
+
+        // 1. Primeiro tenta buscar do array de perguntas dentro do documento do campeonato
         if (campeonato && campeonato.perguntas && campeonato.perguntas.length > 0) {
           console.log(`📊 Perguntas encontradas no documento do campeonato: ${campeonato.perguntas.length}`);
           todasPerguntas = campeonato.perguntas.map((p, idx) => ({ id: `${ligaSelecionada}_${idx}`, ...p }));
         }
 
-        // 2. Se não encontrou, busca na subcoleção "perguntas" do campeonato
-        if (todasPerguntas.length === 0) {
-          console.log('🔍 Buscando na subcoleção perguntas...');
-          const subcollectionSnapshot = await db.collection('campeonatos')
-            .doc(ligaSelecionada)
-            .collection('perguntas')
-            .limit(100)
-            .get();
-          
-          subcollectionSnapshot.forEach(doc => {
-            todasPerguntas.push({ id: doc.id, ...doc.data() });
-          });
-          
-          console.log(`📊 Perguntas na subcoleção: ${todasPerguntas.length}`);
-        }
-
-        // 3. Se ainda não encontrou, busca na coleção geral "perguntas" com filtro
+        // 2. Se não encontrou, busca na coleção "perguntas" por campeonatoId
+        // Tenta várias variações do nome
         if (todasPerguntas.length === 0) {
           console.log('🔍 Buscando na coleção perguntas por campeonatoId...');
-          const perguntasSnapshot = await db.collection('perguntas')
-            .where('campeonatoId', '==', ligaSelecionada)
-            .limit(100)
-            .get();
           
-          perguntasSnapshot.forEach(doc => {
-            todasPerguntas.push({ id: doc.id, ...doc.data() });
-          });
-          
-          console.log(`📊 Perguntas por campeonatoId: ${todasPerguntas.length}`);
+          // Gerar variações do ID para busca
+          const variacoes = gerarVariacoesBusca(ligaSelecionada, ligaSelecionadaNome);
+          console.log('🔎 Variações de busca:', variacoes);
+
+          for (const variacao of variacoes) {
+            if (todasPerguntas.length > 0) break;
+            
+            try {
+              const perguntasSnapshot = await db.collection('perguntas')
+                .where('campeonatoId', '==', variacao)
+                .limit(100)
+                .get();
+              
+              perguntasSnapshot.forEach(doc => {
+                todasPerguntas.push({ id: doc.id, ...doc.data() });
+              });
+              
+              if (todasPerguntas.length > 0) {
+                console.log(`✅ Encontradas ${todasPerguntas.length} perguntas com campeonatoId = "${variacao}"`);
+              }
+            } catch (err) {
+              console.log(`⚠️ Erro na busca por "${variacao}":`, err.message);
+            }
+          }
         }
 
-        // 4. Última tentativa: buscar por campo 'liga'
+        // 3. Tenta buscar por campo 'liga'
         if (todasPerguntas.length === 0) {
           console.log('🔍 Buscando na coleção perguntas por liga...');
-          const perguntasLigaSnapshot = await db.collection('perguntas')
-            .where('liga', '==', ligaSelecionada)
-            .limit(100)
-            .get();
           
-          perguntasLigaSnapshot.forEach(doc => {
-            todasPerguntas.push({ id: doc.id, ...doc.data() });
-          });
+          const variacoes = gerarVariacoesBusca(ligaSelecionada, ligaSelecionadaNome);
           
-          console.log(`📊 Perguntas por liga: ${todasPerguntas.length}`);
+          for (const variacao of variacoes) {
+            if (todasPerguntas.length > 0) break;
+            
+            try {
+              const perguntasLigaSnapshot = await db.collection('perguntas')
+                .where('liga', '==', variacao)
+                .limit(100)
+                .get();
+              
+              perguntasLigaSnapshot.forEach(doc => {
+                todasPerguntas.push({ id: doc.id, ...doc.data() });
+              });
+              
+              if (todasPerguntas.length > 0) {
+                console.log(`✅ Encontradas ${todasPerguntas.length} perguntas com liga = "${variacao}"`);
+              }
+            } catch (err) {
+              console.log(`⚠️ Erro na busca por liga "${variacao}":`, err.message);
+            }
+          }
+        }
+
+        // 4. Tenta buscar na subcoleção "perguntas" do campeonato
+        if (todasPerguntas.length === 0) {
+          console.log('🔍 Buscando na subcoleção perguntas...');
+          try {
+            const subcollectionSnapshot = await db.collection('campeonatos')
+              .doc(ligaSelecionada)
+              .collection('perguntas')
+              .limit(100)
+              .get();
+            
+            subcollectionSnapshot.forEach(doc => {
+              todasPerguntas.push({ id: doc.id, ...doc.data() });
+            });
+            
+            console.log(`📊 Perguntas na subcoleção: ${todasPerguntas.length}`);
+          } catch (err) {
+            console.log('⚠️ Erro ao buscar subcoleção:', err.message);
+          }
         }
 
         if (todasPerguntas.length === 0) {
           showToast('❌ Nenhuma pergunta disponível para esta liga');
+          console.log('❌ Nenhuma pergunta encontrada após todas as tentativas');
           return;
         }
 
@@ -934,6 +1125,50 @@
         console.error("Erro:", error);
         showToast('❌ Erro ao carregar perguntas');
       }
+    }
+
+    // ===================================
+    // 🔧 GERAR VARIAÇÕES DE BUSCA
+    // ===================================
+    function gerarVariacoesBusca(id, nome) {
+      const variacoes = new Set();
+      
+      // Adicionar ID original
+      variacoes.add(id);
+      
+      // Adicionar nome se diferente do ID
+      if (nome && nome !== id) {
+        variacoes.add(nome);
+      }
+      
+      // Versões em minúsculo
+      variacoes.add(id.toLowerCase());
+      if (nome) variacoes.add(nome.toLowerCase());
+      
+      // Versões normalizadas (sem acentos e caracteres especiais)
+      variacoes.add(normalizarTexto(id));
+      if (nome) variacoes.add(normalizarTexto(nome));
+      
+      // Remover prefixos comuns
+      const semPrefixo = nome ? nome.replace(/^(Copa |Liga |Campeonato |Torneio )/i, '') : '';
+      if (semPrefixo) {
+        variacoes.add(semPrefixo);
+        variacoes.add(semPrefixo.toLowerCase());
+        variacoes.add(normalizarTexto(semPrefixo));
+      }
+      
+      // Variações com underscore/hífen
+      variacoes.add(id.replace(/ /g, '_'));
+      variacoes.add(id.replace(/ /g, '-'));
+      if (nome) {
+        variacoes.add(nome.replace(/ /g, '_'));
+        variacoes.add(nome.replace(/ /g, '-'));
+      }
+      
+      // Remover strings vazias
+      variacoes.delete('');
+      
+      return Array.from(variacoes);
     }
 
     // ===================================
@@ -1160,7 +1395,7 @@
       }
     }
 
-    console.log("✅ Teste de Ligas v2.0 - Campeonatos Dinâmicos");
+    console.log("✅ Teste de Ligas v3.0 - Com busca e variações de campeonatoId");
   </script>
 
 </body>
