@@ -179,43 +179,25 @@
       border-radius: 10px;
     }
 
-    /* Dificuldade */
-    .difficulty-section {
-      margin-bottom: 25px;
-    }
-
-    .difficulty-options {
-      display: flex;
-      gap: 10px;
-    }
-
-    .difficulty-btn {
-      flex: 1;
-      padding: 15px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 2px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
+    /* Loading */
+    .loading-ligas {
+      text-align: center;
+      padding: 40px;
       color: #a9b5c6;
-      cursor: pointer;
-      font-family: 'Poppins', sans-serif;
-      font-weight: 600;
-      transition: all 0.3s ease;
     }
 
-    .difficulty-btn:hover {
-      border-color: rgba(255, 181, 71, 0.5);
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 181, 71, 0.2);
+      border-top-color: #ffb547;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 15px;
     }
 
-    .difficulty-btn.selected {
-      border-color: #ffb547;
-      background: rgba(255, 181, 71, 0.1);
-      color: #ffb547;
-    }
-
-    .difficulty-btn .emoji {
-      display: block;
-      font-size: 1.5em;
-      margin-bottom: 5px;
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
 
     /* Botão Iniciar */
@@ -545,10 +527,6 @@
       .ligas-grid {
         grid-template-columns: 1fr;
       }
-
-      .difficulty-options {
-        flex-direction: column;
-      }
     }
   </style>
 </head>
@@ -592,54 +570,9 @@
       <!-- Ligas -->
       <div class="section-title">⚽ Escolha uma Liga</div>
       <div class="ligas-grid" id="ligasGrid">
-        <div class="liga-card" onclick="selecionarLiga('brasileirao')" data-liga="brasileirao">
-          <div class="liga-flag">🇧🇷</div>
-          <div class="liga-name">Brasileirão</div>
-          <div class="liga-questions">150+ perguntas</div>
-        </div>
-        <div class="liga-card" onclick="selecionarLiga('libertadores')" data-liga="libertadores">
-          <div class="liga-flag">🏆</div>
-          <div class="liga-name">Libertadores</div>
-          <div class="liga-questions">80+ perguntas</div>
-        </div>
-        <div class="liga-card" onclick="selecionarLiga('champions')" data-liga="champions">
-          <div class="liga-flag">⭐</div>
-          <div class="liga-name">Champions League</div>
-          <div class="liga-questions">100+ perguntas</div>
-        </div>
-        <div class="liga-card" onclick="selecionarLiga('copa')" data-liga="copa">
-          <div class="liga-flag">🌍</div>
-          <div class="liga-name">Copa do Mundo</div>
-          <div class="liga-questions">120+ perguntas</div>
-        </div>
-        <div class="liga-card" onclick="selecionarLiga('premier')" data-liga="premier">
-          <div class="liga-flag">🏴󠁧󠁢󠁥󠁮󠁧󠁿</div>
-          <div class="liga-name">Premier League</div>
-          <div class="liga-questions">90+ perguntas</div>
-        </div>
-        <div class="liga-card" onclick="selecionarLiga('laliga')" data-liga="laliga">
-          <div class="liga-flag">🇪🇸</div>
-          <div class="liga-name">La Liga</div>
-          <div class="liga-questions">85+ perguntas</div>
-        </div>
-      </div>
-
-      <!-- Dificuldade -->
-      <div class="difficulty-section">
-        <div class="section-title">📊 Dificuldade</div>
-        <div class="difficulty-options">
-          <button class="difficulty-btn selected" onclick="selecionarDificuldade('facil')" data-diff="facil">
-            <span class="emoji">😊</span>
-            Fácil
-          </button>
-          <button class="difficulty-btn" onclick="selecionarDificuldade('medio')" data-diff="medio">
-            <span class="emoji">🤔</span>
-            Médio
-          </button>
-          <button class="difficulty-btn" onclick="selecionarDificuldade('dificil')" data-diff="dificil">
-            <span class="emoji">😤</span>
-            Difícil
-          </button>
+        <div class="loading-ligas">
+          <div class="loading-spinner"></div>
+          <p>Carregando ligas...</p>
         </div>
       </div>
 
@@ -667,7 +600,7 @@
       </div>
 
       <div class="question-card">
-        <div class="question-category" id="questionCategory">Brasileirão</div>
+        <div class="question-category" id="questionCategory">Liga</div>
         <div class="question-text" id="questionText">
           Carregando pergunta...
         </div>
@@ -765,14 +698,17 @@
     // ===================================
     let currentUserId = null;
     let ligaSelecionada = null;
-    let dificuldadeSelecionada = 'facil';
+    let ligaSelecionadaNome = null;
+    let campeonatosData = {}; // Armazena dados dos campeonatos carregados
     let perguntas = [];
     let perguntaAtual = 0;
     let acertos = 0;
     let timer = null;
     let tempoRestante = 15;
-    let tempoTotal = 0;
     let startTime = null;
+
+    // Tempo fixo para todas as perguntas (sem dificuldade)
+    const TEMPO_POR_PERGUNTA = 15;
 
     // ===================================
     // 💬 TOAST
@@ -793,7 +729,8 @@
         return;
       }
       currentUserId = user.uid;
-      carregarEstatisticas();
+      await carregarEstatisticas();
+      await carregarLigas();
     });
 
     // ===================================
@@ -811,48 +748,95 @@
           document.getElementById('totalXP').textContent = testes.xpGanho || 0;
         }
       } catch (error) {
-        console.error("Erro:", error);
+        console.error("Erro ao carregar estatísticas:", error);
+      }
+    }
+
+    // ===================================
+    // ⚽ CARREGAR LIGAS DA COLEÇÃO CAMPEONATOS
+    // ===================================
+    async function carregarLigas() {
+      const ligasGrid = document.getElementById('ligasGrid');
+      
+      try {
+        console.log('🔍 Buscando campeonatos no Firebase...');
+        
+        const snapshot = await db.collection('campeonatos').get();
+        
+        if (snapshot.empty) {
+          ligasGrid.innerHTML = `
+            <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #a9b5c6;">
+              <p>😕 Nenhuma liga disponível no momento</p>
+            </div>
+          `;
+          return;
+        }
+
+        // Limpar grid
+        ligasGrid.innerHTML = '';
+
+        // Mapear emojis para cada tipo de campeonato (pode customizar)
+        const emojisDefault = ['🏆', '⚽', '🥇', '🎖️', '🏅', '⭐'];
+        let emojiIndex = 0;
+
+        snapshot.forEach(doc => {
+          const campeonato = doc.data();
+          const id = doc.id;
+          
+          // Armazenar dados do campeonato
+          campeonatosData[id] = campeonato;
+
+          // Contar perguntas (se houver array de perguntas no documento)
+          const numPerguntas = campeonato.perguntas ? campeonato.perguntas.length : 0;
+
+          // Determinar emoji/bandeira (usa do campeonato ou padrão)
+          const emoji = campeonato.emoji || campeonato.bandeira || emojisDefault[emojiIndex % emojisDefault.length];
+          emojiIndex++;
+
+          // Criar card
+          const card = document.createElement('div');
+          card.className = 'liga-card';
+          card.dataset.liga = id;
+          card.onclick = () => selecionarLiga(id, campeonato.nome || id);
+          
+          card.innerHTML = `
+            <div class="liga-flag">${emoji}</div>
+            <div class="liga-name">${campeonato.nome || id}</div>
+            <div class="liga-questions">${numPerguntas > 0 ? numPerguntas + ' perguntas' : 'Perguntas disponíveis'}</div>
+          `;
+
+          ligasGrid.appendChild(card);
+        });
+
+        console.log(`✅ ${snapshot.size} campeonatos carregados`);
+
+      } catch (error) {
+        console.error('Erro ao carregar ligas:', error);
+        ligasGrid.innerHTML = `
+          <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #ef4444;">
+            <p>❌ Erro ao carregar ligas</p>
+            <p style="font-size: 0.8em; margin-top: 10px;">${error.message}</p>
+          </div>
+        `;
       }
     }
 
     // ===================================
     // ⚽ SELECIONAR LIGA
     // ===================================
-    function selecionarLiga(liga) {
-      ligaSelecionada = liga;
+    function selecionarLiga(ligaId, ligaNome) {
+      ligaSelecionada = ligaId;
+      ligaSelecionadaNome = ligaNome;
       
       document.querySelectorAll('.liga-card').forEach(card => {
         card.classList.remove('selected');
-        if (card.dataset.liga === liga) {
+        if (card.dataset.liga === ligaId) {
           card.classList.add('selected');
         }
       });
 
-      const nomes = {
-        'brasileirao': 'Brasileirão',
-        'libertadores': 'Libertadores',
-        'champions': 'Champions League',
-        'copa': 'Copa do Mundo',
-        'premier': 'Premier League',
-        'laliga': 'La Liga'
-      };
-
       document.getElementById('btnStart').disabled = false;
-      document.getElementById('btnStart').textContent = `🎯 Iniciar Teste - ${nomes[liga]}`;
-    }
-
-    // ===================================
-    // 📊 SELECIONAR DIFICULDADE
-    // ===================================
-    function selecionarDificuldade(diff) {
-      dificuldadeSelecionada = diff;
-      
-      document.querySelectorAll('.difficulty-btn').forEach(btn => {
-        btn.classList.remove('selected');
-        if (btn.dataset.diff === diff) {
-          btn.classList.add('selected');
-        }
-      });
+      document.getElementById('btnStart').textContent = `🎯 Iniciar Teste - ${ligaNome}`;
     }
 
     // ===================================
@@ -864,75 +848,72 @@
         return;
       }
 
-      // Carregar perguntas do Firebase FILTRADAS por campeonato/liga
       try {
         let todasPerguntas = [];
-
-        // Primeiro tenta buscar por campeonatoId (perguntas específicas de campeonatos)
+        
         console.log(`🔍 Buscando perguntas para: ${ligaSelecionada}`);
-        
-        const snapshotCampeonato = await db.collection('perguntas')
-          .where('campeonatoId', '==', ligaSelecionada)
-          .limit(100)
-          .get();
-        
-        snapshotCampeonato.forEach(doc => {
-          todasPerguntas.push({ id: doc.id, ...doc.data() });
-        });
 
-        console.log(`📊 Perguntas por campeonatoId '${ligaSelecionada}': ${todasPerguntas.length}`);
+        // 1. Primeiro tenta buscar do array de perguntas dentro do documento do campeonato
+        const campeonato = campeonatosData[ligaSelecionada];
+        
+        if (campeonato && campeonato.perguntas && campeonato.perguntas.length > 0) {
+          console.log(`📊 Perguntas encontradas no documento do campeonato: ${campeonato.perguntas.length}`);
+          todasPerguntas = campeonato.perguntas.map((p, idx) => ({ id: `${ligaSelecionada}_${idx}`, ...p }));
+        }
 
-        // Se não encontrou por campeonatoId, tenta pelo campo 'liga'
+        // 2. Se não encontrou, busca na subcoleção "perguntas" do campeonato
         if (todasPerguntas.length === 0) {
-          const snapshotLiga = await db.collection('perguntas')
+          console.log('🔍 Buscando na subcoleção perguntas...');
+          const subcollectionSnapshot = await db.collection('campeonatos')
+            .doc(ligaSelecionada)
+            .collection('perguntas')
+            .limit(100)
+            .get();
+          
+          subcollectionSnapshot.forEach(doc => {
+            todasPerguntas.push({ id: doc.id, ...doc.data() });
+          });
+          
+          console.log(`📊 Perguntas na subcoleção: ${todasPerguntas.length}`);
+        }
+
+        // 3. Se ainda não encontrou, busca na coleção geral "perguntas" com filtro
+        if (todasPerguntas.length === 0) {
+          console.log('🔍 Buscando na coleção perguntas por campeonatoId...');
+          const perguntasSnapshot = await db.collection('perguntas')
+            .where('campeonatoId', '==', ligaSelecionada)
+            .limit(100)
+            .get();
+          
+          perguntasSnapshot.forEach(doc => {
+            todasPerguntas.push({ id: doc.id, ...doc.data() });
+          });
+          
+          console.log(`📊 Perguntas por campeonatoId: ${todasPerguntas.length}`);
+        }
+
+        // 4. Última tentativa: buscar por campo 'liga'
+        if (todasPerguntas.length === 0) {
+          console.log('🔍 Buscando na coleção perguntas por liga...');
+          const perguntasLigaSnapshot = await db.collection('perguntas')
             .where('liga', '==', ligaSelecionada)
             .limit(100)
             .get();
           
-          snapshotLiga.forEach(doc => {
+          perguntasLigaSnapshot.forEach(doc => {
             todasPerguntas.push({ id: doc.id, ...doc.data() });
           });
-
-          console.log(`📊 Perguntas por liga '${ligaSelecionada}': ${todasPerguntas.length}`);
-        }
-
-        // Se ainda não encontrou, busca perguntas gerais (fallback)
-        if (todasPerguntas.length === 0) {
-          console.log('⚠️ Nenhuma pergunta específica encontrada, buscando gerais...');
-          const snapshotGeral = await db.collection('perguntas').limit(100).get();
-          snapshotGeral.forEach(doc => {
-            todasPerguntas.push({ id: doc.id, ...doc.data() });
-          });
-        }
-
-        // Filtrar por dificuldade se selecionada
-        if (dificuldadeSelecionada && dificuldadeSelecionada !== 'todas') {
-          const dificuldadeMap = {
-            'facil': [1, 2, 3, 4],
-            'medio': [5, 6, 7],
-            'dificil': [8, 9, 10]
-          };
-          const pontosFaixa = dificuldadeMap[dificuldadeSelecionada];
           
-          if (pontosFaixa) {
-            const perguntasFiltradas = todasPerguntas.filter(p => {
-              const pontos = p.pontuacao || 5;
-              return pontosFaixa.includes(pontos);
-            });
-            // Só usa o filtro se sobrar perguntas suficientes
-            if (perguntasFiltradas.length >= 5) {
-              todasPerguntas = perguntasFiltradas;
-            }
-          }
+          console.log(`📊 Perguntas por liga: ${todasPerguntas.length}`);
         }
 
-        // Embaralhar e pegar 10
-        perguntas = shuffleArray(todasPerguntas).slice(0, 10);
-
-        if (perguntas.length === 0) {
+        if (todasPerguntas.length === 0) {
           showToast('❌ Nenhuma pergunta disponível para esta liga');
           return;
         }
+
+        // Embaralhar e pegar 10 perguntas
+        perguntas = shuffleArray(todasPerguntas).slice(0, 10);
 
         console.log(`✅ ${perguntas.length} perguntas selecionadas para o quiz`);
 
@@ -982,16 +963,8 @@
       document.getElementById('currentQ').textContent = perguntaAtual + 1;
       document.getElementById('progressFill').style.width = ((perguntaAtual + 1) / perguntas.length * 100) + '%';
 
-      // Categoria
-      const nomes = {
-        'brasileirao': '🇧🇷 Brasileirão',
-        'libertadores': '🏆 Libertadores',
-        'champions': '⭐ Champions',
-        'copa': '🌍 Copa do Mundo',
-        'premier': '🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League',
-        'laliga': '🇪🇸 La Liga'
-      };
-      document.getElementById('questionCategory').textContent = nomes[ligaSelecionada] || '⚽ Futebol';
+      // Categoria/Liga
+      document.getElementById('questionCategory').textContent = ligaSelecionadaNome || '⚽ Futebol';
 
       // Pergunta
       document.getElementById('questionText').textContent = pergunta.pergunta || pergunta.texto || 'Pergunta não disponível';
@@ -1023,9 +996,8 @@
     function iniciarTimer() {
       clearInterval(timer);
       
-      // Tempo baseado na dificuldade
-      const tempos = { facil: 20, medio: 15, dificil: 10 };
-      tempoRestante = tempos[dificuldadeSelecionada];
+      // Tempo fixo (sem dificuldade)
+      tempoRestante = TEMPO_POR_PERGUNTA;
       
       document.getElementById('timerValue').textContent = tempoRestante;
 
@@ -1188,7 +1160,7 @@
       }
     }
 
-    console.log("✅ Teste de Ligas v1.0");
+    console.log("✅ Teste de Ligas v2.0 - Campeonatos Dinâmicos");
   </script>
 
 </body>
