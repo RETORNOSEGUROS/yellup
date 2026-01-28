@@ -928,12 +928,19 @@
         </div>
       </div>
 
-      <!-- Lista de Campeonatos -->
+      <!-- Busca de Campeonatos -->
       <div id="listaCampeonatos" style="display: none;">
+        <div class="search-container">
+          <span class="search-icon">🔍</span>
+          <input type="text" class="search-input" id="searchCampeonato" 
+                 placeholder="Buscar campeonato ou liga..." 
+                 oninput="buscarCampeonatos()">
+        </div>
+
         <div class="results-list" id="campeonatoResults">
-          <div class="loading">
-            <div class="spinner"></div>
-            <p>Carregando campeonatos...</p>
+          <div class="empty-state">
+            <div class="empty-icon">🏆</div>
+            <p>Digite para buscar campeonatos e ligas</p>
           </div>
         </div>
 
@@ -1284,7 +1291,6 @@
 
     // Cache
     let todosAmigos = [];
-    let todosCampeonatos = [];
     let buscaTimeout = null;
 
     // ===================================
@@ -1307,9 +1313,6 @@
         
         // Carregar amigos
         carregarAmigos();
-        
-        // Carregar campeonatos
-        carregarCampeonatos();
         
         // Configurar data mínima
         configurarDataMinima();
@@ -1565,71 +1568,115 @@
       document.getElementById('btnStep1').disabled = false;
     }
 
-    async function carregarCampeonatos() {
-      try {
-        const snapshot = await db.collection('campeonatos')
-          .where('ativo', '==', true)
-          .get();
-        
-        todosCampeonatos = [];
-        snapshot.forEach(doc => {
-          todosCampeonatos.push({ id: doc.id, ...doc.data() });
-        });
-        
-        // Se não há campeonatos no banco, mostrar exemplos
-        if (todosCampeonatos.length === 0) {
-          todosCampeonatos = [
-            { id: 'brasileirao', nome: 'Campeonato Brasileiro', icone: '🇧🇷' },
-            { id: 'libertadores', nome: 'Copa Libertadores', icone: '🏆' },
-            { id: 'copa_mundo', nome: 'Copa do Mundo', icone: '🌍' },
-            { id: 'champions', nome: 'Champions League', icone: '⭐' },
-            { id: 'copa_brasil', nome: 'Copa do Brasil', icone: '🏆' }
-          ];
-        }
-        
-        renderizarCampeonatos();
-        
-      } catch (error) {
-        console.error("Erro ao carregar campeonatos:", error);
-        // Mostrar exemplos em caso de erro
-        todosCampeonatos = [
-          { id: 'brasileirao', nome: 'Campeonato Brasileiro', icone: '🇧🇷' },
-          { id: 'libertadores', nome: 'Copa Libertadores', icone: '🏆' },
-          { id: 'copa_mundo', nome: 'Copa do Mundo', icone: '🌍' }
-        ];
-        renderizarCampeonatos();
-      }
-    }
+    let buscaCampeonatoTimeout = null;
 
-    function renderizarCampeonatos() {
+    async function buscarCampeonatos() {
+      clearTimeout(buscaCampeonatoTimeout);
+      
+      const termo = document.getElementById('searchCampeonato').value.trim().toLowerCase();
       const container = document.getElementById('campeonatoResults');
       
-      if (todosCampeonatos.length === 0) {
+      if (termo.length < 2) {
         container.innerHTML = `
           <div class="empty-state">
             <div class="empty-icon">🏆</div>
-            <p>Nenhum campeonato disponível</p>
+            <p>Digite ao menos 2 letras para buscar</p>
           </div>
         `;
         return;
       }
       
-      container.innerHTML = todosCampeonatos.map(camp => `
-        <div class="result-item ${embateData.tema.id === camp.id ? 'selected' : ''}" 
-             onclick="selecionarCampeonato('${camp.id}', '${camp.nome}')">
-          <div class="result-avatar" style="font-size: 1.5em; background: rgba(255,255,255,0.1);">
-            ${camp.icone || '🏆'}
-          </div>
-          <div class="result-info">
-            <div class="result-name">${camp.nome}</div>
-            <div class="result-details">${camp.descricao || 'Perguntas sobre o campeonato'}</div>
-          </div>
-          <div class="result-check">${embateData.tema.id === camp.id ? '✓' : ''}</div>
+      container.innerHTML = `
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>Buscando...</p>
         </div>
-      `).join('');
+      `;
+      
+      buscaCampeonatoTimeout = setTimeout(async () => {
+        try {
+          let campeonatos = [];
+          
+          // Busca por nome começando com termo (primeira letra maiúscula)
+          const termoCapitalizado = termo.charAt(0).toUpperCase() + termo.slice(1);
+          
+          const snapshot1 = await db.collection('campeonatos')
+            .where('nome', '>=', termoCapitalizado)
+            .where('nome', '<=', termoCapitalizado + '\uf8ff')
+            .limit(20)
+            .get();
+          
+          snapshot1.forEach(doc => {
+            campeonatos.push({ id: doc.id, ...doc.data() });
+          });
+          
+          // Busca adicional por termo minúsculo
+          if (campeonatos.length < 10) {
+            const snapshot2 = await db.collection('campeonatos')
+              .where('nome', '>=', termo)
+              .where('nome', '<=', termo + '\uf8ff')
+              .limit(20)
+              .get();
+            
+            snapshot2.forEach(doc => {
+              if (!campeonatos.find(c => c.id === doc.id)) {
+                campeonatos.push({ id: doc.id, ...doc.data() });
+              }
+            });
+          }
+
+          // Busca por todas e filtra localmente (para pegar termos no meio do nome)
+          if (campeonatos.length < 5) {
+            const snapshotAll = await db.collection('campeonatos').limit(100).get();
+            
+            snapshotAll.forEach(doc => {
+              const data = doc.data();
+              const nome = (data.nome || '').toLowerCase();
+              
+              if (nome.includes(termo) && !campeonatos.find(c => c.id === doc.id)) {
+                campeonatos.push({ id: doc.id, ...data });
+              }
+            });
+          }
+          
+          if (campeonatos.length === 0) {
+            container.innerHTML = `
+              <div class="empty-state">
+                <div class="empty-icon">😕</div>
+                <p>Nenhum campeonato encontrado</p>
+              </div>
+            `;
+          } else {
+            container.innerHTML = campeonatos.map(camp => {
+              const icone = camp.emoji || camp.icone || camp.bandeira || '🏆';
+              return `
+              <div class="result-item ${embateData.tema.id === camp.id ? 'selected' : ''}" 
+                   onclick="selecionarCampeonato('${camp.id}', '${camp.nome.replace(/'/g, "\\'")}', '${icone}')">
+                <div class="result-avatar" style="font-size: 1.5em; background: rgba(255,255,255,0.1);">
+                  ${icone}
+                </div>
+                <div class="result-info">
+                  <div class="result-name">${camp.nome}</div>
+                  <div class="result-details">${camp.descricao || 'Perguntas sobre o campeonato'}</div>
+                </div>
+                <div class="result-check">${embateData.tema.id === camp.id ? '✓' : ''}</div>
+              </div>
+            `}).join('');
+          }
+          
+        } catch (error) {
+          console.error("Erro ao buscar campeonatos:", error);
+          container.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">❌</div>
+              <p>Erro ao buscar campeonatos</p>
+            </div>
+          `;
+        }
+      }, 300);
     }
 
-    function selecionarCampeonato(id, nome) {
+    function selecionarCampeonato(id, nome, icone) {
       embateData.tema.id = id;
       embateData.tema.nome = nome;
       
@@ -1637,7 +1684,13 @@
       document.getElementById('campeonatoSelecionado').style.display = 'block';
       document.getElementById('campeonatoNomeSelecionado').textContent = nome;
       
-      renderizarCampeonatos();
+      // Atualizar lista de resultados
+      document.querySelectorAll('#campeonatoResults .result-item').forEach(el => {
+        el.classList.remove('selected');
+      });
+      if (event && event.currentTarget) {
+        event.currentTarget.classList.add('selected');
+      }
       
       // Habilitar próximo
       document.getElementById('btnStep1').disabled = false;
