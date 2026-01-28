@@ -816,7 +816,8 @@
       eliminado: false,
       perguntasRespondidas: [],
       perguntaAtual: null,
-      totalPerguntas: 0
+      totalPerguntas: 0,
+      mapaAlternativas: null // Mapa de letras embaralhadas -> letras originais
     };
     
     // Timers
@@ -1066,6 +1067,53 @@
     }
 
     // ===================================
+    // 🔧 FUNÇÕES AUXILIARES
+    // ===================================
+    function shuffleArray(array) {
+      const newArray = [...array];
+      for (let i = newArray.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+      }
+      return newArray;
+    }
+
+    function normalizarTexto(texto) {
+      return texto
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+    }
+
+    function gerarVariacoesBusca(id, nome) {
+      const variacoes = new Set();
+      
+      if (id) {
+        variacoes.add(id);
+        variacoes.add(id.toLowerCase());
+        variacoes.add(normalizarTexto(id));
+      }
+      
+      if (nome && nome !== id) {
+        variacoes.add(nome);
+        variacoes.add(nome.toLowerCase());
+        variacoes.add(normalizarTexto(nome));
+        
+        // Sem prefixos comuns
+        const semPrefixo = nome.replace(/^(Copa |Liga |Campeonato |Torneio |UEFA )/i, '');
+        if (semPrefixo !== nome) {
+          variacoes.add(semPrefixo);
+          variacoes.add(semPrefixo.toLowerCase());
+          variacoes.add(normalizarTexto(semPrefixo));
+        }
+      }
+      
+      variacoes.delete('');
+      return Array.from(variacoes);
+    }
+
+    // ===================================
     // ❓ CARREGAR PERGUNTA
     // ===================================
     async function carregarPergunta() {
@@ -1081,32 +1129,66 @@
         
         // Primeiro tenta buscar por tema específico
         if (embateData.tema?.tipo === 'time' && embateData.tema?.id) {
-          const snapshotTime = await db.collection('perguntas')
-            .where('timeId', '==', embateData.tema.id)
-            .limit(50)
-            .get();
+          // Gerar variações para busca
+          const variacoes = gerarVariacoesBusca(embateData.tema.id, embateData.tema.nome);
+          console.log("🔍 Buscando perguntas de time, variações:", variacoes);
           
-          snapshotTime.forEach(doc => {
-            if (!gameState.perguntasRespondidas.includes(doc.id)) {
-              perguntas.push({ id: doc.id, ...doc.data() });
-            }
-          });
+          for (const variacao of variacoes) {
+            if (perguntas.length >= 20) break;
+            
+            const snapshotTime = await db.collection('perguntas')
+              .where('timeId', '==', variacao)
+              .limit(50)
+              .get();
+            
+            snapshotTime.forEach(doc => {
+              if (!gameState.perguntasRespondidas.includes(doc.id) && !perguntas.find(p => p.id === doc.id)) {
+                perguntas.push({ id: doc.id, ...doc.data() });
+              }
+            });
+          }
+          
         } else if (embateData.tema?.tipo === 'campeonato' && embateData.tema?.id) {
-          const snapshotCamp = await db.collection('perguntas')
-            .where('campeonatoId', '==', embateData.tema.id)
-            .limit(50)
-            .get();
+          // Gerar variações para busca
+          const variacoes = gerarVariacoesBusca(embateData.tema.id, embateData.tema.nome);
+          console.log("🔍 Buscando perguntas de campeonato, variações:", variacoes);
           
-          snapshotCamp.forEach(doc => {
-            if (!gameState.perguntasRespondidas.includes(doc.id)) {
-              perguntas.push({ id: doc.id, ...doc.data() });
+          for (const variacao of variacoes) {
+            if (perguntas.length >= 20) break;
+            
+            // Buscar por campeonatoId
+            const snapshotCamp = await db.collection('perguntas')
+              .where('campeonatoId', '==', variacao)
+              .limit(50)
+              .get();
+            
+            snapshotCamp.forEach(doc => {
+              if (!gameState.perguntasRespondidas.includes(doc.id) && !perguntas.find(p => p.id === doc.id)) {
+                perguntas.push({ id: doc.id, ...doc.data() });
+              }
+            });
+            
+            // Buscar também por campo 'liga' se não encontrou suficiente
+            if (perguntas.length < 10) {
+              const snapshotLiga = await db.collection('perguntas')
+                .where('liga', '==', variacao)
+                .limit(50)
+                .get();
+              
+              snapshotLiga.forEach(doc => {
+                if (!gameState.perguntasRespondidas.includes(doc.id) && !perguntas.find(p => p.id === doc.id)) {
+                  perguntas.push({ id: doc.id, ...doc.data() });
+                }
+              });
             }
-          });
+          }
+          
+          console.log(`✅ Encontradas ${perguntas.length} perguntas do campeonato`);
         }
         
         // Se não encontrou perguntas específicas, busca perguntas gerais
         if (perguntas.length === 0) {
-          console.log("Buscando perguntas gerais...");
+          console.log("⚠️ Buscando perguntas gerais...");
           const snapshotGeral = await db.collection('perguntas')
             .limit(100)
             .get();
@@ -1158,6 +1240,7 @@
       
       // Alternativas - suporta diferentes estruturas
       let opcoes = [];
+      let mapaOriginal = {}; // Mapeia letra embaralhada -> letra original
       
       // Debug completo
       console.log("Pergunta completa:", JSON.stringify(pergunta, null, 2));
@@ -1168,49 +1251,61 @@
       const altField = pergunta.alternativas || pergunta.opcoes || pergunta.respostas;
       
       if (altField) {
-        // Se já é array
-        if (Array.isArray(altField)) {
-          opcoes = altField;
-        }
-        // Se é objeto com índices numéricos (Firestore às vezes faz isso)
-        else if (typeof altField === 'object') {
-          // Converter objeto para array
+        // Se é objeto com letras (a, b, c, d)
+        if (typeof altField === 'object' && !Array.isArray(altField)) {
           const keys = Object.keys(altField).sort();
-          opcoes = keys.map(k => altField[k]);
+          opcoes = keys.map(k => ({ texto: altField[k], letraOriginal: k.toUpperCase() }));
+        }
+        // Se é array
+        else if (Array.isArray(altField)) {
+          const letras = ['A', 'B', 'C', 'D'];
+          opcoes = altField.map((item, i) => ({
+            texto: typeof item === 'string' ? item : (item.texto || item.text || String(item)),
+            letraOriginal: letras[i]
+          }));
         }
       }
       
       // Estrutura alternativa: campos individuais (opcaoA, opcaoB, opcaoC, opcaoD)
       if (opcoes.length === 0 && (pergunta.opcaoA || pergunta.opcao_a || pergunta.alternativaA)) {
         opcoes = [
-          pergunta.opcaoA || pergunta.opcao_a || pergunta.alternativaA || '',
-          pergunta.opcaoB || pergunta.opcao_b || pergunta.alternativaB || '',
-          pergunta.opcaoC || pergunta.opcao_c || pergunta.alternativaC || '',
-          pergunta.opcaoD || pergunta.opcao_d || pergunta.alternativaD || ''
-        ].filter(o => o);
+          { texto: pergunta.opcaoA || pergunta.opcao_a || pergunta.alternativaA || '', letraOriginal: 'A' },
+          { texto: pergunta.opcaoB || pergunta.opcao_b || pergunta.alternativaB || '', letraOriginal: 'B' },
+          { texto: pergunta.opcaoC || pergunta.opcao_c || pergunta.alternativaC || '', letraOriginal: 'C' },
+          { texto: pergunta.opcaoD || pergunta.opcao_d || pergunta.alternativaD || '', letraOriginal: 'D' }
+        ].filter(o => o.texto);
       }
       
       // Estrutura alternativa: a, b, c, d
       if (opcoes.length === 0 && (pergunta.a || pergunta.A)) {
         opcoes = [
-          pergunta.a || pergunta.A || '',
-          pergunta.b || pergunta.B || '',
-          pergunta.c || pergunta.C || '',
-          pergunta.d || pergunta.D || ''
-        ].filter(o => o);
+          { texto: pergunta.a || pergunta.A || '', letraOriginal: 'A' },
+          { texto: pergunta.b || pergunta.B || '', letraOriginal: 'B' },
+          { texto: pergunta.c || pergunta.C || '', letraOriginal: 'C' },
+          { texto: pergunta.d || pergunta.D || '', letraOriginal: 'D' }
+        ].filter(o => o.texto);
       }
       
-      console.log("Opções encontradas:", opcoes);
+      // Embaralhar as opções
+      opcoes = shuffleArray(opcoes);
       
-      const letras = ['A', 'B', 'C', 'D'];
+      // Criar mapa de letras novas -> letras originais
+      const letrasNovas = ['A', 'B', 'C', 'D'];
+      opcoes.forEach((opcao, i) => {
+        mapaOriginal[letrasNovas[i]] = opcao.letraOriginal;
+      });
+      
+      // Guardar mapa no gameState para usar na resposta
+      gameState.mapaAlternativas = mapaOriginal;
+      
+      console.log("Opções embaralhadas:", opcoes);
+      console.log("Mapa de alternativas:", mapaOriginal);
       
       document.getElementById('optionsList').innerHTML = opcoes.map((opcao, i) => {
-        // Suporta opção como string ou objeto
-        const textoOpcao = typeof opcao === 'string' ? opcao : (opcao.texto || opcao.text || opcao.label || String(opcao));
         return `
-          <button class="option-btn" onclick="responderPergunta('${letras[i]}')" data-letra="${letras[i]}">
-            <span class="option-letter">${letras[i]}</span>
-            <span class="option-text">${textoOpcao}</span>
+          <button class="option-btn" onclick="responderPergunta('${letrasNovas[i]}')" data-letra="${letrasNovas[i]}" data-original="${opcao.letraOriginal}">
+            <span class="option-letter">${letrasNovas[i]}</span>
+            <span class="option-text">${opcao.texto}</span>
           </button>
         `;
       }).join('');
@@ -1300,12 +1395,11 @@
         correta = correta.toUpperCase();
       }
       
-      // Mostrar resposta correta
-      document.querySelectorAll('.option-btn').forEach(btn => {
-        if (btn.dataset.letra === correta) {
-          btn.classList.add('correct');
-        }
-      });
+      // Mostrar resposta correta (usando data-original para encontrar o botão certo)
+      const btnCorreta = document.querySelector(`[data-original="${correta}"]`);
+      if (btnCorreta) {
+        btnCorreta.classList.add('correct');
+      }
       
       // Feedback
       mostrarFeedback('timeout', 0);
@@ -1317,7 +1411,7 @@
     // ===================================
     // ✅ RESPONDER PERGUNTA
     // ===================================
-    async function responderPergunta(letra) {
+    async function responderPergunta(letraClicada) {
       // Parar timer
       clearInterval(questionTimerInterval);
       
@@ -1327,6 +1421,9 @@
       });
       
       const tempoResposta = 10 - questionTimeLeft;
+      
+      // Converter letra clicada para letra original usando o mapa
+      const letraOriginal = gameState.mapaAlternativas ? gameState.mapaAlternativas[letraClicada] : letraClicada;
       
       // Buscar resposta correta - suporta diferentes estruturas
       let correta = gameState.perguntaAtual.correta 
@@ -1347,19 +1444,20 @@
         correta = correta.toUpperCase();
       }
       
-      console.log("Resposta correta:", correta, "| Selecionada:", letra);
+      console.log("Letra clicada:", letraClicada, "| Letra original:", letraOriginal, "| Resposta correta:", correta);
       
-      const acertou = letra === correta;
+      // Comparar a letra ORIGINAL com a resposta correta
+      const acertou = letraOriginal === correta;
       
-      // Marcar selecionado
-      const btnSelecionado = document.querySelector(`[data-letra="${letra}"]`);
+      // Marcar botão selecionado
+      const btnSelecionado = document.querySelector(`[data-letra="${letraClicada}"]`);
       if (btnSelecionado) btnSelecionado.classList.add('selected');
       
-      // Mostrar correta
-      const btnCorreta = document.querySelector(`[data-letra="${correta}"]`);
+      // Encontrar e marcar o botão com a resposta correta (pelo data-original)
+      const btnCorreta = document.querySelector(`[data-original="${correta}"]`);
       if (btnCorreta) btnCorreta.classList.add('correct');
       
-      // Se errou, marcar errada
+      // Se errou, marcar como errada
       if (!acertou && btnSelecionado) {
         btnSelecionado.classList.add('wrong');
       }
@@ -1416,7 +1514,7 @@
       mostrarFeedback(acertou ? 'correct' : 'wrong', pontos);
       
       // Registrar resposta
-      await registrarResposta(letra, acertou, pontos, tempoResposta);
+      await registrarResposta(letraOriginal, acertou, pontos, tempoResposta);
       
       // Atualizar UI
       atualizarMeuStatus();
@@ -1555,9 +1653,52 @@
       // Timer value
       document.getElementById('timerValue').textContent = '00:00';
       
-      showToast('🏁 Calculando resultado...');
+      showToast('🏁 Finalizando embate...');
       
       try {
+        // Verificar se já foi finalizado PRIMEIRO (evitar duplicação)
+        const embateDoc = await db.collection('embates').doc(embateId).get();
+        const embateAtual = embateDoc.data();
+        
+        if (embateAtual.status === 'finalizado') {
+          console.log("✅ Embate já finalizado por outro participante, redirecionando...");
+          showToast('🏁 Embate finalizado!');
+          setTimeout(() => {
+            window.location.href = `resultado-embate.html?id=${embateId}`;
+          }, 2000);
+          return;
+        }
+        
+        // Tentar marcar como "finalizando" para evitar race condition
+        // Usa uma transação para garantir atomicidade
+        const jaFinalizando = await db.runTransaction(async (transaction) => {
+          const docRef = db.collection('embates').doc(embateId);
+          const doc = await transaction.get(docRef);
+          
+          if (!doc.exists) return true;
+          
+          const data = doc.data();
+          if (data.status === 'finalizado' || data.status === 'finalizando') {
+            return true; // Já está sendo finalizado por outro
+          }
+          
+          // Marcar como finalizando
+          transaction.update(docRef, { status: 'finalizando' });
+          return false;
+        });
+        
+        if (jaFinalizando) {
+          console.log("✅ Embate já sendo finalizado por outro participante");
+          showToast('🏁 Calculando resultado...');
+          setTimeout(() => {
+            window.location.href = `resultado-embate.html?id=${embateId}`;
+          }, 3000);
+          return;
+        }
+        
+        // Sou o responsável por finalizar - continuar
+        console.log("🔄 Calculando resultado...");
+        
         // Buscar todas as participações para calcular ranking
         const participacoesSnap = await db.collection('embates').doc(embateId)
           .collection('participacoes').get();
@@ -1571,18 +1712,6 @@
         ranking.sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
         
         console.log("Ranking final:", ranking);
-        
-        // Verificar se já foi finalizado (evitar duplicação)
-        const embateDoc = await db.collection('embates').doc(embateId).get();
-        const embateAtual = embateDoc.data();
-        
-        if (embateAtual.status === 'finalizado') {
-          console.log("Embate já finalizado, apenas redirecionando...");
-          setTimeout(() => {
-            window.location.href = `resultado-embate.html?id=${embateId}`;
-          }, 2000);
-          return;
-        }
         
         // Determinar vencedor
         let resultado = {};
@@ -1615,31 +1744,39 @@
             const premioPorJogador = Math.floor(premio / vencedores.length);
             
             for (const vencedor of vencedores) {
-              await db.collection('usuarios').doc(vencedor.odId).update({
-                creditos: firebase.firestore.FieldValue.increment(premioPorJogador),
-                'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
-                'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premioPorJogador),
-                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
-              });
-              
-              // Registrar transação
-              await db.collection('transacoes').add({
-                usuarioId: vencedor.odId,
-                tipo: 'credito',
-                valor: premioPorJogador,
-                descricao: `🏆 Empate no embate ${embateAtual.codigo} (+${premioPorJogador} créditos)`,
-                embateId: embateId,
-                data: firebase.firestore.FieldValue.serverTimestamp()
-              });
+              try {
+                await db.collection('usuarios').doc(vencedor.odId).update({
+                  creditos: firebase.firestore.FieldValue.increment(premioPorJogador),
+                  'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
+                  'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premioPorJogador),
+                  'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
+                });
+                
+                // Registrar transação
+                await db.collection('transacoes').add({
+                  usuarioId: vencedor.odId,
+                  tipo: 'credito',
+                  valor: premioPorJogador,
+                  descricao: `🏆 Empate no embate ${embateAtual.codigo} (+${premioPorJogador} créditos)`,
+                  embateId: embateId,
+                  data: firebase.firestore.FieldValue.serverTimestamp()
+                });
+              } catch (err) {
+                console.warn("Erro ao atualizar vencedor:", vencedor.odId, err);
+              }
             }
             
             // Atualizar perdedores (quem não empatou em primeiro)
             const perdedores = ranking.filter(r => (r.pontos || 0) < maiorPontuacao);
             for (const perdedor of perdedores) {
-              await db.collection('usuarios').doc(perdedor.odId).update({
-                'pvp.derrotas': firebase.firestore.FieldValue.increment(1),
-                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
-              });
+              try {
+                await db.collection('usuarios').doc(perdedor.odId).update({
+                  'pvp.derrotas': firebase.firestore.FieldValue.increment(1),
+                  'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
+                });
+              } catch (err) {
+                console.warn("Erro ao atualizar perdedor:", perdedor.odId, err);
+              }
             }
             
             showToast(`🤝 Empate! ${vencedores.length} vencedores!`);
@@ -1648,29 +1785,37 @@
             // Vencedor único - leva tudo
             const vencedor = vencedores[0];
             
-            await db.collection('usuarios').doc(vencedor.odId).update({
-              creditos: firebase.firestore.FieldValue.increment(premio),
-              'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
-              'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premio),
-              'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
-            });
-            
-            // Registrar transação do vencedor
-            await db.collection('transacoes').add({
-              usuarioId: vencedor.odId,
-              tipo: 'credito',
-              valor: premio,
-              descricao: `🏆 Vitória no embate ${embateAtual.codigo} (+${premio} créditos)`,
-              embateId: embateId,
-              data: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            try {
+              await db.collection('usuarios').doc(vencedor.odId).update({
+                creditos: firebase.firestore.FieldValue.increment(premio),
+                'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
+                'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(premio),
+                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
+              });
+              
+              // Registrar transação do vencedor
+              await db.collection('transacoes').add({
+                usuarioId: vencedor.odId,
+                tipo: 'credito',
+                valor: premio,
+                descricao: `🏆 Vitória no embate ${embateAtual.codigo} (+${premio} créditos)`,
+                embateId: embateId,
+                data: firebase.firestore.FieldValue.serverTimestamp()
+              });
+            } catch (err) {
+              console.warn("Erro ao atualizar vencedor:", vencedor.odId, err);
+            }
             
             // Atualizar derrotas dos perdedores
             for (const perdedor of ranking.slice(1)) {
-              await db.collection('usuarios').doc(perdedor.odId).update({
-                'pvp.derrotas': firebase.firestore.FieldValue.increment(1),
-                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
-              });
+              try {
+                await db.collection('usuarios').doc(perdedor.odId).update({
+                  'pvp.derrotas': firebase.firestore.FieldValue.increment(1),
+                  'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
+                });
+              } catch (err) {
+                console.warn("Erro ao atualizar perdedor:", perdedor.odId, err);
+              }
             }
             
             showToast(`🏆 ${vencedor.odNome} venceu! +${premio} créditos!`);
@@ -1684,11 +1829,12 @@
           dataFinalizacao: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        console.log("Embate finalizado com sucesso!", resultado);
+        console.log("✅ Embate finalizado com sucesso!", resultado);
         
       } catch (error) {
         console.error("Erro ao finalizar embate:", error);
-        showToast('⚠️ Erro ao calcular resultado');
+        // Não mostrar erro para o usuário se o embate já foi finalizado
+        // Apenas redirecionar
       }
       
       // Redirecionar para resultado após 3s
@@ -1716,7 +1862,7 @@
       clearInterval(questionTimerInterval);
     });
 
-    console.log("✅ Arena Embate v1.0 carregado");
+    console.log("✅ Arena Embate v2.0 - Busca melhorada + Alternativas embaralhadas");
   </script>
 
 </body>
