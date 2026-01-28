@@ -1273,17 +1273,37 @@
         // Agregar pontos por usuário
         const pontosPorUsuario = {};
         
-        // Buscar embates finalizados no período
+        // Buscar TODOS os embates finalizados (sem filtro de data no Firebase)
+        // e filtrar por data no JavaScript (evita necessidade de índice composto)
         const embatesSnap = await db.collection('embates')
           .where('status', '==', 'finalizado')
-          .where('dataFinalizacao', '>=', dataInicio)
-          .where('dataFinalizacao', '<=', dataFim)
           .get();
 
-        console.log(`📅 Encontrados ${embatesSnap.size} embates no período`);
+        // Filtrar por data no JavaScript
+        const embatesNoPeriodo = embatesSnap.docs.filter(doc => {
+          const data = doc.data();
+          const dataFinalizacao = data.dataFinalizacao?.toDate ? data.dataFinalizacao.toDate() : new Date(data.dataFinalizacao);
+          return dataFinalizacao >= dataInicio && dataFinalizacao <= dataFim;
+        });
+
+        console.log(`📅 Encontrados ${embatesNoPeriodo.length} embates no período (de ${embatesSnap.size} total)`);
+
+        if (embatesNoPeriodo.length === 0) {
+          lista.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">📅</div>
+              <p>Nenhum embate finalizado neste período</p>
+              <small style="color: #6b7280;">Tente selecionar um período diferente</small>
+            </div>
+          `;
+          document.getElementById('podium').style.display = 'none';
+          document.getElementById('myPositionCard').style.display = 'none';
+          infoBanner.classList.remove('active');
+          return;
+        }
 
         // Buscar participações de cada embate
-        for (const embateDoc of embatesSnap.docs) {
+        for (const embateDoc of embatesNoPeriodo) {
           const participacoesSnap = await db.collection('embates').doc(embateDoc.id)
             .collection('participacoes').get();
           
@@ -1332,7 +1352,7 @@
           lista.innerHTML = `
             <div class="empty-state">
               <div class="empty-icon">📅</div>
-              <p>Nenhum embate finalizado neste período</p>
+              <p>Nenhum jogador participou de embates neste período</p>
               <small style="color: #6b7280;">Tente selecionar um período diferente</small>
             </div>
           `;
@@ -1342,7 +1362,7 @@
           return;
         }
 
-        document.getElementById('infoBannerText').textContent = `${embatesSnap.size} embates • ${ranking.length} jogadores no período`;
+        document.getElementById('infoBannerText').textContent = `${embatesNoPeriodo.length} embates • ${ranking.length} jogadores no período`;
         renderizarRankingPeriodo(ranking);
 
       } catch (error) {
