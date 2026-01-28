@@ -1260,7 +1260,7 @@
       periodText.textContent = `${dataInicio.toLocaleDateString('pt-BR')} a ${dataFim.toLocaleDateString('pt-BR')}`;
       
       infoBanner.classList.add('active');
-      document.getElementById('infoBannerText').textContent = `Buscando XP ganho entre ${dataInicio.toLocaleDateString('pt-BR')} e ${dataFim.toLocaleDateString('pt-BR')}...`;
+      document.getElementById('infoBannerText').textContent = `Buscando pontos ganhos em embates...`;
 
       lista.innerHTML = `
         <div class="loading">
@@ -1270,61 +1270,58 @@
       `;
 
       try {
-        // Buscar transações de XP no período
-        const transacoesSnap = await db.collection('transacoes')
-          .where('tipo', '==', 'xp')
-          .where('data', '>=', dataInicio)
-          .where('data', '<=', dataFim)
+        // Agregar pontos por usuário
+        const pontosPorUsuario = {};
+        
+        // Buscar embates finalizados no período
+        const embatesSnap = await db.collection('embates')
+          .where('status', '==', 'finalizado')
+          .where('dataFinalizacao', '>=', dataInicio)
+          .where('dataFinalizacao', '<=', dataFim)
           .get();
 
-        // Agregar XP por usuário
-        const xpPorUsuario = {};
-        
-        transacoesSnap.forEach(doc => {
-          const trans = doc.data();
-          const usuarioId = trans.usuarioId;
-          const xp = trans.valor || 0;
+        console.log(`📅 Encontrados ${embatesSnap.size} embates no período`);
+
+        // Buscar participações de cada embate
+        for (const embateDoc of embatesSnap.docs) {
+          const participacoesSnap = await db.collection('embates').doc(embateDoc.id)
+            .collection('participacoes').get();
           
-          if (!xpPorUsuario[usuarioId]) {
-            xpPorUsuario[usuarioId] = 0;
-          }
-          xpPorUsuario[usuarioId] += xp;
-        });
-
-        // Se não há transações de XP, tentar buscar de outra forma
-        if (Object.keys(xpPorUsuario).length === 0) {
-          // Fallback: buscar por embates finalizados no período
-          const embatesSnap = await db.collection('embates')
-            .where('status', '==', 'finalizado')
-            .where('dataFinalizacao', '>=', dataInicio)
-            .where('dataFinalizacao', '<=', dataFim)
-            .get();
-
-          // Buscar participações de cada embate
-          for (const embateDoc of embatesSnap.docs) {
-            const participacoesSnap = await db.collection('embates').doc(embateDoc.id)
-              .collection('participacoes').get();
+          participacoesSnap.forEach(partDoc => {
+            const part = partDoc.data();
+            const odId = partDoc.id;
+            const pontos = part.pontos || 0;
             
-            participacoesSnap.forEach(partDoc => {
-              const part = partDoc.data();
-              const pontos = part.pontos || 0;
-              
-              if (!xpPorUsuario[partDoc.id]) {
-                xpPorUsuario[partDoc.id] = 0;
-              }
-              xpPorUsuario[partDoc.id] += pontos;
-            });
+            if (!pontosPorUsuario[odId]) {
+              pontosPorUsuario[odId] = {
+                pontos: 0,
+                embates: 0,
+                vitorias: 0
+              };
+            }
+            pontosPorUsuario[odId].pontos += pontos;
+            pontosPorUsuario[odId].embates++;
+          });
+          
+          // Contar vitória
+          const embateData = embateDoc.data();
+          if (embateData.resultado?.vencedorId) {
+            if (pontosPorUsuario[embateData.resultado.vencedorId]) {
+              pontosPorUsuario[embateData.resultado.vencedorId].vitorias++;
+            }
           }
         }
 
         // Criar array ordenado
-        let ranking = Object.entries(xpPorUsuario)
-          .map(([id, xp]) => {
+        let ranking = Object.entries(pontosPorUsuario)
+          .map(([id, dados]) => {
             const usuario = usuariosCache.find(u => u.id === id);
             return {
               id,
-              xpPeriodo: xp,
-              ...usuario
+              xpPeriodo: dados.pontos,
+              embatesPeriodo: dados.embates,
+              vitoriasPeriodo: dados.vitorias,
+              ...(usuario || {})
             };
           })
           .filter(u => u.usuarioUnico) // Filtrar usuários válidos
@@ -1335,7 +1332,7 @@
           lista.innerHTML = `
             <div class="empty-state">
               <div class="empty-icon">📅</div>
-              <p>Nenhum XP registrado neste período</p>
+              <p>Nenhum embate finalizado neste período</p>
               <small style="color: #6b7280;">Tente selecionar um período diferente</small>
             </div>
           `;
@@ -1345,8 +1342,8 @@
           return;
         }
 
-        document.getElementById('infoBannerText').textContent = `${ranking.length} jogadores com XP no período selecionado`;
-        renderizarRankingXP(ranking, 'xpPeriodo');
+        document.getElementById('infoBannerText').textContent = `${embatesSnap.size} embates • ${ranking.length} jogadores no período`;
+        renderizarRankingPeriodo(ranking);
 
       } catch (error) {
         console.error("Erro ao buscar ranking por período:", error);
@@ -1359,6 +1356,118 @@
         `;
         infoBanner.classList.remove('active');
       }
+    }
+
+    // ===================================
+    // 🎨 RENDERIZAR RANKING POR PERÍODO
+    // ===================================
+    function renderizarRankingPeriodo(usuarios) {
+      const lista = document.getElementById('rankingList');
+      const podium = document.getElementById('podium');
+      const myCard = document.getElementById('myPositionCard');
+
+      // Encontrar minha posição
+      const minhaPosicao = usuarios.findIndex(u => u.id === currentUserId) + 1;
+      const meusDados = usuarios.find(u => u.id === currentUserId);
+      
+      // Atualizar meu card com dados DO PERÍODO
+      if (meusDados) {
+        myCard.style.display = 'block';
+        document.getElementById('myRank').textContent = `${minhaPosicao}º`;
+        document.getElementById('myName').textContent = meusDados.usuarioUnico || 'Você';
+        document.getElementById('myMainStat').textContent = `${formatarNumero(meusDados.xpPeriodo)} pts no período`;
+        
+        const nivel = calcularNivel(meusDados.xp || 0);
+        const badge = document.getElementById('myLevelBadge');
+        badge.className = `rank-level ${nivel.classe}`;
+        badge.textContent = `${nivel.emoji} ${nivel.nome}`;
+
+        document.getElementById('myStat1').textContent = formatarNumero(meusDados.xpPeriodo);
+        document.getElementById('myStat1Label').textContent = 'Pts Período';
+        document.getElementById('myStat2').textContent = meusDados.embatesPeriodo || 0;
+        document.getElementById('myStat2Label').textContent = 'Embates';
+        document.getElementById('myStat3').textContent = meusDados.vitoriasPeriodo || 0;
+        document.getElementById('myStat3Label').textContent = 'Vitórias';
+        document.getElementById('myStat4').textContent = formatarNumero(meusDados.xp || 0);
+        document.getElementById('myStat4Label').textContent = 'XP Total';
+      } else if (currentUserData) {
+        myCard.style.display = 'block';
+        document.getElementById('myRank').textContent = '-';
+        document.getElementById('myName').textContent = currentUserData.usuarioUnico || 'Você';
+        document.getElementById('myMainStat').textContent = '0 pts no período';
+        
+        document.getElementById('myStat1').textContent = '0';
+        document.getElementById('myStat1Label').textContent = 'Pts Período';
+        document.getElementById('myStat2').textContent = '0';
+        document.getElementById('myStat2Label').textContent = 'Embates';
+        document.getElementById('myStat3').textContent = '0';
+        document.getElementById('myStat3Label').textContent = 'Vitórias';
+        document.getElementById('myStat4').textContent = formatarNumero(currentUserData.xp || 0);
+        document.getElementById('myStat4Label').textContent = 'XP Total';
+      } else {
+        myCard.style.display = 'none';
+      }
+
+      // Pódio com dados do PERÍODO
+      if (usuarios.length >= 3) {
+        podium.style.display = 'flex';
+        for (let i = 1; i <= 3; i++) {
+          const user = usuarios[i - 1];
+          const nome = user.usuarioUnico || 'Anônimo';
+          
+          const podiumItem = document.getElementById(`podium${i}`);
+          podiumItem.querySelector('.podium-avatar').textContent = nome.charAt(0).toUpperCase();
+          podiumItem.querySelector('.podium-name').textContent = nome;
+          podiumItem.querySelector('.podium-xp').textContent = `${formatarNumero(user.xpPeriodo)} pts`;
+        }
+      } else {
+        podium.style.display = 'none';
+      }
+
+      // Lista
+      const listaRender = usuarios.length >= 4 ? usuarios.slice(3) : usuarios;
+      
+      if (listaRender.length === 0) {
+        lista.innerHTML = '';
+        return;
+      }
+
+      const cores = {
+        'level-bronze': 'linear-gradient(135deg, #CD7F32, #8B4513)',
+        'level-prata': 'linear-gradient(135deg, #C0C0C0, #A8A8A8)',
+        'level-ouro': 'linear-gradient(135deg, #FFD700, #FFA500)',
+        'level-diamante': 'linear-gradient(135deg, #B9F2FF, #87CEEB)',
+        'level-mestre': 'linear-gradient(135deg, #9B59B6, #8E44AD)'
+      };
+
+      lista.innerHTML = listaRender.map((user, index) => {
+        const posicao = usuarios.length >= 4 ? index + 4 : index + 1;
+        const nome = user.usuarioUnico || 'Anônimo';
+        const nivel = calcularNivel(user.xp || 0);
+        const time = timesCache[user.timeId];
+        const isMe = user.id === currentUserId;
+        const posClass = posicao === 1 ? 'gold' : posicao === 2 ? 'silver' : posicao === 3 ? 'bronze' : '';
+        const rowClass = posicao <= 3 ? `top-${posicao}` : '';
+
+        return `
+          <li class="ranking-item ${rowClass} ${isMe ? 'highlight' : ''}">
+            <div class="rank-position ${posClass}">${posicao}</div>
+            <div class="rank-avatar" style="background: ${cores[nivel.classe] || 'linear-gradient(135deg, #666, #444)'}">${nome.charAt(0).toUpperCase()}</div>
+            <div class="rank-info">
+              <div class="rank-name">${nome}<span class="rank-level ${nivel.classe}">${nivel.emoji}</span></div>
+              <div class="rank-team">${time?.nome || 'Sem time'}</div>
+              <div class="rank-details">
+                <span>⚔️ ${user.embatesPeriodo || 0} embates</span>
+                <span>🏆 ${user.vitoriasPeriodo || 0} vitórias</span>
+              </div>
+            </div>
+            <div class="rank-stats">
+              <div class="rank-xp">${formatarNumero(user.xpPeriodo)}</div>
+              <div class="rank-secondary">pts período</div>
+            </div>
+          </li>
+        `;
+      }).join('');
     }
 
     // ===================================
