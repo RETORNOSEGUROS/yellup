@@ -240,6 +240,12 @@
       color: #a9b5c6;
     }
 
+    .liga-progress {
+      margin-top: 8px;
+      font-size: 0.7em;
+      color: #10b981;
+    }
+
     /* No results */
     .no-results {
       grid-column: 1 / -1;
@@ -547,6 +553,8 @@
       z-index: 2000;
       opacity: 0;
       transition: all 0.3s ease;
+      max-width: 90%;
+      text-align: center;
     }
 
     .toast.show {
@@ -786,17 +794,23 @@
     let currentUserId = null;
     let ligaSelecionada = null;
     let ligaSelecionadaNome = null;
-    let campeonatosData = {}; // Armazena dados dos campeonatos carregados
+    let campeonatosData = {};
     let totalLigas = 0;
     let perguntas = [];
+    let perguntasRespondidasLigas = {}; // Cache local das perguntas respondidas
     let perguntaAtual = 0;
     let acertos = 0;
     let timer = null;
     let tempoRestante = 15;
     let startTime = null;
 
-    // Tempo fixo para todas as perguntas (sem dificuldade)
-    const TEMPO_POR_PERGUNTA = 15;
+    // Configurações de controle de repetição
+    const CONFIG = {
+      TEMPO_POR_PERGUNTA: 15,
+      MAX_PERGUNTAS_HISTORICO: 100,  // Máximo de perguntas salvas por campeonato
+      LIMITE_RESET_PERCENT: 80,       // Reset quando atingir 80% do total
+      PERGUNTAS_POR_TESTE: 10
+    };
 
     // ===================================
     // 💬 TOAST
@@ -817,26 +831,31 @@
         return;
       }
       currentUserId = user.uid;
-      await carregarEstatisticas();
+      await carregarDadosUsuario();
       await carregarLigas();
     });
 
     // ===================================
-    // 📊 CARREGAR ESTATÍSTICAS
+    // 📊 CARREGAR DADOS DO USUÁRIO
     // ===================================
-    async function carregarEstatisticas() {
+    async function carregarDadosUsuario() {
       try {
         const userDoc = await db.collection('usuarios').doc(currentUserId).get();
         if (userDoc.exists) {
           const data = userDoc.data();
-          const testes = data.testesLigas || {};
           
+          // Carregar estatísticas
+          const testes = data.testesLigas || {};
           document.getElementById('totalTestes').textContent = testes.total || 0;
           document.getElementById('melhorScore').textContent = (testes.melhorScore || 0) + '%';
           document.getElementById('totalXP').textContent = testes.xpGanho || 0;
+          
+          // Carregar perguntas respondidas nas ligas (cache local)
+          perguntasRespondidasLigas = data.perguntasLigas || {};
+          console.log('📋 Perguntas respondidas carregadas:', perguntasRespondidasLigas);
         }
       } catch (error) {
-        console.error("Erro ao carregar estatísticas:", error);
+        console.error("Erro ao carregar dados do usuário:", error);
       }
     }
 
@@ -860,11 +879,9 @@
           return;
         }
 
-        // Limpar grid
         ligasGrid.innerHTML = '';
         totalLigas = snapshot.size;
 
-        // Mapear emojis para cada tipo de campeonato
         const emojisDefault = ['🏆', '⚽', '🥇', '🎖️', '🏅', '⭐'];
         let emojiIndex = 0;
 
@@ -872,20 +889,19 @@
           const campeonato = doc.data();
           const id = doc.id;
           
-          // Armazenar dados do campeonato (incluindo o ID do documento)
           campeonatosData[id] = {
             ...campeonato,
             docId: id
           };
 
-          // Contar perguntas (se houver array de perguntas no documento)
           const numPerguntas = campeonato.perguntas ? campeonato.perguntas.length : 0;
-
-          // Determinar emoji/bandeira (usa do campeonato ou padrão)
           const emoji = campeonato.emoji || campeonato.bandeira || emojisDefault[emojiIndex % emojisDefault.length];
           emojiIndex++;
 
-          // Criar card
+          // Calcular progresso de perguntas respondidas
+          const respondidas = perguntasRespondidasLigas[id]?.length || 0;
+          const progressoTexto = respondidas > 0 ? `✅ ${respondidas} respondidas` : '';
+
           const card = document.createElement('div');
           card.className = 'liga-card';
           card.dataset.liga = id;
@@ -896,14 +912,13 @@
             <div class="liga-flag">${emoji}</div>
             <div class="liga-name">${campeonato.nome || id}</div>
             <div class="liga-questions">${numPerguntas > 0 ? numPerguntas + ' perguntas' : 'Perguntas disponíveis'}</div>
+            ${progressoTexto ? `<div class="liga-progress">${progressoTexto}</div>` : ''}
           `;
 
           ligasGrid.appendChild(card);
         });
 
-        // Atualizar contador
         atualizarContador(totalLigas, totalLigas);
-
         console.log(`✅ ${snapshot.size} campeonatos carregados`);
 
       } catch (error) {
@@ -939,7 +954,6 @@
 
       atualizarContador(visiveis, totalLigas);
 
-      // Mostrar mensagem se não houver resultados
       const ligasGrid = document.getElementById('ligasGrid');
       let noResults = ligasGrid.querySelector('.no-results');
       
@@ -992,8 +1006,41 @@
       return texto
         .toLowerCase()
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '') // Remove acentos
-        .replace(/[^a-z0-9]/g, ''); // Remove caracteres especiais
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+    }
+
+    // ===================================
+    // 🔧 GERAR VARIAÇÕES DE BUSCA
+    // ===================================
+    function gerarVariacoesBusca(id, nome) {
+      const variacoes = new Set();
+      
+      variacoes.add(id);
+      if (nome && nome !== id) variacoes.add(nome);
+      
+      variacoes.add(id.toLowerCase());
+      if (nome) variacoes.add(nome.toLowerCase());
+      
+      variacoes.add(normalizarTexto(id));
+      if (nome) variacoes.add(normalizarTexto(nome));
+      
+      const semPrefixo = nome ? nome.replace(/^(Copa |Liga |Campeonato |Torneio )/i, '') : '';
+      if (semPrefixo) {
+        variacoes.add(semPrefixo);
+        variacoes.add(semPrefixo.toLowerCase());
+        variacoes.add(normalizarTexto(semPrefixo));
+      }
+      
+      variacoes.add(id.replace(/ /g, '_'));
+      variacoes.add(id.replace(/ /g, '-'));
+      if (nome) {
+        variacoes.add(nome.replace(/ /g, '_'));
+        variacoes.add(nome.replace(/ /g, '-'));
+      }
+      
+      variacoes.delete('');
+      return Array.from(variacoes);
     }
 
     // ===================================
@@ -1010,103 +1057,121 @@
         const campeonato = campeonatosData[ligaSelecionada];
         
         console.log(`🔍 Buscando perguntas para: ${ligaSelecionada}`);
-        console.log('📋 Dados do campeonato:', campeonato);
 
-        // 1. Primeiro tenta buscar do array de perguntas dentro do documento do campeonato
+        // 1. Buscar do array de perguntas no documento do campeonato
         if (campeonato && campeonato.perguntas && campeonato.perguntas.length > 0) {
-          console.log(`📊 Perguntas encontradas no documento do campeonato: ${campeonato.perguntas.length}`);
-          todasPerguntas = campeonato.perguntas.map((p, idx) => ({ id: `${ligaSelecionada}_${idx}`, ...p }));
+          console.log(`📊 Perguntas no documento: ${campeonato.perguntas.length}`);
+          todasPerguntas = campeonato.perguntas.map((p, idx) => ({ 
+            id: `${ligaSelecionada}_${idx}`, 
+            ...p 
+          }));
         }
 
-        // 2. Se não encontrou, busca na coleção "perguntas" por campeonatoId
-        // Tenta várias variações do nome
+        // 2. Buscar na coleção "perguntas" por campeonatoId
         if (todasPerguntas.length === 0) {
-          console.log('🔍 Buscando na coleção perguntas por campeonatoId...');
+          console.log('🔍 Buscando na coleção perguntas...');
           
-          // Gerar variações do ID para busca
           const variacoes = gerarVariacoesBusca(ligaSelecionada, ligaSelecionadaNome);
-          console.log('🔎 Variações de busca:', variacoes);
+          console.log('🔎 Variações:', variacoes);
 
           for (const variacao of variacoes) {
             if (todasPerguntas.length > 0) break;
             
             try {
-              const perguntasSnapshot = await db.collection('perguntas')
+              const snapshot = await db.collection('perguntas')
                 .where('campeonatoId', '==', variacao)
-                .limit(100)
+                .limit(200)
                 .get();
               
-              perguntasSnapshot.forEach(doc => {
+              snapshot.forEach(doc => {
                 todasPerguntas.push({ id: doc.id, ...doc.data() });
               });
               
               if (todasPerguntas.length > 0) {
-                console.log(`✅ Encontradas ${todasPerguntas.length} perguntas com campeonatoId = "${variacao}"`);
+                console.log(`✅ ${todasPerguntas.length} perguntas com campeonatoId = "${variacao}"`);
               }
             } catch (err) {
-              console.log(`⚠️ Erro na busca por "${variacao}":`, err.message);
+              console.log(`⚠️ Erro: ${err.message}`);
             }
           }
         }
 
-        // 3. Tenta buscar por campo 'liga'
+        // 3. Buscar por campo 'liga'
         if (todasPerguntas.length === 0) {
-          console.log('🔍 Buscando na coleção perguntas por liga...');
-          
           const variacoes = gerarVariacoesBusca(ligaSelecionada, ligaSelecionadaNome);
           
           for (const variacao of variacoes) {
             if (todasPerguntas.length > 0) break;
             
             try {
-              const perguntasLigaSnapshot = await db.collection('perguntas')
+              const snapshot = await db.collection('perguntas')
                 .where('liga', '==', variacao)
-                .limit(100)
+                .limit(200)
                 .get();
               
-              perguntasLigaSnapshot.forEach(doc => {
+              snapshot.forEach(doc => {
                 todasPerguntas.push({ id: doc.id, ...doc.data() });
               });
               
               if (todasPerguntas.length > 0) {
-                console.log(`✅ Encontradas ${todasPerguntas.length} perguntas com liga = "${variacao}"`);
+                console.log(`✅ ${todasPerguntas.length} perguntas com liga = "${variacao}"`);
               }
             } catch (err) {
-              console.log(`⚠️ Erro na busca por liga "${variacao}":`, err.message);
+              console.log(`⚠️ Erro: ${err.message}`);
             }
-          }
-        }
-
-        // 4. Tenta buscar na subcoleção "perguntas" do campeonato
-        if (todasPerguntas.length === 0) {
-          console.log('🔍 Buscando na subcoleção perguntas...');
-          try {
-            const subcollectionSnapshot = await db.collection('campeonatos')
-              .doc(ligaSelecionada)
-              .collection('perguntas')
-              .limit(100)
-              .get();
-            
-            subcollectionSnapshot.forEach(doc => {
-              todasPerguntas.push({ id: doc.id, ...doc.data() });
-            });
-            
-            console.log(`📊 Perguntas na subcoleção: ${todasPerguntas.length}`);
-          } catch (err) {
-            console.log('⚠️ Erro ao buscar subcoleção:', err.message);
           }
         }
 
         if (todasPerguntas.length === 0) {
           showToast('❌ Nenhuma pergunta disponível para esta liga');
-          console.log('❌ Nenhuma pergunta encontrada após todas as tentativas');
           return;
         }
 
-        // Embaralhar e pegar 10 perguntas
-        perguntas = shuffleArray(todasPerguntas).slice(0, 10);
+        // ===================================
+        // 🎯 FILTRAR PERGUNTAS JÁ RESPONDIDAS
+        // ===================================
+        const perguntasRespondidas = perguntasRespondidasLigas[ligaSelecionada] || [];
+        const totalDisponiveis = todasPerguntas.length;
+        
+        console.log(`📊 Total de perguntas: ${totalDisponiveis}`);
+        console.log(`📊 Já respondidas: ${perguntasRespondidas.length}`);
 
-        console.log(`✅ ${perguntas.length} perguntas selecionadas para o quiz`);
+        // Verificar se precisa fazer reset
+        const percentRespondido = (perguntasRespondidas.length / totalDisponiveis) * 100;
+        
+        if (percentRespondido >= CONFIG.LIMITE_RESET_PERCENT) {
+          console.log(`🔄 Reset automático! ${percentRespondido.toFixed(0)}% respondidas`);
+          showToast(`🔄 Novo ciclo! Você já respondeu ${percentRespondido.toFixed(0)}% das perguntas`);
+          
+          // Limpar histórico deste campeonato
+          perguntasRespondidasLigas[ligaSelecionada] = [];
+          
+          // Atualizar no Firebase
+          await db.collection('usuarios').doc(currentUserId).update({
+            [`perguntasLigas.${ligaSelecionada}`]: []
+          });
+        }
+
+        // Filtrar perguntas não respondidas
+        let perguntasNovas = todasPerguntas.filter(p => 
+          !perguntasRespondidasLigas[ligaSelecionada]?.includes(p.id)
+        );
+
+        console.log(`📊 Perguntas novas disponíveis: ${perguntasNovas.length}`);
+
+        // Se não tiver perguntas novas suficientes, usar todas
+        if (perguntasNovas.length < CONFIG.PERGUNTAS_POR_TESTE) {
+          console.log('⚠️ Poucas perguntas novas, complementando com já respondidas');
+          
+          // Embaralhar todas e pegar as necessárias
+          perguntasNovas = shuffleArray(todasPerguntas);
+        }
+
+        // Embaralhar e pegar 10
+        perguntas = shuffleArray(perguntasNovas).slice(0, CONFIG.PERGUNTAS_POR_TESTE);
+
+        console.log(`✅ ${perguntas.length} perguntas selecionadas`);
+        console.log('📋 IDs selecionados:', perguntas.map(p => p.id));
 
         // Resetar variáveis
         perguntaAtual = 0;
@@ -1118,57 +1183,12 @@
         document.getElementById('quizContainer').classList.add('active');
         document.getElementById('resultContainer').classList.remove('active');
 
-        // Carregar primeira pergunta
         carregarPergunta();
 
       } catch (error) {
         console.error("Erro:", error);
         showToast('❌ Erro ao carregar perguntas');
       }
-    }
-
-    // ===================================
-    // 🔧 GERAR VARIAÇÕES DE BUSCA
-    // ===================================
-    function gerarVariacoesBusca(id, nome) {
-      const variacoes = new Set();
-      
-      // Adicionar ID original
-      variacoes.add(id);
-      
-      // Adicionar nome se diferente do ID
-      if (nome && nome !== id) {
-        variacoes.add(nome);
-      }
-      
-      // Versões em minúsculo
-      variacoes.add(id.toLowerCase());
-      if (nome) variacoes.add(nome.toLowerCase());
-      
-      // Versões normalizadas (sem acentos e caracteres especiais)
-      variacoes.add(normalizarTexto(id));
-      if (nome) variacoes.add(normalizarTexto(nome));
-      
-      // Remover prefixos comuns
-      const semPrefixo = nome ? nome.replace(/^(Copa |Liga |Campeonato |Torneio )/i, '') : '';
-      if (semPrefixo) {
-        variacoes.add(semPrefixo);
-        variacoes.add(semPrefixo.toLowerCase());
-        variacoes.add(normalizarTexto(semPrefixo));
-      }
-      
-      // Variações com underscore/hífen
-      variacoes.add(id.replace(/ /g, '_'));
-      variacoes.add(id.replace(/ /g, '-'));
-      if (nome) {
-        variacoes.add(nome.replace(/ /g, '_'));
-        variacoes.add(nome.replace(/ /g, '-'));
-      }
-      
-      // Remover strings vazias
-      variacoes.delete('');
-      
-      return Array.from(variacoes);
     }
 
     // ===================================
@@ -1194,23 +1214,15 @@
 
       const pergunta = perguntas[perguntaAtual];
       
-      // Atualizar progresso
       document.getElementById('currentQ').textContent = perguntaAtual + 1;
       document.getElementById('progressFill').style.width = ((perguntaAtual + 1) / perguntas.length * 100) + '%';
-
-      // Categoria/Liga
       document.getElementById('questionCategory').textContent = ligaSelecionadaNome || '⚽ Futebol';
-
-      // Pergunta
       document.getElementById('questionText').textContent = pergunta.pergunta || pergunta.texto || 'Pergunta não disponível';
 
-      // Opções
       const alternativas = pergunta.alternativas || {};
       const optionsGrid = document.getElementById('optionsGrid');
       
-      let letras = Object.keys(alternativas);
-      // Embaralhar opções
-      letras = shuffleArray(letras);
+      let letras = shuffleArray(Object.keys(alternativas));
 
       optionsGrid.innerHTML = letras.map(letra => `
         <button class="option-btn" onclick="responder('${letra}')">
@@ -1218,10 +1230,7 @@
         </button>
       `).join('');
 
-      // Esconder feedback
       document.getElementById('resultFeedback').className = 'result-feedback';
-
-      // Iniciar timer
       iniciarTimer();
     }
 
@@ -1230,10 +1239,7 @@
     // ===================================
     function iniciarTimer() {
       clearInterval(timer);
-      
-      // Tempo fixo (sem dificuldade)
-      tempoRestante = TEMPO_POR_PERGUNTA;
-      
+      tempoRestante = CONFIG.TEMPO_POR_PERGUNTA;
       document.getElementById('timerValue').textContent = tempoRestante;
 
       timer = setInterval(() => {
@@ -1242,7 +1248,7 @@
 
         if (tempoRestante <= 0) {
           clearInterval(timer);
-          responder(null); // Tempo esgotado
+          responder(null);
         }
       }, 1000);
     }
@@ -1262,7 +1268,6 @@
       botoes.forEach(btn => {
         btn.disabled = true;
         
-        // Encontrar letra do botão
         let letraBtn = null;
         for (let letra in alternativas) {
           if (alternativas[letra] === btn.textContent.trim()) {
@@ -1278,12 +1283,8 @@
         }
       });
 
-      // Verificar acerto
       const acertou = letraSelecionada && letraSelecionada.toLowerCase() === correta.toLowerCase();
-      
-      if (acertou) {
-        acertos++;
-      }
+      if (acertou) acertos++;
 
       // Feedback
       const feedback = document.getElementById('resultFeedback');
@@ -1298,7 +1299,6 @@
         feedback.className = 'result-feedback wrong';
       }
 
-      // Próxima pergunta após 2 segundos
       setTimeout(() => {
         perguntaAtual++;
         carregarPergunta();
@@ -1319,8 +1319,7 @@
       const porcentagem = Math.round((acertos / perguntas.length) * 100);
       const erros = perguntas.length - acertos;
 
-      // XP ganho (reduzido para testes)
-      const xpBase = acertos * 3; // 3 XP por acerto
+      const xpBase = acertos * 3;
       const bonus = porcentagem >= 80 ? 10 : porcentagem >= 60 ? 5 : 0;
       const xpTotal = xpBase + bonus;
 
@@ -1328,7 +1327,6 @@
       document.getElementById('quizContainer').classList.remove('active');
       document.getElementById('resultContainer').classList.add('active');
 
-      // Emoji baseado no resultado
       let emoji, titulo;
       if (porcentagem >= 90) { emoji = '🏆'; titulo = 'Excelente!'; }
       else if (porcentagem >= 70) { emoji = '🎉'; titulo = 'Muito Bom!'; }
@@ -1344,23 +1342,51 @@
       document.getElementById('statTime').textContent = `${minutos}:${segundos.toString().padStart(2, '0')}`;
       document.getElementById('xpEarned').textContent = `+${xpTotal} XP`;
 
-      // Salvar no Firebase
+      // ===================================
+      // 💾 SALVAR PERGUNTAS RESPONDIDAS
+      // ===================================
       try {
         const userDoc = await db.collection('usuarios').doc(currentUserId).get();
         const userData = userDoc.data() || {};
         const testesAnteriores = userData.testesLigas || {};
+        
+        // Pegar IDs das perguntas respondidas neste teste
+        const idsRespondidos = perguntas.map(p => p.id);
+        
+        // Atualizar cache local
+        if (!perguntasRespondidasLigas[ligaSelecionada]) {
+          perguntasRespondidasLigas[ligaSelecionada] = [];
+        }
+        
+        // Adicionar novos IDs (sem duplicar)
+        idsRespondidos.forEach(id => {
+          if (!perguntasRespondidasLigas[ligaSelecionada].includes(id)) {
+            perguntasRespondidasLigas[ligaSelecionada].push(id);
+          }
+        });
+        
+        // Limitar ao máximo configurado (FIFO - remove os mais antigos)
+        if (perguntasRespondidasLigas[ligaSelecionada].length > CONFIG.MAX_PERGUNTAS_HISTORICO) {
+          perguntasRespondidasLigas[ligaSelecionada] = 
+            perguntasRespondidasLigas[ligaSelecionada].slice(-CONFIG.MAX_PERGUNTAS_HISTORICO);
+        }
 
+        console.log(`💾 Salvando ${perguntasRespondidasLigas[ligaSelecionada].length} perguntas no histórico`);
+
+        // Salvar no Firebase
         await db.collection('usuarios').doc(currentUserId).update({
           xp: firebase.firestore.FieldValue.increment(xpTotal),
           'testesLigas.total': (testesAnteriores.total || 0) + 1,
           'testesLigas.xpGanho': (testesAnteriores.xpGanho || 0) + xpTotal,
-          'testesLigas.melhorScore': Math.max(testesAnteriores.melhorScore || 0, porcentagem)
+          'testesLigas.melhorScore': Math.max(testesAnteriores.melhorScore || 0, porcentagem),
+          [`perguntasLigas.${ligaSelecionada}`]: perguntasRespondidasLigas[ligaSelecionada]
         });
 
         showToast(`🎉 +${xpTotal} XP ganho!`);
 
       } catch (error) {
         console.error("Erro ao salvar:", error);
+        showToast('⚠️ Erro ao salvar progresso');
       }
     }
 
@@ -1378,7 +1404,9 @@
       document.getElementById('menuSelecao').style.display = 'block';
       document.getElementById('quizContainer').classList.remove('active');
       document.getElementById('resultContainer').classList.remove('active');
-      carregarEstatisticas();
+      
+      // Recarregar ligas para atualizar progresso
+      carregarLigas();
     }
 
     // ===================================
@@ -1395,7 +1423,7 @@
       }
     }
 
-    console.log("✅ Teste de Ligas v3.0 - Com busca e variações de campeonatoId");
+    console.log("✅ Teste de Ligas v4.0 - Controle de perguntas respondidas");
   </script>
 
 </body>
