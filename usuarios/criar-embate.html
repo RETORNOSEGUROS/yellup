@@ -360,6 +360,84 @@
       opacity: 1;
     }
 
+    /* Invite Section */
+    .invite-section {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 14px;
+      padding: 15px;
+      margin: 20px 0;
+    }
+
+    .invite-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .invite-icon {
+      font-size: 1.2em;
+    }
+
+    .invite-title {
+      font-weight: 600;
+      color: #3b82f6;
+    }
+
+    .invite-hint {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      background: rgba(255, 181, 71, 0.1);
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+
+    .hint-icon {
+      font-size: 1em;
+      flex-shrink: 0;
+    }
+
+    .hint-text {
+      font-size: 0.8em;
+      color: #a9b5c6;
+      line-height: 1.4;
+    }
+
+    /* Tag para não-amigo */
+    .selected-tag.not-friend {
+      background: rgba(59, 130, 246, 0.2);
+      color: #3b82f6;
+    }
+
+    .selected-tag .tag-badge {
+      font-size: 0.7em;
+      background: rgba(255, 255, 255, 0.2);
+      padding: 2px 6px;
+      border-radius: 10px;
+      margin-left: 5px;
+    }
+
+    /* Add Friends Link */
+    .add-friends-link {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px;
+      color: #a9b5c6;
+      text-decoration: none;
+      font-size: 0.9em;
+      transition: all 0.3s ease;
+      margin-bottom: 15px;
+    }
+
+    .add-friends-link:hover {
+      color: #ffb547;
+    }
+
     /* Number Input */
     .number-input-container {
       display: flex;
@@ -1007,6 +1085,7 @@
         <span style="color: #6b7280; font-size: 0.9em;">Nenhum amigo selecionado</span>
       </div>
 
+      <!-- Busca de Amigos -->
       <div class="search-container">
         <span class="search-icon">🔍</span>
         <input type="text" class="search-input" id="searchAmigo" 
@@ -1020,6 +1099,36 @@
           <p>Carregando amigos...</p>
         </div>
       </div>
+
+      <!-- Seção Convidar por Usuário -->
+      <div class="invite-section">
+        <div class="invite-header">
+          <span class="invite-icon">➕</span>
+          <span class="invite-title">Convidar outro usuário</span>
+        </div>
+        
+        <div class="search-container" style="margin-bottom: 10px;">
+          <span class="search-icon">@</span>
+          <input type="text" class="search-input" id="searchUsuario" 
+                 placeholder="Digite o nome de usuário..." 
+                 oninput="buscarUsuario()">
+        </div>
+        
+        <div class="results-list" id="usuarioResults" style="max-height: 150px;">
+          <!-- Resultados da busca aparecem aqui -->
+        </div>
+        
+        <div class="invite-hint" id="inviteHint" style="display: none;">
+          <span class="hint-icon">💡</span>
+          <span class="hint-text">O usuário receberá um convite de amizade junto com o convite do embate</span>
+        </div>
+      </div>
+
+      <!-- Link para adicionar amigos -->
+      <a href="amigos.html" class="add-friends-link">
+        <span>🔗</span>
+        <span>Gerenciar amigos →</span>
+      </a>
 
       <div class="info-box">
         <span class="info-icon">💡</span>
@@ -1861,16 +1970,153 @@
       const container = document.getElementById('amigosSelecionadosTags');
       
       if (embateData.amigos.length === 0) {
-        container.innerHTML = '<span style="color: #6b7280; font-size: 0.9em;">Nenhum amigo selecionado</span>';
+        container.innerHTML = '<span style="color: #6b7280; font-size: 0.9em;">Nenhum participante selecionado</span>';
         return;
       }
       
-      container.innerHTML = embateData.amigos.map(amigo => `
-        <div class="selected-tag">
-          ${amigo.nome}
-          <span class="tag-remove" onclick="event.stopPropagation(); removerAmigo('${amigo.id}')">✕</span>
+      container.innerHTML = embateData.amigos.map(amigo => {
+        const isNotFriend = amigo.isNotFriend;
+        return `
+          <div class="selected-tag ${isNotFriend ? 'not-friend' : ''}">
+            ${amigo.nome}
+            ${isNotFriend ? '<span class="tag-badge">novo</span>' : ''}
+            <span class="tag-remove" onclick="event.stopPropagation(); removerAmigo('${amigo.id}')">✕</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ===================================
+    // 🔍 BUSCAR USUÁRIO (NÃO AMIGO)
+    // ===================================
+    let buscaUsuarioTimeout = null;
+
+    async function buscarUsuario() {
+      clearTimeout(buscaUsuarioTimeout);
+      
+      const termo = document.getElementById('searchUsuario').value.trim().toLowerCase();
+      const container = document.getElementById('usuarioResults');
+      const hintEl = document.getElementById('inviteHint');
+      
+      if (termo.length < 2) {
+        container.innerHTML = '';
+        hintEl.style.display = 'none';
+        return;
+      }
+      
+      container.innerHTML = `
+        <div class="loading" style="padding: 20px;">
+          <div class="spinner"></div>
+          <p style="font-size: 0.85em;">Buscando...</p>
         </div>
-      `).join('');
+      `;
+      
+      buscaUsuarioTimeout = setTimeout(async () => {
+        try {
+          let usuarios = [];
+          
+          // Busca por usuarioUnico começando com o termo
+          const snapshot1 = await db.collection('usuarios')
+            .where('usuarioUnico', '>=', termo)
+            .where('usuarioUnico', '<=', termo + '\uf8ff')
+            .limit(10)
+            .get();
+          
+          snapshot1.forEach(doc => {
+            // Não incluir o próprio usuário
+            if (doc.id !== currentUserId) {
+              usuarios.push({ id: doc.id, ...doc.data() });
+            }
+          });
+          
+          // Busca adicional com primeira letra maiúscula
+          if (usuarios.length < 5) {
+            const termoCapitalizado = termo.charAt(0).toUpperCase() + termo.slice(1);
+            const snapshot2 = await db.collection('usuarios')
+              .where('usuarioUnico', '>=', termoCapitalizado)
+              .where('usuarioUnico', '<=', termoCapitalizado + '\uf8ff')
+              .limit(10)
+              .get();
+            
+            snapshot2.forEach(doc => {
+              if (doc.id !== currentUserId && !usuarios.find(u => u.id === doc.id)) {
+                usuarios.push({ id: doc.id, ...doc.data() });
+              }
+            });
+          }
+          
+          if (usuarios.length === 0) {
+            container.innerHTML = `
+              <div style="text-align: center; padding: 15px; color: #6b7280; font-size: 0.85em;">
+                Nenhum usuário encontrado com "${termo}"
+              </div>
+            `;
+            hintEl.style.display = 'none';
+          } else {
+            // Verificar quais já são amigos
+            const amigosIds = todosAmigos.map(a => a.id);
+            
+            container.innerHTML = usuarios.map(usuario => {
+              const isAmigo = amigosIds.includes(usuario.id);
+              const jaSelecionado = embateData.amigos.find(a => a.id === usuario.id);
+              
+              return `
+                <div class="result-item ${jaSelecionado ? 'selected' : ''}" 
+                     onclick="adicionarUsuario('${usuario.id}', '${usuario.usuarioUnico?.replace(/'/g, "\\'")}', ${isAmigo})">
+                  <div class="result-avatar" style="${!isAmigo ? 'background: linear-gradient(135deg, #3b82f6, #1d4ed8);' : ''}">
+                    ${usuario.usuarioUnico?.charAt(0).toUpperCase() || '?'}
+                  </div>
+                  <div class="result-info">
+                    <div class="result-name">
+                      ${usuario.usuarioUnico || 'Sem nome'}
+                      ${!isAmigo ? '<span style="font-size: 0.7em; color: #3b82f6; margin-left: 5px;">• não é amigo</span>' : ''}
+                    </div>
+                    <div class="result-details">${usuario.xp || 0} XP</div>
+                  </div>
+                  <div class="result-check">${jaSelecionado ? '✓' : ''}</div>
+                </div>
+              `;
+            }).join('');
+            
+            // Mostrar hint se houver não-amigos
+            const temNaoAmigo = usuarios.some(u => !amigosIds.includes(u.id));
+            hintEl.style.display = temNaoAmigo ? 'flex' : 'none';
+          }
+          
+        } catch (error) {
+          console.error("Erro ao buscar usuário:", error);
+          container.innerHTML = `
+            <div style="text-align: center; padding: 15px; color: #ef4444; font-size: 0.85em;">
+              Erro ao buscar usuários
+            </div>
+          `;
+        }
+      }, 300);
+    }
+
+    function adicionarUsuario(id, nome, isAmigo) {
+      const index = embateData.amigos.findIndex(a => a.id === id);
+      
+      if (index > -1) {
+        // Já está selecionado, remover
+        embateData.amigos.splice(index, 1);
+      } else {
+        // Adicionar com flag de não-amigo se necessário
+        embateData.amigos.push({ 
+          id, 
+          nome, 
+          isNotFriend: !isAmigo 
+        });
+      }
+      
+      atualizarTagsAmigos();
+      renderizarAmigos(document.getElementById('searchAmigo').value.trim().toLowerCase());
+      
+      // Atualizar a lista de usuários também
+      buscarUsuario();
+      
+      // Habilitar/desabilitar botão
+      document.getElementById('btnStep3').disabled = embateData.amigos.length === 0;
     }
 
     // ===================================
@@ -1987,6 +2233,7 @@
           odId: a.id,
           nome: a.nome,
           status: 'pendente',
+          isNotFriend: a.isNotFriend || false,
           dataConvite: agora,
           dataResposta: null
         }));
@@ -2037,6 +2284,41 @@
         
         // Criar notificações para convidados
         for (const amigo of embateData.amigos) {
+          // Se não é amigo, enviar também convite de amizade
+          if (amigo.isNotFriend) {
+            // Verificar se já existe solicitação pendente
+            const solicitacaoExistente = await db.collection('amizades')
+              .where('remetenteId', '==', currentUserId)
+              .where('destinatarioId', '==', amigo.id)
+              .where('status', '==', 'pendente')
+              .get();
+            
+            if (solicitacaoExistente.empty) {
+              // Criar solicitação de amizade
+              await db.collection('amizades').add({
+                remetenteId: currentUserId,
+                remetenteNome: currentUserData.usuarioUnico,
+                destinatarioId: amigo.id,
+                destinatarioNome: amigo.nome,
+                status: 'pendente',
+                dataSolicitacao: firebase.firestore.FieldValue.serverTimestamp(),
+                origem: 'embate' // Indica que veio de um convite de embate
+              });
+              
+              // Notificação de amizade
+              await db.collection('notificacoes').add({
+                para: amigo.id,
+                de: currentUserId,
+                tipo: 'solicitacao_amizade',
+                titulo: '👋 Nova solicitação de amizade',
+                mensagem: `${currentUserData.usuarioUnico} quer ser seu amigo e te desafiou para um embate!`,
+                lida: false,
+                data: firebase.firestore.FieldValue.serverTimestamp()
+              });
+            }
+          }
+          
+          // Notificação do embate
           await db.collection('notificacoes').add({
             para: amigo.id,
             de: currentUserId,
