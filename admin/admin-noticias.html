@@ -677,13 +677,17 @@
 
                 <div class="form-group">
                     <label class="form-label">📷 Imagem (opcional)</label>
-                    <div class="image-upload" id="imageUpload" onclick="document.getElementById('inputImagem').click()">
-                        <input type="file" id="inputImagem" accept="image/*" onchange="previewImagem(event)">
-                        <div class="placeholder" id="imagePlaceholder">
-                            <div class="placeholder-icon">📷</div>
-                            <div>Clique para adicionar uma imagem</div>
-                            <small>JPG, PNG ou GIF (máx. 2MB)</small>
-                        </div>
+                    <input type="url" class="form-input" id="inputImagemUrl" placeholder="Cole a URL da imagem (ex: https://...)">
+                    <small style="color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 5px; display: block;">
+                        💡 Dica: Use imagens do Google, ESPN, GE, etc. Clique com botão direito na imagem → "Copiar endereço da imagem"
+                    </small>
+                </div>
+
+                <div class="form-group" id="imagePreviewContainer" style="display: none;">
+                    <label class="form-label">👁️ Preview</label>
+                    <div style="position: relative; display: inline-block;">
+                        <img id="imagePreview" style="max-width: 100%; max-height: 200px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.1);">
+                        <button type="button" onclick="limparImagem()" style="position: absolute; top: 5px; right: 5px; background: rgba(231,76,60,0.9); border: none; border-radius: 50%; width: 28px; height: 28px; color: white; cursor: pointer;">✕</button>
                     </div>
                 </div>
 
@@ -737,7 +741,6 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
 
     <script>
         const firebaseConfig = {
@@ -752,12 +755,61 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
         const auth = firebase.auth();
-        const storage = firebase.storage();
 
         let todasNoticias = [];
         let filtroAtual = 'todas';
-        let imagemSelecionada = null;
-        let imagemUrlAtual = null;
+
+        // Preview da imagem quando digitar URL
+        document.addEventListener('DOMContentLoaded', function() {
+            const inputUrl = document.getElementById('inputImagemUrl');
+            if (inputUrl) {
+                inputUrl.addEventListener('input', debounce(function() {
+                    previewImagemUrl(this.value);
+                }, 500));
+            }
+        });
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func.apply(this, args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        function previewImagemUrl(url) {
+            const container = document.getElementById('imagePreviewContainer');
+            const preview = document.getElementById('imagePreview');
+            
+            if (!url || !url.startsWith('http')) {
+                container.style.display = 'none';
+                return;
+            }
+
+            preview.onload = function() {
+                container.style.display = 'block';
+            };
+            preview.onerror = function() {
+                container.style.display = 'none';
+            };
+            preview.src = url;
+        }
+
+        function limparImagem() {
+            document.getElementById('inputImagemUrl').value = '';
+            document.getElementById('imagePreviewContainer').style.display = 'none';
+        }
+
+        // ===================================
+        // 🎚️ TOGGLE SWITCH
+        // ===================================
+        function toggleSwitch(id) {
+            document.getElementById(id).classList.toggle('active');
+        }
 
         // ===================================
         // 🔐 AUTENTICAÇÃO
@@ -932,64 +984,6 @@
         }
 
         // ===================================
-        // 📷 PREVIEW IMAGEM
-        // ===================================
-        function previewImagem(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            // Validar tamanho (2MB)
-            if (file.size > 2 * 1024 * 1024) {
-                showToast('❌ Imagem muito grande (máx. 2MB)');
-                return;
-            }
-
-            // Validar tipo
-            if (!file.type.startsWith('image/')) {
-                showToast('❌ Arquivo deve ser uma imagem');
-                return;
-            }
-
-            imagemSelecionada = file;
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const upload = document.getElementById('imageUpload');
-                upload.classList.add('has-image');
-                upload.innerHTML = `
-                    <img src="${e.target.result}" class="preview-image">
-                    <button type="button" class="remove-image" onclick="removerImagem(event)">✕</button>
-                    <input type="file" id="inputImagem" accept="image/*" onchange="previewImagem(event)">
-                `;
-            };
-            reader.readAsDataURL(file);
-        }
-
-        function removerImagem(event) {
-            event.stopPropagation();
-            imagemSelecionada = null;
-            imagemUrlAtual = null;
-
-            const upload = document.getElementById('imageUpload');
-            upload.classList.remove('has-image');
-            upload.innerHTML = `
-                <input type="file" id="inputImagem" accept="image/*" onchange="previewImagem(event)">
-                <div class="placeholder" id="imagePlaceholder">
-                    <div class="placeholder-icon">📷</div>
-                    <div>Clique para adicionar uma imagem</div>
-                    <small>JPG, PNG ou GIF (máx. 2MB)</small>
-                </div>
-            `;
-        }
-
-        // ===================================
-        // 🎚️ TOGGLE SWITCH
-        // ===================================
-        function toggleSwitch(id) {
-            document.getElementById(id).classList.toggle('active');
-        }
-
-        // ===================================
         // 📝 ABRIR MODAL
         // ===================================
         function abrirModal() {
@@ -999,12 +993,10 @@
             document.getElementById('inputConteudo').value = '';
             document.getElementById('inputLink').value = '';
             document.getElementById('inputCategoria').value = 'geral';
+            document.getElementById('inputImagemUrl').value = '';
+            document.getElementById('imagePreviewContainer').style.display = 'none';
             document.getElementById('toggleAtiva').classList.add('active');
             document.getElementById('toggleFixada').classList.remove('active');
-            
-            imagemSelecionada = null;
-            imagemUrlAtual = null;
-            removerImagem({ stopPropagation: () => {} });
 
             document.getElementById('modalNoticia').classList.add('active');
         }
@@ -1026,24 +1018,16 @@
             document.getElementById('inputConteudo').value = noticia.conteudo || '';
             document.getElementById('inputLink').value = noticia.link || '';
             document.getElementById('inputCategoria').value = noticia.categoria || 'geral';
+            document.getElementById('inputImagemUrl').value = noticia.imagemUrl || '';
 
             document.getElementById('toggleAtiva').classList.toggle('active', noticia.ativo);
             document.getElementById('toggleFixada').classList.toggle('active', noticia.fixada);
 
-            // Carregar imagem existente
-            imagemSelecionada = null;
-            imagemUrlAtual = noticia.imagemUrl || null;
-
-            if (imagemUrlAtual) {
-                const upload = document.getElementById('imageUpload');
-                upload.classList.add('has-image');
-                upload.innerHTML = `
-                    <img src="${imagemUrlAtual}" class="preview-image">
-                    <button type="button" class="remove-image" onclick="removerImagem(event)">✕</button>
-                    <input type="file" id="inputImagem" accept="image/*" onchange="previewImagem(event)">
-                `;
+            // Preview da imagem se existir
+            if (noticia.imagemUrl) {
+                previewImagemUrl(noticia.imagemUrl);
             } else {
-                removerImagem({ stopPropagation: () => {} });
+                document.getElementById('imagePreviewContainer').style.display = 'none';
             }
 
             document.getElementById('modalNoticia').classList.add('active');
@@ -1058,6 +1042,7 @@
             const conteudo = document.getElementById('inputConteudo').value.trim();
             const link = document.getElementById('inputLink').value.trim();
             const categoria = document.getElementById('inputCategoria').value;
+            const imagemUrl = document.getElementById('inputImagemUrl').value.trim();
             const ativo = document.getElementById('toggleAtiva').classList.contains('active');
             const fixada = document.getElementById('toggleFixada').classList.contains('active');
 
@@ -1071,16 +1056,6 @@
             btn.textContent = '⏳ Salvando...';
 
             try {
-                let imagemUrl = imagemUrlAtual;
-
-                // Upload de imagem se selecionada
-                if (imagemSelecionada) {
-                    const nomeArquivo = `anuncios/${Date.now()}_${imagemSelecionada.name}`;
-                    const ref = storage.ref(nomeArquivo);
-                    await ref.put(imagemSelecionada);
-                    imagemUrl = await ref.getDownloadURL();
-                }
-
                 const dados = {
                     titulo,
                     conteudo,
@@ -1143,17 +1118,6 @@
             if (!confirm('Tem certeza que deseja excluir esta notícia?')) return;
 
             try {
-                // Deletar imagem do storage se existir
-                const noticia = todasNoticias.find(n => n.id === id);
-                if (noticia?.imagemUrl) {
-                    try {
-                        const ref = storage.refFromURL(noticia.imagemUrl);
-                        await ref.delete();
-                    } catch (e) {
-                        console.log('Imagem não encontrada ou já deletada');
-                    }
-                }
-
                 await db.collection('anuncios').doc(id).delete();
                 showToast('🗑️ Notícia excluída');
                 carregarNoticias();
