@@ -449,6 +449,44 @@
     .no-comments { text-align: center; padding: 20px; color: #6b7280; font-size: 0.85em; }
     .empty-news { text-align: center; padding: 60px 20px; color: #6b7280; }
     .empty-news .icon { font-size: 48px; margin-bottom: 15px; }
+    .load-more-btn {
+      width: 100%;
+      padding: 15px;
+      background: rgba(255, 181, 71, 0.1);
+      border: 2px dashed rgba(255, 181, 71, 0.3);
+      border-radius: 12px;
+      color: #ffb547;
+      font-size: 0.95em;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Poppins', sans-serif;
+      transition: all 0.3s;
+      margin-top: 10px;
+    }
+    .load-more-btn:hover {
+      background: rgba(255, 181, 71, 0.2);
+      border-color: #ffb547;
+    }
+    .load-more-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .news-pinned {
+      border: 2px solid rgba(255, 181, 71, 0.5);
+      background: linear-gradient(135deg, rgba(255, 181, 71, 0.1), rgba(30, 41, 54, 0.9));
+    }
+    .news-pinned-badge {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: linear-gradient(135deg, #ffb547, #ff8c42);
+      color: #0e141b;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 0.7em;
+      font-weight: 700;
+    }
+    .news-card { position: relative; }
     .toast {
       position: fixed;
       bottom: 100px;
@@ -570,8 +608,14 @@
     let unsubscribe = null;
     let noticiaAtual = null;
     let todasNoticias = [];
+    let noticiasExibidas = [];
     let selectedMessageId = null;
     let timesCache = {};
+    
+    // Paginação
+    const NOTICIAS_POR_PAGINA = 10;
+    let paginaAtual = 0;
+    let temMaisNoticias = false;
 
     function showToast(msg) {
       const toast = document.getElementById('toast');
@@ -642,25 +686,62 @@
         const snap = await db.collection('anuncios').where('ativo', '==', true).get();
         todasNoticias = [];
         snap.forEach(doc => todasNoticias.push({ id: doc.id, ...doc.data() }));
-        todasNoticias.sort((a, b) => (b.data?.toDate?.() || 0) - (a.data?.toDate?.() || 0));
+        
+        // Ordenar: fixadas primeiro, depois por data
+        todasNoticias.sort((a, b) => {
+          // Fixadas primeiro
+          if (a.fixada && !b.fixada) return -1;
+          if (!a.fixada && b.fixada) return 1;
+          // Depois por data (mais recentes primeiro)
+          const dataA = a.data?.toDate?.() || new Date(0);
+          const dataB = b.data?.toDate?.() || new Date(0);
+          return dataB - dataA;
+        });
+        
+        // Resetar paginação
+        paginaAtual = 0;
+        noticiasExibidas = [];
+        carregarMaisNoticias();
+        
+      } catch (e) { 
+        console.error("Erro ao carregar notícias:", e);
+        todasNoticias = []; 
         if (salaAtual === 'noticias') renderizarNoticias();
-      } catch (e) { todasNoticias = []; }
+      }
+    }
+
+    function carregarMaisNoticias() {
+      const inicio = paginaAtual * NOTICIAS_POR_PAGINA;
+      const fim = inicio + NOTICIAS_POR_PAGINA;
+      const novas = todasNoticias.slice(inicio, fim);
+      
+      noticiasExibidas = [...noticiasExibidas, ...novas];
+      paginaAtual++;
+      temMaisNoticias = fim < todasNoticias.length;
+      
+      if (salaAtual === 'noticias') renderizarNoticias();
     }
 
     function renderizarNoticias() {
       const container = document.getElementById('newsList');
-      if (todasNoticias.length === 0) {
+      if (noticiasExibidas.length === 0) {
         container.innerHTML = '<div class="empty-news"><div class="icon">📰</div><p>Nenhuma notícia</p></div>';
         return;
       }
-      container.innerHTML = todasNoticias.map(n => {
+      
+      let html = noticiasExibidas.map(n => {
         const data = n.data?.toDate?.().toLocaleDateString('pt-BR') || '';
         const likes = n.reacoes?.like || 0;
         const dislikes = n.reacoes?.dislike || 0;
         const comments = n.numComentarios || 0;
         const img = n.imagemUrl ? `<img class="news-card-image" src="${n.imagemUrl}">` : '';
+        const isFixada = n.fixada;
+        const pinnedClass = isFixada ? 'news-pinned' : '';
+        const pinnedBadge = isFixada ? '<span class="news-pinned-badge">📌 FIXADA</span>' : '';
+        
         return `
-          <div class="news-card" onclick="abrirNoticia('${n.id}')">
+          <div class="news-card ${pinnedClass}" onclick="abrirNoticia('${n.id}')">
+            ${pinnedBadge}
             ${img}
             <div class="news-card-content">
               <h3 class="news-card-title">${n.titulo || ''}</h3>
@@ -678,6 +759,15 @@
           </div>
         `;
       }).join('');
+
+      // Botão carregar mais
+      if (temMaisNoticias) {
+        html += `<button class="load-more-btn" onclick="carregarMaisNoticias()">🔄 Carregar mais notícias</button>`;
+      } else if (todasNoticias.length > NOTICIAS_POR_PAGINA) {
+        html += `<div style="text-align: center; padding: 15px; color: #6b7280; font-size: 0.85em;">✅ Todas as ${todasNoticias.length} notícias carregadas</div>`;
+      }
+
+      container.innerHTML = html;
     }
 
     async function abrirNoticia(id) {
@@ -790,7 +880,19 @@
         }
 
         await ref.update({ curtiram, naoCurtiram, reacoes });
-        await carregarNoticias();
+        
+        // Atualizar localmente
+        const idx = todasNoticias.findIndex(n => n.id === noticiaAtual.id);
+        if (idx !== -1) {
+          todasNoticias[idx] = { ...todasNoticias[idx], curtiram, naoCurtiram, reacoes };
+        }
+        const idxExib = noticiasExibidas.findIndex(n => n.id === noticiaAtual.id);
+        if (idxExib !== -1) {
+          noticiasExibidas[idxExib] = { ...noticiasExibidas[idxExib], curtiram, naoCurtiram, reacoes };
+        }
+        noticiaAtual = { ...noticiaAtual, curtiram, naoCurtiram, reacoes };
+        
+        renderizarNoticias();
         abrirNoticia(noticiaAtual.id);
       } catch (e) {
         console.error(e);
@@ -814,8 +916,20 @@
         await db.collection('anuncios').doc(noticiaAtual.id).update({
           numComentarios: firebase.firestore.FieldValue.increment(1)
         });
+        
+        // Atualizar localmente
+        const idx = todasNoticias.findIndex(n => n.id === noticiaAtual.id);
+        if (idx !== -1) {
+          todasNoticias[idx].numComentarios = (todasNoticias[idx].numComentarios || 0) + 1;
+        }
+        const idxExib = noticiasExibidas.findIndex(n => n.id === noticiaAtual.id);
+        if (idxExib !== -1) {
+          noticiasExibidas[idxExib].numComentarios = (noticiasExibidas[idxExib].numComentarios || 0) + 1;
+        }
+        noticiaAtual.numComentarios = (noticiaAtual.numComentarios || 0) + 1;
+        
         showToast('💬 Comentário enviado!');
-        await carregarNoticias();
+        renderizarNoticias();
         abrirNoticia(noticiaAtual.id);
       } catch (e) {
         console.error(e);
@@ -1021,7 +1135,7 @@
       if (e.target.classList.contains('modal-overlay')) fecharModal();
     });
 
-    console.log("✅ Chat v2.3");
+    console.log("✅ Chat v2.4 - Com paginação de notícias");
   </script>
 </body>
 </html>
