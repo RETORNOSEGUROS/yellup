@@ -590,35 +590,68 @@
     }
 
     // ===================================
-    // 📋 CARREGAR PAÍSES
+    // 📋 CARREGAR PAÍSES (Firebase)
     // ===================================
     async function carregarPaises() {
       const select = document.getElementById("pais");
+      select.innerHTML = '<option value="">Carregando países...</option>';
       
-      // Lista fixa com Brasil primeiro
-      const paisesFixos = [
-        "Brasil",
-        "Portugal", 
-        "Argentina",
-        "Uruguai",
-        "Paraguai",
-        "Chile",
-        "Colômbia",
-        "México",
-        "Estados Unidos",
-        "Espanha",
-        "Itália",
-        "França",
-        "Alemanha",
-        "Inglaterra",
-        "Japão",
-        "Outros"
-      ];
-      
-      select.innerHTML = '<option value="">Selecione o país</option>';
-      paisesFixos.forEach(pais => {
-        select.innerHTML += `<option value="${pais}">${pais}</option>`;
-      });
+      try {
+        // Buscar países da coleção Firebase
+        const snapshot = await db.collection("paises").get();
+        
+        if (snapshot.empty) {
+          // Fallback: lista fixa caso não tenha países cadastrados
+          console.log("⚠️ Nenhum país encontrado, usando lista padrão");
+          const paisesFixos = ["Brasil", "Portugal", "Argentina", "Uruguai", "Paraguai", "Chile", "Colômbia", "México", "Estados Unidos", "Espanha", "Itália", "França", "Alemanha", "Inglaterra", "Japão", "Outros"];
+          select.innerHTML = '<option value="">Selecione o país</option>';
+          paisesFixos.forEach(pais => {
+            select.innerHTML += `<option value="${pais}">${pais}</option>`;
+          });
+          return;
+        }
+
+        // Converter para array
+        let paises = [];
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          paises.push({
+            id: doc.id,
+            nome: data.nome || doc.id,
+            bandeira: data.bandeira || data.flag || '',
+            ordem: data.ordem || 999
+          });
+        });
+
+        // Ordenar: Brasil primeiro, depois ordem, depois alfabético
+        paises.sort((a, b) => {
+          // Brasil sempre primeiro
+          if (a.nome.toLowerCase() === 'brasil') return -1;
+          if (b.nome.toLowerCase() === 'brasil') return 1;
+          // Depois por ordem (se existir)
+          if (a.ordem !== b.ordem) return a.ordem - b.ordem;
+          // Por fim, alfabético
+          return a.nome.localeCompare(b.nome, 'pt-BR');
+        });
+
+        // Preencher select
+        select.innerHTML = '<option value="">Selecione o país</option>';
+        paises.forEach(pais => {
+          const bandeira = pais.bandeira ? pais.bandeira + ' ' : '';
+          select.innerHTML += `<option value="${pais.nome}">${bandeira}${pais.nome}</option>`;
+        });
+
+        console.log(`✅ ${paises.length} países carregados`);
+
+      } catch (error) {
+        console.error("❌ Erro ao carregar países:", error);
+        // Fallback em caso de erro
+        const paisesFixos = ["Brasil", "Portugal", "Argentina", "Uruguai", "Paraguai", "Chile", "Colômbia", "México", "Estados Unidos", "Espanha", "Itália", "França", "Alemanha", "Inglaterra", "Japão", "Outros"];
+        select.innerHTML = '<option value="">Selecione o país</option>';
+        paisesFixos.forEach(pais => {
+          select.innerHTML += `<option value="${pais}">${pais}</option>`;
+        });
+      }
     }
 
     // ===================================
