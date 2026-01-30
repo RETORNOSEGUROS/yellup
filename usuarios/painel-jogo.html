@@ -3721,6 +3721,7 @@
         
         // ============================================
         // ✅ COTISTAS - Proporcional aos pontos de cada time
+        // CORRIGIDO: Busca de bolsa_cotas (não de times/{id}/cotistas)
         // ============================================
         const premiosCotistas = [];
         const totalPontos = estatisticas.timeCasa.pontos + estatisticas.timeFora.pontos;
@@ -3731,16 +3732,20 @@
           const proporcaoFora = estatisticas.timeFora.pontos / totalPontos;
           
           const creditosCotistaCasa = arredondar(totalCotistasCreditos * proporcaoCasa);
-          const creditosCotistaFora = totalCotistasCreditos - creditosCotistaCasa; // Garante que soma 100%
+          const creditosCotistaFora = totalCotistasCreditos - creditosCotistaCasa;
           
           console.log(`📈 Cotistas - Casa: ${creditosCotistaCasa} (${(proporcaoCasa*100).toFixed(1)}%) | Fora: ${creditosCotistaFora} (${(proporcaoFora*100).toFixed(1)}%)`);
           
-          // Buscar cotistas de cada time e distribuir
+          // ✅ CORRIGIDO: Buscar cotistas da coleção bolsa_cotas
           try {
             // Cotistas do time da casa
-            if (creditosCotistaCasa > 0) {
-              const cotistaCasaSnap = await db.collection('times').doc(timeCasaId)
-                .collection('cotistas').get();
+            if (creditosCotistaCasa > 0 && timeCasaId) {
+              console.log(`🔍 Buscando cotistas do time casa: ${timeCasaId}`);
+              const cotistaCasaSnap = await db.collection('bolsa_cotas')
+                .where('timeId', '==', timeCasaId)
+                .get();
+              
+              console.log(`📊 Encontrados ${cotistaCasaSnap.size} cotistas do time casa`);
               
               if (!cotistaCasaSnap.empty) {
                 let totalCotas = 0;
@@ -3749,8 +3754,10 @@
                 cotistaCasaSnap.forEach(doc => {
                   const c = doc.data();
                   totalCotas += c.quantidade || 0;
-                  cotistasCasa.push({ odId: doc.id, ...c });
+                  cotistasCasa.push({ odId: c.userId, nome: c.usuarioNome, ...c });
                 });
+                
+                console.log(`📊 Total de cotas time casa: ${totalCotas}`);
                 
                 if (totalCotas > 0) {
                   let distribuido = 0;
@@ -3764,18 +3771,37 @@
                       creditos = creditosCotistaCasa - distribuido;
                     }
                     
-                    if (creditos > 0) {
-                      await db.collection('usuarios').doc(c.odId).update({
-                        creditos: firebase.firestore.FieldValue.increment(creditos)
-                      });
-                      premiosCotistas.push({
-                        odId: c.odId,
-                        time: estatisticas.timeCasa.nome,
-                        cotas: c.quantidade,
-                        creditos: creditos
-                      });
-                      distribuido += creditos;
-                      console.log(`📈 Cotista ${c.odId}: +${creditos} cr (${c.quantidade} cotas de ${estatisticas.timeCasa.nome})`);
+                    if (creditos > 0 && c.odId) {
+                      try {
+                        await db.collection('usuarios').doc(c.odId).update({
+                          creditos: firebase.firestore.FieldValue.increment(creditos)
+                        });
+                        
+                        // Registrar dividendo
+                        await db.collection('bolsa_dividendos').add({
+                          usuarioId: c.odId,
+                          usuarioNome: c.nome || c.usuarioNome,
+                          timeId: timeCasaId,
+                          timeNome: estatisticas.timeCasa.nome,
+                          jogoId: jogoId,
+                          cotas: c.quantidade,
+                          totalCotas: totalCotas,
+                          creditos: creditos,
+                          data: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        premiosCotistas.push({
+                          odId: c.odId,
+                          nome: c.nome || c.usuarioNome || c.odId,
+                          time: estatisticas.timeCasa.nome,
+                          cotas: c.quantidade,
+                          creditos: creditos
+                        });
+                        distribuido += creditos;
+                        console.log(`📈 Cotista ${c.nome || c.odId}: +${creditos} cr (${c.quantidade} cotas de ${estatisticas.timeCasa.nome})`);
+                      } catch (e) {
+                        console.error(`❌ Erro ao premiar cotista ${c.odId}:`, e);
+                      }
                     }
                   }
                 }
@@ -3783,9 +3809,13 @@
             }
             
             // Cotistas do time de fora
-            if (creditosCotistaFora > 0) {
-              const cotistaForaSnap = await db.collection('times').doc(timeForaId)
-                .collection('cotistas').get();
+            if (creditosCotistaFora > 0 && timeForaId) {
+              console.log(`🔍 Buscando cotistas do time fora: ${timeForaId}`);
+              const cotistaForaSnap = await db.collection('bolsa_cotas')
+                .where('timeId', '==', timeForaId)
+                .get();
+              
+              console.log(`📊 Encontrados ${cotistaForaSnap.size} cotistas do time fora`);
               
               if (!cotistaForaSnap.empty) {
                 let totalCotas = 0;
@@ -3794,8 +3824,10 @@
                 cotistaForaSnap.forEach(doc => {
                   const c = doc.data();
                   totalCotas += c.quantidade || 0;
-                  cotistasFora.push({ odId: doc.id, ...c });
+                  cotistasFora.push({ odId: c.userId, nome: c.usuarioNome, ...c });
                 });
+                
+                console.log(`📊 Total de cotas time fora: ${totalCotas}`);
                 
                 if (totalCotas > 0) {
                   let distribuido = 0;
@@ -3809,18 +3841,37 @@
                       creditos = creditosCotistaFora - distribuido;
                     }
                     
-                    if (creditos > 0) {
-                      await db.collection('usuarios').doc(c.odId).update({
-                        creditos: firebase.firestore.FieldValue.increment(creditos)
-                      });
-                      premiosCotistas.push({
-                        odId: c.odId,
-                        time: estatisticas.timeFora.nome,
-                        cotas: c.quantidade,
-                        creditos: creditos
-                      });
-                      distribuido += creditos;
-                      console.log(`📈 Cotista ${c.odId}: +${creditos} cr (${c.quantidade} cotas de ${estatisticas.timeFora.nome})`);
+                    if (creditos > 0 && c.odId) {
+                      try {
+                        await db.collection('usuarios').doc(c.odId).update({
+                          creditos: firebase.firestore.FieldValue.increment(creditos)
+                        });
+                        
+                        // Registrar dividendo
+                        await db.collection('bolsa_dividendos').add({
+                          usuarioId: c.odId,
+                          usuarioNome: c.nome || c.usuarioNome,
+                          timeId: timeForaId,
+                          timeNome: estatisticas.timeFora.nome,
+                          jogoId: jogoId,
+                          cotas: c.quantidade,
+                          totalCotas: totalCotas,
+                          creditos: creditos,
+                          data: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        premiosCotistas.push({
+                          odId: c.odId,
+                          nome: c.nome || c.usuarioNome || c.odId,
+                          time: estatisticas.timeFora.nome,
+                          cotas: c.quantidade,
+                          creditos: creditos
+                        });
+                        distribuido += creditos;
+                        console.log(`📈 Cotista ${c.nome || c.odId}: +${creditos} cr (${c.quantidade} cotas de ${estatisticas.timeFora.nome})`);
+                      } catch (e) {
+                        console.error(`❌ Erro ao premiar cotista ${c.odId}:`, e);
+                      }
                     }
                   }
                 }
