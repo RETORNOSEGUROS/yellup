@@ -653,6 +653,15 @@
       border-left-color: #22c55e;
     }
 
+    .extrato-item.tipo-debito {
+      border-left-color: #ef4444;
+    }
+
+    .tipo-debito .extrato-tipo {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+    }
+
     .extrato-item-header {
       display: flex;
       justify-content: space-between;
@@ -699,11 +708,31 @@
     .extrato-creditos {
       font-size: 1.3em;
       font-weight: 800;
+    }
+
+    .extrato-creditos.credito-positivo {
       color: #22c55e;
     }
 
-    .extrato-creditos::before {
-      content: '+';
+    .extrato-creditos.credito-negativo {
+      color: #ef4444;
+    }
+
+    .extrato-descricao {
+      font-size: 0.9em;
+      color: #e7eef7;
+      margin: 10px 0;
+      line-height: 1.4;
+    }
+
+    .extrato-codigo {
+      font-size: 0.8em;
+      color: #a9b5c6;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 4px 10px;
+      border-radius: 6px;
+      display: inline-block;
+      margin-bottom: 8px;
     }
 
     /* Detalhes da Partida */
@@ -1593,9 +1622,9 @@
 
     async function carregarExtrato() {
       try {
-        // Buscar transações de créditos do usuário
-        const snapshot = await db.collection('usuarios').doc(currentUserId)
-          .collection('transacoesCreditos')
+        // Buscar transações de créditos do usuário da collection principal 'transacoes'
+        const snapshot = await db.collection('transacoes')
+          .where('usuarioId', '==', currentUserId)
           .orderBy('data', 'desc')
           .get();
 
@@ -1605,8 +1634,9 @@
         snapshot.forEach(doc => {
           const transacao = { id: doc.id, ...doc.data() };
           extratoCompleto.push(transacao);
-          if (transacao.creditos > 0) {
-            totalGanho += transacao.creditos;
+          // Somar apenas créditos (não débitos)
+          if (transacao.tipo === 'credito' && transacao.valor > 0) {
+            totalGanho += transacao.valor;
           }
         });
 
@@ -1619,12 +1649,43 @@
 
       } catch (error) {
         console.error("Erro ao carregar extrato:", error);
-        document.getElementById('extratoLista').innerHTML = `
-          <div class="extrato-vazio">
-            <div class="extrato-vazio-icon">⚠️</div>
-            <div class="extrato-vazio-texto">Erro ao carregar histórico</div>
-          </div>
-        `;
+        // Se der erro de índice, tentar sem orderBy
+        try {
+          const snapshot2 = await db.collection('transacoes')
+            .where('usuarioId', '==', currentUserId)
+            .get();
+
+          extratoCompleto = [];
+          let totalGanho = 0;
+
+          snapshot2.forEach(doc => {
+            const transacao = { id: doc.id, ...doc.data() };
+            extratoCompleto.push(transacao);
+            if (transacao.tipo === 'credito' && transacao.valor > 0) {
+              totalGanho += transacao.valor;
+            }
+          });
+
+          // Ordenar manualmente por data (mais recente primeiro)
+          extratoCompleto.sort((a, b) => {
+            const dataA = a.data?.toDate ? a.data.toDate() : new Date(a.data);
+            const dataB = b.data?.toDate ? b.data.toDate() : new Date(b.data);
+            return dataB - dataA;
+          });
+
+          document.getElementById('extratoTotalGanho').textContent = totalGanho.toLocaleString('pt-BR');
+          extratoFiltrado = [...extratoCompleto];
+          renderizarExtrato();
+
+        } catch (error2) {
+          console.error("Erro ao carregar extrato (tentativa 2):", error2);
+          document.getElementById('extratoLista').innerHTML = `
+            <div class="extrato-vazio">
+              <div class="extrato-vazio-icon">⚠️</div>
+              <div class="extrato-vazio-texto">Erro ao carregar histórico</div>
+            </div>
+          `;
+        }
       }
     }
 
@@ -1702,92 +1763,43 @@
     }
 
     function renderizarItemExtrato(item) {
-      const tipo = item.tipo || 'bonus';
+      // Detectar tipo baseado nos campos disponíveis
+      let tipo = 'bonus';
+      if (item.embateId) {
+        tipo = 'embate';
+      } else if (item.torneioId) {
+        tipo = 'torneio';
+      } else if (item.jogoId) {
+        tipo = 'jogo';
+      } else if (item.descricao && item.descricao.toLowerCase().includes('indicaç')) {
+        tipo = 'indicacao';
+      } else if (item.tipo === 'debito') {
+        tipo = 'debito';
+      }
+
       const tipoClasse = `tipo-${tipo}`;
-      const tipoLabel = getTipoLabel(tipo);
-      const tipoIcon = getTipoIcon(tipo);
+      const tipoLabel = getTipoLabel(tipo, item.tipo);
+      const tipoIcon = getTipoIcon(tipo, item.tipo);
       
       const data = item.data?.toDate ? item.data.toDate() : new Date(item.data);
       const dataFormatada = formatarDataCompleta(data);
 
-      let partidaHTML = '';
-      let statsHTML = '';
-
-      // Se for jogo, embate ou torneio, mostrar detalhes da partida
-      if (['jogo', 'embate', 'torneio'].includes(tipo) && item.partida) {
-        partidaHTML = `
-          <div class="extrato-partida">
-            <div class="partida-time">
-              <div class="partida-time-escudo">${item.partida.timeCasa?.escudo || '⚽'}</div>
-              <div class="partida-time-nome">${item.partida.timeCasa?.nome || 'Time A'}</div>
-            </div>
-            <div class="partida-placar">${item.partida.placar || '0 x 0'}</div>
-            <div class="partida-time">
-              <div class="partida-time-nome">${item.partida.timeFora?.nome || 'Time B'}</div>
-              <div class="partida-time-escudo">${item.partida.timeFora?.escudo || '⚽'}</div>
-            </div>
-          </div>
-        `;
-
-        statsHTML = `
-          <div class="extrato-stats">
-            <div class="extrato-stat">
-              <div class="extrato-stat-value">${item.classificacao || '-'}º</div>
-              <div class="extrato-stat-label">Classificação</div>
-            </div>
-            <div class="extrato-stat">
-              <div class="extrato-stat-value">${item.pontosPartida || 0}</div>
-              <div class="extrato-stat-label">Pontos</div>
-            </div>
-            <div class="extrato-stat">
-              <div class="extrato-stat-value">${item.acertos || 0}</div>
-              <div class="extrato-stat-label">Acertos</div>
-            </div>
-          </div>
-        `;
-      }
-
-      // Se for indicação
-      if (tipo === 'indicacao' && item.indicado) {
-        partidaHTML = `
-          <div class="extrato-partida" style="justify-content: center;">
-            <div style="text-align: center;">
-              <div style="font-size: 0.85em; color: #a9b5c6;">Usuário indicado:</div>
-              <div style="font-weight: 600; color: #f472b6;">${item.indicado.nome || item.indicado.usuario || 'Usuário'}</div>
-            </div>
-          </div>
-        `;
-      }
-
-      // Se for torneio, mostrar nome do torneio
-      if (tipo === 'torneio' && item.torneio) {
-        partidaHTML = `
-          <div class="extrato-partida" style="flex-direction: column; align-items: center; gap: 8px;">
-            <div style="font-weight: 700; color: #a78bfa; font-size: 1em;">🏆 ${item.torneio.nome || 'Torneio'}</div>
-            ${item.partida ? `
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span>${item.partida.timeCasa?.nome || 'Time A'}</span>
-                <span style="color: #ffb547; font-weight: 700;">${item.partida.placar || '0x0'}</span>
-                <span>${item.partida.timeFora?.nome || 'Time B'}</span>
-              </div>
-            ` : ''}
-          </div>
-          ${statsHTML}
-        `;
-        statsHTML = '';
-      }
+      // Determinar se é crédito ou débito para a cor
+      const isCredito = item.tipo === 'credito' || item.tipo === 'crédito manual';
+      const creditoClass = isCredito ? 'credito-positivo' : 'credito-negativo';
+      const creditoPrefix = isCredito ? '+' : '-';
 
       return `
         <div class="extrato-item ${tipoClasse}">
           <div class="extrato-item-header">
             <span class="extrato-tipo">${tipoIcon} ${tipoLabel}</span>
-            <span class="extrato-creditos">${item.creditos || 0}</span>
+            <span class="extrato-creditos ${creditoClass}">${creditoPrefix}${item.valor || 0}</span>
           </div>
           
-          ${partidaHTML}
-          ${statsHTML}
+          <div class="extrato-descricao">${item.descricao || 'Transação de créditos'}</div>
 
-          ${item.descricao ? `<div style="font-size: 0.85em; color: #a9b5c6; margin-top: 8px;">${item.descricao}</div>` : ''}
+          ${item.embateId ? `<div class="extrato-codigo">Código: ${extrairCodigo(item.descricao)}</div>` : ''}
+          ${item.torneioId ? `<div class="extrato-codigo">🏆 Torneio</div>` : ''}
           
           <div class="extrato-data">
             📅 ${dataFormatada}
@@ -1796,30 +1808,34 @@
       `;
     }
 
-    function getTipoLabel(tipo) {
+    function extrairCodigo(descricao) {
+      if (!descricao) return '';
+      const match = descricao.match(/EMB-[A-Z0-9]+/);
+      return match ? match[0] : '';
+    }
+
+    function getTipoLabel(tipo, tipoOriginal) {
+      if (tipoOriginal === 'debito') return 'Aposta';
       const labels = {
         'jogo': 'Jogo',
         'embate': 'Embate',
         'torneio': 'Torneio',
         'indicacao': 'Indicação',
         'bonus': 'Bônus',
-        'compra': 'Compra',
-        'venda': 'Venda',
-        'premio': 'Prêmio'
+        'debito': 'Aposta'
       };
       return labels[tipo] || 'Crédito';
     }
 
-    function getTipoIcon(tipo) {
+    function getTipoIcon(tipo, tipoOriginal) {
+      if (tipoOriginal === 'debito') return '🎯';
       const icons = {
         'jogo': '⚽',
         'embate': '⚔️',
         'torneio': '🏆',
         'indicacao': '🔗',
         'bonus': '🎁',
-        'compra': '💎',
-        'venda': '💰',
-        'premio': '🎖️'
+        'debito': '🎯'
       };
       return icons[tipo] || '💰';
     }
