@@ -1644,45 +1644,73 @@
       const qtdDesejada = parseInt(document.getElementById('inputQtdCompra').value) || 0;
       if (qtdDesejada <= 0) return showToast('❌ Quantidade inválida');
 
-      // CORREÇÃO: Filtrar ordens do próprio usuário
-      const todasOrdensTime = ordens[modalTimeAtual.id] || [];
-      const ordensOutros = todasOrdensTime.filter(o => o.userId !== currentUser.uid);
-      
-      // CORREÇÃO: Só pode comprar se houver ordens de venda abertas
-      if (ordensOutros.length === 0) {
-        showToast('❌ Não há cotas à venda para este time. Aguarde alguém criar uma ordem de venda.');
-        fecharModal('modalComprar');
-        return;
-      }
-
-      // CORREÇÃO: Calcular total disponível em TODAS as ordens de outros usuários
-      const totalDisponivel = ordensOutros.reduce((sum, o) => sum + o.quantidadeRestante, 0);
-      
-      if (totalDisponivel < qtdDesejada) {
-        return showToast(`❌ Apenas ${totalDisponivel} cotas disponíveis para compra`);
-      }
-
-      // CORREÇÃO: Comprar de múltiplas ordens se necessário
-      let qtdRestante = qtdDesejada;
-      let valorTotalCompra = 0;
-      const comprasPorOrdem = [];
-      
-      for (const ordem of ordensOutros) {
-        if (qtdRestante <= 0) break;
-        
-        const qtdDestaOrdem = Math.min(qtdRestante, ordem.quantidadeRestante);
-        const valorDestaOrdem = qtdDestaOrdem * ordem.precoUnitario;
-        
-        comprasPorOrdem.push({ ordem, qtd: qtdDestaOrdem, valor: valorDestaOrdem });
-        valorTotalCompra += valorDestaOrdem;
-        qtdRestante -= qtdDestaOrdem;
-      }
-
-      if ((currentUserData.creditos || 0) < valorTotalCompra) {
-        return showToast('❌ Créditos insuficientes');
-      }
-
+      // ✅ IMPORTANTE: Recarregar ordens do servidor para garantir dados atualizados
       try {
+        const ordensSnap = await db.collection('bolsa_ordens')
+          .where('timeId', '==', modalTimeAtual.id)
+          .where('tipo', '==', 'venda')
+          .get();
+        
+        const ordensAtualizadas = [];
+        ordensSnap.forEach(doc => {
+          const data = doc.data();
+          if ((data.status === 'aberta' || data.status === 'parcial') && data.quantidadeRestante > 0) {
+            ordensAtualizadas.push({ id: doc.id, ...data });
+          }
+        });
+        
+        // Ordenar por preço (menor primeiro)
+        ordensAtualizadas.sort((a, b) => a.precoUnitario - b.precoUnitario);
+        
+        // Filtrar ordens do próprio usuário
+        const ordensOutros = ordensAtualizadas.filter(o => o.userId !== currentUser.uid);
+        
+        if (ordensOutros.length === 0) {
+          showToast('❌ Não há cotas à venda para este time. Aguarde alguém criar uma ordem de venda.');
+          fecharModal('modalComprar');
+          return;
+        }
+
+        // Calcular total disponível
+        const totalDisponivel = ordensOutros.reduce((sum, o) => sum + o.quantidadeRestante, 0);
+        
+        if (totalDisponivel < qtdDesejada) {
+          return showToast(`❌ Apenas ${totalDisponivel} cotas disponíveis para compra`);
+        }
+
+        // Calcular compras por ordem
+        let qtdRestante = qtdDesejada;
+        let valorTotalCompra = 0;
+        const comprasPorOrdem = [];
+        
+        for (const ordem of ordensOutros) {
+          if (qtdRestante <= 0) break;
+          
+          const qtdDestaOrdem = Math.min(qtdRestante, ordem.quantidadeRestante);
+          const valorDestaOrdem = qtdDestaOrdem * ordem.precoUnitario;
+          
+          comprasPorOrdem.push({ ordem, qtd: qtdDestaOrdem, valor: valorDestaOrdem });
+          valorTotalCompra += valorDestaOrdem;
+          qtdRestante -= qtdDestaOrdem;
+        }
+
+        // ✅ CONFIRMAÇÃO CLARA DO PREÇO
+        const precoMedio = (valorTotalCompra / qtdDesejada).toFixed(2);
+        const detalhesCompra = comprasPorOrdem.map(c => `${c.qtd}x ${c.ordem.precoUnitario} cr`).join(' + ');
+        
+        if (!confirm(`⚠️ CONFIRMAR COMPRA?\n\n` +
+          `Quantidade: ${qtdDesejada} cotas\n` +
+          `Preço: ${detalhesCompra}\n` +
+          `Total: ${valorTotalCompra.toFixed(2)} cr\n\n` +
+          `Você está comprando pelo PREÇO DO VENDEDOR.\n` +
+          `Clique OK para confirmar.`)) {
+          return;
+        }
+
+        if ((currentUserData.creditos || 0) < valorTotalCompra) {
+          return showToast('❌ Créditos insuficientes');
+        }
+
         const batch = db.batch();
 
         // 1. Debitar comprador
@@ -1839,10 +1867,35 @@
 
       if (qtd <= 0) return showToast('❌ Quantidade inválida');
       if (preco <= 0) return showToast('❌ Preço inválido');
+      
+      // ✅ VALIDAÇÃO: Preço mínimo de 1 crédito
+      if (preco < 1) {
+        return showToast('❌ Preço mínimo é 1 crédito');
+      }
+      
+      // ✅ AVISO: Preço muito baixo
+      const precoAlgo = metricas[modalTimeAtual.id]?.precoAlgoritmo || PRECO_INICIAL;
+      if (preco < precoAlgo * 0.5) {
+        if (!confirm(`⚠️ ATENÇÃO!\n\nVocê está vendendo por ${preco} cr, mas o preço do algoritmo é ${precoAlgo.toFixed(0)} cr.\n\nIsso é ${((1 - preco/precoAlgo) * 100).toFixed(0)}% ABAIXO do valor justo!\n\nTem certeza que quer continuar?`)) {
+          return;
+        }
+      }
 
       const minhaCota = minhasCotas[modalTimeAtual.id];
       if (!minhaCota || minhaCota.quantidade < qtd) {
         return showToast('❌ Cotas insuficientes');
+      }
+
+      // ✅ CONFIRMAÇÃO CLARA
+      const valorTotal = qtd * preco;
+      if (!confirm(`📤 CONFIRMAR ORDEM DE VENDA?\n\n` +
+        `Time: ${modalTimeAtual.nome}\n` +
+        `Quantidade: ${qtd} cotas\n` +
+        `Preço por cota: ${preco} cr\n` +
+        `Valor total: ${valorTotal} cr\n\n` +
+        `Outros usuários poderão comprar suas cotas por este preço.\n` +
+        `Clique OK para confirmar.`)) {
+        return;
       }
 
       try {
