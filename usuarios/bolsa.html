@@ -2199,6 +2199,261 @@
       }
     }
 
+    // ==================== PROCESSAR JOGOS PARA BOLSA ====================
+    async function processarJogosParaBolsa() {
+      logAdmin('🎮 Buscando jogos finalizados para processar...', 'info');
+      
+      try {
+        // Buscar jogos finalizados que ainda não foram processados na bolsa
+        const jogosSnap = await db.collection('jogos').get();
+        
+        // Filtrar jogos finalizados não processados
+        const jogosParaProcessar = [];
+        const now = new Date();
+        
+        jogosSnap.forEach(doc => {
+          const jogo = { id: doc.id, ...doc.data() };
+          const dataFim = jogo.dataFim?.toDate ? jogo.dataFim.toDate() : null;
+          const isFinalizado = jogo.status === 'finalizado' || (dataFim && dataFim < now);
+          
+          if (isFinalizado && !jogo.bolsaProcessado) {
+            jogosParaProcessar.push(jogo);
+          }
+        });
+
+        if (jogosParaProcessar.length === 0) {
+          logAdmin('✅ Todos os jogos já foram processados', 'info');
+          showToast('✅ Nenhum jogo novo para processar');
+          return;
+        }
+
+        logAdmin(`📊 ${jogosParaProcessar.length} jogos para processar...`, 'info');
+
+        let processados = 0;
+        let erros = 0;
+
+        for (const jogo of jogosParaProcessar) {
+          try {
+            await processarJogoIndividual(jogo);
+            processados++;
+          } catch (e) {
+            erros++;
+            logAdmin(`❌ Erro no jogo ${jogo.id}: ${e.message}`, 'error');
+          }
+        }
+
+        logAdmin(`✅ Processamento concluído: ${processados} jogos, ${erros} erros`, processados > 0 ? 'success' : 'warn');
+        showToast(`✅ ${processados} jogos processados!`);
+
+        // Recarregar métricas
+        await carregarMetricas();
+        renderizarTabelaMercado();
+
+      } catch (error) {
+        console.error('Erro ao processar jogos:', error);
+        logAdmin(`❌ Erro geral: ${error.message}`, 'error');
+        showToast('❌ Erro ao processar jogos');
+      }
+    }
+
+    async function processarJogoIndividual(jogo) {
+      const timeCasaId = jogo.timeCasaId;
+      const timeForaId = jogo.timeForaId;
+      
+      if (!timeCasaId || !timeForaId) {
+        logAdmin(`⚠️ Jogo ${jogo.id} sem times definidos, pulando...`, 'warn');
+        return;
+      }
+
+      // Buscar nomes dos times
+      const timeCasa = allTimes.find(t => t.id === timeCasaId);
+      const timeFora = allTimes.find(t => t.id === timeForaId);
+      
+      logAdmin(`🎯 Processando: ${timeCasa?.nome || timeCasaId} vs ${timeFora?.nome || timeForaId}`, 'info');
+
+      // Dados de torcida
+      const torcidaCasa = jogo.torcidaCasaCount || 0;
+      const torcidaFora = jogo.torcidaForaCount || 0;
+      const totalTorcida = torcidaCasa + torcidaFora;
+
+      // Dados de pontuação/créditos (se existir)
+      const pontosCasa = jogo.pontosCasa || jogo.creditosCasa || 0;
+      const pontosFora = jogo.pontosFora || jogo.creditosFora || 0;
+
+      // Calcular variações
+      let variacaoCasa = 0;
+      let variacaoFora = 0;
+
+      // 1. Bônus por participação no jogo (+0.5% cada)
+      variacaoCasa += CONFIG_VALORIZACAO.porJogo;
+      variacaoFora += CONFIG_VALORIZACAO.porJogo;
+      logAdmin(`  +${CONFIG_VALORIZACAO.porJogo}% participação para ambos`, 'info');
+
+      // 2. Variação por torcida
+      if (totalTorcida > 0) {
+        // Bônus por torcedor
+        variacaoCasa += torcidaCasa * CONFIG_VALORIZACAO.porTorcedor;
+        variacaoFora += torcidaFora * CONFIG_VALORIZACAO.porTorcedor;
+
+        if (torcidaCasa > torcidaFora) {
+          // Time Casa ganhou na torcida
+          variacaoCasa += CONFIG_VALORIZACAO.porVitoriaTorcida;
+          variacaoFora -= CONFIG_VALORIZACAO.porDerrotaTorcida;
+          logAdmin(`  🏆 Torcida: ${timeCasa?.nome} venceu (${torcidaCasa} vs ${torcidaFora})`, 'success');
+        } else if (torcidaFora > torcidaCasa) {
+          // Time Fora ganhou na torcida
+          variacaoFora += CONFIG_VALORIZACAO.porVitoriaTorcida;
+          variacaoCasa -= CONFIG_VALORIZACAO.porDerrotaTorcida;
+          logAdmin(`  🏆 Torcida: ${timeFora?.nome} venceu (${torcidaFora} vs ${torcidaCasa})`, 'success');
+        } else {
+          logAdmin(`  🤝 Torcida empatada (${torcidaCasa} vs ${torcidaFora})`, 'info');
+        }
+      }
+
+      // 3. Variação por pontuação/créditos
+      if (pontosCasa > 0 || pontosFora > 0) {
+        // Bônus por ponto
+        variacaoCasa += pontosCasa * CONFIG_VALORIZACAO.porPonto;
+        variacaoFora += pontosFora * CONFIG_VALORIZACAO.porPonto;
+
+        if (pontosCasa > pontosFora) {
+          variacaoCasa += CONFIG_VALORIZACAO.porVitoriaPontuacao;
+          variacaoFora -= CONFIG_VALORIZACAO.porDerrotaPontuacao;
+          logAdmin(`  🎯 Pontuação: ${timeCasa?.nome} venceu (${pontosCasa} vs ${pontosFora})`, 'success');
+        } else if (pontosFora > pontosCasa) {
+          variacaoFora += CONFIG_VALORIZACAO.porVitoriaPontuacao;
+          variacaoCasa -= CONFIG_VALORIZACAO.porDerrotaPontuacao;
+          logAdmin(`  🎯 Pontuação: ${timeFora?.nome} venceu (${pontosFora} vs ${pontosCasa})`, 'success');
+        }
+      }
+
+      // Limitar variação máxima
+      variacaoCasa = Math.max(-CONFIG_VALORIZACAO.maxVariacao, Math.min(CONFIG_VALORIZACAO.maxVariacao, variacaoCasa));
+      variacaoFora = Math.max(-CONFIG_VALORIZACAO.maxVariacao, Math.min(CONFIG_VALORIZACAO.maxVariacao, variacaoFora));
+
+      // Atualizar métricas dos times
+      const batch = db.batch();
+
+      // Time Casa
+      const metricaCasa = metricas[timeCasaId] || { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0 };
+      const novoPrecoAlgoCasa = metricaCasa.precoAlgoritmo * (1 + variacaoCasa / 100);
+      const novaVariacaoCasa = (metricaCasa.variacaoDia || 0) + variacaoCasa;
+
+      batch.set(db.collection('bolsa_metricas_time').doc(timeCasaId), {
+        timeId: timeCasaId,
+        timeNome: timeCasa?.nome || '',
+        precoAlgoritmo: Math.round(novoPrecoAlgoCasa * 100) / 100,
+        precoMercado: metricaCasa.precoMercado || PRECO_INICIAL,
+        variacaoDia: Math.round(novaVariacaoCasa * 100) / 100,
+        totalJogos: (metricaCasa.totalJogos || 0) + 1,
+        totalTorcedores: (metricaCasa.totalTorcedores || 0) + torcidaCasa,
+        ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      // Time Fora
+      const metricaFora = metricas[timeForaId] || { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0 };
+      const novoPrecoAlgoFora = metricaFora.precoAlgoritmo * (1 + variacaoFora / 100);
+      const novaVariacaoFora = (metricaFora.variacaoDia || 0) + variacaoFora;
+
+      batch.set(db.collection('bolsa_metricas_time').doc(timeForaId), {
+        timeId: timeForaId,
+        timeNome: timeFora?.nome || '',
+        precoAlgoritmo: Math.round(novoPrecoAlgoFora * 100) / 100,
+        precoMercado: metricaFora.precoMercado || PRECO_INICIAL,
+        variacaoDia: Math.round(novaVariacaoFora * 100) / 100,
+        totalJogos: (metricaFora.totalJogos || 0) + 1,
+        totalTorcedores: (metricaFora.totalTorcedores || 0) + torcidaFora,
+        ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      // Marcar jogo como processado
+      batch.update(db.collection('jogos').doc(jogo.id), {
+        bolsaProcessado: true,
+        bolsaProcessadoEm: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      await batch.commit();
+
+      logAdmin(`  📈 ${timeCasa?.nome}: ${variacaoCasa >= 0 ? '+' : ''}${variacaoCasa.toFixed(2)}% → ${novoPrecoAlgoCasa.toFixed(2)} cr`, variacaoCasa >= 0 ? 'success' : 'warn');
+      logAdmin(`  📈 ${timeFora?.nome}: ${variacaoFora >= 0 ? '+' : ''}${variacaoFora.toFixed(2)}% → ${novoPrecoAlgoFora.toFixed(2)} cr`, variacaoFora >= 0 ? 'success' : 'warn');
+    }
+
+    // Resetar variação diária (rodar uma vez por dia)
+    async function resetarVariacaoDiaria() {
+      if (!confirm('Isso vai zerar a variação do dia de TODOS os times. Continuar?')) return;
+      
+      logAdmin('🔄 Resetando variação diária...', 'info');
+      
+      try {
+        const batch = db.batch();
+        
+        for (const time of allTimes) {
+          if (metricas[time.id]) {
+            batch.update(db.collection('bolsa_metricas_time').doc(time.id), {
+              variacaoDia: 0,
+              ultimoResetDia: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          }
+        }
+
+        await batch.commit();
+        logAdmin(`✅ Variação zerada para ${allTimes.length} times`, 'success');
+        showToast('✅ Variação diária resetada!');
+        
+        await carregarMetricas();
+        renderizarTabelaMercado();
+      } catch (e) {
+        logAdmin(`❌ Erro: ${e.message}`, 'error');
+        showToast('❌ Erro ao resetar variação');
+      }
+    }
+
+    // Reprocessar todos os jogos (cuidado!)
+    async function reprocessarTodosJogos() {
+      if (!confirm('⚠️ Isso vai REPROCESSAR todos os jogos.\n\nOs preços vão mudar novamente!\n\nTem certeza?')) return;
+      if (!confirm('ÚLTIMA CHANCE: Realmente quer reprocessar?')) return;
+      
+      logAdmin('🔄 Removendo flag de processamento...', 'warn');
+      
+      try {
+        const jogosSnap = await db.collection('jogos')
+          .where('bolsaProcessado', '==', true)
+          .get();
+        
+        if (jogosSnap.empty) {
+          logAdmin('Nenhum jogo para reprocessar', 'info');
+          return;
+        }
+
+        const batch = db.batch();
+        jogosSnap.forEach(doc => {
+          batch.update(doc.ref, { bolsaProcessado: false });
+        });
+        
+        await batch.commit();
+        logAdmin(`✅ ${jogosSnap.size} jogos prontos para reprocessamento`, 'success');
+        
+        // Agora processar
+        await processarJogosParaBolsa();
+      } catch (e) {
+        logAdmin(`❌ Erro: ${e.message}`, 'error');
+      }
+    }
+
+    // Verificar se é admin e mostrar área
+    function verificarAdmin() {
+      if (currentUserData?.isAdmin || currentUser?.email === 'admin@yellup.com') {
+        document.getElementById('adminArea').style.display = 'block';
+      }
+    }
+
+    // Chamar após carregar dados
+    const originalCarregarBolsa = carregarBolsa;
+    carregarBolsa = async function() {
+      await originalCarregarBolsa();
+      verificarAdmin();
+    };
+
     // Fechar modal ao clicar fora
     document.querySelectorAll('.modal-overlay').forEach(modal => {
       modal.addEventListener('click', e => {
@@ -2206,5 +2461,42 @@
       });
     });
   </script>
+
+  <!-- Área Admin (só aparece para admins) -->
+  <div id="adminArea" style="display: none; max-width: 1200px; margin: 40px auto; padding: 20px;">
+    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 16px; padding: 20px;">
+      <h3 style="color: #ef4444; margin-bottom: 15px;">🔧 Painel Admin - Bolsa</h3>
+      
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+        <button onclick="processarJogosParaBolsa()" style="padding: 12px 20px; background: linear-gradient(135deg, #10b981, #059669); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif;">
+          🎮 Processar Jogos Encerrados
+        </button>
+        
+        <button onclick="resetarVariacaoDiaria()" style="padding: 12px 20px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif;">
+          🔄 Resetar Variação Diária
+        </button>
+        
+        <button onclick="inicializarMetricas()" style="padding: 12px 20px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif;">
+          📊 Inicializar Métricas (500cr)
+        </button>
+        
+        <button onclick="inicializarCotasDono()" style="padding: 12px 20px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif;">
+          💼 Criar Cotas Dono Inicial
+        </button>
+        
+        <button onclick="reprocessarTodosJogos()" style="padding: 12px 20px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif;">
+          ⚠️ Reprocessar Todos Jogos
+        </button>
+        
+        <button onclick="resetCompleto()" style="padding: 12px 20px; background: #1a1a1a; border: 2px solid #ef4444; border-radius: 10px; color: #ef4444; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif;">
+          🔥 RESET COMPLETO
+        </button>
+      </div>
+      
+      <div id="adminLog" style="background: #0a0a0a; border-radius: 10px; padding: 15px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.85em; display: none;">
+        <!-- Log aparece aqui -->
+      </div>
+    </div>
+  </div>
 </body>
 </html>
