@@ -3988,11 +3988,122 @@
         // Salvar no jogo como premiado
         await db.collection("jogos").doc(jogoId).update({
           premiado: true,
-          premiacaoDetalhes: premiacaoDetalhes
+          premiacaoDetalhes: premiacaoDetalhes,
+          bolsaProcessado: true  // ✅ Marcar como processado para a bolsa
         });
         
         console.log("🏆 PREMIAÇÃO PROCESSADA COM SUCESSO!");
         premiacaoExecutada = true;
+        
+        // ============================================
+        // ✅ ATUALIZAÇÃO AUTOMÁTICA DA BOLSA
+        // Atualiza métricas dos times (variação, dividendos)
+        // ============================================
+        try {
+          console.log("📈 Atualizando métricas da bolsa automaticamente...");
+          
+          const CONFIG_VALORIZACAO = {
+            porJogo: 0.5,              // +0.5% por jogo participado
+            porTorcedor: 0.05,         // +0.05% por torcedor
+            porVitoriaTorcida: 2.0,    // +2% maior torcida
+            porVitoriaPontuacao: 3.0,  // +3% maior pontuação
+            porDerrotaTorcida: 1.5,    // -1.5% menor torcida
+            porDerrotaPontuacao: 2.0,  // -2% menor pontuação
+            maxVariacao: 15            // ±15% máximo
+          };
+          
+          const PRECO_INICIAL = 500;
+          
+          // Dados dos times
+          const torcidaCasa = estatisticas.timeCasa.torcedores.length;
+          const torcidaFora = estatisticas.timeFora.torcedores.length;
+          const pontosCasa = estatisticas.timeCasa.pontos;
+          const pontosFora = estatisticas.timeFora.pontos;
+          
+          // Calcular variação para cada time
+          let variacaoCasa = CONFIG_VALORIZACAO.porJogo;
+          let variacaoFora = CONFIG_VALORIZACAO.porJogo;
+          
+          // Bônus por torcedor
+          variacaoCasa += torcidaCasa * CONFIG_VALORIZACAO.porTorcedor;
+          variacaoFora += torcidaFora * CONFIG_VALORIZACAO.porTorcedor;
+          
+          // Variação por torcida
+          if (torcidaCasa > torcidaFora) {
+            variacaoCasa += CONFIG_VALORIZACAO.porVitoriaTorcida;
+            variacaoFora -= CONFIG_VALORIZACAO.porDerrotaTorcida;
+          } else if (torcidaFora > torcidaCasa) {
+            variacaoFora += CONFIG_VALORIZACAO.porVitoriaTorcida;
+            variacaoCasa -= CONFIG_VALORIZACAO.porDerrotaTorcida;
+          }
+          
+          // Variação por pontuação
+          if (pontosCasa > pontosFora) {
+            variacaoCasa += CONFIG_VALORIZACAO.porVitoriaPontuacao;
+            variacaoFora -= CONFIG_VALORIZACAO.porDerrotaPontuacao;
+          } else if (pontosFora > pontosCasa) {
+            variacaoFora += CONFIG_VALORIZACAO.porVitoriaPontuacao;
+            variacaoCasa -= CONFIG_VALORIZACAO.porDerrotaPontuacao;
+          }
+          
+          // Limitar variação
+          variacaoCasa = Math.max(-CONFIG_VALORIZACAO.maxVariacao, Math.min(CONFIG_VALORIZACAO.maxVariacao, variacaoCasa));
+          variacaoFora = Math.max(-CONFIG_VALORIZACAO.maxVariacao, Math.min(CONFIG_VALORIZACAO.maxVariacao, variacaoFora));
+          
+          // Buscar métricas atuais
+          const metricaCasaDoc = await db.collection('bolsa_metricas_time').doc(timeCasaId).get();
+          const metricaForaDoc = await db.collection('bolsa_metricas_time').doc(timeForaId).get();
+          
+          const metricaCasa = metricaCasaDoc.exists ? metricaCasaDoc.data() : { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0, mediaDividendos: 0, totalJogos: 0 };
+          const metricaFora = metricaForaDoc.exists ? metricaForaDoc.data() : { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0, mediaDividendos: 0, totalJogos: 0 };
+          
+          // Calcular novos preços
+          const novoPrecoAlgoCasa = metricaCasa.precoAlgoritmo * (1 + variacaoCasa / 100);
+          const novoPrecoAlgoFora = metricaFora.precoAlgoritmo * (1 + variacaoFora / 100);
+          
+          // Calcular dividendos (25% do pool, proporcional aos pontos)
+          const totalPontos = pontosCasa + pontosFora;
+          const dividendoCasa = totalPontos > 0 ? totalCotistasCreditos * (pontosCasa / totalPontos) : 0;
+          const dividendoFora = totalPontos > 0 ? totalCotistasCreditos * (pontosFora / totalPontos) : 0;
+          
+          // Calcular nova média de dividendos
+          const totalJogosCasa = (metricaCasa.totalJogos || 0) + 1;
+          const totalJogosFora = (metricaFora.totalJogos || 0) + 1;
+          const novaMediaDivCasa = ((metricaCasa.mediaDividendos || 0) * (metricaCasa.totalJogos || 0) + dividendoCasa) / totalJogosCasa;
+          const novaMediaDivFora = ((metricaFora.mediaDividendos || 0) * (metricaFora.totalJogos || 0) + dividendoFora) / totalJogosFora;
+          
+          // Atualizar métricas do time Casa
+          await db.collection('bolsa_metricas_time').doc(timeCasaId).set({
+            timeId: timeCasaId,
+            timeNome: estatisticas.timeCasa.nome,
+            precoAlgoritmo: Math.round(novoPrecoAlgoCasa * 100) / 100,
+            precoMercado: Math.round(novoPrecoAlgoCasa * 100) / 100,
+            variacaoDia: Math.round((metricaCasa.variacaoDia || 0) + variacaoCasa * 100) / 100,
+            mediaDividendos: Math.round(novaMediaDivCasa * 1000) / 1000,
+            totalJogos: totalJogosCasa,
+            totalTorcedores: (metricaCasa.totalTorcedores || 0) + torcidaCasa,
+            ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+          
+          // Atualizar métricas do time Fora
+          await db.collection('bolsa_metricas_time').doc(timeForaId).set({
+            timeId: timeForaId,
+            timeNome: estatisticas.timeFora.nome,
+            precoAlgoritmo: Math.round(novoPrecoAlgoFora * 100) / 100,
+            precoMercado: Math.round(novoPrecoAlgoFora * 100) / 100,
+            variacaoDia: Math.round((metricaFora.variacaoDia || 0) + variacaoFora * 100) / 100,
+            mediaDividendos: Math.round(novaMediaDivFora * 1000) / 1000,
+            totalJogos: totalJogosFora,
+            totalTorcedores: (metricaFora.totalTorcedores || 0) + torcidaFora,
+            ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+          
+          console.log(`📈 ${estatisticas.timeCasa.nome}: ${variacaoCasa >= 0 ? '+' : ''}${variacaoCasa.toFixed(2)}% → ${novoPrecoAlgoCasa.toFixed(2)} cr | Div: ${novaMediaDivCasa.toFixed(3)} cr`);
+          console.log(`📈 ${estatisticas.timeFora.nome}: ${variacaoFora >= 0 ? '+' : ''}${variacaoFora.toFixed(2)}% → ${novoPrecoAlgoFora.toFixed(2)} cr | Div: ${novaMediaDivFora.toFixed(3)} cr`);
+          
+        } catch (bolsaError) {
+          console.error("❌ Erro ao atualizar métricas da bolsa (não impede premiação):", bolsaError);
+        }
         
         // Mostrar resultado
         mostrarResultadoPremiacao(premiacaoDetalhes);
