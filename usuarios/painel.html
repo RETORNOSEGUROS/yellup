@@ -1398,7 +1398,7 @@
   
   <!-- Utilitário de Bandeiras -->
   <script src="js/bandeiras-utils.js"></script>
-  
+
   <script>
     // ===================================
     // 🔥 CONFIGURAÇÃO FIREBASE
@@ -1423,6 +1423,32 @@
     let currentUserId = null;
     let currentUserData = null;
     let jogoAtual = null;  // Jogo sendo selecionado no modal
+
+    // ===================================
+    // 📬 NOTIFICAÇÕES (inline)
+    // ===================================
+    async function criarNotificacao(para, tipo, titulo, mensagem, acao) {
+      try {
+        await db.collection('notificacoes').add({
+          para, tipo, titulo, mensagem, lida: false,
+          acao: acao || null,
+          data: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      } catch (e) { console.error('❌ Notif:', e); }
+    }
+
+    function iniciarBadgeNotificacoes(userId) {
+      const el = document.getElementById('notifBadge');
+      if (!el) return;
+      db.collection('notificacoes')
+        .where('para', '==', userId)
+        .where('lida', '==', false)
+        .onSnapshot(snap => {
+          const n = snap.size;
+          el.textContent = n > 99 ? '99+' : n;
+          el.style.display = n > 0 ? 'inline-block' : 'none';
+        }, () => { el.style.display = 'none'; });
+    }
 
     // ===================================
     // 🎖️ SISTEMA DE NÍVEIS
@@ -1534,6 +1560,9 @@
 
         // ⚽ QUIZ DIÁRIO - Verificar se deve mostrar
         await verificarQuizDiario();
+
+        // 🔔 BADGE DE NOTIFICAÇÕES - Tempo real
+        iniciarBadgeNotificacoes(currentUserId);
 
       } catch (error) {
         console.error("❌ Erro:", error);
@@ -1981,6 +2010,9 @@
         console.log("✅ Escolha salva com sucesso!");
         showToast(`✅ Você está torcendo para ${timeEscolhidoNome}!`);
 
+        // 📬 Criar notificação de escolha de time
+        criarNotificacao(currentUserId, 'jogo', `⚽ Torcendo para ${timeEscolhidoNome}!`, 'Sua torcida foi registrada. Boa sorte!', `painel-jogo.html?jogoId=${jogoAtual.id}`);
+
         // Fechar modal
         fecharModal();
 
@@ -2205,6 +2237,11 @@
         currentUserData.xp = (currentUserData.xp || 0) + xpGanho;
 
         console.log(`✅ Quiz diário: ${acertou ? 'ACERTOU' : 'ERROU'} → +${xpGanho} XP`);
+
+        // 📬 Criar notificação do quiz diário
+        criarNotificacao(currentUserId, 'quiz',
+          acertou ? '✅ Quiz Diário - Acertou!' : '💪 Quiz Diário - Quase!',
+          `Você ${acertou ? 'acertou' : 'participou do'} quiz e ganhou +${xpGanho} XP!`, null);
       } catch (error) {
         console.error("❌ Erro ao salvar quiz diário:", error);
       }
@@ -2309,7 +2346,7 @@
       }
     });
 
-    console.log("✅ Yellup Painel v7.0 - Scroll Lateral + Instagram + Ordenação!");
+    console.log("✅ Yellup Painel v8.0 - Notificações Reais + Badge Tempo Real!");
   </script>
 
 </body>
