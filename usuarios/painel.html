@@ -631,7 +631,7 @@
     <div class="header-content">
       <div class="logo">
         <a href="painel.html">
-          <img id="siteLogo" src="https://firebasestorage.googleapis.com/v0/b/painel-yellup.firebasestorage.app/o/site%2Flogo.png?alt=media" alt="Yellup" />
+          <img id="siteLogo" src="https://firebasestorage.googleapis.com/v0/b/painel-yellup.firebasestorage.app/o/site%2Flogo.png?alt=media" alt="Yellup" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\'font-size:1.5em;font-weight:800;color:#FFD700;\'>⚽ Yellup</span>'" />
         </a>
       </div>
       <div class="user-menu">
@@ -922,7 +922,7 @@
       apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
       authDomain: "painel-yellup.firebaseapp.com",
       projectId: "painel-yellup",
-      storageBucket: "painel-yellup.appspot.com",
+      storageBucket: "painel-yellup.firebasestorage.app",
       messagingSenderId: "608347210297",
       appId: "1:608347210297:web:75092713724e617c7203e8",
       measurementId: "G-SYZ16X31KQ"
@@ -1016,21 +1016,33 @@
     // 🖼️ CARREGAR LOGO DO FIREBASE
     // ===================================
     async function carregarLogo() {
+      const logoEl = document.getElementById("siteLogo");
+      if (!logoEl) return;
+      
+      // TENTATIVA 1: Buscar direto do Storage (mais confiável)
+      try {
+        const url = await storage.ref("site/logo.png").getDownloadURL();
+        logoEl.src = url;
+        console.log("🖼️ Logo carregada do Storage");
+        return;
+      } catch (e) {
+        console.log("🖼️ Logo não encontrada no Storage, tentando Firestore...");
+      }
+      
+      // TENTATIVA 2: Buscar URL salva no Firestore (config/site)
       try {
         const configDoc = await db.collection("config").doc("site").get();
-        if (configDoc.exists) {
-          const config = configDoc.data();
-          if (config.logoUrl) {
-            const logoEl = document.getElementById("siteLogo");
-            if (logoEl) {
-              logoEl.src = config.logoUrl;
-              console.log("🖼️ Logo carregada do Firebase");
-            }
-          }
+        if (configDoc.exists && configDoc.data().logoUrl) {
+          logoEl.src = configDoc.data().logoUrl;
+          console.log("🖼️ Logo carregada do Firestore config");
+          return;
         }
       } catch (e) {
-        console.log("🖼️ Usando logo padrão (fallback)");
+        console.log("🖼️ Erro ao buscar config:", e);
       }
+      
+      // TENTATIVA 3: Fallback - mantém o src padrão do HTML
+      console.log("🖼️ Usando logo padrão (fallback)");
     }
     
     // Carregar logo assim que possível
