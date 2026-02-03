@@ -1013,6 +1013,7 @@
     firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
     const db = firebase.firestore();
+    const functions = firebase.functions(); // ✅ NOVO: Para transações seguras da Bolsa
 
     // ==================== CONSTANTES ====================
     const DONO_INICIAL_ID = 'GfpBgfT9e8g5GaTQruvX6YcwtE23';
@@ -1716,95 +1717,64 @@
           return showToast('❌ Créditos insuficientes');
         }
 
-        const batch = db.batch();
-
-        // 1. Debitar comprador
-        batch.update(db.collection('usuarios').doc(currentUser.uid), {
-          creditos: firebase.firestore.FieldValue.increment(-valorTotalCompra)
-        });
-
-        // 2. Para cada ordem, processar a compra
-        for (const compra of comprasPorOrdem) {
-          // Creditar vendedor
-          batch.update(db.collection('usuarios').doc(compra.ordem.userId), {
-            creditos: firebase.firestore.FieldValue.increment(compra.valor)
-          });
-
-          // Atualizar ordem
-          const novaQtdOrdem = compra.ordem.quantidadeRestante - compra.qtd;
-          batch.update(db.collection('bolsa_ordens').doc(compra.ordem.id), {
-            quantidadeRestante: novaQtdOrdem,
-            status: novaQtdOrdem <= 0 ? 'concluida' : 'parcial',
-            dataAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
-          });
-
-          // Registrar transação
-          batch.set(db.collection('bolsa_transacoes').doc(), {
-            timeId: modalTimeAtual.id,
-            timeNome: modalTimeAtual.nome,
-            vendedorId: compra.ordem.userId,
-            vendedorNome: compra.ordem.usuarioNome,
-            compradorId: currentUser.uid,
-            compradorNome: currentUserData.usuarioUnico || currentUserData.nome,
-            quantidade: compra.qtd,
-            precoUnitario: compra.ordem.precoUnitario,
-            valorTotal: compra.valor,
-            dataTransacao: firebase.firestore.FieldValue.serverTimestamp()
-          });
+        // =====================================================
+        // ✅ VERSÃO SEGURA: Usa Cloud Function
+        // O SISTEMA faz a transferência, não o usuário
+        // =====================================================
+        
+        // Desabilitar botão enquanto processa
+        const btnComprar = document.querySelector('#modalComprar .btn-confirm');
+        const btnTextoOriginal = btnComprar ? btnComprar.innerHTML : '';
+        if (btnComprar) {
+          btnComprar.disabled = true;
+          btnComprar.innerHTML = '⏳ Processando...';
         }
-
-        // 3. Atualizar/criar cotas do comprador
-        const precoMedioCompra = valorTotalCompra / qtdDesejada;
-        const cotaComprador = await db.collection('bolsa_cotas')
-          .where('timeId', '==', modalTimeAtual.id)
-          .where('userId', '==', currentUser.uid)
-          .get();
-
-        if (cotaComprador.empty) {
-          batch.set(db.collection('bolsa_cotas').doc(), {
-            timeId: modalTimeAtual.id,
-            timeNome: modalTimeAtual.nome,
-            userId: currentUser.uid,
-            usuarioNome: currentUserData.usuarioUnico || currentUserData.nome,
-            quantidade: qtdDesejada,
-            precoMedioAquisicao: precoMedioCompra,
-            dataAquisicao: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        } else {
-          const cotaDoc = cotaComprador.docs[0];
-          const cotaAtual = cotaDoc.data();
-          const novaQtd = cotaAtual.quantidade + qtdDesejada;
-          const novoPreco = ((cotaAtual.quantidade * cotaAtual.precoMedioAquisicao) + valorTotalCompra) / novaQtd;
-          batch.update(cotaDoc.ref, { quantidade: novaQtd, precoMedioAquisicao: novoPreco });
-        }
-
-        // 4. Atualizar cotas dos vendedores
-        for (const compra of comprasPorOrdem) {
-          const cotaVendedor = await db.collection('bolsa_cotas')
-            .where('timeId', '==', modalTimeAtual.id)
-            .where('userId', '==', compra.ordem.userId)
-            .get();
-
-          if (!cotaVendedor.empty) {
-            const cotaVDoc = cotaVendedor.docs[0];
-            const novaQtdV = cotaVDoc.data().quantidade - compra.qtd;
-            if (novaQtdV <= 0) {
-              batch.delete(cotaVDoc.ref);
-            } else {
-              batch.update(cotaVDoc.ref, { quantidade: novaQtdV });
-            }
+        
+        try {
+          // Executar compra de cada ordem via Cloud Function
+          for (const compra of comprasPorOrdem) {
+            const executarCompra = functions.httpsCallable('executarCompraBolsa');
+            
+            const resultado = await executarCompra({
+              ordemId: compra.ordem.id,
+              quantidade: compra.qtd
+            });
+            
+            console.log('✅ Compra executada:', resultado.data);
+          }
+          
+          // Sucesso!
+          const msgOrdens = comprasPorOrdem.length > 1 ? ` (de ${comprasPorOrdem.length} vendedores)` : '';
+          showToast(`✅ Compra realizada! ${qtdDesejada} cotas por ${valorTotalCompra.toFixed(2)} cr${msgOrdens}`);
+          fecharModal('modalComprar');
+          await carregarDadosUsuario();
+          await carregarMinhasCotas();
+          await carregarOrdensAbertas();
+          renderizarTabelaMercado();
+          
+        } catch (funcError) {
+          console.error('Erro na Cloud Function:', funcError);
+          
+          let mensagem = 'Erro ao processar compra. Tente novamente.';
+          
+          if (funcError.code === 'resource-exhausted' || funcError.message?.includes('Créditos')) {
+            mensagem = funcError.message || 'Créditos insuficientes!';
+          } else if (funcError.code === 'failed-precondition') {
+            mensagem = funcError.message || 'Ordem não disponível';
+          } else if (funcError.code === 'not-found') {
+            mensagem = 'Ordem não encontrada';
+          } else if (funcError.code === 'unauthenticated') {
+            mensagem = 'Faça login novamente';
+          }
+          
+          showToast('❌ ' + mensagem);
+        } finally {
+          // Reabilitar botão
+          if (btnComprar) {
+            btnComprar.disabled = false;
+            btnComprar.innerHTML = btnTextoOriginal || '💰 Confirmar Compra';
           }
         }
-
-        await batch.commit();
-
-        const msgOrdens = comprasPorOrdem.length > 1 ? ` (de ${comprasPorOrdem.length} vendedores)` : '';
-        showToast(`✅ Compra realizada! ${qtdDesejada} cotas por ${valorTotalCompra.toFixed(2)} cr${msgOrdens}`);
-        fecharModal('modalComprar');
-        await carregarDadosUsuario();
-        await carregarMinhasCotas();
-        await carregarOrdensAbertas();
-        renderizarTabelaMercado();
 
       } catch (error) {
         console.error(error);
