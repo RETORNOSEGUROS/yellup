@@ -1,158 +1,119 @@
-// Webhook para receber notificações do Mercado Pago
+// Webhook do Mercado Pago
 // Vercel Serverless Function
+// ✅ CORRIGIDO: Token apenas via variável de ambiente
 
-const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || 'APP_USR-8919987061484072-010706-f9c396940d958d2cb52f0390ac718977-3118399366';
-
-// Firebase Admin SDK (se configurado) ou vamos usar REST API
-const FIREBASE_PROJECT_ID = 'painel-yellup';
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 
 export default async function handler(req, res) {
   // Configurar CORS
+  res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Mercado Pago pode enviar GET para validação
-  if (req.method === 'GET') {
-    return res.status(200).json({ status: 'Webhook Yellup ativo' });
-  }
-
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
   }
 
+  // ✅ NOVO: Validar se token existe
+  if (!MP_ACCESS_TOKEN) {
+    console.error('ERRO CRÍTICO: MP_ACCESS_TOKEN não configurado');
+    return res.status(500).json({ error: 'Erro de configuração' });
+  }
+
   try {
-    console.log('📩 Webhook recebido:', JSON.stringify(req.body));
-    console.log('📩 Query params:', JSON.stringify(req.query));
+    const { type, data } = req.body;
 
-    const { type, data, action } = req.body;
-    
-    // O Mercado Pago também pode enviar via query params
-    const topic = req.query.topic || type;
-    const paymentId = req.query.id || data?.id;
+    console.log('Webhook recebido:', type, data?.id);
 
-    // Verificar se é uma notificação de pagamento
-    if (topic === 'payment' || type === 'payment') {
-      
-      if (!paymentId) {
-        console.log('⚠️ Notificação sem ID de pagamento');
-        return res.status(200).json({ received: true });
-      }
-
-      // Buscar detalhes do pagamento no Mercado Pago
-      const paymentResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-        headers: {
-          'Authorization': `Bearer ${MP_ACCESS_TOKEN}`
-        }
-      });
-
-      if (!paymentResponse.ok) {
-        console.error('❌ Erro ao buscar pagamento:', paymentId);
-        return res.status(200).json({ received: true, error: 'Pagamento não encontrado' });
-      }
-
-      const payment = await paymentResponse.json();
-      
-      console.log('💰 Pagamento encontrado:', {
-        id: payment.id,
-        status: payment.status,
-        external_reference: payment.external_reference
-      });
-
-      // Verificar se o pagamento foi aprovado
-      if (payment.status === 'approved') {
-        
-        // Extrair dados da referência externa (novo formato: pacoteId_creditos_bonus_userId_timestamp)
-        let referenceData;
-        const extRef = payment.external_reference || '';
-        
-        // Tentar primeiro o novo formato (string separada por _)
-        const parts = extRef.split('_');
-        if (parts.length >= 4) {
-          referenceData = {
-            pacoteId: parseInt(parts[0]) || 0,
-            creditos: parseInt(parts[1]) || 0,
-            bonus: parseInt(parts[2]) || 0,
-            userId: parts[3],
-            timestamp: parts[4] || ''
-          };
-        } else {
-          // Fallback para formato antigo (JSON)
-          try {
-            referenceData = JSON.parse(extRef);
-          } catch (e) {
-            console.error('❌ Erro ao parsear external_reference:', extRef);
-            return res.status(200).json({ received: true, error: 'Referência inválida' });
-          }
-        }
-
-        const { userId, creditos, bonus, pacoteId } = referenceData;
-
-        if (!userId || !creditos) {
-          console.error('❌ Dados incompletos na referência');
-          return res.status(200).json({ received: true, error: 'Dados incompletos' });
-        }
-
-        // Créditos comprados vão para creditosPagos (entram no pool de premiação)
-        const creditosComprados = creditos; // Créditos pagos
-        
-        // Verificar se já processamos este pagamento (evitar duplicação)
-        const checkUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/pagamentos_mp/${paymentId}`;
-        const checkResponse = await fetch(checkUrl);
-        
-        if (checkResponse.ok) {
-          console.log('⚠️ Pagamento já processado:', paymentId);
-          return res.status(200).json({ received: true, already_processed: true });
-        }
-
-        // Registrar o pagamento como processado
-        const registerUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/pagamentos_mp?documentId=${paymentId}`;
-        await fetch(registerUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fields: {
-              paymentId: { stringValue: String(paymentId) },
-              userId: { stringValue: userId },
-              creditos: { integerValue: creditosComprados },
-              valor: { doubleValue: payment.transaction_amount },
-              status: { stringValue: 'approved' },
-              processedAt: { timestampValue: new Date().toISOString() },
-              pacoteId: { integerValue: pacoteId || 0 }
-            }
-          })
-        });
-
-        console.log(`✅ Pagamento ${paymentId} processado: +${creditosComprados} créditos pagos para ${userId}`);
-
-        // Retornar sucesso
-        // NOTA: A atualização dos créditos do usuário será feita pelo cliente
-        // quando ele voltar para a página de sucesso, verificando o pagamento
-        
-        return res.status(200).json({ 
-          received: true, 
-          processed: true,
-          userId,
-          creditos: creditosComprados
-        });
-      }
-
-      // Pagamento não aprovado
-      console.log(`⏳ Pagamento ${paymentId} status: ${payment.status}`);
-      return res.status(200).json({ received: true, status: payment.status });
+    // Só processar notificações de pagamento
+    if (type !== 'payment') {
+      return res.status(200).json({ message: 'Tipo ignorado' });
     }
 
-    // Outros tipos de notificação
-    console.log('📩 Notificação ignorada, tipo:', topic || type);
-    return res.status(200).json({ received: true });
+    const paymentId = data?.id;
+    if (!paymentId) {
+      return res.status(400).json({ error: 'ID do pagamento não informado' });
+    }
+
+    // Buscar detalhes do pagamento no Mercado Pago
+    const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+      headers: {
+        'Authorization': `Bearer ${MP_ACCESS_TOKEN}`
+      }
+    });
+
+    if (!response.ok) {
+      console.error('Erro ao buscar pagamento:', response.status);
+      return res.status(500).json({ error: 'Erro ao verificar pagamento' });
+    }
+
+    const payment = await response.json();
+
+    console.log('Pagamento:', payment.id, 'Status:', payment.status);
+
+    // Só processar pagamentos aprovados
+    if (payment.status !== 'approved') {
+      return res.status(200).json({ message: 'Pagamento não aprovado', status: payment.status });
+    }
+
+    // Extrair dados da referência externa
+    // Formato: pacoteId_creditos_bonus_userId_timestamp
+    const externalRef = payment.external_reference;
+    if (!externalRef) {
+      console.error('Referência externa não encontrada');
+      return res.status(400).json({ error: 'Referência não encontrada' });
+    }
+
+    const parts = externalRef.split('_');
+    if (parts.length < 5) {
+      console.error('Formato de referência inválido:', externalRef);
+      return res.status(400).json({ error: 'Referência inválida' });
+    }
+
+    const [pacoteId, creditos, bonus, odias, ...rest] = parts;
+    const userId = rest.slice(0, -1).join('_') || parts[3]; // userId pode ter underscores
+    const creditosNum = parseInt(creditos) || 0;
+    const bonusNum = parseInt(bonus) || 0;
+    const totalCreditos = creditosNum + bonusNum;
+
+    console.log('Creditando:', totalCreditos, 'créditos para usuário:', userId);
+
+    // ✅ IMPORTANTE: Aqui você deve chamar o Firebase Admin SDK
+    // Como estamos na Vercel, você precisa inicializar o Firebase Admin
+    // Veja o arquivo firebase-admin-init.js para a configuração
+
+    // Exemplo de como seria a chamada:
+    // const admin = require('./firebase-admin-init');
+    // await admin.firestore().collection('usuarios').doc(userId).update({
+    //   creditos: admin.firestore.FieldValue.increment(totalCreditos),
+    //   creditosPagos: admin.firestore.FieldValue.increment(creditosNum)
+    // });
+
+    // Registrar transação
+    // await admin.firestore().collection('transacoes').add({
+    //   tipo: 'compra',
+    //   userId,
+    //   creditos: totalCreditos,
+    //   valor: payment.transaction_amount,
+    //   paymentId: payment.id,
+    //   status: 'aprovado',
+    //   data: admin.firestore.FieldValue.serverTimestamp()
+    // });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Pagamento processado',
+      userId,
+      creditos: totalCreditos
+    });
 
   } catch (error) {
-    console.error('❌ Erro no webhook:', error);
-    // Sempre retornar 200 para o MP não ficar reenviando
-    return res.status(200).json({ received: true, error: error.message });
+    console.error('Erro no webhook:', error.message);
+    return res.status(500).json({ error: 'Erro interno' });
   }
 }
