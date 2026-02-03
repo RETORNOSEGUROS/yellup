@@ -1,7 +1,8 @@
 // API para criar pagamento no Mercado Pago
 // Vercel Serverless Function
+// ✅ CORRIGIDO: Token apenas via variável de ambiente
 
-const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || 'APP_USR-8919987061484072-010706-f9c396940d958d2cb52f0390ac718977-3118399366';
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 
 export default async function handler(req, res) {
   // Configurar CORS
@@ -18,11 +19,30 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Método não permitido' });
   }
 
+  // ✅ NOVO: Validar se token existe
+  if (!MP_ACCESS_TOKEN) {
+    console.error('ERRO CRÍTICO: MP_ACCESS_TOKEN não configurado nas variáveis de ambiente');
+    return res.status(500).json({ error: 'Erro de configuração do servidor' });
+  }
+
   try {
     const { pacoteId, creditos, bonus, preco, userId, userEmail, userName } = req.body;
 
-    if (!pacoteId || !preco || !userId) {
+    // ✅ MELHORADO: Validação mais rigorosa
+    if (!pacoteId || !preco || !userId || !creditos) {
       return res.status(400).json({ error: 'Dados incompletos' });
+    }
+
+    // ✅ NOVO: Validar valores
+    const precoNum = parseFloat(preco);
+    const creditosNum = parseInt(creditos);
+    
+    if (isNaN(precoNum) || precoNum <= 0 || precoNum > 10000) {
+      return res.status(400).json({ error: 'Valor de preço inválido' });
+    }
+    
+    if (isNaN(creditosNum) || creditosNum <= 0 || creditosNum > 100000) {
+      return res.status(400).json({ error: 'Quantidade de créditos inválida' });
     }
 
     // External reference simples (máx 256 caracteres)
@@ -37,16 +57,14 @@ export default async function handler(req, res) {
           description: `Pacote de ${creditos} créditos para jogar no Yellup`,
           quantity: 1,
           currency_id: 'BRL',
-          unit_price: parseFloat(preco)
+          unit_price: precoNum
         }
       ],
       payer: {
         email: userEmail || 'cliente@yellup.com',
         name: userName || 'Cliente Yellup'
       },
-      // Referência externa simplificada
       external_reference: externalRef,
-      // Habilitar TODOS os métodos de pagamento
       payment_methods: {
         excluded_payment_methods: [],
         excluded_payment_types: [],
@@ -60,13 +78,12 @@ export default async function handler(req, res) {
       auto_return: 'approved',
       notification_url: 'https://yellup.vercel.app/api/webhook-mp',
       statement_descriptor: 'YELLUP',
-      // Expiração de 30 minutos
       expires: true,
       expiration_date_from: new Date().toISOString(),
       expiration_date_to: new Date(Date.now() + 30 * 60 * 1000).toISOString()
     };
 
-    console.log('Criando preferência:', JSON.stringify(preference, null, 2));
+    console.log('Criando preferência para userId:', userId);
 
     const response = await fetch('https://api.mercadopago.com/checkout/preferences', {
       method: 'POST',
@@ -81,7 +98,7 @@ export default async function handler(req, res) {
 
     if (!response.ok) {
       console.error('Erro MP:', data);
-      return res.status(500).json({ error: 'Erro ao criar pagamento', details: data });
+      return res.status(500).json({ error: 'Erro ao criar pagamento' });
     }
 
     console.log('Preferência criada:', data.id);
@@ -94,7 +111,7 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('Erro:', error);
-    return res.status(500).json({ error: 'Erro interno do servidor', message: error.message });
+    console.error('Erro:', error.message);
+    return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 }
