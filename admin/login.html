@@ -26,10 +26,7 @@
       text-align: center;
     }
     
-    .logo {
-      font-size: 2.5em;
-      margin-bottom: 10px;
-    }
+    .logo { font-size: 2.5em; margin-bottom: 10px; }
     
     h2 {
       color: #1a1a2e;
@@ -97,22 +94,54 @@
       min-height: 20px;
     }
     
-    .loading {
-      display: none;
+    #loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      z-index: 9999;
+    }
+    
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(255, 215, 0, 0.3);
+      border-top-color: #FFD700;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .loading-text {
+      color: #fff;
       margin-top: 15px;
-      color: #666;
+      font-size: 14px;
     }
   </style>
 </head>
 <body>
-  <form class="login-box" onsubmit="loginAdmin(event)">
+  <!-- Loading enquanto verifica autenticação -->
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-text">Verificando sessão...</div>
+  </div>
+
+  <form class="login-box" id="loginForm" style="display: none;" onsubmit="loginAdmin(event)">
     <div class="logo">⚽</div>
     <h2>Yellup <span>Admin</span></h2>
     <input type="email" id="email" placeholder="E-mail" required autocomplete="email">
     <input type="password" id="senha" placeholder="Senha" required autocomplete="current-password">
     <button type="submit" id="btnLogin">🔐 Entrar</button>
     <p id="erro"></p>
-    <p class="loading" id="loading">⏳ Verificando...</p>
   </form>
 
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
@@ -132,51 +161,60 @@
     firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
 
+    // IMPORTANTE: Definir persistência como LOCAL (sobrevive a refresh)
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
     // Lista de emails autorizados como admin
     const adminsAutorizados = [
       'admin@yellup.com',
       'patrick@yellup.com',
       'pamela@yellup.com'
-      // Adicione mais emails aqui se precisar
     ];
 
     // Verificar se já está logado
     auth.onAuthStateChanged(user => {
+      const loadingOverlay = document.getElementById('loading-overlay');
+      const loginForm = document.getElementById('loginForm');
+      
       if (user && adminsAutorizados.includes(user.email)) {
-        window.location.href = 'dashboard.html';
+        // Usuário logado e autorizado - redirecionar
+        window.location.replace('dashboard.html');
+      } else {
+        // Não logado ou não autorizado - mostrar formulário
+        loadingOverlay.style.display = 'none';
+        loginForm.style.display = 'block';
+        
+        if (user && !adminsAutorizados.includes(user.email)) {
+          // Logado mas não é admin - fazer logout
+          auth.signOut();
+        }
       }
     });
 
     function loginAdmin(e) {
       e.preventDefault();
       
-      const email = document.getElementById('email').value.trim();
+      const email = document.getElementById('email').value.trim().toLowerCase();
       const senha = document.getElementById('senha').value;
       const btnLogin = document.getElementById('btnLogin');
       const erro = document.getElementById('erro');
-      const loading = document.getElementById('loading');
 
-      // Limpar erro anterior
       erro.textContent = '';
-      
-      // Mostrar loading
       btnLogin.disabled = true;
       btnLogin.textContent = '⏳ Entrando...';
-      loading.style.display = 'block';
+
+      // Verificar se é admin antes de tentar logar
+      if (!adminsAutorizados.includes(email)) {
+        erro.textContent = '❌ Este email não tem acesso ao painel admin.';
+        btnLogin.disabled = false;
+        btnLogin.textContent = '🔐 Entrar';
+        return;
+      }
 
       auth.signInWithEmailAndPassword(email, senha)
         .then((userCredential) => {
-          // Verificar se é admin autorizado
-          if (adminsAutorizados.includes(userCredential.user.email)) {
-            window.location.href = 'dashboard.html';
-          } else {
-            // Não é admin - fazer logout
-            auth.signOut();
-            erro.textContent = '❌ Acesso não autorizado para este email.';
-            btnLogin.disabled = false;
-            btnLogin.textContent = '🔐 Entrar';
-            loading.style.display = 'none';
-          }
+          // Sucesso - o onAuthStateChanged vai redirecionar
+          btnLogin.textContent = '✅ Redirecionando...';
         })
         .catch((error) => {
           console.error('Erro login:', error);
@@ -205,7 +243,6 @@
           erro.textContent = mensagem;
           btnLogin.disabled = false;
           btnLogin.textContent = '🔐 Entrar';
-          loading.style.display = 'none';
         });
     }
   </script>
