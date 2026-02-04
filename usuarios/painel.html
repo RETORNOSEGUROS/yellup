@@ -2870,13 +2870,36 @@
           }
         }
 
+        // ✅ BUSCAR PONTOS DA SUBCOLEÇÃO SE NÃO EXISTIR NO DOCUMENTO
+        let pontosCasa = jogo.pontosCasa || 0;
+        let pontosFora = jogo.pontosFora || 0;
+        
+        if (pontosCasa === 0 && pontosFora === 0) {
+          try {
+            const partSnap = await db.collection('jogos').doc(jogo.id).collection('participantes').get();
+            partSnap.forEach(doc => {
+              const p = doc.data();
+              const pts = p.pontos || 0;
+              if (p.ladoEscolhido === 'A' || p.timeTorcidoId === jogo.timeCasaId) {
+                pontosCasa += pts;
+              } else if (p.ladoEscolhido === 'B' || p.timeTorcidoId === jogo.timeForaId) {
+                pontosFora += pts;
+              }
+            });
+          } catch (e) {
+            console.log('Não foi possível buscar pontos:', jogo.id);
+          }
+        }
+
         return {
           ...jogo,
           timeCasaData,
           timeForaData,
           torcidaEscolhida,
           nomeTimeTorcido,
-          corTimeTorcido
+          corTimeTorcido,
+          pontosCasa,
+          pontosFora
         };
       }));
 
@@ -2895,28 +2918,9 @@
         const percCasa = Math.round((torcidaCasa / totalTorcida) * 100);
         const percFora = 100 - percCasa;
 
-        // Pontos dos times - buscar do documento ou calcular se não existir
-        let pontosCasa = jogo.pontosCasa || 0;
-        let pontosFora = jogo.pontosFora || 0;
-        
-        // Se não tem pontos salvos mas tem participantes, calcular
-        if (pontosCasa === 0 && pontosFora === 0 && (torcidaCasa > 0 || torcidaFora > 0)) {
-          // Buscar pontos da subcoleção participantes (assíncrono)
-          try {
-            const partSnap = await db.collection('jogos').doc(jogo.id).collection('participantes').get();
-            partSnap.forEach(doc => {
-              const p = doc.data();
-              const pts = p.pontos || 0;
-              if (p.ladoEscolhido === 'A' || p.timeTorcidoId === jogo.timeCasaId) {
-                pontosCasa += pts;
-              } else if (p.ladoEscolhido === 'B' || p.timeTorcidoId === jogo.timeForaId) {
-                pontosFora += pts;
-              }
-            });
-          } catch (e) {
-            console.log('Não foi possível buscar pontos dos participantes:', e);
-          }
-        }
+        // Pontos dos times - já buscados no Promise.all acima
+        const pontosCasa = jogo.pontosCasa || 0;
+        const pontosFora = jogo.pontosFora || 0;
         
         const totalPontos = pontosCasa + pontosFora || 1;
         const percPontosCasa = Math.round((pontosCasa / totalPontos) * 100);
