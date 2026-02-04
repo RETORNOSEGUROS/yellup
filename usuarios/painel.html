@@ -2912,13 +2912,16 @@
         // ✅ VERIFICAR SE USUÁRIO JÁ ESCOLHEU TIME (do documento do usuário)
         const torcidaEscolhida = currentUserData.torcidas?.[jogo.id];
         let nomeTimeTorcido = null;
+        let corTimeTorcido = null;
 
         if (torcidaEscolhida) {
           // Encontrar qual time foi escolhido
           if (torcidaEscolhida === jogo.timeCasaId) {
             nomeTimeTorcido = timeCasaData.nome;
+            corTimeTorcido = timeCasaData.primaria;
           } else if (torcidaEscolhida === jogo.timeForaId) {
             nomeTimeTorcido = timeForaData.nome;
+            corTimeTorcido = timeForaData.primaria;
           }
         }
 
@@ -2927,14 +2930,16 @@
           timeCasaData,
           timeForaData,
           torcidaEscolhida,
-          nomeTimeTorcido
+          nomeTimeTorcido,
+          corTimeTorcido
         };
       }));
 
-      // Gerar HTML
+      // Gerar HTML com layout MODERNO
       container.innerHTML = jogosProcessados.map(jogo => {
-        const statusClass = jogo.statusCalc === 'LIVE' ? 'status-live' : 
-                           jogo.statusCalc === 'AGENDADO' ? 'status-scheduled' : 'status-finished';
+        const isLive = jogo.statusCalc === 'LIVE';
+        const isScheduled = jogo.statusCalc === 'AGENDADO';
+        const isFinished = jogo.statusCalc === 'ENCERRADO';
         
         const dataInicio = jogo.dataInicio?.toDate ? jogo.dataInicio.toDate() : new Date(jogo.dataInicio);
 
@@ -2945,96 +2950,133 @@
         const percCasa = Math.round((torcidaCasa / totalTorcida) * 100);
         const percFora = 100 - percCasa;
 
-        // Badge se já escolheu time
-        let teamBadge = '';
+        // Quem está ganhando na torcida
+        const casaWinning = percCasa > percFora;
+        const foraWinning = percFora > percCasa;
+
+        // Status badge
+        let statusBadge = '';
+        if (isLive) {
+          statusBadge = `<span class="game-status status-live">AO VIVO</span>`;
+        } else if (isScheduled) {
+          statusBadge = `<span class="game-status status-scheduled">${dataInicio.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</span>`;
+        } else {
+          statusBadge = `<span class="game-status status-finished">ENCERRADO</span>`;
+        }
+
+        // Placar ou horário
+        let scoreOrTime = '';
+        if (isLive || isFinished) {
+          const placarCasa = jogo.placarCasa ?? 0;
+          const placarFora = jogo.placarFora ?? 0;
+          scoreOrTime = `
+            <div class="game-score">${placarCasa} - ${placarFora}</div>
+            ${isLive ? `<div class="game-time-info live">${jogo.minuto || ''}'</div>` : ''}
+          `;
+        } else {
+          scoreOrTime = `
+            <div class="game-vs">VS</div>
+            <div class="game-time-info">${dataInicio.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+          `;
+        }
+
+        // Badge de time escolhido
+        let userCheeredBadge = '';
         if (jogo.nomeTimeTorcido) {
-          teamBadge = `<div class="team-badge">✅ Torcendo: ${jogo.nomeTimeTorcido}</div>`;
+          userCheeredBadge = `
+            <div class="user-cheered">
+              <span>✅</span>
+              <span>Torcendo: ${jogo.nomeTimeTorcido}</span>
+            </div>
+          `;
         }
 
         // Botão de ação
         let actionButton = '';
         if (jogo.torcidaEscolhida) {
-          // Já escolheu - pode entrar
-          actionButton = `
-            <button class="btn-action btn-primary" onclick="entrarNoJogo('${jogo.id}')">
-              ${jogo.statusCalc === 'LIVE' ? '🔴 Jogar Agora' : '📊 Ver Jogo'}
-            </button>
-          `;
-        } else if (jogo.statusCalc !== 'ENCERRADO') {
-          // Ainda não escolheu - mostra botão para escolher
-          actionButton = `
-            <button class="btn-action btn-secondary" onclick="abrirModalEscolha('${jogo.id}')">
-              ⚽ Escolher Time
-            </button>
-          `;
+          const btnClass = isLive ? 'btn-game live' : 'btn-game primary';
+          const btnText = isLive ? '🔴 Jogar Agora' : (isFinished ? '📊 Ver Resultado' : '🎮 Entrar');
+          actionButton = `<button class="${btnClass}" onclick="entrarNoJogo('${jogo.id}')">${btnText}</button>`;
+        } else if (!isFinished) {
+          actionButton = `<button class="btn-game secondary" onclick="abrirModalEscolha('${jogo.id}')">⚽ Escolher Time</button>`;
         } else {
-          // Jogo encerrado e não participou
-          actionButton = `
-            <button class="btn-action" style="background: #555; cursor: not-allowed;" disabled>
-              Não participou
-            </button>
-          `;
+          actionButton = `<button class="btn-game secondary" disabled style="opacity: 0.5;">Não participou</button>`;
         }
 
-        // Gerar mini camisetas
+        // Gerar camisetas SVG
         const jerseyCasa = gerarCamisetaSVG(
           jogo.timeCasaData.primaria, 
           jogo.timeCasaData.secundaria, 
           jogo.timeCasaData.terciaria
-        ).replace('viewBox="0 0 100 120"', 'viewBox="0 0 100 120" class="jersey-mini"');
+        ).replace('viewBox="0 0 100 120"', 'viewBox="0 0 100 120" class="game-team-jersey"');
 
         const jerseyFora = gerarCamisetaSVG(
           jogo.timeForaData.primaria, 
           jogo.timeForaData.secundaria, 
           jogo.timeForaData.terciaria
-        ).replace('viewBox="0 0 100 120"', 'viewBox="0 0 100 120" class="jersey-mini"');
+        ).replace('viewBox="0 0 100 120"', 'viewBox="0 0 100 120" class="game-team-jersey"');
+
+        // Classes extras do card
+        const cardClasses = ['game-card'];
+        if (isLive) cardClasses.push('is-live');
+        if (currentUserData.timeId && (jogo.timeCasaId === currentUserData.timeId || jogo.timeForaId === currentUserData.timeId)) {
+          cardClasses.push('my-team-playing');
+        }
 
         return `
-          <div class="game-card">
-            <div class="game-header">
-              <div class="game-teams">
-                <div class="team-name">
+          <div class="${cardClasses.join(' ')}">
+            <!-- Header com competição e status -->
+            <div class="game-card-header">
+              <div class="game-league">
+                <span>${jogo.competicao || 'Partida'}</span>
+              </div>
+              ${statusBadge}
+            </div>
+
+            <!-- Corpo: Times e Placar -->
+            <div class="game-card-body">
+              <div class="game-matchup">
+                <!-- Time Casa -->
+                <div class="game-team ${jogo.placarCasa > jogo.placarFora ? 'winner' : ''}">
                   ${jerseyCasa}
-                  ${jogo.timeCasaData.nome}
+                  <span class="game-team-name">${jogo.timeCasaData.nome}</span>
                 </div>
-                <div class="vs">vs</div>
-                <div class="team-name">
+
+                <!-- Placar / VS -->
+                <div class="game-score-box">
+                  ${scoreOrTime}
+                </div>
+
+                <!-- Time Fora -->
+                <div class="game-team ${jogo.placarFora > jogo.placarCasa ? 'winner' : ''}">
                   ${jerseyFora}
-                  ${jogo.timeForaData.nome}
+                  <span class="game-team-name">${jogo.timeForaData.nome}</span>
                 </div>
               </div>
-              <div class="game-status ${statusClass}">${jogo.statusCalc}</div>
             </div>
 
-            <div class="game-info">
-              <div class="info-item">
-                <div class="info-label">📅 Data</div>
-                <div class="info-value">${dataInicio.toLocaleDateString('pt-BR')}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">⏰ Hora</div>
-                <div class="info-value">${dataInicio.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">💰 Entrada</div>
-                <div class="info-value">${jogo.valorEntrada || 0} créd</div>
-              </div>
-            </div>
-
-            ${teamBadge}
-
-            <div class="torcida">
-              <div class="torcida-header">
-                <span>${torcidaCasa} (${percCasa}%)</span>
-                <span>${torcidaFora} (${percFora}%)</span>
-              </div>
-              <div class="torcida-bar">
-                <div class="torcida-fill-a" style="width: ${percCasa}%; background: ${jogo.timeCasaData?.primaria || '#2ecc71'} !important;"></div>
-                <div class="torcida-fill-b" style="width: ${percFora}%; background: ${jogo.timeForaData?.primaria || '#e74c3c'} !important;"></div>
+            <!-- Barra de Torcida Visual -->
+            <div class="torcida-section">
+              <div class="torcida-label">Torcida na plataforma</div>
+              <div class="torcida-visual">
+                <div class="torcida-side left">
+                  <span class="torcida-percent" style="color: ${jogo.timeCasaData.primaria}">${percCasa}%</span>
+                </div>
+                <div class="torcida-bar-container">
+                  <div class="torcida-bar-fill left ${casaWinning ? 'winning' : ''}" style="width: ${percCasa}%; background: ${jogo.timeCasaData.primaria}; color: ${jogo.timeCasaData.primaria};"></div>
+                  <div class="torcida-bar-fill right ${foraWinning ? 'winning' : ''}" style="width: ${percFora}%; background: ${jogo.timeForaData.primaria}; color: ${jogo.timeForaData.primaria};"></div>
+                </div>
+                <div class="torcida-side right">
+                  <span class="torcida-percent" style="color: ${jogo.timeForaData.primaria}">${percFora}%</span>
+                </div>
               </div>
             </div>
 
-            <div class="game-actions">
+            <!-- Badge de torcida escolhida -->
+            ${userCheeredBadge}
+
+            <!-- Botão de Ação -->
+            <div class="game-card-action">
               ${actionButton}
             </div>
           </div>
