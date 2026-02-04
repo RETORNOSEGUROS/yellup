@@ -3663,7 +3663,7 @@
     // FIM GAMIFICAÇÃO VISÍVEL
 
     // ===================================
-    // AUTO-REFRESH DOS JOGOS
+    // AUTO-REFRESH DOS JOGOS (silencioso)
     // ===================================
     let autoRefreshInterval = null;
     const AUTO_REFRESH_SECONDS = 30; // Atualiza a cada 30 segundos
@@ -3674,89 +3674,18 @@
         clearInterval(autoRefreshInterval);
       }
 
-      // Criar indicador de última atualização
-      const indicator = document.createElement('div');
-      indicator.id = 'refreshIndicator';
-      indicator.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: rgba(14, 20, 27, 0.9);
-        border: 1px solid rgba(255, 159, 67, 0.3);
-        border-radius: 12px;
-        padding: 8px 14px;
-        font-size: 0.7em;
-        color: var(--text-secondary);
-        z-index: 1000;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-      `;
-      indicator.innerHTML = `
-        <span id="refreshIcon" style="font-size: 1.2em;">🔄</span>
-        <span id="refreshText">Atualizado agora</span>
-      `;
-      indicator.onclick = () => atualizarDadosManual();
-      document.body.appendChild(indicator);
-
-      // Iniciar intervalo
+      // Iniciar intervalo silencioso
       autoRefreshInterval = setInterval(async () => {
-        await atualizarDadosSilencioso();
+        try {
+          await carregarJogos();
+          console.log('🔄 Jogos atualizados automaticamente');
+        } catch (error) {
+          console.error('Erro no auto-refresh:', error);
+        }
       }, AUTO_REFRESH_SECONDS * 1000);
 
       console.log(`🔄 Auto-refresh iniciado (${AUTO_REFRESH_SECONDS}s)`);
     }
-
-    async function atualizarDadosSilencioso() {
-      try {
-        const icon = document.getElementById('refreshIcon');
-        const text = document.getElementById('refreshText');
-        
-        if (icon) icon.style.animation = 'spin 1s linear infinite';
-        if (text) text.textContent = 'Atualizando...';
-
-        await carregarJogos();
-
-        if (icon) icon.style.animation = '';
-        if (text) text.textContent = 'Atualizado agora';
-
-        // Fade do indicador após alguns segundos
-        setTimeout(() => {
-          if (text) text.textContent = `Atualizado há ${AUTO_REFRESH_SECONDS}s`;
-        }, AUTO_REFRESH_SECONDS * 500);
-
-      } catch (error) {
-        console.error('Erro no auto-refresh:', error);
-        const text = document.getElementById('refreshText');
-        if (text) text.textContent = 'Erro ao atualizar';
-      }
-    }
-
-    async function atualizarDadosManual() {
-      const indicator = document.getElementById('refreshIndicator');
-      if (indicator) {
-        indicator.style.transform = 'scale(0.95)';
-        setTimeout(() => indicator.style.transform = '', 200);
-      }
-      await atualizarDadosSilencioso();
-      showToast('🔄 Dados atualizados!');
-    }
-
-    // Adicionar CSS para animação de spin
-    const styleRefresh = document.createElement('style');
-    styleRefresh.textContent = `
-      @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-      }
-      #refreshIndicator:hover {
-        background: rgba(255, 159, 67, 0.15);
-        border-color: rgba(255, 159, 67, 0.5);
-      }
-    `;
-    document.head.appendChild(styleRefresh);
 
     // Iniciar auto-refresh quando página carregar
     window.addEventListener('load', () => {
@@ -3773,7 +3702,7 @@
         }
       } else {
         // Atualizar imediatamente ao voltar e reiniciar intervalo
-        atualizarDadosSilencioso();
+        carregarJogos();
         iniciarAutoRefresh();
         console.log('▶️ Auto-refresh retomado');
       }
