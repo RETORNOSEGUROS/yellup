@@ -16,6 +16,40 @@
             color: #fff;
         }
 
+        /* Loading Overlay */
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 9999;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 215, 0, 0.3);
+            border-top-color: #FFD700;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            color: #fff;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+
         /* Sidebar */
         .sidebar {
             width: 260px;
@@ -94,7 +128,6 @@
 
         .sidebar a .badge.green { background: #2ecc71; }
         .sidebar a .badge.yellow { background: #f39c12; }
-        .sidebar a .badge.blue { background: #3498db; }
 
         /* Main */
         .main {
@@ -180,24 +213,12 @@
             align-items: center;
             gap: 8px;
             font-size: 12px;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
         }
 
         .alerta-box.critico {
             background: rgba(231, 76, 60, 0.2);
             border: 1px solid rgba(231, 76, 60, 0.5);
             color: #ff6b6b;
-        }
-
-        .alerta-box.aviso {
-            background: rgba(243, 156, 18, 0.2);
-            border: 1px solid rgba(243, 156, 18, 0.5);
-            color: #ffc107;
         }
 
         .alerta-box a { color: inherit; text-decoration: underline; margin-left: 5px; }
@@ -426,8 +447,14 @@
     </style>
 </head>
 <body>
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Carregando painel...</div>
+    </div>
+
     <!-- Sidebar -->
-    <div class="sidebar">
+    <div class="sidebar" style="display: none;" id="sidebar">
         <div class="sidebar-header">
             <h2>⚽ Yellup <span>Admin</span></h2>
         </div>
@@ -553,12 +580,12 @@
     </div>
 
     <!-- Main Content -->
-    <div class="main">
+    <div class="main" style="display: none;" id="mainContent">
         <!-- Header -->
         <div class="header">
             <h1>📊 Dashboard</h1>
             <div class="header-right">
-                <div class="admin-info" id="adminInfo">👤 Carregando...</div>
+                <div class="admin-info" id="adminInfo">👤 Admin</div>
                 <div class="status-indicator">
                     <div class="status-dot"></div>
                     <span>Tempo Real</span>
@@ -634,7 +661,7 @@
                 <div class="icon">➕</div>
                 <div class="label">Novo Jogo</div>
             </a>
-            <a href="vendas-creditos.html" class="quick-btn" id="btnSaques">
+            <a href="vendas-creditos.html" class="quick-btn">
                 <div class="icon">💸</div>
                 <div class="label">Ver Saques</div>
             </a>
@@ -734,6 +761,9 @@
         const db = firebase.firestore();
         const auth = firebase.auth();
 
+        // Persistência LOCAL
+        auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
         // Listeners ativos
         let unsubscribes = [];
 
@@ -744,31 +774,40 @@
             'pamela@yellup.com'
         ];
 
-        // Verificar autenticação
+        // Variável para controlar se já verificou
+        let authVerificado = false;
+
+        // Verificar autenticação - ESPERA O FIREBASE CARREGAR
         auth.onAuthStateChanged(user => {
-            if (!user) {
-                window.location.href = 'login.html';
-                return;
+            // Se já verificou e redirecionou, não fazer nada
+            if (authVerificado) return;
+            authVerificado = true;
+
+            const loadingOverlay = document.getElementById('loading-overlay');
+            const sidebar = document.getElementById('sidebar');
+            const mainContent = document.getElementById('mainContent');
+
+            if (user && adminsAutorizados.includes(user.email)) {
+                // Usuário logado e autorizado - mostrar dashboard
+                loadingOverlay.style.display = 'none';
+                sidebar.style.display = 'block';
+                mainContent.style.display = 'block';
+                
+                // Mostrar nome do admin
+                document.getElementById('adminInfo').textContent = '👤 ' + (user.displayName || user.email.split('@')[0]);
+                
+                // Iniciar dashboard
+                iniciarDashboard();
+            } else {
+                // Não logado ou não autorizado - redirecionar para login
+                window.location.replace('login.html');
             }
-            
-            if (!adminsAutorizados.includes(user.email)) {
-                alert('Acesso não autorizado!');
-                auth.signOut();
-                window.location.href = 'login.html';
-                return;
-            }
-            
-            // Mostrar nome do admin
-            document.getElementById('adminInfo').textContent = '👤 ' + (user.displayName || user.email.split('@')[0]);
-            
-            // Iniciar dashboard
-            iniciarDashboard();
         });
 
         function sair() {
             unsubscribes.forEach(unsub => unsub());
             auth.signOut().then(() => {
-                window.location.href = 'login.html';
+                window.location.replace('login.html');
             });
         }
 
@@ -905,12 +944,7 @@
                     document.getElementById('countSaques').textContent = snapshot.size;
                     
                     if (snapshot.empty) {
-                        container.innerHTML = `
-                            <div class="empty-state">
-                                <div class="icon">✅</div>
-                                <p>Nenhum saque pendente!</p>
-                            </div>
-                        `;
+                        container.innerHTML = `<div class="empty-state"><div class="icon">✅</div><p>Nenhum saque pendente!</p></div>`;
                         return;
                     }
 
@@ -918,8 +952,7 @@
                     snapshot.forEach(doc => {
                         const s = doc.data();
                         const valor = ((s.creditos || 0) * 0.40).toFixed(2);
-                        const data = s.dataSolicitacao?.toDate ? 
-                            formatarDataRelativa(s.dataSolicitacao.toDate()) : '--';
+                        const data = s.dataSolicitacao?.toDate ? formatarDataRelativa(s.dataSolicitacao.toDate()) : '--';
 
                         html += `
                             <div class="list-item">
@@ -935,9 +968,7 @@
                         `;
                     });
                     container.innerHTML = html;
-                }, error => {
-                    console.error('Erro listener saques:', error);
-                });
+                }, error => console.error('Erro listener saques:', error));
             
             unsubscribes.push(unsub);
         }
@@ -951,12 +982,7 @@
                     const container = document.getElementById('listaUsuarios');
                     
                     if (snapshot.empty) {
-                        container.innerHTML = `
-                            <div class="empty-state">
-                                <div class="icon">👥</div>
-                                <p>Nenhum usuário ainda</p>
-                            </div>
-                        `;
+                        container.innerHTML = `<div class="empty-state"><div class="icon">👥</div><p>Nenhum usuário ainda</p></div>`;
                         return;
                     }
 
@@ -966,16 +992,12 @@
                     snapshot.forEach(doc => {
                         const u = doc.data();
                         const inicial = (u.nome || u.usuarioUnico || 'U')[0].toUpperCase();
-                        const data = u.dataCadastro?.toDate ? 
-                            formatarDataRelativa(u.dataCadastro.toDate()) : '--';
+                        const data = u.dataCadastro?.toDate ? formatarDataRelativa(u.dataCadastro.toDate()) : '--';
                         
                         let online = '';
                         if (u.ultimaAtividade) {
-                            const ultimaMs = u.ultimaAtividade.toMillis ? 
-                                u.ultimaAtividade.toMillis() : new Date(u.ultimaAtividade).getTime();
-                            if (ultimaMs > cincoMinAtras) {
-                                online = '<span class="list-badge badge-online">Online</span>';
-                            }
+                            const ultimaMs = u.ultimaAtividade.toMillis ? u.ultimaAtividade.toMillis() : new Date(u.ultimaAtividade).getTime();
+                            if (ultimaMs > cincoMinAtras) online = '<span class="list-badge badge-online">Online</span>';
                         }
 
                         html += `
@@ -992,9 +1014,7 @@
                         `;
                     });
                     container.innerHTML = html;
-                }, error => {
-                    console.error('Erro listener usuários:', error);
-                });
+                }, error => console.error('Erro listener usuários:', error));
             
             unsubscribes.push(unsub);
         }
@@ -1008,12 +1028,7 @@
                     const container = document.getElementById('listaJogos');
                     
                     if (snapshot.empty) {
-                        container.innerHTML = `
-                            <div class="empty-state">
-                                <div class="icon">🎮</div>
-                                <p>Nenhum jogo cadastrado</p>
-                            </div>
-                        `;
+                        container.innerHTML = `<div class="empty-state"><div class="icon">🎮</div><p>Nenhum jogo cadastrado</p></div>`;
                         return;
                     }
 
@@ -1021,22 +1036,8 @@
                     
                     for (const doc of snapshot.docs) {
                         const j = doc.data();
-                        
                         let timeCasa = j.timeCasaNome || 'Time A';
                         let timeFora = j.timeForaNome || 'Time B';
-                        
-                        if (!j.timeCasaNome && j.timeCasaId) {
-                            try {
-                                const tCasa = await db.collection('times').doc(j.timeCasaId).get();
-                                if (tCasa.exists) timeCasa = tCasa.data().nome;
-                            } catch(e) {}
-                        }
-                        if (!j.timeForaNome && j.timeForaId) {
-                            try {
-                                const tFora = await db.collection('times').doc(j.timeForaId).get();
-                                if (tFora.exists) timeFora = tFora.data().nome;
-                            } catch(e) {}
-                        }
 
                         let statusBadge = '';
                         const status = j.status || 'criado';
@@ -1062,9 +1063,7 @@
                         `;
                     }
                     container.innerHTML = html;
-                }, error => {
-                    console.error('Erro listener jogos:', error);
-                });
+                }, error => console.error('Erro listener jogos:', error));
             
             unsubscribes.push(unsub);
         }
@@ -1075,66 +1074,24 @@
             const atividades = [];
 
             try {
-                // Últimas transações
-                const transacoesSnap = await db.collection('transacoes')
-                    .orderBy('data', 'desc')
-                    .limit(3)
-                    .get();
-                
+                const transacoesSnap = await db.collection('transacoes').orderBy('data', 'desc').limit(3).get();
                 transacoesSnap.forEach(doc => {
                     const t = doc.data();
                     const data = t.data?.toDate ? t.data.toDate() : new Date();
-                    atividades.push({
-                        icon: '💰',
-                        bg: '#2ecc71',
-                        texto: `${t.tipo || 'Transação'}: ${t.creditos || 0} cr`,
-                        tempo: data
-                    });
+                    atividades.push({ icon: '💰', bg: '#2ecc71', texto: `${t.tipo || 'Transação'}: ${t.creditos || 0} cr`, tempo: data });
                 });
 
-                // Últimos cadastros
-                const cadastrosSnap = await db.collection('usuarios')
-                    .orderBy('dataCadastro', 'desc')
-                    .limit(3)
-                    .get();
-                
+                const cadastrosSnap = await db.collection('usuarios').orderBy('dataCadastro', 'desc').limit(3).get();
                 cadastrosSnap.forEach(doc => {
                     const u = doc.data();
                     const data = u.dataCadastro?.toDate ? u.dataCadastro.toDate() : new Date();
-                    atividades.push({
-                        icon: '👤',
-                        bg: '#9b59b6',
-                        texto: `Novo: @${u.usuarioUnico || 'usuario'}`,
-                        tempo: data
-                    });
-                });
-
-                // Últimos embates
-                const embatesSnap = await db.collection('embates')
-                    .orderBy('dataCriacao', 'desc')
-                    .limit(2)
-                    .get();
-                
-                embatesSnap.forEach(doc => {
-                    const e = doc.data();
-                    const data = e.dataCriacao?.toDate ? e.dataCriacao.toDate() : new Date();
-                    atividades.push({
-                        icon: '⚔️',
-                        bg: '#e67e22',
-                        texto: `Embate: ${e.status || 'criado'}`,
-                        tempo: data
-                    });
+                    atividades.push({ icon: '👤', bg: '#9b59b6', texto: `Novo: @${u.usuarioUnico || 'usuario'}`, tempo: data });
                 });
 
                 atividades.sort((a, b) => b.tempo - a.tempo);
 
                 if (atividades.length === 0) {
-                    container.innerHTML = `
-                        <div class="empty-state">
-                            <div class="icon">📋</div>
-                            <p>Nenhuma atividade recente</p>
-                        </div>
-                    `;
+                    container.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>Nenhuma atividade recente</p></div>`;
                     return;
                 }
 
@@ -1165,7 +1122,6 @@
             const alertas = [];
 
             try {
-                // Saques pendentes há mais de 24h
                 const ontem = new Date();
                 ontem.setDate(ontem.getDate() - 1);
                 
@@ -1202,15 +1158,12 @@
         // ==================== HELPERS ====================
         function formatarDataRelativa(data) {
             if (!data) return '--';
-            
             const agora = new Date();
             const diff = agora - data;
-            
             if (diff < 60000) return 'Agora';
             if (diff < 3600000) return `${Math.floor(diff / 60000)} min`;
             if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
             if (diff < 604800000) return `${Math.floor(diff / 86400000)}d`;
-            
             return data.toLocaleDateString('pt-BR');
         }
     </script>
