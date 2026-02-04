@@ -2,32 +2,212 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login Admin - Yellup</title>
-  <!-- Firebase scripts (ordem correta e compatível) -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-
-  <!-- Firebase config -->
-  <script src="js/firebase-config.js"></script>
-
-  <!-- Script de login -->
-  <script src="js/admin-login.js" defer></script>
-
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: Arial; background: #f2f2f2; display: flex; justify-content: center; align-items: center; height: 100vh; }
-    .login-box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 0 10px #ccc; width: 300px; }
-    input { width: 100%; padding: 10px; margin-top: 10px; }
-    button { width: 100%; padding: 10px; margin-top: 15px; background: #ffd700; border: none; cursor: pointer; font-weight: bold; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body { 
+      font-family: 'Poppins', sans-serif; 
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+    }
+    
+    .login-box { 
+      background: rgba(255, 255, 255, 0.95);
+      padding: 40px; 
+      border-radius: 16px; 
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      width: 350px;
+      text-align: center;
+    }
+    
+    .logo {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+    }
+    
+    h2 {
+      color: #1a1a2e;
+      margin-bottom: 30px;
+      font-weight: 700;
+    }
+    
+    h2 span {
+      background: #e74c3c;
+      color: white;
+      font-size: 0.4em;
+      padding: 3px 10px;
+      border-radius: 15px;
+      vertical-align: middle;
+      margin-left: 5px;
+    }
+    
+    input { 
+      width: 100%; 
+      padding: 14px 16px; 
+      margin-top: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 14px;
+      font-family: 'Poppins', sans-serif;
+      transition: all 0.3s;
+    }
+    
+    input:focus {
+      outline: none;
+      border-color: #FFD700;
+      box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.2);
+    }
+    
+    button { 
+      width: 100%; 
+      padding: 14px; 
+      margin-top: 20px; 
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      border: none; 
+      border-radius: 10px;
+      cursor: pointer; 
+      font-weight: 700;
+      font-size: 16px;
+      font-family: 'Poppins', sans-serif;
+      color: #1a1a2e;
+      transition: all 0.3s;
+    }
+    
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(255, 215, 0, 0.4);
+    }
+    
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    #erro {
+      color: #e74c3c;
+      margin-top: 15px;
+      font-size: 13px;
+      min-height: 20px;
+    }
+    
+    .loading {
+      display: none;
+      margin-top: 15px;
+      color: #666;
+    }
   </style>
 </head>
 <body>
-  <div class="login-box">
-    <h2>Login Admin</h2>
-    <input type="email" id="email" placeholder="E-mail">
-    <input type="password" id="senha" placeholder="Senha">
-    <button onclick="loginAdmin()">Entrar</button>
-    <p id="erro" style="color: red;"></p>
-  </div>
+  <form class="login-box" onsubmit="loginAdmin(event)">
+    <div class="logo">⚽</div>
+    <h2>Yellup <span>Admin</span></h2>
+    <input type="email" id="email" placeholder="E-mail" required autocomplete="email">
+    <input type="password" id="senha" placeholder="Senha" required autocomplete="current-password">
+    <button type="submit" id="btnLogin">🔐 Entrar</button>
+    <p id="erro"></p>
+    <p class="loading" id="loading">⏳ Verificando...</p>
+  </form>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+
+  <script>
+    // Firebase Config
+    const firebaseConfig = {
+      apiKey: "AIzaSyCNBDcIEmdb2fQsiL0UsEAwdZlHTgM7Nesg",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+
+    // Lista de emails autorizados como admin
+    const adminsAutorizados = [
+      'admin@yellup.com',
+      'patrick@yellup.com',
+      'pamela@yellup.com'
+      // Adicione mais emails aqui se precisar
+    ];
+
+    // Verificar se já está logado
+    auth.onAuthStateChanged(user => {
+      if (user && adminsAutorizados.includes(user.email)) {
+        window.location.href = 'dashboard.html';
+      }
+    });
+
+    function loginAdmin(e) {
+      e.preventDefault();
+      
+      const email = document.getElementById('email').value.trim();
+      const senha = document.getElementById('senha').value;
+      const btnLogin = document.getElementById('btnLogin');
+      const erro = document.getElementById('erro');
+      const loading = document.getElementById('loading');
+
+      // Limpar erro anterior
+      erro.textContent = '';
+      
+      // Mostrar loading
+      btnLogin.disabled = true;
+      btnLogin.textContent = '⏳ Entrando...';
+      loading.style.display = 'block';
+
+      auth.signInWithEmailAndPassword(email, senha)
+        .then((userCredential) => {
+          // Verificar se é admin autorizado
+          if (adminsAutorizados.includes(userCredential.user.email)) {
+            window.location.href = 'dashboard.html';
+          } else {
+            // Não é admin - fazer logout
+            auth.signOut();
+            erro.textContent = '❌ Acesso não autorizado para este email.';
+            btnLogin.disabled = false;
+            btnLogin.textContent = '🔐 Entrar';
+            loading.style.display = 'none';
+          }
+        })
+        .catch((error) => {
+          console.error('Erro login:', error);
+          
+          let mensagem = 'Erro ao fazer login.';
+          switch(error.code) {
+            case 'auth/user-not-found':
+              mensagem = '❌ Usuário não encontrado.';
+              break;
+            case 'auth/wrong-password':
+              mensagem = '❌ Senha incorreta.';
+              break;
+            case 'auth/invalid-email':
+              mensagem = '❌ Email inválido.';
+              break;
+            case 'auth/too-many-requests':
+              mensagem = '⚠️ Muitas tentativas. Aguarde um momento.';
+              break;
+            case 'auth/invalid-credential':
+              mensagem = '❌ Email ou senha incorretos.';
+              break;
+            default:
+              mensagem = '❌ ' + error.message;
+          }
+          
+          erro.textContent = mensagem;
+          btnLogin.disabled = false;
+          btnLogin.textContent = '🔐 Entrar';
+          loading.style.display = 'none';
+        });
+    }
+  </script>
 </body>
 </html>
