@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Importar Perguntas - Yellup Admin</title>
+  <title>Importar Perguntas V2 - Yellup Admin</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -14,8 +18,22 @@
       min-height: 100vh;
       padding: 20px;
     }
-    .container { max-width: 1000px; margin: 0 auto; }
-    h1 { text-align: center; margin-bottom: 30px; color: #ffb547; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .header h1 { color: #ffb547; margin-bottom: 5px; }
+    .header p { color: #a9b5c6; font-size: 0.9rem; }
+    .version-badge {
+      display: inline-block;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      padding: 3px 12px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      margin-left: 10px;
+    }
     
     .card {
       background: rgba(30, 41, 54, 0.9);
@@ -24,10 +42,18 @@
       margin-bottom: 20px;
       border: 1px solid rgba(255,255,255,0.1);
     }
+    .card-title {
+      font-size: 1.2rem;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .card-title .material-icons { color: #ffb547; }
     
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       gap: 15px;
       margin-bottom: 20px;
     }
@@ -38,12 +64,13 @@
       border-radius: 12px;
       text-align: center;
     }
-    
-    .stat-value { font-size: 2em; font-weight: 700; color: #ffb547; }
-    .stat-label { font-size: 0.85em; color: #a9b5c6; }
+    .stat-value { font-size: 1.8em; font-weight: 700; color: #ffb547; }
+    .stat-label { font-size: 0.8em; color: #a9b5c6; }
+    .stat-item.times .stat-value { color: #38ef7d; }
+    .stat-item.camps .stat-value { color: #667eea; }
     
     .btn {
-      padding: 15px 30px;
+      padding: 12px 24px;
       border: none;
       border-radius: 10px;
       font-family: 'Poppins', sans-serif;
@@ -51,18 +78,23 @@
       cursor: pointer;
       transition: all 0.3s;
       margin: 5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
-    
     .btn-primary {
       background: linear-gradient(135deg, #ffb547, #ff8c42);
       color: #0e141b;
     }
-    
     .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(255,181,71,0.4); }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-    
+    .btn-secondary { background: rgba(255,255,255,0.1); color: #fff; }
+    .btn-secondary:hover { background: rgba(255,255,255,0.2); }
     .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
     .btn-success { background: #22c55e; color: white; }
+    .btn-success:hover { background: #16a34a; }
+    .btn-sm { padding: 8px 16px; font-size: 0.85rem; }
     
     .progress-container {
       background: rgba(0,0,0,0.3);
@@ -70,9 +102,8 @@
       overflow: hidden;
       margin: 20px 0;
     }
-    
     .progress-bar {
-      height: 30px;
+      height: 35px;
       background: linear-gradient(90deg, #ffb547, #ff8c42);
       width: 0%;
       transition: width 0.3s;
@@ -87,35 +118,52 @@
       background: #0e141b;
       border-radius: 10px;
       padding: 15px;
-      max-height: 300px;
+      max-height: 250px;
       overflow-y: auto;
-      font-family: monospace;
+      font-family: 'Courier New', monospace;
       font-size: 0.85em;
     }
-    
-    .log-item { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .log-item { padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
     .log-success { color: #22c55e; }
     .log-error { color: #ef4444; }
     .log-info { color: #3b82f6; }
+    .log-warning { color: #f59e0b; }
     
-    .times-list {
+    /* Preview melhorado */
+    .preview-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 15px;
       max-height: 400px;
       overflow-y: auto;
+      padding: 10px 0;
     }
-    
-    .time-item {
+    .preview-item {
       background: rgba(0,0,0,0.2);
-      padding: 10px;
-      border-radius: 8px;
+      padding: 15px;
+      border-radius: 10px;
       display: flex;
       justify-content: space-between;
+      align-items: center;
+      border-left: 3px solid #ffb547;
     }
+    .preview-item.time { border-left-color: #38ef7d; }
+    .preview-item.camp { border-left-color: #667eea; }
+    .preview-item .nome {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .preview-item .nome .icon { font-size: 1.2rem; }
+    .preview-item .count {
+      background: rgba(255,255,255,0.1);
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+    .preview-item.time .count { color: #38ef7d; }
+    .preview-item.camp .count { color: #667eea; }
     
-    .time-count { color: #ffb547; font-weight: 600; }
-
     textarea {
       width: 100%;
       height: 200px;
@@ -124,114 +172,264 @@
       border-radius: 10px;
       padding: 15px;
       color: #e7eef7;
-      font-family: monospace;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
       resize: vertical;
     }
-    
-    .file-input-wrapper {
-      position: relative;
-      overflow: hidden;
-      display: inline-block;
+    textarea:focus {
+      outline: none;
+      border-color: #ffb547;
     }
     
-    .file-input-wrapper input[type=file] {
-      position: absolute;
-      left: 0;
-      top: 0;
-      opacity: 0;
+    .upload-area {
+      border: 2px dashed rgba(255,255,255,0.3);
+      border-radius: 15px;
+      padding: 40px;
+      text-align: center;
+      transition: all 0.3s;
       cursor: pointer;
-      width: 100%;
-      height: 100%;
+      margin-bottom: 20px;
+    }
+    .upload-area:hover { border-color: #ffb547; background: rgba(255,181,71,0.1); }
+    .upload-area.dragover { border-color: #ffb547; background: rgba(255,181,71,0.2); }
+    .upload-area .material-icons { font-size: 48px; color: #ffb547; margin-bottom: 10px; }
+    .upload-area p { color: #a9b5c6; }
+    
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      padding: 10px 20px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      color: #a9b5c6;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .tab-btn:hover { background: rgba(255,255,255,0.1); }
+    .tab-btn.active {
+      background: linear-gradient(135deg, #ffb547, #ff8c42);
+      color: #0e141b;
+      border-color: transparent;
+    }
+    
+    .validation-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+    .validation-item {
+      background: rgba(0,0,0,0.2);
+      padding: 15px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .validation-item.ok { border-left: 3px solid #22c55e; }
+    .validation-item.warning { border-left: 3px solid #f59e0b; }
+    .validation-item.error { border-left: 3px solid #ef4444; }
+    .validation-item .material-icons.ok { color: #22c55e; }
+    .validation-item .material-icons.warning { color: #f59e0b; }
+    .validation-item .material-icons.error { color: #ef4444; }
+    
+    .sample-json {
+      background: rgba(0,0,0,0.3);
+      border-radius: 10px;
+      padding: 15px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.8rem;
+      overflow-x: auto;
+      white-space: pre;
+      color: #a9b5c6;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .sample-json .key { color: #f59e0b; }
+    .sample-json .string { color: #22c55e; }
+    .sample-json .number { color: #667eea; }
+    
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 15px 25px;
+      border-radius: 10px;
+      color: #fff;
+      font-weight: 500;
+      z-index: 1000;
+      animation: slideIn 0.3s ease;
+    }
+    .toast-success { background: linear-gradient(135deg, #22c55e, #16a34a); }
+    .toast-error { background: linear-gradient(135deg, #ef4444, #dc2626); }
+    .toast-warning { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(0,0,0,0.3);
+      border-top-color: #0e141b;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .preview-grid { grid-template-columns: 1fr; }
+      .tabs { flex-wrap: wrap; }
     }
   </style>
 </head>
 <body>
 
 <div class="container">
-  <h1>📚 Importar Perguntas - Yellup</h1>
+  <div class="header">
+    <h1>📚 Importar Perguntas <span class="version-badge">V2</span></h1>
+    <p>Suporta Times + Campeonatos • IDs personalizados (santos-001) • Validação automática</p>
+  </div>
 
   <!-- Stats -->
   <div class="card">
-    <h3 style="margin-bottom: 15px;">📊 Estatísticas</h3>
+    <h3 class="card-title">
+      <span class="material-icons">analytics</span>
+      Estatísticas do Banco
+    </h3>
     <div class="stats-grid">
       <div class="stat-item">
-        <div class="stat-value" id="totalPerguntas">0</div>
-        <div class="stat-label">Perguntas no Banco</div>
+        <div class="stat-value" id="totalPerguntas">-</div>
+        <div class="stat-label">Total no Banco</div>
       </div>
-      <div class="stat-item">
-        <div class="stat-value" id="totalTimes">0</div>
-        <div class="stat-label">Times com Perguntas</div>
+      <div class="stat-item times">
+        <div class="stat-value" id="totalTimes">-</div>
+        <div class="stat-label">⚽ De Times</div>
+      </div>
+      <div class="stat-item camps">
+        <div class="stat-value" id="totalCamps">-</div>
+        <div class="stat-label">🏆 De Campeonatos</div>
       </div>
       <div class="stat-item">
         <div class="stat-value" id="perguntasCarregadas">0</div>
         <div class="stat-label">Para Importar</div>
       </div>
-      <div class="stat-item">
-        <div class="stat-value" id="perguntasImportadas">0</div>
-        <div class="stat-label">Importadas</div>
-      </div>
     </div>
-    <button class="btn btn-primary" onclick="verificarBanco()">🔄 Verificar Banco</button>
+    <button class="btn btn-secondary" onclick="verificarBanco()">
+      <span class="material-icons">refresh</span>
+      Atualizar Stats
+    </button>
   </div>
 
   <!-- Upload -->
   <div class="card">
-    <h3 style="margin-bottom: 15px;">📁 Carregar Perguntas</h3>
-    <p style="color: #a9b5c6; margin-bottom: 15px;">Cole o JSON das perguntas ou faça upload do arquivo:</p>
+    <h3 class="card-title">
+      <span class="material-icons">upload_file</span>
+      Carregar Perguntas
+    </h3>
     
-    <div class="file-input-wrapper">
-      <button class="btn btn-primary">📂 Escolher Arquivo JSON</button>
-      <input type="file" id="fileInput" accept=".json" onchange="carregarArquivo(event)">
+    <div class="upload-area" id="uploadArea">
+      <span class="material-icons">cloud_upload</span>
+      <p>Arraste um arquivo JSON ou clique para selecionar</p>
+      <input type="file" id="fileInput" accept=".json" style="display: none;">
     </div>
     
-    <p style="margin: 15px 0; color: #a9b5c6;">Ou cole o JSON aqui:</p>
-    <textarea id="jsonInput" placeholder='Cole o JSON aqui... formato: [{"pergunta": "...", "alternativas": {...}, ...}]'></textarea>
-    <br><br>
-    <button class="btn btn-primary" onclick="carregarJSON()">📥 Carregar JSON</button>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="mostrarTab('colar')">📋 Colar JSON</button>
+      <button class="tab-btn" onclick="mostrarTab('exemplo')">📖 Ver Formato</button>
+    </div>
+    
+    <div id="tabColar">
+      <textarea id="jsonInput" placeholder='Cole o JSON aqui...
+
+Formatos aceitos:
+• Array: [{"pergunta": "...", ...}, ...]
+• Objeto: {"001": {"pergunta": "...", ...}, ...}
+
+Campos obrigatórios:
+• pergunta, alternativas, correta
+• timeId OU campeonatoId (pelo menos um)'></textarea>
+      <br><br>
+      <button class="btn btn-primary" onclick="carregarJSON()">
+        <span class="material-icons">play_arrow</span>
+        Processar JSON
+      </button>
+    </div>
+    
+    <div id="tabExemplo" style="display: none;">
+      <h4 style="margin-bottom: 15px; color: #ffb547;">📋 Formato Esperado (V5 compatível)</h4>
+      <div class="sample-json" id="sampleJson"></div>
+    </div>
   </div>
 
-  <!-- Times Preview -->
+  <!-- Validação -->
+  <div class="card" id="validationCard" style="display: none;">
+    <h3 class="card-title">
+      <span class="material-icons">fact_check</span>
+      Validação
+    </h3>
+    <div class="validation-summary" id="validationSummary"></div>
+  </div>
+
+  <!-- Preview -->
   <div class="card" id="previewCard" style="display: none;">
-    <h3 style="margin-bottom: 15px;">👀 Preview - Perguntas por Time</h3>
-    <div class="times-list" id="timesList"></div>
+    <h3 class="card-title">
+      <span class="material-icons">preview</span>
+      Preview - Perguntas por Entidade
+    </h3>
+    <div class="preview-grid" id="previewGrid"></div>
   </div>
 
   <!-- Import Actions -->
   <div class="card">
-    <h3 style="margin-bottom: 15px;">⚡ Importar</h3>
+    <h3 class="card-title">
+      <span class="material-icons">cloud_upload</span>
+      Importar para Firebase
+    </h3>
     
     <div class="progress-container">
       <div class="progress-bar" id="progressBar">0%</div>
     </div>
     
-    <button class="btn btn-success" id="btnImportar" onclick="importarPerguntas()" disabled>
-      🚀 Importar Perguntas
-    </button>
-    <button class="btn btn-danger" onclick="limparPerguntas()">
-      🗑️ Limpar Todas Perguntas
-    </button>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+      <button class="btn btn-success" id="btnImportar" onclick="importarPerguntas()" disabled>
+        <span class="material-icons">rocket_launch</span>
+        Importar Perguntas
+      </button>
+      <button class="btn btn-danger" onclick="limparPerguntas()">
+        <span class="material-icons">delete_forever</span>
+        Limpar TODAS
+      </button>
+      <button class="btn btn-secondary" onclick="limparForm()">
+        <span class="material-icons">clear</span>
+        Limpar Form
+      </button>
+    </div>
     
     <div class="log" id="logContainer" style="margin-top: 20px;">
-      <div class="log-item log-info">Aguardando ação...</div>
+      <div class="log-item log-info">[Sistema] Aguardando ação...</div>
     </div>
   </div>
 </div>
-
-<!-- Firebase -->
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-
 <script>
-  // Configuração Firebase (mesma do seu projeto)
+  // ═══════════════════════════════════════════════════════════════
+  // FIREBASE CONFIG
+  // ═══════════════════════════════════════════════════════════════
+  
   const firebaseConfig = {
     apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
     authDomain: "painel-yellup.firebaseapp.com",
     projectId: "painel-yellup",
     storageBucket: "painel-yellup.appspot.com",
     messagingSenderId: "608347210297",
-    appId: "1:608347210297:web:75092713724e617c7203e8",
-    measurementId: "G-SYZ16X31KQ"
+    appId: "1:608347210297:web:75092713724e617c7203e8"
   };
 
   firebase.initializeApp(firebaseConfig);
@@ -239,206 +437,409 @@
   const auth = firebase.auth();
 
   let perguntasParaImportar = [];
+  let validationResults = { ok: [], warnings: [], errors: [] };
 
-  // Log helper
-  function log(message, type = 'info') {
-    const logContainer = document.getElementById('logContainer');
-    const item = document.createElement('div');
-    item.className = `log-item log-${type}`;
-    item.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-    logContainer.insertBefore(item, logContainer.firstChild);
+  // ═══════════════════════════════════════════════════════════════
+  // INICIALIZAÇÃO
+  // ═══════════════════════════════════════════════════════════════
+  
+  document.addEventListener('DOMContentLoaded', function() {
+    setupUploadArea();
+    renderSampleJSON();
+    
+    auth.onAuthStateChanged(function(user) {
+      if (user) {
+        log('Logado como: ' + user.email, 'success');
+        verificarBanco();
+      } else {
+        log('Tentando autenticação anônima...', 'info');
+        auth.signInAnonymously().catch(function(e) {
+          log('Auth: ' + e.message, 'error');
+        });
+      }
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // UPLOAD AREA
+  // ═══════════════════════════════════════════════════════════════
+  
+  function setupUploadArea() {
+    var area = document.getElementById('uploadArea');
+    var input = document.getElementById('fileInput');
+    
+    area.addEventListener('click', function() { input.click(); });
+    
+    area.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      area.classList.add('dragover');
+    });
+    
+    area.addEventListener('dragleave', function() {
+      area.classList.remove('dragover');
+    });
+    
+    area.addEventListener('drop', function(e) {
+      e.preventDefault();
+      area.classList.remove('dragover');
+      if (e.dataTransfer.files.length) {
+        carregarArquivo(e.dataTransfer.files[0]);
+      }
+    });
+    
+    input.addEventListener('change', function(e) {
+      if (e.target.files.length) {
+        carregarArquivo(e.target.files[0]);
+      }
+    });
   }
 
-  // Verificar banco atual
-  async function verificarBanco() {
-    log('Verificando banco de dados...', 'info');
-    
-    try {
-      const snapshot = await db.collection('perguntas').get();
-      const perguntas = snapshot.docs;
-      
-      document.getElementById('totalPerguntas').textContent = perguntas.length;
-      
-      // Contar times únicos
-      const times = new Set();
-      perguntas.forEach(doc => {
-        const data = doc.data();
-        if (data.timeId) times.add(data.timeId);
-      });
-      
-      document.getElementById('totalTimes').textContent = times.size;
-      log(`Encontradas ${perguntas.length} perguntas para ${times.size} times`, 'success');
-      
-    } catch (error) {
-      log(`Erro: ${error.message}`, 'error');
+  function carregarArquivo(file) {
+    if (!file.name.endsWith('.json')) {
+      showToast('Selecione um arquivo .json', 'error');
+      return;
     }
-  }
-
-  // Carregar arquivo JSON
-  function carregarArquivo(event) {
-    const file = event.target.files[0];
-    if (!file) return;
     
-    const reader = new FileReader();
+    var reader = new FileReader();
     reader.onload = function(e) {
       document.getElementById('jsonInput').value = e.target.result;
       carregarJSON();
     };
     reader.readAsText(file);
+    log('Arquivo carregado: ' + file.name, 'info');
   }
 
-  // Carregar JSON
+  // ═══════════════════════════════════════════════════════════════
+  // TABS
+  // ═══════════════════════════════════════════════════════════════
+  
+  function mostrarTab(tab) {
+    document.getElementById('tabColar').style.display = tab === 'colar' ? 'block' : 'none';
+    document.getElementById('tabExemplo').style.display = tab === 'exemplo' ? 'block' : 'none';
+    
+    document.querySelectorAll('.tab-btn').forEach(function(btn, i) {
+      btn.classList.toggle('active', (i === 0 && tab === 'colar') || (i === 1 && tab === 'exemplo'));
+    });
+  }
+
+  function renderSampleJSON() {
+    var sample = {
+      "id": "santos-001",
+      "pergunta": "Em que ano o Santos FC foi fundado?",
+      "alternativas": {
+        "A": "1910",
+        "B": "1912",
+        "C": "1914",
+        "D": "1916"
+      },
+      "correta": "B",
+      "pontuacao": 4,
+      "timeId": "abc123firebaseId",
+      "timeNome": "Santos FC",
+      "campeonatoId": "",
+      "campeonatoNome": "",
+      "fonte": "Site oficial do Santos FC"
+    };
+    
+    var json = JSON.stringify([sample], null, 2);
+    document.getElementById('sampleJson').textContent = json;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // VERIFICAR BANCO
+  // ═══════════════════════════════════════════════════════════════
+  
+  async function verificarBanco() {
+    log('Verificando banco de dados...', 'info');
+    
+    try {
+      var snapshot = await db.collection('perguntas').get();
+      var total = snapshot.size;
+      var times = 0;
+      var camps = 0;
+      
+      snapshot.forEach(function(doc) {
+        var data = doc.data();
+        if (data.timeId && data.timeId !== '') times++;
+        if (data.campeonatoId && data.campeonatoId !== '') camps++;
+      });
+      
+      document.getElementById('totalPerguntas').textContent = total;
+      document.getElementById('totalTimes').textContent = times;
+      document.getElementById('totalCamps').textContent = camps;
+      
+      log('Banco: ' + total + ' perguntas (' + times + ' times, ' + camps + ' campeonatos)', 'success');
+      
+    } catch (error) {
+      log('Erro ao verificar banco: ' + error.message, 'error');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CARREGAR E VALIDAR JSON
+  // ═══════════════════════════════════════════════════════════════
+  
   function carregarJSON() {
-    const jsonText = document.getElementById('jsonInput').value.trim();
+    var jsonText = document.getElementById('jsonInput').value.trim();
     
     if (!jsonText) {
-      log('JSON vazio!', 'error');
+      showToast('Cole ou carregue um JSON primeiro!', 'error');
       return;
     }
     
     try {
-      const data = JSON.parse(jsonText);
+      // Limpar markdown code blocks
+      var cleanJson = jsonText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+      var data = JSON.parse(cleanJson);
       
-      // Aceita tanto array quanto objeto
+      // Aceitar múltiplos formatos
       if (Array.isArray(data)) {
         perguntasParaImportar = data;
       } else if (data.perguntas && Array.isArray(data.perguntas)) {
         perguntasParaImportar = data.perguntas;
       } else if (typeof data === 'object') {
-        // Formato de objeto com IDs como chaves
         perguntasParaImportar = Object.values(data);
       } else {
-        throw new Error('Formato inválido');
+        throw new Error('Formato de JSON inválido');
       }
       
-      // Validar estrutura
-      const validas = perguntasParaImportar.filter(p => 
-        p.pergunta && p.alternativas && p.correta && p.timeId
-      );
-      
-      if (validas.length === 0) {
-        throw new Error('Nenhuma pergunta válida encontrada');
-      }
-      
-      perguntasParaImportar = validas;
-      
-      document.getElementById('perguntasCarregadas').textContent = perguntasParaImportar.length;
-      document.getElementById('btnImportar').disabled = false;
-      
-      // Mostrar preview por time
-      mostrarPreview();
-      
-      log(`${perguntasParaImportar.length} perguntas carregadas com sucesso!`, 'success');
+      // Validar perguntas
+      validarPerguntas();
       
     } catch (error) {
-      log(`Erro ao parsear JSON: ${error.message}`, 'error');
+      log('Erro ao parsear JSON: ' + error.message, 'error');
+      showToast('JSON inválido: ' + error.message, 'error');
       perguntasParaImportar = [];
       document.getElementById('btnImportar').disabled = true;
     }
   }
 
-  // Mostrar preview
-  function mostrarPreview() {
-    const timesList = document.getElementById('timesList');
-    const previewCard = document.getElementById('previewCard');
+  function validarPerguntas() {
+    validationResults = { ok: [], warnings: [], errors: [] };
+    var validas = [];
+    var porEntidade = {};
     
-    // Contar por time
-    const porTime = {};
-    perguntasParaImportar.forEach(p => {
-      const nome = p.timeNome || 'Desconhecido';
-      porTime[nome] = (porTime[nome] || 0) + 1;
+    perguntasParaImportar.forEach(function(p, idx) {
+      var erros = [];
+      var avisos = [];
+      
+      // Campos obrigatórios
+      if (!p.pergunta || p.pergunta.trim() === '') {
+        erros.push('Sem pergunta');
+      }
+      
+      if (!p.alternativas || typeof p.alternativas !== 'object') {
+        erros.push('Sem alternativas');
+      } else {
+        if (!p.alternativas.A && !p.alternativas.a) erros.push('Falta alternativa A');
+        if (!p.alternativas.B && !p.alternativas.b) erros.push('Falta alternativa B');
+        if (!p.alternativas.C && !p.alternativas.c) erros.push('Falta alternativa C');
+        if (!p.alternativas.D && !p.alternativas.d) erros.push('Falta alternativa D');
+      }
+      
+      if (!p.correta) {
+        erros.push('Sem resposta correta');
+      }
+      
+      // V2: Aceita timeId OU campeonatoId (não precisa dos dois)
+      var temTime = p.timeId && p.timeId !== '';
+      var temCamp = p.campeonatoId && p.campeonatoId !== '';
+      
+      if (!temTime && !temCamp) {
+        erros.push('Sem timeId nem campeonatoId');
+      }
+      
+      // Avisos
+      if (!p.fonte || p.fonte.trim() === '') {
+        avisos.push('Sem fonte');
+      }
+      
+      if (!p.pontuacao || p.pontuacao < 1 || p.pontuacao > 10) {
+        avisos.push('Pontuação fora do range 1-10');
+      }
+      
+      if (erros.length === 0) {
+        validas.push(p);
+        
+        // Agrupar por entidade
+        var key, tipo;
+        if (temTime) {
+          key = p.timeNome || p.timeId;
+          tipo = 'time';
+        } else {
+          key = p.campeonatoNome || p.campeonatoId;
+          tipo = 'camp';
+        }
+        
+        if (!porEntidade[key]) {
+          porEntidade[key] = { count: 0, tipo: tipo };
+        }
+        porEntidade[key].count++;
+      }
+      
+      if (erros.length > 0) {
+        validationResults.errors.push('Pergunta ' + (idx + 1) + ': ' + erros.join(', '));
+      }
+      if (avisos.length > 0) {
+        validationResults.warnings.push('Pergunta ' + (idx + 1) + ': ' + avisos.join(', '));
+      }
     });
     
-    // Ordenar por quantidade
-    const sorted = Object.entries(porTime).sort((a, b) => b[1] - a[1]);
+    perguntasParaImportar = validas;
     
-    timesList.innerHTML = sorted.map(([nome, count]) => `
-      <div class="time-item">
-        <span>${nome}</span>
-        <span class="time-count">${count}</span>
-      </div>
-    `).join('');
+    if (validas.length > 0) {
+      validationResults.ok.push(validas.length + ' perguntas válidas');
+      
+      var qtdTimes = Object.values(porEntidade).filter(function(e) { return e.tipo === 'time'; }).length;
+      var qtdCamps = Object.values(porEntidade).filter(function(e) { return e.tipo === 'camp'; }).length;
+      
+      if (qtdTimes > 0) validationResults.ok.push(qtdTimes + ' times diferentes');
+      if (qtdCamps > 0) validationResults.ok.push(qtdCamps + ' campeonatos diferentes');
+    }
     
-    previewCard.style.display = 'block';
+    exibirValidacao();
+    exibirPreview(porEntidade);
+    
+    document.getElementById('perguntasCarregadas').textContent = validas.length;
+    document.getElementById('btnImportar').disabled = validas.length === 0;
+    
+    if (validas.length > 0) {
+      log(validas.length + ' perguntas prontas para importar', 'success');
+      showToast(validas.length + ' perguntas carregadas!', 'success');
+    } else {
+      log('Nenhuma pergunta válida encontrada', 'error');
+      showToast('Nenhuma pergunta válida!', 'error');
+    }
   }
 
-  // Importar perguntas
+  function exibirValidacao() {
+    var html = '';
+    
+    validationResults.ok.forEach(function(msg) {
+      html += '<div class="validation-item ok"><span class="material-icons ok">check_circle</span><span>' + msg + '</span></div>';
+    });
+    
+    validationResults.warnings.slice(0, 5).forEach(function(msg) {
+      html += '<div class="validation-item warning"><span class="material-icons warning">warning</span><span>' + msg + '</span></div>';
+    });
+    
+    if (validationResults.warnings.length > 5) {
+      html += '<div class="validation-item warning"><span class="material-icons warning">warning</span><span>... e mais ' + (validationResults.warnings.length - 5) + ' avisos</span></div>';
+    }
+    
+    validationResults.errors.slice(0, 5).forEach(function(msg) {
+      html += '<div class="validation-item error"><span class="material-icons error">error</span><span>' + msg + '</span></div>';
+    });
+    
+    if (validationResults.errors.length > 5) {
+      html += '<div class="validation-item error"><span class="material-icons error">error</span><span>... e mais ' + (validationResults.errors.length - 5) + ' erros</span></div>';
+    }
+    
+    document.getElementById('validationSummary').innerHTML = html;
+    document.getElementById('validationCard').style.display = 'block';
+  }
+
+  function exibirPreview(porEntidade) {
+    var sorted = Object.entries(porEntidade).sort(function(a, b) { return b[1].count - a[1].count; });
+    
+    var html = sorted.map(function(item) {
+      var nome = item[0];
+      var info = item[1];
+      var icon = info.tipo === 'time' ? '⚽' : '🏆';
+      return '<div class="preview-item ' + info.tipo + '">' +
+        '<span class="nome"><span class="icon">' + icon + '</span> ' + nome + '</span>' +
+        '<span class="count">' + info.count + '</span>' +
+      '</div>';
+    }).join('');
+    
+    document.getElementById('previewGrid').innerHTML = html;
+    document.getElementById('previewCard').style.display = 'block';
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // IMPORTAR PERGUNTAS
+  // ═══════════════════════════════════════════════════════════════
+  
   async function importarPerguntas() {
     if (perguntasParaImportar.length === 0) {
-      log('Nenhuma pergunta para importar!', 'error');
+      showToast('Nenhuma pergunta para importar!', 'error');
       return;
     }
     
-    const btn = document.getElementById('btnImportar');
+    var btn = document.getElementById('btnImportar');
     btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Importando...';
     
-    log(`Iniciando importação de ${perguntasParaImportar.length} perguntas...`, 'info');
+    log('Iniciando importação de ' + perguntasParaImportar.length + ' perguntas...', 'info');
     
-    let importadas = 0;
-    let erros = 0;
-    const total = perguntasParaImportar.length;
-    const batchSize = 50; // Limite do Firestore
+    var importadas = 0;
+    var total = perguntasParaImportar.length;
+    var batchSize = 50;
     
     try {
-      // Processar em lotes
-      for (let i = 0; i < total; i += batchSize) {
-        const batch = db.batch();
-        const lote = perguntasParaImportar.slice(i, i + batchSize);
+      for (var i = 0; i < total; i += batchSize) {
+        var batch = db.batch();
+        var lote = perguntasParaImportar.slice(i, i + batchSize);
         
-        lote.forEach(pergunta => {
-          const docRef = db.collection('perguntas').doc();
+        lote.forEach(function(p) {
+          var docRef = db.collection('perguntas').doc();
           
-          // Garantir que alternativas é um objeto válido
-          const alternativas = {
-            A: String(pergunta.alternativas?.A || pergunta.alternativas?.a || ''),
-            B: String(pergunta.alternativas?.B || pergunta.alternativas?.b || ''),
-            C: String(pergunta.alternativas?.C || pergunta.alternativas?.c || ''),
-            D: String(pergunta.alternativas?.D || pergunta.alternativas?.d || '')
+          // Normalizar alternativas
+          var alternativas = {
+            A: String(p.alternativas.A || p.alternativas.a || ''),
+            B: String(p.alternativas.B || p.alternativas.b || ''),
+            C: String(p.alternativas.C || p.alternativas.c || ''),
+            D: String(p.alternativas.D || p.alternativas.d || '')
           };
           
-          batch.set(docRef, {
-            pergunta: String(pergunta.pergunta || ''),
+          var dados = {
+            // V2: Salvar ID personalizado!
+            id: String(p.id || ''),
+            pergunta: String(p.pergunta || ''),
             alternativas: alternativas,
-            correta: String(pergunta.correta || 'A').toUpperCase(),
-            pontuacao: Number(pergunta.pontuacao) || 5,
-            timeId: String(pergunta.timeId || ''),
-            timeNome: String(pergunta.timeNome || ''),
-            fonte: String(pergunta.fonte || ''),
+            correta: String(p.correta || 'A').toUpperCase(),
+            pontuacao: Number(p.pontuacao) || 5,
+            fonte: String(p.fonte || ''),
+            // V2: Salvar AMBOS time e campeonato
+            timeId: String(p.timeId || ''),
+            timeNome: String(p.timeNome || ''),
+            campeonatoId: String(p.campeonatoId || ''),
+            campeonatoNome: String(p.campeonatoNome || ''),
             criadoEm: firebase.firestore.FieldValue.serverTimestamp()
-          });
+          };
+          
+          batch.set(docRef, dados);
         });
         
         await batch.commit();
         importadas += lote.length;
         
-        // Atualizar progresso
-        const percent = Math.round((importadas / total) * 100);
+        var percent = Math.round((importadas / total) * 100);
         document.getElementById('progressBar').style.width = percent + '%';
         document.getElementById('progressBar').textContent = percent + '%';
-        document.getElementById('perguntasImportadas').textContent = importadas;
         
-        log(`Lote ${Math.ceil((i + batchSize) / batchSize)}: ${lote.length} perguntas importadas`, 'success');
+        log('Lote ' + Math.ceil((i + batchSize) / batchSize) + ': ' + lote.length + ' perguntas', 'success');
       }
       
-      log(`✅ Importação concluída! ${importadas} perguntas adicionadas.`, 'success');
+      log('✅ Importação concluída! ' + importadas + ' perguntas adicionadas.', 'success');
+      showToast(importadas + ' perguntas importadas!', 'success');
       
-      // Limpar
-      perguntasParaImportar = [];
-      document.getElementById('perguntasCarregadas').textContent = '0';
-      document.getElementById('jsonInput').value = '';
-      document.getElementById('previewCard').style.display = 'none';
-      
-      // Atualizar stats
+      limparForm();
       await verificarBanco();
       
     } catch (error) {
-      log(`Erro na importação: ${error.message}`, 'error');
+      log('Erro na importação: ' + error.message, 'error');
+      showToast('Erro: ' + error.message, 'error');
     }
     
     btn.disabled = false;
+    btn.innerHTML = '<span class="material-icons">rocket_launch</span> Importar Perguntas';
   }
 
-  // Limpar todas as perguntas
+  // ═══════════════════════════════════════════════════════════════
+  // LIMPAR PERGUNTAS
+  // ═══════════════════════════════════════════════════════════════
+  
   async function limparPerguntas() {
     if (!confirm('⚠️ ATENÇÃO: Isso vai DELETAR TODAS as perguntas do banco!\n\nTem certeza?')) {
       return;
@@ -448,59 +849,79 @@
       return;
     }
     
-    log('Iniciando limpeza de perguntas...', 'info');
+    log('Iniciando limpeza de perguntas...', 'warning');
     
     try {
-      const snapshot = await db.collection('perguntas').get();
-      const total = snapshot.docs.length;
-      let deletadas = 0;
+      var snapshot = await db.collection('perguntas').get();
+      var total = snapshot.size;
+      var deletadas = 0;
+      var batchSize = 50;
       
-      // Deletar em lotes
-      const batchSize = 50;
-      const batches = [];
-      let batch = db.batch();
-      let count = 0;
+      var docs = snapshot.docs;
       
-      snapshot.docs.forEach(doc => {
-        batch.delete(doc.ref);
-        count++;
+      for (var i = 0; i < docs.length; i += batchSize) {
+        var batch = db.batch();
+        var lote = docs.slice(i, i + batchSize);
         
-        if (count >= batchSize) {
-          batches.push(batch);
-          batch = db.batch();
-          count = 0;
-        }
-      });
-      
-      if (count > 0) {
-        batches.push(batch);
+        lote.forEach(function(doc) {
+          batch.delete(doc.ref);
+        });
+        
+        await batch.commit();
+        deletadas += lote.length;
+        
+        var percent = Math.round((deletadas / total) * 100);
+        document.getElementById('progressBar').style.width = percent + '%';
+        document.getElementById('progressBar').textContent = 'Deletando... ' + percent + '%';
+        
+        log('Deletadas ' + deletadas + ' de ' + total, 'info');
       }
       
-      for (const b of batches) {
-        await b.commit();
-        deletadas += batchSize;
-        log(`Deletadas ${Math.min(deletadas, total)} de ${total}...`, 'info');
-      }
+      document.getElementById('progressBar').style.width = '0%';
+      document.getElementById('progressBar').textContent = '0%';
       
-      log(`✅ ${total} perguntas deletadas!`, 'success');
+      log('✅ ' + total + ' perguntas deletadas!', 'success');
+      showToast(total + ' perguntas deletadas!', 'success');
+      
       await verificarBanco();
       
     } catch (error) {
-      log(`Erro: ${error.message}`, 'error');
+      log('Erro: ' + error.message, 'error');
     }
   }
 
-  // Inicializar
-  auth.onAuthStateChanged(user => {
-    if (user) {
-      log(`Logado como: ${user.email}`, 'success');
-      verificarBanco();
-    } else {
-      log('Não autenticado. Algumas funções podem não funcionar.', 'info');
-      // Tentar login anônimo para testes
-      auth.signInAnonymously().catch(e => log('Auth: ' + e.message, 'error'));
-    }
-  });
+  function limparForm() {
+    perguntasParaImportar = [];
+    document.getElementById('jsonInput').value = '';
+    document.getElementById('perguntasCarregadas').textContent = '0';
+    document.getElementById('btnImportar').disabled = true;
+    document.getElementById('previewCard').style.display = 'none';
+    document.getElementById('validationCard').style.display = 'none';
+    document.getElementById('progressBar').style.width = '0%';
+    document.getElementById('progressBar').textContent = '0%';
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // UTILS
+  // ═══════════════════════════════════════════════════════════════
+  
+  function log(message, type) {
+    type = type || 'info';
+    var logContainer = document.getElementById('logContainer');
+    var item = document.createElement('div');
+    item.className = 'log-item log-' + type;
+    item.textContent = '[' + new Date().toLocaleTimeString() + '] ' + message;
+    logContainer.insertBefore(item, logContainer.firstChild);
+  }
+
+  function showToast(message, type) {
+    type = type || 'success';
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(function() { toast.remove(); }, 3000);
+  }
 </script>
 
 </body>
