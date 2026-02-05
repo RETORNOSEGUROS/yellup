@@ -3,7 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - Perguntas | Yellup</title>
+    <title>Admin - Perguntas V2 | Yellup</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -31,33 +36,70 @@
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             margin-bottom: 20px;
         }
-
         .sidebar-header h2 { color: #FFD700; font-size: 28px; }
-        .sidebar-header span { font-size: 12px; background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; }
-
-        .nav-section { margin-bottom: 20px; }
-        .nav-section-title { color: rgba(255, 255, 255, 0.5); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 0 20px; margin-bottom: 10px; }
-
-        .sidebar a {
-            display: flex; align-items: center; gap: 12px; padding: 12px 20px;
-            color: rgba(255, 255, 255, 0.7); text-decoration: none; transition: all 0.3s;
-            border-left: 3px solid transparent;
+        .sidebar-header .version { 
+            font-size: 11px; 
+            background: linear-gradient(135deg, #667eea, #764ba2); 
+            color: white; 
+            padding: 2px 8px; 
+            border-radius: 10px; 
+            margin-left: 5px;
         }
 
-        .sidebar a:hover, .sidebar a.active { background: rgba(255, 215, 0, 0.1); color: #FFD700; border-left-color: #FFD700; }
+        .nav-section { margin-bottom: 20px; }
+        .nav-section-title { 
+            color: rgba(255, 255, 255, 0.5); 
+            font-size: 11px; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+            padding: 0 20px; 
+            margin-bottom: 10px; 
+        }
+
+        .sidebar a {
+            display: flex; 
+            align-items: center; 
+            gap: 12px; 
+            padding: 12px 20px;
+            color: rgba(255, 255, 255, 0.7); 
+            text-decoration: none; 
+            transition: all 0.3s;
+            border-left: 3px solid transparent;
+        }
+        .sidebar a:hover, .sidebar a.active { 
+            background: rgba(255, 215, 0, 0.1); 
+            color: #FFD700; 
+            border-left-color: #FFD700; 
+        }
         .sidebar a .icon { font-size: 18px; width: 24px; text-align: center; }
 
         /* Main Content */
         .main { flex: 1; margin-left: 260px; padding: 30px; }
 
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        .header h1 { color: white; font-size: 28px; }
-
-        .btn {
-            padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;
-            transition: all 0.3s; border: none; display: inline-flex; align-items: center; gap: 8px;
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
         }
+        .header h1 { color: white; font-size: 28px; }
+        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
+        /* Buttons */
+        .btn {
+            padding: 10px 20px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: 600;
+            transition: all 0.3s; 
+            border: none; 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 8px;
+            font-size: 14px;
+        }
         .btn-primary { background: linear-gradient(135deg, #FFD700, #FFA500); color: #1a1a2e; }
         .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(255, 215, 0, 0.3); }
         .btn-danger { background: rgba(231, 76, 60, 0.2); border: 1px solid #e74c3c; color: #e74c3c; }
@@ -69,234 +111,511 @@
         .btn-sm { padding: 6px 12px; font-size: 12px; }
 
         /* Stats */
-        .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
-
+        .stats-row { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); 
+            gap: 15px; 
+            margin-bottom: 25px; 
+        }
         .stat-card {
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px; padding: 20px; text-align: center;
+            border-radius: 12px; 
+            padding: 20px; 
+            text-align: center;
         }
-
-        .stat-card .icon { font-size: 32px; margin-bottom: 10px; }
-        .stat-card .value { font-size: 28px; font-weight: 700; color: white; }
-        .stat-card .label { color: rgba(255, 255, 255, 0.6); font-size: 14px; }
+        .stat-card .icon { font-size: 28px; margin-bottom: 8px; }
+        .stat-card .value { font-size: 24px; font-weight: 700; color: white; }
+        .stat-card .label { color: rgba(255, 255, 255, 0.6); font-size: 13px; }
 
         /* Filters */
         .filters-bar {
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px; padding: 20px; margin-bottom: 20px;
-            display: flex; gap: 15px; flex-wrap: wrap; align-items: center;
+            border-radius: 12px; 
+            padding: 20px; 
+            margin-bottom: 20px;
+            display: flex; 
+            gap: 15px; 
+            flex-wrap: wrap; 
+            align-items: flex-end;
         }
 
-        .search-box { flex: 1; min-width: 250px; position: relative; }
+        .filter-group { display: flex; flex-direction: column; gap: 5px; }
+        .filter-group label { 
+            font-size: 11px; 
+            color: rgba(255,255,255,0.5); 
+            text-transform: uppercase; 
+        }
 
+        /* Search Select V2 */
+        .search-select-container {
+            position: relative;
+            min-width: 200px;
+        }
+        .search-select-input {
+            width: 100%;
+            padding: 10px 35px 10px 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 14px;
+        }
+        .search-select-input:focus {
+            outline: none;
+            border-color: #FFD700;
+        }
+        .search-select-input::placeholder { color: rgba(255,255,255,0.5); }
+        .search-select-icon {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: rgba(255,255,255,0.5);
+            font-size: 18px;
+            pointer-events: none;
+        }
+        .search-select-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            max-height: 250px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            margin-top: 5px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .search-select-dropdown.show { display: block; }
+        .search-select-option {
+            padding: 10px 15px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            color: white;
+            font-size: 13px;
+        }
+        .search-select-option:hover { background: rgba(255, 215, 0, 0.2); }
+        .search-select-option:last-child { border-bottom: none; }
+        .search-select-option .bandeira { margin-right: 8px; }
+        .search-select-count {
+            padding: 8px 15px;
+            background: rgba(255,255,255,0.05);
+            font-size: 11px;
+            color: rgba(255,255,255,0.5);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .search-box { 
+            flex: 1; 
+            min-width: 200px; 
+            position: relative; 
+        }
         .search-box input {
-            width: 100%; padding: 12px 20px 12px 45px; border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.1);
-            color: white; font-size: 14px;
+            width: 100%; 
+            padding: 10px 15px 10px 40px; 
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.2); 
+            background: rgba(255, 255, 255, 0.1);
+            color: white; 
+            font-size: 14px;
         }
-
         .search-box input::placeholder { color: rgba(255, 255, 255, 0.5); }
         .search-box input:focus { outline: none; border-color: #FFD700; }
-        .search-box .icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.5); }
-
-        .filter-select {
-            padding: 12px 20px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(255, 255, 255, 0.1); color: white; font-size: 14px; min-width: 150px;
+        .search-box .material-icons { 
+            position: absolute; 
+            left: 12px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 18px;
         }
 
+        .filter-select {
+            padding: 10px 15px; 
+            border-radius: 8px; 
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.1); 
+            color: white; 
+            font-size: 14px; 
+            min-width: 130px;
+        }
         .filter-select option { background: #1a1a2e; color: white; }
 
         /* Table */
         .table-container {
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px; overflow: hidden;
+            border-radius: 12px; 
+            overflow: hidden;
         }
-
         table { width: 100%; border-collapse: collapse; }
-
         th {
-            background: rgba(0, 0, 0, 0.3); color: #FFD700; padding: 15px; text-align: left;
-            font-weight: 600; font-size: 13px; text-transform: uppercase;
+            background: rgba(0, 0, 0, 0.3); 
+            color: #FFD700; 
+            padding: 12px 15px; 
+            text-align: left;
+            font-weight: 600; 
+            font-size: 12px; 
+            text-transform: uppercase;
+            white-space: nowrap;
         }
-
-        td { padding: 15px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); color: white; font-size: 14px; }
+        td { 
+            padding: 12px 15px; 
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05); 
+            color: white; 
+            font-size: 13px; 
+            vertical-align: top;
+        }
         tr:hover { background: rgba(255, 255, 255, 0.03); }
 
-        .pergunta-text { max-width: 400px; }
-
-        .alternativas {
-            display: flex; flex-direction: column; gap: 4px; font-size: 12px;
+        .pergunta-text { max-width: 350px; }
+        .pergunta-id { 
+            font-family: monospace; 
+            font-size: 11px; 
+            color: #667eea; 
+            background: rgba(102, 126, 234, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 5px;
         }
 
-        .alt-item { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 4px; }
+        .alternativas {
+            display: flex; 
+            flex-direction: column; 
+            gap: 3px; 
+            font-size: 11px;
+        }
+        .alt-item { 
+            display: flex; 
+            align-items: center; 
+            gap: 6px; 
+            padding: 3px 6px; 
+            border-radius: 4px; 
+        }
         .alt-item.correta { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
         .alt-item.incorreta { color: rgba(255, 255, 255, 0.5); }
 
-        .badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .badge { 
+            padding: 4px 10px; 
+            border-radius: 15px; 
+            font-size: 11px; 
+            font-weight: 600;
+            white-space: nowrap;
+        }
         .badge-facil { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
         .badge-medio { background: rgba(241, 196, 15, 0.2); color: #f1c40f; }
         .badge-dificil { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
 
-        .time-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(255, 255, 255, 0.1); border-radius: 15px; font-size: 12px; }
-
-        .actions { display: flex; gap: 8px; }
-
-        /* Modal */
-        .modal {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.8); z-index: 1000; align-items: center; justify-content: center;
+        .entidade-badge { 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 6px; 
+            padding: 4px 10px; 
+            background: rgba(255, 255, 255, 0.1); 
+            border-radius: 15px; 
+            font-size: 11px;
+            white-space: nowrap;
         }
+        .entidade-badge.camp { background: rgba(102, 126, 234, 0.2); color: #667eea; }
+        .entidade-badge.time { background: rgba(56, 239, 125, 0.2); color: #38ef7d; }
 
-        .modal.active { display: flex; }
-
-        .modal-content {
-            background: linear-gradient(135deg, #1a1a2e, #16213e);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 16px; padding: 30px; width: 90%; max-width: 700px; max-height: 90vh; overflow-y: auto;
-        }
-
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
-        .modal-header h2 { color: white; font-size: 22px; }
-        .modal-close { background: none; border: none; color: rgba(255, 255, 255, 0.5); font-size: 24px; cursor: pointer; }
-
-        .form-group { margin-bottom: 20px; }
-        .form-group label { display: block; color: rgba(255, 255, 255, 0.7); margin-bottom: 8px; font-size: 14px; }
-
-        .form-group input, .form-group select, .form-group textarea {
-            width: 100%; padding: 12px 15px; border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(255, 255, 255, 0.1); color: white; font-size: 14px;
-        }
-
-        .form-group textarea { min-height: 80px; resize: vertical; font-family: inherit; }
-        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: #FFD700; }
-        .form-group select option { background: #fff; color: #000; }
-
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-
-        .alternativas-form { background: rgba(255, 255, 255, 0.05); padding: 20px; border-radius: 12px; margin-bottom: 20px; }
-        .alternativas-form h4 { color: white; margin-bottom: 15px; font-size: 16px; }
-
-        .alt-input-group { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-        .alt-input-group .letra { width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.1); border-radius: 8px; color: #FFD700; font-weight: bold; }
-        .alt-input-group input { flex: 1; }
-        .alt-input-group .radio-label { display: flex; align-items: center; gap: 5px; color: rgba(255, 255, 255, 0.7); font-size: 12px; cursor: pointer; white-space: nowrap; }
-        .alt-input-group input[type="radio"] { width: auto; margin: 0; }
+        .actions { display: flex; gap: 6px; }
 
         /* Pagination */
-        .pagination { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; padding: 20px; }
-        .pagination button { padding: 10px 20px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: white; border-radius: 8px; cursor: pointer; }
-        .pagination button:hover { background: rgba(255, 215, 0, 0.2); border-color: #FFD700; }
+        .pagination {
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            gap: 15px;
+            margin-top: 20px; 
+            padding: 15px;
+        }
+        .pagination button {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .pagination button:hover:not(:disabled) { 
+            background: rgba(255, 215, 0, 0.2); 
+            border-color: #FFD700; 
+        }
         .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
         .pagination span { color: rgba(255, 255, 255, 0.7); }
 
-        .loading { text-align: center; padding: 40px; color: rgba(255, 255, 255, 0.5); }
+        /* Modal */
+        .modal {
+            display: none; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8); 
+            z-index: 1000; 
+            align-items: center; 
+            justify-content: center;
+        }
+        .modal.show { display: flex; }
+        .modal-content {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            border-radius: 16px;
+            padding: 30px;
+            width: 90%;
+            max-width: 700px;
+            max-height: 90vh;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .modal-header h2 { color: #FFD700; font-size: 20px; }
+        .modal-close {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 24px;
+            cursor: pointer;
+        }
+        .modal-close:hover { color: #e74c3c; }
+
+        .form-group { margin-bottom: 20px; }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+        }
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 12px 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+        }
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #FFD700;
+        }
+        .form-group textarea { min-height: 100px; resize: vertical; }
+        .form-group select option { background: #1a1a2e; }
+
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+
+        .alternativas-form { margin: 20px 0; }
+        .alternativas-form h4 { color: #FFD700; margin-bottom: 15px; font-size: 14px; }
+        .alt-input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .alt-input-group .letra {
+            width: 30px;
+            height: 30px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: white;
+            font-size: 12px;
+        }
+        .alt-input-group input[type="text"] { flex: 1; }
+        .alt-input-group .radio-label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .alt-input-group input[type="radio"] { accent-color: #2ecc71; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 10px;
+            color: #fff;
+            font-weight: 500;
+            z-index: 2000;
+            animation: slideIn 0.3s ease;
+        }
+        .toast-success { background: linear-gradient(135deg, #2ecc71, #27ae60); }
+        .toast-error { background: linear-gradient(135deg, #e74c3c, #c0392b); }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .loading { text-align: center; color: rgba(255,255,255,0.5); padding: 40px; }
+
+        @media (max-width: 1024px) {
+            .sidebar { width: 200px; }
+            .main { margin-left: 200px; }
+        }
+
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .main { margin-left: 0; }
+            .form-row { grid-template-columns: 1fr; }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+        }
     </style>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
     <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-header">
-            <h2>⚽ Yellup <span>Admin</span></h2>
+            <h2>⚽ Yellup <span class="version">V2</span></h2>
         </div>
-
-        <div class="nav-section">
-            <div class="nav-section-title">Principal</div>
-            <a href="dashboard.html"><span class="icon">📊</span> Dashboard</a>
-            <a href="usuarios.html"><span class="icon">👥</span> Usuários</a>
-            <a href="jogos.html"><span class="icon">🎮</span> Jogos</a>
-            <a href="perguntas.html" class="active"><span class="icon">❓</span> Perguntas</a>
-        </div>
-
-        <div class="nav-section">
-            <div class="nav-section-title">Modos de Jogo</div>
-            <a href="torneios.html"><span class="icon">🏅</span> Torneios</a>
-            <a href="embates.html"><span class="icon">⚔️</span> Embates PvP</a>
-            <a href="ligas.html"><span class="icon">🏆</span> Teste de Ligas</a>
-        </div>
-
-        <div class="nav-section">
-            <div class="nav-section-title">Comunidade</div>
-            <a href="chat.html"><span class="icon">💬</span> Chat Global</a>
-            <a href="amizades.html"><span class="icon">🤝</span> Amizades</a>
-            <a href="notificacoes.html"><span class="icon">🔔</span> Notificações</a>
-        </div>
-
-        <div class="nav-section">
-            <div class="nav-section-title">Financeiro</div>
-            <a href="creditos.html"><span class="icon">💰</span> Créditos</a>
-            <a href="transacoes.html"><span class="icon">💳</span> Transações</a>
-            <a href="indicacoes.html"><span class="icon">🔗</span> Indicações</a>
-        </div>
-
-        <div class="nav-section">
-            <div class="nav-section-title">Sistema</div>
-            <a href="times.html"><span class="icon">⚽</span> Times</a>
-            <a href="configuracoes.html"><span class="icon">⚙️</span> Configurações</a>
-        </div>
+        <nav>
+            <div class="nav-section">
+                <div class="nav-section-title">Principal</div>
+                <a href="#"><span class="icon">📊</span> Dashboard</a>
+                <a href="#" class="active"><span class="icon">❓</span> Perguntas</a>
+                <a href="#"><span class="icon">⚽</span> Times</a>
+                <a href="#"><span class="icon">🏆</span> Campeonatos</a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Ferramentas</div>
+                <a href="gerar-perguntas-v5.html"><span class="icon">✨</span> Gerar Perguntas</a>
+                <a href="importar-perguntas-v2.html"><span class="icon">📥</span> Importar</a>
+            </div>
+        </nav>
     </div>
 
     <!-- Main Content -->
     <div class="main">
         <div class="header">
             <h1>❓ Gerenciar Perguntas</h1>
-            <button class="btn btn-primary" onclick="abrirModal()">➕ Nova Pergunta</button>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="abrirModal()">
+                    <span class="material-icons">add</span>
+                    Nova Pergunta
+                </button>
+                <button class="btn btn-info" onclick="exportarJSON()">
+                    <span class="material-icons">code</span>
+                    Exportar JSON
+                </button>
+                <button class="btn btn-success" onclick="exportarExcel()">
+                    <span class="material-icons">table_chart</span>
+                    Exportar Excel
+                </button>
+            </div>
         </div>
 
         <!-- Stats -->
         <div class="stats-row">
             <div class="stat-card">
-                <div class="icon">❓</div>
+                <div class="icon">📚</div>
                 <div class="value" id="statTotal">0</div>
-                <div class="label">Total de Perguntas</div>
+                <div class="label">Total</div>
+            </div>
+            <div class="stat-card">
+                <div class="icon">⚽</div>
+                <div class="value" id="statTimes">0</div>
+                <div class="label">De Times</div>
+            </div>
+            <div class="stat-card">
+                <div class="icon">🏆</div>
+                <div class="value" id="statCamps">0</div>
+                <div class="label">De Campeonatos</div>
             </div>
             <div class="stat-card">
                 <div class="icon">🟢</div>
                 <div class="value" id="statFacil">0</div>
-                <div class="label">Fáceis</div>
+                <div class="label">Fácil (1-4)</div>
             </div>
             <div class="stat-card">
                 <div class="icon">🟡</div>
                 <div class="value" id="statMedio">0</div>
-                <div class="label">Médias</div>
+                <div class="label">Médio (5-6)</div>
             </div>
             <div class="stat-card">
                 <div class="icon">🔴</div>
                 <div class="value" id="statDificil">0</div>
-                <div class="label">Difíceis</div>
+                <div class="label">Difícil (7-10)</div>
             </div>
         </div>
 
         <!-- Filters -->
         <div class="filters-bar">
             <div class="search-box">
-                <span class="icon">🔍</span>
-                <input type="text" id="busca" placeholder="Buscar pergunta..." oninput="buscarPerguntas()">
+                <span class="material-icons">search</span>
+                <input type="text" id="busca" placeholder="Buscar pergunta..." onkeyup="buscarPerguntas()">
             </div>
-            <select class="filter-select" id="filtroTipo" onchange="filtrarPorTipo()">
-                <option value="">Todos os Tipos</option>
-                <option value="time">⚽ Perguntas de Times</option>
-                <option value="campeonato">🏆 Perguntas de Campeonatos</option>
-            </select>
-            <select class="filter-select" id="filtroTime" onchange="filtrarPerguntas()">
-                <option value="">Todos os Times</option>
-            </select>
-            <select class="filter-select" id="filtroCampeonato" onchange="filtrarPerguntas()" style="display: none;">
-                <option value="">Todos os Campeonatos</option>
-            </select>
-            <select class="filter-select" id="filtroDificuldade" onchange="filtrarPerguntas()">
-                <option value="">Todas as Dificuldades</option>
-                <option value="facil">🟢 Fácil</option>
-                <option value="medio">🟡 Médio</option>
-                <option value="dificil">🔴 Difícil</option>
-            </select>
-            <button class="btn btn-info" onclick="exportarCSV()">📥 Exportar</button>
+            
+            <div class="filter-group">
+                <label>Tipo</label>
+                <select class="filter-select" id="filtroTipo" onchange="filtrarPerguntas()">
+                    <option value="">Todos</option>
+                    <option value="time">⚽ Times</option>
+                    <option value="campeonato">🏆 Campeonatos</option>
+                </select>
+            </div>
+            
+            <div class="filter-group" id="filtroTimeGroup">
+                <label>Time</label>
+                <div class="search-select-container">
+                    <input type="text" class="search-select-input" id="searchFiltroTime" placeholder="Buscar time..." autocomplete="off">
+                    <span class="material-icons search-select-icon">search</span>
+                    <input type="hidden" id="filtroTime" value="">
+                    <div class="search-select-dropdown" id="dropdownFiltroTime"></div>
+                </div>
+            </div>
+            
+            <div class="filter-group" id="filtroCampGroup">
+                <label>Campeonato</label>
+                <div class="search-select-container">
+                    <input type="text" class="search-select-input" id="searchFiltroCamp" placeholder="Buscar campeonato..." autocomplete="off">
+                    <span class="material-icons search-select-icon">search</span>
+                    <input type="hidden" id="filtroCampeonato" value="">
+                    <div class="search-select-dropdown" id="dropdownFiltroCamp"></div>
+                </div>
+            </div>
+            
+            <div class="filter-group">
+                <label>Dificuldade</label>
+                <select class="filter-select" id="filtroDificuldade" onchange="filtrarPerguntas()">
+                    <option value="">Todas</option>
+                    <option value="facil">🟢 Fácil</option>
+                    <option value="medio">🟡 Médio</option>
+                    <option value="dificil">🔴 Difícil</option>
+                </select>
+            </div>
+            
+            <button class="btn btn-sm btn-info" onclick="limparFiltros()">
+                <span class="material-icons">clear</span>
+                Limpar
+            </button>
         </div>
 
         <!-- Table -->
@@ -304,16 +623,15 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Pergunta</th>
+                        <th>ID / Pergunta</th>
                         <th>Alternativas</th>
-                        <th>Time/Campeonato</th>
-                        <th>Dificuldade</th>
-                        <th>Pontos</th>
+                        <th>Time/Camp</th>
+                        <th>Pts</th>
                         <th>Ações</th>
                     </tr>
                 </thead>
                 <tbody id="listaPerguntas">
-                    <tr><td colspan="6" class="loading">Carregando perguntas...</td></tr>
+                    <tr><td colspan="5" class="loading">Carregando perguntas...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -325,7 +643,6 @@
             <button onclick="proximaPagina()" id="btnProxima">Próxima →</button>
         </div>
     </div>
-
     <!-- Modal Nova/Editar Pergunta -->
     <div class="modal" id="modalPergunta">
         <div class="modal-content">
@@ -334,7 +651,12 @@
                 <button class="modal-close" onclick="fecharModal()">✕</button>
             </div>
 
-            <input type="hidden" id="perguntaId">
+            <input type="hidden" id="perguntaDocId">
+
+            <div class="form-group">
+                <label>ID Personalizado (opcional)</label>
+                <input type="text" id="perguntaId" placeholder="Ex: santos-001, libertadores-050">
+            </div>
 
             <div class="form-group">
                 <label>Texto da Pergunta</label>
@@ -379,50 +701,46 @@
                 </div>
             </div>
 
-            <div class="form-row" id="rowTime">
-                <div class="form-group" style="width: 100%;">
-                    <label>Time Relacionado</label>
-                    <select id="timeId">
-                        <option value="">Geral (sem time)</option>
-                    </select>
+            <div class="form-group" id="rowTime">
+                <label>Time Relacionado</label>
+                <div class="search-select-container">
+                    <input type="text" class="search-select-input" id="searchTimeModal" placeholder="Buscar time..." autocomplete="off">
+                    <span class="material-icons search-select-icon">search</span>
+                    <input type="hidden" id="timeId" value="">
+                    <div class="search-select-dropdown" id="dropdownTimeModal"></div>
                 </div>
             </div>
 
-            <div class="form-row" id="rowCampeonato" style="display: none;">
-                <div class="form-group" style="width: 100%;">
-                    <label>Campeonato Relacionado</label>
-                    <select id="campeonatoId">
-                        <option value="">Geral (sem campeonato)</option>
-                    </select>
+            <div class="form-group" id="rowCampeonato" style="display: none;">
+                <label>Campeonato Relacionado</label>
+                <div class="search-select-container">
+                    <input type="text" class="search-select-input" id="searchCampModal" placeholder="Buscar campeonato..." autocomplete="off">
+                    <span class="material-icons search-select-icon">search</span>
+                    <input type="hidden" id="campeonatoId" value="">
+                    <div class="search-select-dropdown" id="dropdownCampModal"></div>
                 </div>
             </div>
 
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Dificuldade</label>
-                    <select id="dificuldade">
-                        <option value="facil">🟢 Fácil</option>
-                        <option value="medio" selected>🟡 Médio</option>
-                        <option value="dificil">🔴 Difícil</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Fonte</label>
-                    <input type="text" id="fonte" placeholder="Wikipedia, CONMEBOL, etc">
-                </div>
+            <div class="form-group">
+                <label>Fonte</label>
+                <input type="text" id="fonte" placeholder="Wikipedia, CONMEBOL, site oficial, etc">
             </div>
 
             <div style="display: flex; gap: 15px; margin-top: 20px;">
-                <button class="btn btn-primary" onclick="salvarPergunta()" style="flex: 1;">💾 Salvar</button>
+                <button class="btn btn-primary" onclick="salvarPergunta()" style="flex: 1;">
+                    <span class="material-icons">save</span>
+                    Salvar
+                </button>
                 <button class="btn btn-danger" onclick="fecharModal()">Cancelar</button>
             </div>
         </div>
     </div>
 
     <script>
-        // =====================================================
-        // FUNÇÃO SIMPLES PARA MOSTRAR NOME + BANDEIRA
-        // =====================================================
+        // ═══════════════════════════════════════════════════════════════
+        // CONSTANTES E BANDEIRAS
+        // ═══════════════════════════════════════════════════════════════
+        
         const BANDEIRAS = {
             'brasil': '🇧🇷', 'argentina': '🇦🇷', 'uruguai': '🇺🇾', 'paraguai': '🇵🇾',
             'chile': '🇨🇱', 'colômbia': '🇨🇴', 'colombia': '🇨🇴', 'peru': '🇵🇪',
@@ -430,26 +748,19 @@
             'espanha': '🇪🇸', 'itália': '🇮🇹', 'italia': '🇮🇹', 'alemanha': '🇩🇪',
             'frança': '🇫🇷', 'franca': '🇫🇷', 'inglaterra': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'portugal': '🇵🇹',
             'holanda': '🇳🇱', 'países baixos': '🇳🇱', 'bélgica': '🇧🇪', 'belgica': '🇧🇪',
-            'suíça': '🇨🇭', 'suica': '🇨🇭', 'áustria': '🇦🇹', 'austria': '🇦🇹',
-            'polônia': '🇵🇱', 'polonia': '🇵🇱', 'ucrânia': '🇺🇦', 'ucrania': '🇺🇦',
-            'grécia': '🇬🇷', 'grecia': '🇬🇷', 'turquia': '🇹🇷', 'rússia': '🇷🇺',
-            'russia': '🇷🇺', 'suécia': '🇸🇪', 'suecia': '🇸🇪', 'dinamarca': '🇩🇰',
-            'noruega': '🇳🇴', 'escócia': '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 'escocia': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
-            'croácia': '🇭🇷', 'croacia': '🇭🇷', 'sérvia': '🇷🇸', 'serbia': '🇷🇸',
-            'japão': '🇯🇵', 'japao': '🇯🇵', 'china': '🇨🇳', 'coreia do sul': '🇰🇷',
-            'arábia saudita': '🇸🇦', 'arabia saudita': '🇸🇦', 'catar': '🇶🇦', 'qatar': '🇶🇦',
-            'austrália': '🇦🇺', 'australia': '🇦🇺', 'méxico': '🇲🇽', 'mexico': '🇲🇽',
-            'estados unidos': '🇺🇸', 'eua': '🇺🇸', 'mônaco': '🇲🇨', 'monaco': '🇲🇨'
+            'méxico': '🇲🇽', 'mexico': '🇲🇽', 'estados unidos': '🇺🇸', 'eua': '🇺🇸',
+            'japão': '🇯🇵', 'japao': '🇯🇵', 'arábia saudita': '🇸🇦', 'arabia saudita': '🇸🇦'
         };
 
-        function formatarTimeComBandeira(time) {
-            if (!time || !time.nome) return 'Time desconhecido';
-            const pais = (time.pais || '').toLowerCase().trim();
-            const bandeira = BANDEIRAS[pais] || '';
-            return bandeira ? bandeira + ' ' + time.nome : time.nome;
+        function getBandeira(pais) {
+            if (!pais) return '';
+            return BANDEIRAS[pais.toLowerCase().trim()] || '';
         }
 
-        // Firebase Config
+        // ═══════════════════════════════════════════════════════════════
+        // FIREBASE
+        // ═══════════════════════════════════════════════════════════════
+        
         const firebaseConfig = {
             apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
             authDomain: "painel-yellup.firebaseapp.com",
@@ -462,17 +773,10 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        // Verificar autenticação
-        firebase.auth().onAuthStateChanged(user => {
-            if (!user || user.email !== "admin@yellup.com") {
-                window.location.href = "login.html";
-            } else {
-                carregarTimes();
-                carregarPerguntas();
-            }
-        });
-
-        // Variáveis
+        // ═══════════════════════════════════════════════════════════════
+        // VARIÁVEIS GLOBAIS
+        // ═══════════════════════════════════════════════════════════════
+        
         let todasPerguntas = [];
         let perguntasFiltradas = [];
         let todosTimes = [];
@@ -480,252 +784,311 @@
         let timesMap = {};
         let campeonatosMap = {};
         let paginaAtual = 1;
-        const porPagina = 15;
+        const porPagina = 20;
 
-        // =====================================================
-        // FUNÇÃO HELPER PARA EXTRAIR ALTERNATIVAS
-        // Suporta AMBOS os formatos: 
-        //   - Novo: { alternativas: { A: "...", B: "...", C: "...", D: "..." } }
-        //   - Antigo: { altA: "...", altB: "...", altC: "...", altD: "..." }
-        // =====================================================
-        function getAlternativa(p, letra) {
-            // Primeiro tenta o formato novo (alternativas.A, alternativas.B, etc)
-            if (p.alternativas && typeof p.alternativas === 'object') {
-                return p.alternativas[letra] || p.alternativas[letra.toLowerCase()] || '';
+        // ═══════════════════════════════════════════════════════════════
+        // INICIALIZAÇÃO
+        // ═══════════════════════════════════════════════════════════════
+        
+        firebase.auth().onAuthStateChanged(function(user) {
+            if (user) {
+                console.log('Logado:', user.email);
+                init();
+            } else {
+                firebase.auth().signInAnonymously();
             }
-            // Depois tenta os formatos antigos
-            return p[`alt${letra}`] || p[`alternativa${letra}`] || p[`Alt${letra}`] || '';
+        });
+
+        async function init() {
+            await carregarTimes();
+            await carregarPerguntas();
+            setupSearchSelects();
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // SEARCH SELECT (BUSCA POR DIGITAÇÃO)
+        // ═══════════════════════════════════════════════════════════════
+        
+        function setupSearchSelects() {
+            // Filtro Time
+            setupSearchSelect('searchFiltroTime', 'dropdownFiltroTime', 'filtroTime', 'time', function() {
+                filtrarPerguntas();
+            });
+            
+            // Filtro Campeonato
+            setupSearchSelect('searchFiltroCamp', 'dropdownFiltroCamp', 'filtroCampeonato', 'camp', function() {
+                filtrarPerguntas();
+            });
+            
+            // Modal Time
+            setupSearchSelect('searchTimeModal', 'dropdownTimeModal', 'timeId', 'time');
+            
+            // Modal Campeonato
+            setupSearchSelect('searchCampModal', 'dropdownCampModal', 'campeonatoId', 'camp');
+            
+            // Fechar dropdowns ao clicar fora
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.search-select-container')) {
+                    document.querySelectorAll('.search-select-dropdown').forEach(function(d) {
+                        d.classList.remove('show');
+                    });
+                }
+            });
+        }
+
+        function setupSearchSelect(inputId, dropdownId, hiddenId, tipo, onSelect) {
+            var input = document.getElementById(inputId);
+            var dropdown = document.getElementById(dropdownId);
+            
+            input.addEventListener('input', function() {
+                filtrarOpcoes(dropdownId, hiddenId, tipo, input.value, onSelect);
+            });
+            
+            input.addEventListener('focus', function() {
+                filtrarOpcoes(dropdownId, hiddenId, tipo, input.value, onSelect);
+                dropdown.classList.add('show');
+            });
+        }
+
+        function filtrarOpcoes(dropdownId, hiddenId, tipo, busca, onSelect) {
+            var dropdown = document.getElementById(dropdownId);
+            var lista = tipo === 'time' ? todosTimes : todosCampeonatos;
+            var buscaLower = busca.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            
+            var filtrados = lista.filter(function(item) {
+                var nome = item.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                return nome.includes(buscaLower);
+            });
+            
+            var html = '';
+            
+            // Opção para limpar
+            html += '<div class="search-select-option" onclick="selecionarOpcao(\'' + dropdownId + '\', \'' + hiddenId + '\', \'\', \'Todos\', ' + (onSelect ? 'true' : 'false') + ')">🔄 Limpar seleção</div>';
+            
+            if (filtrados.length === 0) {
+                html += '<div class="search-select-count">Nenhum resultado</div>';
+            } else {
+                html += '<div class="search-select-count">' + filtrados.length + ' resultados</div>';
+                
+                filtrados.slice(0, 30).forEach(function(item) {
+                    var display = item.nome;
+                    if (tipo === 'time') {
+                        var bandeira = getBandeira(item.pais);
+                        display = (bandeira ? bandeira + ' ' : '') + item.nome;
+                    } else {
+                        display = '🏆 ' + item.nome;
+                    }
+                    
+                    html += '<div class="search-select-option" onclick="selecionarOpcao(\'' + dropdownId + '\', \'' + hiddenId + '\', \'' + item.id + '\', \'' + item.nome.replace(/'/g, "\\'") + '\', ' + (onSelect ? 'true' : 'false') + ')">' + display + '</div>';
+                });
+            }
+            
+            dropdown.innerHTML = html;
+            dropdown.classList.add('show');
+        }
+
+        function selecionarOpcao(dropdownId, hiddenId, id, nome, triggerCallback) {
+            document.getElementById(hiddenId).value = id;
+            
+            // Encontrar o input correspondente
+            var dropdown = document.getElementById(dropdownId);
+            var container = dropdown.closest('.search-select-container');
+            var input = container.querySelector('.search-select-input');
+            
+            input.value = id ? nome : '';
+            dropdown.classList.remove('show');
+            
+            if (triggerCallback) {
+                filtrarPerguntas();
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // CARREGAR DADOS
+        // ═══════════════════════════════════════════════════════════════
+        
         async function carregarTimes() {
             try {
-                // Carregar times
-                const snap = await db.collection('times').orderBy('nome').get();
+                var snap = await db.collection('times').orderBy('nome').get();
                 todosTimes = [];
-                snap.forEach(doc => {
-                    const t = { id: doc.id, ...doc.data() };
+                snap.forEach(function(doc) {
+                    var t = { id: doc.id, ...doc.data() };
                     todosTimes.push(t);
                     timesMap[doc.id] = t;
                 });
 
-                // Popular selects de times
-                const selectTime = document.getElementById('timeId');
-                const selectFiltro = document.getElementById('filtroTime');
-
-                let optionsTimes = '<option value="">Geral (sem time)</option>';
-                todosTimes.forEach(t => {
-                    optionsTimes += `<option value="${t.id}">${formatarTimeComBandeira(t)}</option>`;
-                });
-
-                selectTime.innerHTML = optionsTimes;
-                selectFiltro.innerHTML = '<option value="">Todos os Times</option>' + 
-                    todosTimes.map(t => `<option value="${t.id}">${formatarTimeComBandeira(t)}</option>`).join('');
-
-                // Carregar campeonatos
-                const snapCamp = await db.collection('campeonatos').orderBy('nome').get();
+                var snapCamp = await db.collection('campeonatos').orderBy('nome').get();
                 todosCampeonatos = [];
-                snapCamp.forEach(doc => {
-                    const c = { id: doc.id, ...doc.data() };
+                snapCamp.forEach(function(doc) {
+                    var c = { id: doc.id, ...doc.data() };
                     todosCampeonatos.push(c);
                     campeonatosMap[doc.id] = c;
                 });
 
-                // Popular selects de campeonatos
-                const selectCampeonato = document.getElementById('campeonatoId');
-                const selectFiltroCamp = document.getElementById('filtroCampeonato');
-
-                let optionsCamp = '<option value="">Geral (sem campeonato)</option>';
-                todosCampeonatos.forEach(c => {
-                    optionsCamp += `<option value="${c.id}">${c.nome}</option>`;
-                });
-
-                selectCampeonato.innerHTML = optionsCamp;
-                selectFiltroCamp.innerHTML = '<option value="">Todos os Campeonatos</option>' + 
-                    todosCampeonatos.map(c => `<option value="${c.id}">🏆 ${c.nome}</option>`).join('');
-
-                console.log(`✅ Carregados ${todosTimes.length} times e ${todosCampeonatos.length} campeonatos`);
-
+                console.log('Carregados:', todosTimes.length, 'times,', todosCampeonatos.length, 'campeonatos');
             } catch (error) {
-                console.error('Erro ao carregar times/campeonatos:', error);
-            }
-        }
-
-        // Alternar entre filtro de Time e Campeonato
-        function filtrarPorTipo() {
-            const tipo = document.getElementById('filtroTipo').value;
-            
-            document.getElementById('filtroTime').style.display = (tipo === '' || tipo === 'time') ? 'block' : 'none';
-            document.getElementById('filtroCampeonato').style.display = (tipo === '' || tipo === 'campeonato') ? 'block' : 'none';
-            
-            // Limpar seleções
-            if (tipo === 'time') {
-                document.getElementById('filtroCampeonato').value = '';
-            } else if (tipo === 'campeonato') {
-                document.getElementById('filtroTime').value = '';
-            }
-            
-            filtrarPerguntas();
-        }
-
-        // Alternar tipo no modal
-        function alternarTipoPergunta() {
-            const tipo = document.getElementById('tipoPergunta').value;
-            document.getElementById('rowTime').style.display = tipo === 'time' ? 'flex' : 'none';
-            document.getElementById('rowCampeonato').style.display = tipo === 'campeonato' ? 'flex' : 'none';
-            
-            // Limpar seleção do outro tipo
-            if (tipo === 'time') {
-                document.getElementById('campeonatoId').value = '';
-            } else {
-                document.getElementById('timeId').value = '';
+                console.error('Erro:', error);
             }
         }
 
         async function carregarPerguntas() {
             try {
-                const snap = await db.collection('perguntas').get();
+                var snap = await db.collection('perguntas').get();
 
                 todasPerguntas = [];
-                let facil = 0, medio = 0, dificil = 0;
+                var times = 0, camps = 0, facil = 0, medio = 0, dificil = 0;
 
-                snap.forEach(doc => {
-                    const p = { id: doc.id, ...doc.data() };
+                snap.forEach(function(doc) {
+                    var p = { docId: doc.id, ...doc.data() };
                     todasPerguntas.push(p);
 
-                    const dif = (p.dificuldade || 'medio').toLowerCase();
-                    if (dif === 'facil') facil++;
-                    else if (dif === 'medio') medio++;
-                    else if (dif === 'dificil') dificil++;
+                    if (p.timeId && p.timeId !== '') times++;
+                    if (p.campeonatoId && p.campeonatoId !== '') camps++;
+
+                    var pts = p.pontuacao || 5;
+                    if (pts <= 4) facil++;
+                    else if (pts <= 6) medio++;
+                    else dificil++;
                 });
 
                 document.getElementById('statTotal').textContent = todasPerguntas.length;
+                document.getElementById('statTimes').textContent = times;
+                document.getElementById('statCamps').textContent = camps;
                 document.getElementById('statFacil').textContent = facil;
                 document.getElementById('statMedio').textContent = medio;
                 document.getElementById('statDificil').textContent = dificil;
 
-                perguntasFiltradas = [...todasPerguntas];
+                perguntasFiltradas = todasPerguntas.slice();
                 renderizarPerguntas();
             } catch (error) {
                 console.error('Erro:', error);
                 document.getElementById('listaPerguntas').innerHTML = 
-                    '<tr><td colspan="6" style="text-align: center; color: #e74c3c;">Erro ao carregar perguntas</td></tr>';
+                    '<tr><td colspan="5" class="loading" style="color: #e74c3c;">Erro ao carregar</td></tr>';
             }
         }
 
-        function renderizarPerguntas() {
-            const inicio = (paginaAtual - 1) * porPagina;
-            const fim = inicio + porPagina;
-            const perguntasPagina = perguntasFiltradas.slice(inicio, fim);
+        // ═══════════════════════════════════════════════════════════════
+        // HELPER: EXTRAIR ALTERNATIVAS
+        // ═══════════════════════════════════════════════════════════════
+        
+        function getAlternativa(p, letra) {
+            if (p.alternativas && typeof p.alternativas === 'object') {
+                return p.alternativas[letra] || p.alternativas[letra.toLowerCase()] || '';
+            }
+            return p['alt' + letra] || p['alternativa' + letra] || '';
+        }
 
-            const tbody = document.getElementById('listaPerguntas');
+        // ═══════════════════════════════════════════════════════════════
+        // RENDERIZAÇÃO
+        // ═══════════════════════════════════════════════════════════════
+        
+        function renderizarPerguntas() {
+            var inicio = (paginaAtual - 1) * porPagina;
+            var fim = inicio + porPagina;
+            var perguntasPagina = perguntasFiltradas.slice(inicio, fim);
+
+            var tbody = document.getElementById('listaPerguntas');
 
             if (perguntasPagina.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: rgba(255,255,255,0.5);">Nenhuma pergunta encontrada</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="loading">Nenhuma pergunta encontrada</td></tr>';
                 return;
             }
 
-            let html = '';
-            perguntasPagina.forEach(p => {
-                // Determinar se é pergunta de time ou campeonato
-                let temaInfo = { tipo: 'geral', nome: 'Geral', icone: '📝' };
+            var html = '';
+            perguntasPagina.forEach(function(p) {
+                // Entidade (time ou campeonato)
+                var entidade = { tipo: 'geral', nome: 'Geral', classe: '' };
                 
                 if (p.timeId && timesMap[p.timeId]) {
-                    temaInfo = { tipo: 'time', nome: timesMap[p.timeId].nome, icone: '⚽' };
-                } else if (p.campeonatoId && campeonatosMap[p.campeonatoId]) {
-                    temaInfo = { tipo: 'campeonato', nome: campeonatosMap[p.campeonatoId].nome, icone: '🏆' };
-                } else if (p.campeonatoNome) {
-                    temaInfo = { tipo: 'campeonato', nome: p.campeonatoNome, icone: '🏆' };
+                    var t = timesMap[p.timeId];
+                    entidade = { tipo: 'time', nome: getBandeira(t.pais) + ' ' + t.nome, classe: 'time' };
                 } else if (p.timeNome) {
-                    temaInfo = { tipo: 'time', nome: p.timeNome, icone: '⚽' };
+                    entidade = { tipo: 'time', nome: '⚽ ' + p.timeNome, classe: 'time' };
+                } else if (p.campeonatoId && campeonatosMap[p.campeonatoId]) {
+                    entidade = { tipo: 'camp', nome: '🏆 ' + campeonatosMap[p.campeonatoId].nome, classe: 'camp' };
+                } else if (p.campeonatoNome) {
+                    entidade = { tipo: 'camp', nome: '🏆 ' + p.campeonatoNome, classe: 'camp' };
                 }
 
-                const dif = (p.dificuldade || 'medio').toLowerCase();
-                const difBadge = {
-                    'facil': 'badge-facil',
-                    'medio': 'badge-medio',
-                    'dificil': 'badge-dificil'
-                }[dif] || 'badge-medio';
-                const difText = {
-                    'facil': '🟢 Fácil',
-                    'medio': '🟡 Médio',
-                    'dificil': '🔴 Difícil'
-                }[dif] || '🟡 Médio';
+                // Dificuldade baseada em pontuação
+                var pts = p.pontuacao || 5;
+                var dif = pts <= 4 ? 'facil' : (pts <= 6 ? 'medio' : 'dificil');
+                var difBadge = 'badge-' + dif;
+                var difIcon = dif === 'facil' ? '🟢' : (dif === 'medio' ? '🟡' : '🔴');
 
-                const correta = p.correta || 'A';
+                var correta = p.correta || 'A';
                 
-                // CORREÇÃO: Usar a função helper para extrair alternativas
-                const alternativas = ['A', 'B', 'C', 'D'].map(letra => {
-                    const texto = getAlternativa(p, letra) || '-';
-                    const isCorreta = letra === correta;
-                    return `<div class="alt-item ${isCorreta ? 'correta' : 'incorreta'}">
-                        <strong>${letra}:</strong> ${texto.substring(0, 30)}${texto.length > 30 ? '...' : ''}
-                        ${isCorreta ? '✓' : ''}
-                    </div>`;
+                var alternativas = ['A', 'B', 'C', 'D'].map(function(letra) {
+                    var texto = getAlternativa(p, letra) || '-';
+                    var isCorreta = letra === correta;
+                    return '<div class="alt-item ' + (isCorreta ? 'correta' : 'incorreta') + '">' +
+                        '<strong>' + letra + ':</strong> ' + texto.substring(0, 25) + (texto.length > 25 ? '...' : '') +
+                        (isCorreta ? ' ✓' : '') +
+                    '</div>';
                 }).join('');
 
-                const badgeClass = temaInfo.tipo === 'campeonato' ? 'style="background: linear-gradient(135deg, #f39c12, #e67e22);"' : '';
+                // ID personalizado (V2!)
+                var idDisplay = p.id || '';
 
-                html += `
-                    <tr>
-                        <td class="pergunta-text">${(p.pergunta || '').substring(0, 80)}${(p.pergunta || '').length > 80 ? '...' : ''}</td>
-                        <td><div class="alternativas">${alternativas}</div></td>
-                        <td><span class="time-badge" ${badgeClass}>${temaInfo.icone} ${temaInfo.nome}</span></td>
-                        <td><span class="badge ${difBadge}">${difText}</span></td>
-                        <td>${p.pontuacao || 5} pts</td>
-                        <td>
-                            <div class="actions">
-                                <button class="btn btn-success btn-sm" onclick="editarPergunta('${p.id}')">✏️</button>
-                                <button class="btn btn-danger btn-sm" onclick="excluirPergunta('${p.id}')">🗑️</button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
+                html += '<tr>' +
+                    '<td class="pergunta-text">' +
+                        (idDisplay ? '<span class="pergunta-id">' + idDisplay + '</span><br>' : '') +
+                        (p.pergunta || '').substring(0, 100) + ((p.pergunta || '').length > 100 ? '...' : '') +
+                    '</td>' +
+                    '<td><div class="alternativas">' + alternativas + '</div></td>' +
+                    '<td><span class="entidade-badge ' + entidade.classe + '">' + entidade.nome + '</span></td>' +
+                    '<td><span class="badge ' + difBadge + '">' + difIcon + ' ' + pts + '</span></td>' +
+                    '<td>' +
+                        '<div class="actions">' +
+                            '<button class="btn btn-success btn-sm" onclick="editarPergunta(\'' + p.docId + '\')"><span class="material-icons">edit</span></button>' +
+                            '<button class="btn btn-danger btn-sm" onclick="excluirPergunta(\'' + p.docId + '\')"><span class="material-icons">delete</span></button>' +
+                        '</div>' +
+                    '</td>' +
+                '</tr>';
             });
 
             tbody.innerHTML = html;
             atualizarPaginacao();
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // FILTROS
+        // ═══════════════════════════════════════════════════════════════
+        
         function buscarPerguntas() {
-            const termo = document.getElementById('busca').value.toLowerCase();
-            perguntasFiltradas = todasPerguntas.filter(p => {
-                const pergunta = (p.pergunta || '').toLowerCase();
-                return pergunta.includes(termo);
-            });
-            paginaAtual = 1;
-            renderizarPerguntas();
+            var termo = document.getElementById('busca').value.toLowerCase();
+            filtrarPerguntas();
         }
 
         function filtrarPerguntas() {
-            const tipo = document.getElementById('filtroTipo').value;
-            const timeId = document.getElementById('filtroTime').value;
-            const campeonatoId = document.getElementById('filtroCampeonato').value;
-            const dificuldade = document.getElementById('filtroDificuldade').value;
-            const termo = document.getElementById('busca').value.toLowerCase();
+            var busca = document.getElementById('busca').value.toLowerCase();
+            var tipo = document.getElementById('filtroTipo').value;
+            var timeId = document.getElementById('filtroTime').value;
+            var campId = document.getElementById('filtroCampeonato').value;
+            var dificuldade = document.getElementById('filtroDificuldade').value;
 
-            perguntasFiltradas = todasPerguntas.filter(p => {
-                // Filtro por texto
-                if (termo) {
-                    const pergunta = (p.pergunta || '').toLowerCase();
-                    if (!pergunta.includes(termo)) return false;
+            perguntasFiltradas = todasPerguntas.filter(function(p) {
+                // Busca texto
+                if (busca && !(p.pergunta || '').toLowerCase().includes(busca)) {
+                    return false;
                 }
-                
-                // Filtro por tipo (time ou campeonato)
-                if (tipo === 'time') {
-                    if (!p.timeId) return false;
-                } else if (tipo === 'campeonato') {
-                    if (!p.campeonatoId) return false;
-                }
-                
-                // Filtro por time específico
+
+                // Tipo
+                if (tipo === 'time' && (!p.timeId || p.timeId === '')) return false;
+                if (tipo === 'campeonato' && (!p.campeonatoId || p.campeonatoId === '')) return false;
+
+                // Time específico
                 if (timeId && p.timeId !== timeId) return false;
-                
-                // Filtro por campeonato específico
-                if (campeonatoId && p.campeonatoId !== campeonatoId) return false;
-                
-                // Filtro por dificuldade
-                if (dificuldade && (p.dificuldade || 'medio') !== dificuldade) return false;
-                
+
+                // Campeonato específico
+                if (campId && p.campeonatoId !== campId) return false;
+
+                // Dificuldade (baseada em pontuação)
+                var pts = p.pontuacao || 5;
+                if (dificuldade === 'facil' && pts > 4) return false;
+                if (dificuldade === 'medio' && (pts < 5 || pts > 6)) return false;
+                if (dificuldade === 'dificil' && pts < 7) return false;
+
                 return true;
             });
 
@@ -733,204 +1096,251 @@
             renderizarPerguntas();
         }
 
+        function limparFiltros() {
+            document.getElementById('busca').value = '';
+            document.getElementById('filtroTipo').value = '';
+            document.getElementById('filtroTime').value = '';
+            document.getElementById('filtroCampeonato').value = '';
+            document.getElementById('filtroDificuldade').value = '';
+            document.getElementById('searchFiltroTime').value = '';
+            document.getElementById('searchFiltroCamp').value = '';
+            
+            perguntasFiltradas = todasPerguntas.slice();
+            paginaAtual = 1;
+            renderizarPerguntas();
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // PAGINAÇÃO
+        // ═══════════════════════════════════════════════════════════════
+        
         function atualizarPaginacao() {
-            const totalPaginas = Math.ceil(perguntasFiltradas.length / porPagina);
-            document.getElementById('paginaInfo').textContent = `Página ${paginaAtual} de ${totalPaginas || 1}`;
+            var totalPaginas = Math.ceil(perguntasFiltradas.length / porPagina);
+            document.getElementById('paginaInfo').textContent = 
+                'Página ' + paginaAtual + ' de ' + totalPaginas + ' (' + perguntasFiltradas.length + ' perguntas)';
             document.getElementById('btnAnterior').disabled = paginaAtual <= 1;
             document.getElementById('btnProxima').disabled = paginaAtual >= totalPaginas;
         }
 
         function paginaAnterior() {
-            if (paginaAtual > 1) { paginaAtual--; renderizarPerguntas(); }
+            if (paginaAtual > 1) {
+                paginaAtual--;
+                renderizarPerguntas();
+            }
         }
 
         function proximaPagina() {
-            const totalPaginas = Math.ceil(perguntasFiltradas.length / porPagina);
-            if (paginaAtual < totalPaginas) { paginaAtual++; renderizarPerguntas(); }
+            var totalPaginas = Math.ceil(perguntasFiltradas.length / porPagina);
+            if (paginaAtual < totalPaginas) {
+                paginaAtual++;
+                renderizarPerguntas();
+            }
         }
 
-        // Modal functions
+        // ═══════════════════════════════════════════════════════════════
+        // MODAL
+        // ═══════════════════════════════════════════════════════════════
+        
         function abrirModal() {
             document.getElementById('modalTitulo').textContent = '➕ Nova Pergunta';
+            document.getElementById('perguntaDocId').value = '';
             document.getElementById('perguntaId').value = '';
             document.getElementById('pergunta').value = '';
             document.getElementById('altA').value = '';
             document.getElementById('altB').value = '';
             document.getElementById('altC').value = '';
             document.getElementById('altD').value = '';
-            document.querySelectorAll('input[name="correta"]').forEach(r => r.checked = false);
-            document.getElementById('tipoPergunta').value = 'time';
+            document.getElementById('pontuacao').value = '5';
+            document.getElementById('fonte').value = '';
             document.getElementById('timeId').value = '';
             document.getElementById('campeonatoId').value = '';
-            document.getElementById('pontuacao').value = '5';
-            document.getElementById('dificuldade').value = 'medio';
-            document.getElementById('fonte').value = '';
-            document.getElementById('rowTime').style.display = 'flex';
-            document.getElementById('rowCampeonato').style.display = 'none';
-            document.getElementById('modalPergunta').classList.add('active');
+            document.getElementById('searchTimeModal').value = '';
+            document.getElementById('searchCampModal').value = '';
+            document.getElementById('tipoPergunta').value = 'time';
+            document.querySelector('input[name="correta"][value="A"]').checked = true;
+            alternarTipoPergunta();
+            document.getElementById('modalPergunta').classList.add('show');
         }
 
         function fecharModal() {
-            document.getElementById('modalPergunta').classList.remove('active');
+            document.getElementById('modalPergunta').classList.remove('show');
         }
 
-        function editarPergunta(id) {
-            const p = todasPerguntas.find(x => x.id === id);
+        function alternarTipoPergunta() {
+            var tipo = document.getElementById('tipoPergunta').value;
+            document.getElementById('rowTime').style.display = tipo === 'time' ? 'block' : 'none';
+            document.getElementById('rowCampeonato').style.display = tipo === 'campeonato' ? 'block' : 'none';
+        }
+
+        async function editarPergunta(docId) {
+            var p = todasPerguntas.find(function(x) { return x.docId === docId; });
             if (!p) return;
 
             document.getElementById('modalTitulo').textContent = '✏️ Editar Pergunta';
-            document.getElementById('perguntaId').value = id;
+            document.getElementById('perguntaDocId').value = docId;
+            document.getElementById('perguntaId').value = p.id || '';
             document.getElementById('pergunta').value = p.pergunta || '';
-            
-            // CORREÇÃO: Usar a função helper para extrair alternativas
             document.getElementById('altA').value = getAlternativa(p, 'A');
             document.getElementById('altB').value = getAlternativa(p, 'B');
             document.getElementById('altC').value = getAlternativa(p, 'C');
             document.getElementById('altD').value = getAlternativa(p, 'D');
+            document.getElementById('pontuacao').value = p.pontuacao || 5;
+            document.getElementById('fonte').value = p.fonte || '';
 
-            const correta = p.correta || 'A';
-            document.querySelectorAll('input[name="correta"]').forEach(r => {
-                r.checked = r.value === correta;
-            });
+            var correta = p.correta || 'A';
+            var radio = document.querySelector('input[name="correta"][value="' + correta + '"]');
+            if (radio) radio.checked = true;
 
-            // Determinar tipo (time ou campeonato)
-            if (p.campeonatoId) {
+            // Tipo e entidade
+            if (p.campeonatoId && p.campeonatoId !== '') {
                 document.getElementById('tipoPergunta').value = 'campeonato';
                 document.getElementById('campeonatoId').value = p.campeonatoId;
-                document.getElementById('timeId').value = '';
-                document.getElementById('rowTime').style.display = 'none';
-                document.getElementById('rowCampeonato').style.display = 'flex';
+                document.getElementById('searchCampModal').value = p.campeonatoNome || campeonatosMap[p.campeonatoId]?.nome || '';
             } else {
                 document.getElementById('tipoPergunta').value = 'time';
                 document.getElementById('timeId').value = p.timeId || '';
-                document.getElementById('campeonatoId').value = '';
-                document.getElementById('rowTime').style.display = 'flex';
-                document.getElementById('rowCampeonato').style.display = 'none';
+                document.getElementById('searchTimeModal').value = p.timeNome || timesMap[p.timeId]?.nome || '';
             }
 
-            document.getElementById('pontuacao').value = p.pontuacao || 5;
-            document.getElementById('dificuldade').value = p.dificuldade || 'medio';
-            document.getElementById('fonte').value = p.fonte || '';
-            document.getElementById('modalPergunta').classList.add('active');
+            alternarTipoPergunta();
+            document.getElementById('modalPergunta').classList.add('show');
         }
 
         async function salvarPergunta() {
-            const id = document.getElementById('perguntaId').value;
-            const pergunta = document.getElementById('pergunta').value.trim();
+            var docId = document.getElementById('perguntaDocId').value;
+            var perguntaId = document.getElementById('perguntaId').value.trim();
+            var perguntaTexto = document.getElementById('pergunta').value.trim();
+            var correta = document.querySelector('input[name="correta"]:checked');
 
-            if (!pergunta) {
-                alert('Digite a pergunta!');
+            if (!perguntaTexto) {
+                showToast('Digite a pergunta!', 'error');
                 return;
             }
 
-            const corretaRadio = document.querySelector('input[name="correta"]:checked');
-            if (!corretaRadio) {
-                alert('Selecione a alternativa correta!');
+            if (!correta) {
+                showToast('Selecione a resposta correta!', 'error');
                 return;
             }
 
-            const tipoPergunta = document.getElementById('tipoPergunta').value;
+            var tipo = document.getElementById('tipoPergunta').value;
+            var timeId = document.getElementById('timeId').value;
+            var campeonatoId = document.getElementById('campeonatoId').value;
 
-            // CORREÇÃO: Salvar no formato correto (alternativas como objeto)
-            const dados = {
-                pergunta,
+            var dados = {
+                id: perguntaId,
+                pergunta: perguntaTexto,
                 alternativas: {
                     A: document.getElementById('altA').value.trim(),
                     B: document.getElementById('altB').value.trim(),
                     C: document.getElementById('altC').value.trim(),
                     D: document.getElementById('altD').value.trim()
                 },
-                correta: corretaRadio.value,
+                correta: correta.value,
                 pontuacao: parseInt(document.getElementById('pontuacao').value) || 5,
-                dificuldade: document.getElementById('dificuldade').value,
-                fonte: document.getElementById('fonte').value.trim() || null
+                fonte: document.getElementById('fonte').value.trim(),
+                timeId: tipo === 'time' ? timeId : '',
+                timeNome: tipo === 'time' && timesMap[timeId] ? timesMap[timeId].nome : '',
+                campeonatoId: tipo === 'campeonato' ? campeonatoId : '',
+                campeonatoNome: tipo === 'campeonato' && campeonatosMap[campeonatoId] ? campeonatosMap[campeonatoId].nome : ''
             };
 
-            // Adicionar time ou campeonato conforme o tipo
-            if (tipoPergunta === 'time') {
-                const timeId = document.getElementById('timeId').value;
-                dados.timeId = timeId || null;
-                if (timeId && timesMap[timeId]) {
-                    dados.timeNome = timesMap[timeId].nome;
-                }
-                // Remover campos de campeonato se existirem
-                dados.campeonatoId = null;
-                dados.campeonatoNome = null;
-            } else if (tipoPergunta === 'campeonato') {
-                const campeonatoId = document.getElementById('campeonatoId').value;
-                dados.campeonatoId = campeonatoId || null;
-                if (campeonatoId && campeonatosMap[campeonatoId]) {
-                    dados.campeonatoNome = campeonatosMap[campeonatoId].nome;
-                }
-                // Remover campos de time se existirem
-                dados.timeId = null;
-                dados.timeNome = null;
-            }
-
             try {
-                if (id) {
-                    await db.collection('perguntas').doc(id).update(dados);
-                    alert('Pergunta atualizada!');
+                if (docId) {
+                    await db.collection('perguntas').doc(docId).update(dados);
+                    showToast('Pergunta atualizada!', 'success');
                 } else {
-                    dados.dataCriacao = firebase.firestore.FieldValue.serverTimestamp();
+                    dados.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
                     await db.collection('perguntas').add(dados);
-                    alert('Pergunta criada!');
+                    showToast('Pergunta criada!', 'success');
                 }
+
                 fecharModal();
-                carregarPerguntas();
+                await carregarPerguntas();
             } catch (error) {
-                console.error('Erro:', error);
-                alert('Erro ao salvar: ' + error.message);
+                showToast('Erro: ' + error.message, 'error');
             }
         }
 
-        async function excluirPergunta(id) {
+        async function excluirPergunta(docId) {
             if (!confirm('Tem certeza que deseja excluir esta pergunta?')) return;
 
             try {
-                await db.collection('perguntas').doc(id).delete();
-                alert('Pergunta excluída!');
-                carregarPerguntas();
+                await db.collection('perguntas').doc(docId).delete();
+                showToast('Pergunta excluída!', 'success');
+                await carregarPerguntas();
             } catch (error) {
-                alert('Erro: ' + error.message);
+                showToast('Erro: ' + error.message, 'error');
             }
         }
 
-        function exportarCSV() {
-            let csv = 'Pergunta,Alt A,Alt B,Alt C,Alt D,Correta,Tipo,Time/Campeonato,Dificuldade,Pontos\n';
-            perguntasFiltradas.forEach(p => {
-                // Determinar tipo e nome
-                let tipo = 'Geral';
-                let nome = 'Geral';
-                
-                if (p.timeId && timesMap[p.timeId]) {
-                    tipo = 'Time';
-                    nome = timesMap[p.timeId].nome;
-                } else if (p.campeonatoId && campeonatosMap[p.campeonatoId]) {
-                    tipo = 'Campeonato';
-                    nome = campeonatosMap[p.campeonatoId].nome;
-                } else if (p.campeonatoNome) {
-                    tipo = 'Campeonato';
-                    nome = p.campeonatoNome;
-                } else if (p.timeNome) {
-                    tipo = 'Time';
-                    nome = p.timeNome;
-                }
-
-                // CORREÇÃO: Usar a função helper para extrair alternativas
-                const altA = getAlternativa(p, 'A');
-                const altB = getAlternativa(p, 'B');
-                const altC = getAlternativa(p, 'C');
-                const altD = getAlternativa(p, 'D');
-                csv += `"${(p.pergunta || '').replace(/"/g, '""')}","${altA}","${altB}","${altC}","${altD}","${p.correta}","${tipo}","${nome}","${p.dificuldade || 'medio'}",${p.pontuacao || 5}\n`;
+        // ═══════════════════════════════════════════════════════════════
+        // EXPORTAR
+        // ═══════════════════════════════════════════════════════════════
+        
+        function exportarJSON() {
+            var dados = perguntasFiltradas.map(function(p) {
+                return {
+                    id: p.id || '',
+                    pergunta: p.pergunta,
+                    alternativas: p.alternativas || {
+                        A: getAlternativa(p, 'A'),
+                        B: getAlternativa(p, 'B'),
+                        C: getAlternativa(p, 'C'),
+                        D: getAlternativa(p, 'D')
+                    },
+                    correta: p.correta,
+                    pontuacao: p.pontuacao || 5,
+                    timeId: p.timeId || '',
+                    timeNome: p.timeNome || '',
+                    campeonatoId: p.campeonatoId || '',
+                    campeonatoNome: p.campeonatoNome || '',
+                    fonte: p.fonte || ''
+                };
             });
 
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'perguntas_yellup.csv';
+            var blob = new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'perguntas_' + new Date().toISOString().slice(0, 10) + '.json';
             a.click();
+            showToast(dados.length + ' perguntas exportadas!', 'success');
+        }
+
+        function exportarExcel() {
+            var dados = perguntasFiltradas.map(function(p, i) {
+                return {
+                    'ID': p.id || (i + 1),
+                    'Pergunta': p.pergunta,
+                    'A': getAlternativa(p, 'A'),
+                    'B': getAlternativa(p, 'B'),
+                    'C': getAlternativa(p, 'C'),
+                    'D': getAlternativa(p, 'D'),
+                    'Correta': p.correta,
+                    'Pontos': p.pontuacao || 5,
+                    'Time': p.timeNome || '',
+                    'Campeonato': p.campeonatoNome || '',
+                    'Fonte': p.fonte || ''
+                };
+            });
+
+            var ws = XLSX.utils.json_to_sheet(dados);
+            var wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Perguntas');
+            XLSX.writeFile(wb, 'perguntas_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+            showToast(dados.length + ' perguntas exportadas!', 'success');
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // UTILS
+        // ═══════════════════════════════════════════════════════════════
+        
+        function showToast(message, type) {
+            type = type || 'success';
+            var toast = document.createElement('div');
+            toast.className = 'toast toast-' + type;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(function() { toast.remove(); }, 3000);
         }
     </script>
 </body>
