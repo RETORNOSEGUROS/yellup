@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gerar Perguntas - Yellup Admin</title>
+    <title>Gerar Perguntas V3 - Yellup Admin</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -492,8 +492,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎯 Gerador de Perguntas</h1>
-            <p>Crie perguntas para Times e Campeonatos com IA</p>
+            <h1>🎯 Gerador de Perguntas V3</h1>
+            <p>Crie perguntas temporais para Times e Campeonatos - V3</p>
         </div>
         
         <!-- Tabs -->
@@ -531,11 +531,17 @@
                     <div class="form-group">
                         <label>Quantidade de Perguntas</label>
                         <select id="qtdPerguntasTime">
-                            <option value="25">25 perguntas</option>
-                            <option value="30">30 perguntas</option>
-                            <option value="50" selected>50 perguntas</option>
-                            <option value="100">100 perguntas</option>
+                            <option value="20">20 perguntas (1 bloco)</option>
+                            <option value="25" selected>25 perguntas (1 bloco)</option>
+                            <option value="50">50 perguntas (2 blocos)</option>
+                            <option value="100">100 perguntas (4 blocos)</option>
                         </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>ID Inicial (continuar numeração)</label>
+                        <input type="number" id="idInicialTime" value="1" min="1" max="9999" style="width: 150px;">
+                        <small style="color: #a0a0a0; display: block; margin-top: 5px;">Se já tem perguntas, coloque o próximo número (ex: 101)</small>
                     </div>
                 </div>
                 
@@ -858,8 +864,61 @@
         </div>
     </div>
     
-    <!-- Utilitário de Bandeiras -->
-    <script src="js/bandeiras-utils.js"></script>
+    <script>
+        // ═══════════════════════════════════════════════════════════════
+        // YELLUP - GERADOR DE PERGUNTAS V3
+        // Com melhorias: País, Perguntas Temporais, Pontuação Granular
+        // ═══════════════════════════════════════════════════════════════
+        
+        // Mapeamento de países para bandeiras (emoji)
+        const BANDEIRAS = {
+            'Brasil': '🇧🇷', 'Argentina': '🇦🇷', 'Uruguai': '🇺🇾', 'Paraguai': '🇵🇾',
+            'Chile': '🇨🇱', 'Colômbia': '🇨🇴', 'Peru': '🇵🇪', 'Equador': '🇪🇨',
+            'Venezuela': '🇻🇪', 'Bolívia': '🇧🇴', 'México': '🇲🇽', 'Espanha': '🇪🇸',
+            'Itália': '🇮🇹', 'Inglaterra': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'Alemanha': '🇩🇪', 'França': '🇫🇷',
+            'Portugal': '🇵🇹', 'Holanda': '🇳🇱', 'Países Baixos': '🇳🇱', 'Bélgica': '🇧🇪', 
+            'Suíça': '🇨🇭', 'Rússia': '🇷🇺', 'Turquia': '🇹🇷', 'Grécia': '🇬🇷', 
+            'Escócia': '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 'Estados Unidos': '🇺🇸', 'EUA': '🇺🇸',
+            'Japão': '🇯🇵', 'China': '🇨🇳', 'Coreia do Sul': '🇰🇷',
+            'Arábia Saudita': '🇸🇦', 'Austrália': '🇦🇺', 'Catar': '🇶🇦', 
+            'Emirados Árabes': '🇦🇪', 'Mônaco': '🇲🇨', 'Croácia': '🇭🇷', 
+            'Sérvia': '🇷🇸', 'Ucrânia': '🇺🇦', 'Polônia': '🇵🇱', 
+            'República Tcheca': '🇨🇿', 'Tchéquia': '🇨🇿', 'Dinamarca': '🇩🇰', 
+            'Suécia': '🇸🇪', 'Noruega': '🇳🇴', 'Áustria': '🇦🇹', 
+            'País de Gales': '🏴󠁧󠁢󠁷󠁬󠁳󠁿', 'Irlanda': '🇮🇪', 'Senegal': '🇸🇳',
+            'Nigéria': '🇳🇬', 'Egito': '🇪🇬', 'Marrocos': '🇲🇦', 'Camarões': '🇨🇲',
+            'Gana': '🇬🇭', 'Costa do Marfim': '🇨🇮', 'África do Sul': '🇿🇦'
+        };
+
+        // Fontes jornalísticas recomendadas por país
+        const FONTES_POR_PAIS = {
+            'Brasil': ['Site oficial do clube', 'ge.globo.com', 'ESPN Brasil', 'UOL Esporte', 'Lance!', 'Gazeta Esportiva', 'CBF - cbf.com.br', 'Transfermarkt', 'Wikipedia'],
+            'Argentina': ['Site oficial do clube', 'TyC Sports', 'Olé', 'ESPN Argentina', 'AFA - afa.com.ar', 'Transfermarkt', 'Wikipedia'],
+            'Espanha': ['Site oficial do clube', 'Marca', 'AS', 'Sport', 'Mundo Deportivo', 'RFEF', 'Transfermarkt', 'Wikipedia'],
+            'Itália': ['Site oficial do clube', 'La Gazzetta dello Sport', 'Corriere dello Sport', 'Tuttosport', 'FIGC', 'Transfermarkt', 'Wikipedia'],
+            'Inglaterra': ['Site oficial do clube', 'BBC Sport', 'The Guardian', 'Sky Sports', 'The Athletic', 'FA - thefa.com', 'Transfermarkt', 'Wikipedia'],
+            'Alemanha': ['Site oficial do clube', 'Kicker', 'Bild', 'Sport1', 'DFB - dfb.de', 'Transfermarkt', 'Wikipedia'],
+            'França': ['Site oficial do clube', "L'Équipe", 'France Football', 'RMC Sport', 'FFF - fff.fr', 'Transfermarkt', 'Wikipedia'],
+            'Portugal': ['Site oficial do clube', 'A Bola', 'Record', 'O Jogo', 'FPF - fpf.pt', 'Transfermarkt', 'Wikipedia'],
+            'default': ['Site oficial do clube', 'Transfermarkt', 'RSSSF', 'FIFA - fifa.com', 'CONMEBOL', 'UEFA', 'Wikipedia']
+        };
+
+        function getBandeira(pais) {
+            if (!pais) return '🏳️';
+            return BANDEIRAS[pais] || '🏳️';
+        }
+
+        function getFontesPorPais(pais) {
+            if (!pais) return FONTES_POR_PAIS['default'];
+            return FONTES_POR_PAIS[pais] || FONTES_POR_PAIS['default'];
+        }
+
+        function formatarTimeComBandeira(time) {
+            const bandeira = getBandeira(time.pais);
+            const tipo = time.tipo === 'Seleção' ? ' ⭐' : '';
+            return `${bandeira} ${time.nome}${tipo}`;
+        }
+    </script>
     
     <script>
         // Firebase Config - painel-yellup
@@ -1126,10 +1185,11 @@
             }
         }
         
-        // Gerar prompt para Times
+        // Gerar prompt para Times - V3 (MELHORADO)
         function gerarPromptTime() {
             const timeId = document.getElementById('selectTime').value;
-            const qtd = document.getElementById('qtdPerguntasTime').value;
+            const qtd = parseInt(document.getElementById('qtdPerguntasTime').value);
+            const idInicial = parseInt(document.getElementById('idInicialTime')?.value || 1);
             
             if (!timeId) {
                 showToast('Selecione um time!', 'error');
@@ -1138,6 +1198,8 @@
             
             const time = times.find(t => t.id === timeId);
             const temasSelecionados = getTemasSelected('temaTime');
+            const bandeira = getBandeira(time.pais);
+            const fontes = getFontesPorPais(time.pais);
             
             let temasTexto = '';
             if (temasSelecionados.includes('geral')) {
@@ -1158,27 +1220,51 @@
             let antiRepeticao = '';
             if (perguntasExistentesTime.length > 0) {
                 antiRepeticao = `
+═══════════════════════════════════════════════════════════════
+⚠️ PERGUNTAS EXISTENTES - NÃO REPETIR!
+═══════════════════════════════════════════════════════════════
+${perguntasExistentesTime.map((p, i) => \`\${i+1}. \${p}\`).join('
+')}
 
-⚠️ IMPORTANTE - NÃO REPITA ESTAS PERGUNTAS JÁ EXISTENTES:
-${perguntasExistentesTime.map((p, i) => `${i+1}. ${p}`).join('\n')}
-
-Crie perguntas DIFERENTES das listadas acima.`;
+Crie perguntas COMPLETAMENTE DIFERENTES. Explore outros fatos, períodos e jogadores!`;
             }
             
-            promptGeradoTime = `Você é um especialista em história do futebol e vai criar ${qtd} perguntas de quiz sobre o ${time.nome}.
+            // Calcular distribuição de pontuação granular
+            const distPontuacao = {
+                1: Math.round(qtd * 0.05),
+                2: Math.round(qtd * 0.10),
+                3: Math.round(qtd * 0.10),
+                4: Math.round(qtd * 0.10),
+                5: Math.round(qtd * 0.15),
+                6: Math.round(qtd * 0.15),
+                7: Math.round(qtd * 0.10),
+                8: Math.round(qtd * 0.10),
+                9: Math.round(qtd * 0.08),
+                10: Math.round(qtd * 0.07)
+            };
+            
+            const eTipoSelecao = time.tipo === 'Seleção';
+            const paisTime = time.pais || 'Brasil';
+            
+            promptGeradoTime = \`Você é um historiador especializado em futebol e vai criar \${qtd} perguntas de quiz.
 
 ═══════════════════════════════════════════════════════════════
-📋 INFORMAÇÕES DO TIME
+\${bandeira} IDENTIFICAÇÃO DO TIME (ATENÇÃO!)
 ═══════════════════════════════════════════════════════════════
-• Nome: ${time.nome}
-• ID: ${time.id}
-• Temas solicitados: ${temasTexto}
+• Nome completo: \${time.nome}
+• País: \${paisTime} \${bandeira}
+• Tipo: \${eTipoSelecao ? '⭐ SELEÇÃO NACIONAL' : '⚽ Clube de Futebol'}
+• ID: \${time.id}
+
+⚠️ CONFIRME: Você está criando perguntas sobre o \${time.nome} (\${paisTime}).
+\${eTipoSelecao ? '   Este é uma SELEÇÃO NACIONAL, não um clube!' : '   NÃO confunda com times homônimos de outros países!'}
 
 ═══════════════════════════════════════════════════════════════
-📊 FORMATO JSON OBRIGATÓRIO
+📊 FORMATO JSON OBRIGATÓRIO (Array de objetos)
 ═══════════════════════════════════════════════════════════════
-{
-  "${time.id}-001": {
+[
+  {
+    "id": "\${time.id}-\${String(idInicial).padStart(3, '0')}",
     "pergunta": "Texto da pergunta aqui?",
     "alternativas": {
       "A": "Alternativa A",
@@ -1188,165 +1274,141 @@ Crie perguntas DIFERENTES das listadas acima.`;
     },
     "correta": "A",
     "pontuacao": 5,
-    "timeId": "${time.id}",
-    "timeNome": "${time.nome}",
-    "fonte": "Wikipedia"
+    "timeId": "\${time.id}",
+    "timeNome": "\${time.nome}",
+    "campeonatoId": "",
+    "campeonatoNome": "",
+    "fonte": "Nome da fonte"
   }
-}
+]
 
 ═══════════════════════════════════════════════════════════════
-📏 SISTEMA DE PONTUAÇÃO (1-10)
+⏰ REGRA DE OURO: PERGUNTAS TEMPORAIS (ANTI-OBSOLESCÊNCIA)
 ═══════════════════════════════════════════════════════════════
-• 1-2: MUITO FÁCIL - Qualquer torcedor sabe
-  Ex: "Quais são as cores do ${time.nome}?" / "Qual o apelido do clube?"
+Para evitar que perguntas fiquem desatualizadas com o tempo:
+
+❌ NÃO FAÇA (podem ficar desatualizadas):
+• "Quem é o maior artilheiro da história do \${time.nome}?"
+• "Quantos títulos o \${time.nome} tem?"
+• "Qual o recorde de público do estádio?"
+• "Quem é o jogador com mais jogos?"
+
+✅ FAÇA ASSIM (fatos históricos imutáveis):
+• "Quem foi o maior artilheiro do \${time.nome} na década de 1990?"
+• "Quantos títulos o \${time.nome} conquistou entre 2000 e 2010?"
+• "Qual era o recorde de público até o ano 2000?"
+• "Quem era o capitão na conquista de 2011?"
+• "Quem foi o técnico campeão em 2002?"
+
+📌 SEMPRE ancore a pergunta em:
+- Um período específico (década de X, entre anos Y e Z)
+- Um evento específico (na conquista de X, na final de Y)
+- Uma data de corte (até 2020, antes de 2000)
+
+═══════════════════════════════════════════════════════════════
+📏 PONTUAÇÃO GRANULAR 1-10 (USE TODA A ESCALA!)
+═══════════════════════════════════════════════════════════════
+⚠️ IMPORTANTE: NÃO concentre em 5 e 10! Distribua por TODA a escala!
+
+• 1 ponto (~\${distPontuacao[1]} pergs) - TRIVIAL
+  Ex: "Qual a cor principal da camisa?" / "Em qual país fica?"
   
-• 3-4: FÁCIL - Torcedor casual responde
-  Ex: "Em que ano o ${time.nome} foi fundado?" / "Qual o nome do estádio?"
+• 2 pontos (~\${distPontuacao[2]} pergs) - MUITO FÁCIL  
+  Ex: "Qual o apelido mais famoso?" / "Qual o mascote?"
   
-• 5-6: MÉDIO - Requer conhecimento da história
-  Ex: "Quem foi artilheiro em determinada temporada?" / "Quantos títulos nacionais tem?"
+• 3 pontos (~\${distPontuacao[3]} pergs) - FÁCIL
+  Ex: "Em que década foi fundado?" / "Qual o nome do estádio?"
   
-• 7-8: DIFÍCIL - Apenas fãs dedicados sabem
-  Ex: "Quem marcou o gol do título de 19XX?" / "Qual técnico venceu determinado torneio?"
+• 4 pontos (~\${distPontuacao[4]} pergs) - FÁCIL-MÉDIO
+  Ex: "Em que ano exato foi fundado?" / "Quem é um dos maiores ídolos?"
   
-• 9-10: MUITO DIFÍCIL - Historiadores, curiosidades raras
-  Ex: "Quem foi o primeiro presidente?" / "Qual o placar da primeira partida oficial?"
+• 5 pontos (~\${distPontuacao[5]} pergs) - MÉDIO
+  Ex: "Quem foi técnico campeão em 2005?" / "Contra quem foi a final?"
+  
+• 6 pontos (~\${distPontuacao[6]} pergs) - MÉDIO-DIFÍCIL
+  Ex: "Quantos gols X marcou na temporada Y?" / "Quem fez o gol do título?"
+  
+• 7 pontos (~\${distPontuacao[7]} pergs) - DIFÍCIL
+  Ex: "Qual o placar da final de 1998?" / "Quem era o goleiro reserva?"
+  
+• 8 pontos (~\${distPontuacao[8]} pergs) - MUITO DIFÍCIL
+  Ex: "Quem marcou o primeiro gol do estádio?" / "Qual foi o público exato?"
+  
+• 9 pontos (~\${distPontuacao[9]} pergs) - EXPERT
+  Ex: "Quem foi o primeiro presidente estrangeiro?" / "Qual árbitro apitou?"
+  
+• 10 pontos (~\${distPontuacao[10]} pergs) - ESPECIALISTA
+  Ex: "Qual foi o primeiro adversário oficial?" / "Quantos sócios fundadores?"
 
 ═══════════════════════════════════════════════════════════════
-🎯 GERE EM BLOCOS DE 25 PERGUNTAS
+📊 METAS DE DISTRIBUIÇÃO (\${qtd} perguntas)
 ═══════════════════════════════════════════════════════════════
-Para manter qualidade e distribuição uniforme, gere em 4 blocos:
-
-📦 BLOCO 1 (001-025): Foco em HISTÓRIA, FUNDAÇÃO e TÍTULOS
-   → 7-8 fáceis | 10 médias | 7-8 difíceis
-   → ~6A, ~6B, ~6C, ~7D
-
-📦 BLOCO 2 (026-050): Foco em JOGADORES HISTÓRICOS
-   → 7-8 fáceis | 10 médias | 7-8 difíceis
-   → ~7A, ~6B, ~6C, ~6D
-
-📦 BLOCO 3 (051-075): Foco em TÉCNICOS, ESTÁDIO e TORCIDA
-   → 7-8 fáceis | 10 médias | 7-8 difíceis
-   → ~6A, ~7B, ~6C, ~6D
-
-📦 BLOCO 4 (076-100): Foco em CLÁSSICOS, RIVALIDADES e CURIOSIDADES
-   → 7-8 fáceis | 10 médias | 7-8 difíceis
-   → ~6A, ~6B, ~7C, ~6D
-
-⚠️ AO FINAL DE CADA BLOCO, VERIFIQUE:
-- Contagem de A/B/C/D está equilibrada?
-- Não há 3+ respostas iguais seguidas?
-- Dificuldades estão variadas?
-
-═══════════════════════════════════════════════════════════════
-📊 METAS DE DISTRIBUIÇÃO (${qtd} perguntas)
-═══════════════════════════════════════════════════════════════
-DIFICULDADE:
-• Fácil (1-4): ${Math.round(qtd * 0.3)} perguntas (30%)
-• Médio (5-7): ${Math.round(qtd * 0.4)} perguntas (40%)
-• Difícil (8-10): ${Math.round(qtd * 0.3)} perguntas (30%)
+DIFICULDADE (30% fácil / 40% médio / 30% difícil):
+• Fácil (1-4 pts): ~\${Math.round(qtd * 0.30)} perguntas
+• Médio (5-6 pts): ~\${Math.round(qtd * 0.40)} perguntas  
+• Difícil (7-10 pts): ~\${Math.round(qtd * 0.30)} perguntas
 
 LETRAS (tolerância ±3):
-• Letra A: ${Math.round(qtd * 0.25)} ± 3 perguntas
-• Letra B: ${Math.round(qtd * 0.25)} ± 3 perguntas
-• Letra C: ${Math.round(qtd * 0.25)} ± 3 perguntas
-• Letra D: ${Math.round(qtd * 0.25)} ± 3 perguntas
+• A: ~\${Math.round(qtd * 0.25)} | B: ~\${Math.round(qtd * 0.25)} | C: ~\${Math.round(qtd * 0.25)} | D: ~\${Math.round(qtd * 0.25)}
 
-🚫 REGRA DE SEQUÊNCIA: Máximo 2 respostas iguais seguidas!
-   ❌ Errado: A, A, A, B, C
-   ✅ Certo: A, B, A, C, A, D, B
+🚫 REGRA: Máximo 2 respostas iguais seguidas!
 
 ═══════════════════════════════════════════════════════════════
 📅 COBERTURA TEMPORAL OBRIGATÓRIA
 ═══════════════════════════════════════════════════════════════
 Distribua ao longo de TODA a história (~20% cada era):
-• Fundação até 1950 (~${Math.round(qtd * 0.2)} perguntas)
-• Décadas 1950-1980 (~${Math.round(qtd * 0.2)} perguntas)
-• Décadas 1980-2000 (~${Math.round(qtd * 0.2)} perguntas)
-• Era moderna 2000-2015 (~${Math.round(qtd * 0.2)} perguntas)
-• Atualidade 2015-2024 (~${Math.round(qtd * 0.2)} perguntas)
+• Fundação até 1960: ~\${Math.round(qtd * 0.15)} perguntas
+• 1960-1980: ~\${Math.round(qtd * 0.15)} perguntas
+• 1980-2000: ~\${Math.round(qtd * 0.20)} perguntas
+• 2000-2015: ~\${Math.round(qtd * 0.25)} perguntas
+• 2015-2024: ~\${Math.round(qtd * 0.25)} perguntas
 
 ═══════════════════════════════════════════════════════════════
-🎯 TEMAS DETALHADOS
+🎯 TEMAS: \${temasTexto}
 ═══════════════════════════════════════════════════════════════
 1. HISTÓRIA E FUNDAÇÃO (~15%)
-   - Data/local de fundação, fundadores, primeiro nome
-   - Origem das cores, mascote, apelidos, evolução do escudo
-
 2. TÍTULOS E CONQUISTAS (~20%)
-   - Títulos nacionais, internacionais, regionais
-   - Campanhas históricas, finais marcantes
-
-3. JOGADORES HISTÓRICOS (~25%)
-   - Ídolos de cada época, artilheiros, recordistas
-   - Jogadores com mais jogos, revelações, estrangeiros
-
+3. JOGADORES HISTÓRICOS (~25%) - de TODAS as épocas!
 4. TÉCNICOS (~10%)
-   - Técnicos campeões, mais vitoriosos, marcantes
-
 5. ESTÁDIO E TORCIDA (~10%)
-   - Nome, capacidade, história do estádio
-   - Maiores públicos, torcidas organizadas
-
 6. CLÁSSICOS E RIVALIDADES (~10%)
-   - Principais rivais, goleadas históricas
-   - Jogos memoráveis contra rivais
-
 7. CURIOSIDADES (~10%)
-   - Fatos inusitados, recordes, primeiros/últimos
+
+═══════════════════════════════════════════════════════════════
+🔍 FONTES RECOMENDADAS (cite no campo "fonte")
+═══════════════════════════════════════════════════════════════
+\${fontes.map(f => '• ' + f).join('
+')}
 
 ═══════════════════════════════════════════════════════════════
 ✅ REGRAS DE QUALIDADE
 ═══════════════════════════════════════════════════════════════
 FAÇA:
 ✓ Perguntas claras, objetivas, máximo 2 linhas
-✓ 4 alternativas plausíveis (todas devem parecer possíveis)
-✓ Apenas UMA resposta inequivocamente correta
-✓ Fatos verificáveis em fontes confiáveis
-✓ Variar temas (não repetir assunto em sequência)
-✓ Usar anos/números específicos quando relevante
-✓ Colocar a resposta correta em posições VARIADAS
+✓ 4 alternativas plausíveis (todas parecem possíveis)
+✓ SEMPRE usar períodos temporais ou eventos específicos
+✓ Distribuir por TODAS as pontuações (1 a 10)
+✓ Citar a fonte de cada pergunta
 
 NÃO FAÇA:
+✗ Perguntas atemporais/genéricas que podem desatualizar
 ✗ "Todas as anteriores" / "Nenhuma das anteriores"
-✗ Alternativas absurdas ou obviamente erradas
 ✗ Perguntas sobre 2025 em diante
-✗ Perguntas de opinião ("melhor", "maior", sem critério)
-✗ Mesma pergunta reformulada
-✗ Pegadinhas ou perguntas enganosas
 ✗ 3+ respostas consecutivas com mesma letra
-
-═══════════════════════════════════════════════════════════════
-🔍 FONTES RECOMENDADAS
-═══════════════════════════════════════════════════════════════
-• Site oficial do ${time.nome}
-• Wikipedia (com referências)
-• Transfermarkt, RSSSF
-• Livros e documentários oficiais
-${antiRepeticao}
-═══════════════════════════════════════════════════════════════
-✅ AUTO-VERIFICAÇÃO ANTES DE ENTREGAR
-═══════════════════════════════════════════════════════════════
-Antes de enviar o JSON, confirme mentalmente:
-□ Total de ${qtd} perguntas? 
-□ Letras A/B/C/D equilibradas (~25% cada)?
-□ Sem 3+ letras iguais seguidas?
-□ Dificuldades 30% fácil / 40% médio / 30% difícil?
-□ Todas as épocas do clube representadas?
-□ Todos os 7 temas cobertos?
-□ JSON válido sem erros de sintaxe?
-
+✗ Concentrar pontuações em 5 e 10
+\${antiRepeticao}
 ═══════════════════════════════════════════════════════════════
 📤 SAÍDA
 ═══════════════════════════════════════════════════════════════
-Gere EXATAMENTE ${qtd} perguntas numeradas de ${time.id}-001 até ${time.id}-${String(qtd).padStart(3, '0')}.
+Gere EXATAMENTE \${qtd} perguntas em formato JSON (array).
+IDs de \${time.id}-\${String(idInicial).padStart(3, '0')} até \${time.id}-\${String(idInicial + qtd - 1).padStart(3, '0')}.
 
-Retorne APENAS o JSON válido, sem explicações ou comentários.`;
+Retorne APENAS o JSON válido, sem explicações ou comentários.\`;
             
             document.getElementById('promptCardTime').style.display = 'block';
             document.getElementById('promptDisplayTime').textContent = promptGeradoTime;
             
-            showToast('Prompt gerado com sucesso!', 'success');
+            showToast('Prompt V3 gerado com sucesso!', 'success');
         }
         
         function getTemasSelected(name) {
@@ -1366,10 +1428,11 @@ Retorne APENAS o JSON válido, sem explicações ou comentários.`;
             showToast('Prompt copiado!', 'success');
         }
         
-        // Gerar prompt para Campeonatos
+        // Gerar prompt para Campeonatos - V3 (MELHORADO)
         function gerarPromptCampeonato() {
             const campId = document.getElementById('selectCampeonato').value;
-            const qtd = document.getElementById('qtdPerguntasCamp').value;
+            const qtd = parseInt(document.getElementById('qtdPerguntasCamp').value);
+            const idInicial = parseInt(document.getElementById('idInicialCamp')?.value || 1);
             
             if (!campId) {
                 showToast('Selecione um campeonato!', 'error');
@@ -1404,208 +1467,151 @@ Retorne APENAS o JSON válido, sem explicações ou comentários.`;
                     decadasSelecionadas.push(cb.value);
                 });
                 if (decadasSelecionadas.length > 0) {
-                    decadasTexto = `\n📅 DÉCADAS ESPECÍFICAS: ${decadasSelecionadas.map(d => d + '-' + (parseInt(d)+9)).join(', ')}`;
+                    decadasTexto = \`
+📅 DÉCADAS ESPECÍFICAS: \${decadasSelecionadas.map(d => d + '-' + (parseInt(d)+9)).join(', ')}\`;
                 }
             }
             
             let antiRepeticao = '';
             if (perguntasExistentesCamp.length > 0) {
-                antiRepeticao = `
+                antiRepeticao = \`
+═══════════════════════════════════════════════════════════════
+⚠️ PERGUNTAS EXISTENTES - NÃO REPETIR!
+═══════════════════════════════════════════════════════════════
+\${perguntasExistentesCamp.slice(0, 150).map((p, i) => \`\${i+1}. \${p}\`).join('
+')}
+\${perguntasExistentesCamp.length > 150 ? \`
+... e mais \${perguntasExistentesCamp.length - 150} perguntas.\` : ''}
 
-⚠️ IMPORTANTE - NÃO REPITA ESTAS PERGUNTAS JÁ EXISTENTES:
-${perguntasExistentesCamp.slice(0, 100).map((p, i) => `${i+1}. ${p}`).join('\n')}
-${perguntasExistentesCamp.length > 100 ? `\n... e mais ${perguntasExistentesCamp.length - 100} perguntas.` : ''}
-
-Crie perguntas COMPLETAMENTE DIFERENTES das listadas acima. Explore outros ângulos, outros anos, outros jogadores, outros fatos.`;
+Crie perguntas COMPLETAMENTE DIFERENTES!\`;
             }
             
-            promptGeradoCamp = `Você é um especialista em história do futebol e vai criar ${qtd} perguntas de quiz sobre a ${camp.nome}.
+            // Calcular distribuição de pontuação granular
+            const distPontuacao = {
+                1: Math.round(qtd * 0.05),
+                2: Math.round(qtd * 0.10),
+                3: Math.round(qtd * 0.10),
+                4: Math.round(qtd * 0.10),
+                5: Math.round(qtd * 0.15),
+                6: Math.round(qtd * 0.15),
+                7: Math.round(qtd * 0.10),
+                8: Math.round(qtd * 0.10),
+                9: Math.round(qtd * 0.08),
+                10: Math.round(qtd * 0.07)
+            };
+            
+            promptGeradoCamp = \`Você é um historiador especializado em futebol e vai criar \${qtd} perguntas sobre a \${camp.nome}.
 
 ═══════════════════════════════════════════════════════════════
-📋 INFORMAÇÕES DO CAMPEONATO
+🏆 IDENTIFICAÇÃO DO CAMPEONATO
 ═══════════════════════════════════════════════════════════════
-• Nome: ${camp.nome}
-• ID: ${campId}
-• Temas solicitados: ${temasTexto}${decadasTexto}
+• Nome: \${camp.nome}
+• ID: \${campId}
+• Temas: \${temasTexto}\${decadasTexto}
 
 ═══════════════════════════════════════════════════════════════
-📊 FORMATO JSON OBRIGATÓRIO
+📊 FORMATO JSON OBRIGATÓRIO (Array)
 ═══════════════════════════════════════════════════════════════
-{
-  "${campId}-001": {
-    "pergunta": "Texto da pergunta aqui?",
-    "alternativas": {
-      "A": "Alternativa A",
-      "B": "Alternativa B",
-      "C": "Alternativa C",
-      "D": "Alternativa D"
-    },
+[
+  {
+    "id": "\${campId}-\${String(idInicial).padStart(3, '0')}",
+    "pergunta": "Texto aqui?",
+    "alternativas": { "A": "...", "B": "...", "C": "...", "D": "..." },
     "correta": "A",
     "pontuacao": 5,
-    "campeonatoId": "${campId}",
-    "campeonatoNome": "${camp.nome}",
-    "fonte": "Wikipedia"
+    "timeId": "",
+    "timeNome": "",
+    "campeonatoId": "\${campId}",
+    "campeonatoNome": "\${camp.nome}",
+    "fonte": "Nome da fonte"
   }
-}
+]
 
 ═══════════════════════════════════════════════════════════════
-📏 SISTEMA DE PONTUAÇÃO (1-10)
+⏰ REGRA DE OURO: PERGUNTAS TEMPORAIS (ANTI-OBSOLESCÊNCIA)
 ═══════════════════════════════════════════════════════════════
-• 1-2: MUITO FÁCIL - Qualquer pessoa que acompanha futebol sabe
-  Ex: "Quem venceu a ${camp.nome} mais recente?" / "Qual país mais venceu?"
-  
-• 3-4: FÁCIL - Torcedor casual consegue responder
-  Ex: "Qual time foi bicampeão em 20XX-20XX?" / "Em qual estádio foi a final de 20XX?"
-  
-• 5-6: MÉDIO - Requer conhecimento mais aprofundado
-  Ex: "Quem foi o artilheiro da edição de 20XX?" / "Qual técnico conquistou o título?"
-  
-• 7-8: DIFÍCIL - Apenas fãs dedicados e estudiosos sabem
-  Ex: "Quantos gols X marcou na campanha?" / "Qual foi o placar da semifinal?"
-  
-• 9-10: MUITO DIFÍCIL - Historiadores, estatísticos, curiosidades raras
-  Ex: "Quem marcou o 1º gol da história?" / "Qual foi o menor público de uma final?"
+❌ NÃO FAÇA (podem desatualizar):
+• "Qual time mais venceu a \${camp.nome}?" 
+• "Quem é o maior artilheiro da história?"
+• "Quantos títulos o Boca tem?"
+
+✅ FAÇA ASSIM (fatos imutáveis):
+• "Qual time era o maior vencedor até 2015?"
+• "Quem foi o artilheiro da edição de 2019?"
+• "Quantas vezes o Boca venceu entre 2000 e 2010?"
+• "Quem foi o técnico campeão em 2005?"
+
+📌 SEMPRE ancore em período ou evento específico!
 
 ═══════════════════════════════════════════════════════════════
-🎯 GERE EM BLOCOS DE 25 PERGUNTAS
+📏 PONTUAÇÃO GRANULAR (1-10) - USE TODA A ESCALA!
 ═══════════════════════════════════════════════════════════════
-Para manter qualidade e distribuição uniforme, gere em 4 blocos:
+⚠️ NÃO concentre em 5 e 10! Distribua uniformemente!
 
-📦 BLOCO 1 (001-025): Foco em CAMPEÕES, FINAIS e HISTÓRIA
-   → 7-8 fáceis | 10 médias | 7-8 difíceis
-   → ~6A, ~6B, ~6C, ~7D
-
-📦 BLOCO 2 (026-050): Foco em ARTILHEIROS, GOLEADORES e RECORDES
-   → 7-8 fáceis | 10 médias | 7-8 difíceis
-   → ~7A, ~6B, ~6C, ~6D
-
-📦 BLOCO 3 (051-075): Foco em TÉCNICOS, ESTÁDIOS e SEDES
-   → 7-8 fáceis | 10 médias | 7-8 difíceis
-   → ~6A, ~7B, ~6C, ~6D
-
-📦 BLOCO 4 (076-100): Foco em CURIOSIDADES, PAÍSES e FATOS HISTÓRICOS
-   → 7-8 fáceis | 10 médias | 7-8 difíceis
-   → ~6A, ~6B, ~7C, ~6D
-
-⚠️ AO FINAL DE CADA BLOCO, VERIFIQUE:
-- Contagem de A/B/C/D está equilibrada?
-- Não há 3+ respostas iguais seguidas?
-- Dificuldades estão variadas?
+• 1 pt (~\${distPontuacao[1]}): Campeão mais recente, time famoso que venceu
+• 2 pts (~\${distPontuacao[2]}): Times multicampeões conhecidos
+• 3 pts (~\${distPontuacao[3]}): Ano de criação, país com mais títulos
+• 4 pts (~\${distPontuacao[4]}): Finais famosas, vice-campeões
+• 5 pts (~\${distPontuacao[5]}): Artilheiros de edições específicas
+• 6 pts (~\${distPontuacao[6]}): Técnicos campeões, goleadas históricas
+• 7 pts (~\${distPontuacao[7]}): Placares de finais, semifinais históricas
+• 8 pts (~\${distPontuacao[8]}): Hat-tricks em finais, expulsões marcantes
+• 9 pts (~\${distPontuacao[9]}): Árbitros de finais, público exato
+• 10 pts (~\${distPontuacao[10]}): Primeiro gol da história, curiosidades raras
 
 ═══════════════════════════════════════════════════════════════
-📊 METAS DE DISTRIBUIÇÃO (${qtd} perguntas)
+📊 METAS DE DISTRIBUIÇÃO (\${qtd} perguntas)
 ═══════════════════════════════════════════════════════════════
 DIFICULDADE:
-• Fácil (1-4): ${Math.round(qtd * 0.3)} perguntas (30%)
-• Médio (5-7): ${Math.round(qtd * 0.4)} perguntas (40%)
-• Difícil (8-10): ${Math.round(qtd * 0.3)} perguntas (30%)
+• Fácil (1-4 pts): ~\${Math.round(qtd * 0.30)} perguntas (30%)
+• Médio (5-6 pts): ~\${Math.round(qtd * 0.40)} perguntas (40%)
+• Difícil (7-10 pts): ~\${Math.round(qtd * 0.30)} perguntas (30%)
 
-LETRAS (tolerância ±3):
-• Letra A: ${Math.round(qtd * 0.25)} ± 3 perguntas
-• Letra B: ${Math.round(qtd * 0.25)} ± 3 perguntas
-• Letra C: ${Math.round(qtd * 0.25)} ± 3 perguntas
-• Letra D: ${Math.round(qtd * 0.25)} ± 3 perguntas
-
-🚫 REGRA DE SEQUÊNCIA: Máximo 2 respostas iguais seguidas!
-   ❌ Errado: A, A, A, B, C
-   ✅ Certo: A, B, A, C, A, D, B
+LETRAS: ~25% cada (A/B/C/D) | Máximo 2 seguidas!
 
 ═══════════════════════════════════════════════════════════════
-📅 COBERTURA TEMPORAL OBRIGATÓRIA
+📅 COBERTURA TEMPORAL
 ═══════════════════════════════════════════════════════════════
-Distribua ao longo de TODA a história (~20-25% cada era):
-• Primeiras décadas do campeonato (~${Math.round(qtd * 0.2)} perguntas)
-• Era intermediária (~${Math.round(qtd * 0.2)} perguntas)
-• Décadas 1990-2000 (~${Math.round(qtd * 0.2)} perguntas)
-• Era moderna 2000-2015 (~${Math.round(qtd * 0.2)} perguntas)
-• Edições recentes 2015-2024 (~${Math.round(qtd * 0.2)} perguntas)
+• Primeiras edições: ~15%
+• Anos 1970-1990: ~20%
+• Anos 1990-2005: ~25%
+• Anos 2005-2015: ~20%
+• Anos 2015-2024: ~20%
 
 ═══════════════════════════════════════════════════════════════
-🎯 TEMAS DETALHADOS
+🎯 TEMAS
 ═══════════════════════════════════════════════════════════════
 1. CAMPEÕES E FINAIS (~20%)
-   - Times campeões, placares, locais das finais
-   - Bi/tri/tetracampeões, maiores vencedores
-   - Finais históricas, viradas épicas, goleadas
-
-2. ARTILHEIROS E GOLEADORES (~15%)
-   - Maiores artilheiros da história da competição
-   - Artilheiros por edição, hat-tricks famosos
-   - Recordes de gols em partida/edição
-
-3. TÉCNICOS E TÁTICAS (~15%)
-   - Técnicos campeões, técnicos com mais títulos
-   - Estilos de jogo marcantes, inovações táticas
-
+2. ARTILHEIROS (~15%)
+3. TÉCNICOS (~15%)
 4. RECORDES E ESTATÍSTICAS (~15%)
-   - Maiores goleadas, sequências invictas
-   - Mais participações, mais jogos, mais vitórias
-
-5. CURIOSIDADES E FATOS HISTÓRICOS (~15%)
-   - Primeira edição, formato original
-   - Mudanças de regulamento, fatos inusitados
-
+5. CURIOSIDADES (~15%)
 6. ESTÁDIOS E SEDES (~10%)
-   - Estádios que mais sediaram finais
-   - Cidades-sede, público recorde
-
-7. PAÍSES/CLUBES E REPRESENTANTES (~10%)
-   - Países/regiões com mais títulos
-   - Primeiro campeão de cada país/região
-
-═══════════════════════════════════════════════════════════════
-✅ REGRAS DE QUALIDADE
-═══════════════════════════════════════════════════════════════
-FAÇA:
-✓ Perguntas claras, objetivas, máximo 2 linhas
-✓ 4 alternativas plausíveis (todas devem parecer possíveis)
-✓ Apenas UMA resposta inequivocamente correta
-✓ Fatos verificáveis em fontes confiáveis
-✓ Variar temas (não repetir assunto em sequência)
-✓ Mencionar times de diferentes países/regiões
-✓ Usar anos/números específicos quando relevante
-✓ Colocar a resposta correta em posições VARIADAS
-
-NÃO FAÇA:
-✗ "Todas as anteriores" / "Nenhuma das anteriores"
-✗ Alternativas absurdas ou obviamente erradas
-✗ Perguntas sobre 2025 em diante
-✗ Perguntas de opinião ("melhor", "maior", sem critério)
-✗ Mesma pergunta reformulada
-✗ Pegadinhas ou perguntas enganosas
-✗ 3+ respostas consecutivas com mesma letra
+7. PAÍSES/CLUBES (~10%)
 
 ═══════════════════════════════════════════════════════════════
 🔍 FONTES RECOMENDADAS
 ═══════════════════════════════════════════════════════════════
-• Site oficial da competição (CONMEBOL, UEFA, CBF, etc.)
-• Wikipedia (com referências)
-• Transfermarkt, RSSSF
-• Sites oficiais dos clubes participantes
-${antiRepeticao}
-═══════════════════════════════════════════════════════════════
-✅ AUTO-VERIFICAÇÃO ANTES DE ENTREGAR
-═══════════════════════════════════════════════════════════════
-Antes de enviar o JSON, confirme mentalmente:
-□ Total de ${qtd} perguntas?
-□ Letras A/B/C/D equilibradas (~25% cada, ±3)?
-□ Sem 3+ letras iguais seguidas?
-□ Dificuldades 30% fácil / 40% médio / 30% difícil?
-□ Todas as épocas do campeonato representadas?
-□ Todos os 7 temas cobertos?
-□ JSON válido sem erros de sintaxe?
+• Site oficial (CONMEBOL, UEFA, CBF, FIFA)
+• Wikipedia • RSSSF.org • Transfermarkt
+• Jornais esportivos
 
+═══════════════════════════════════════════════════════════════
+✅ REGRAS DE QUALIDADE
+═══════════════════════════════════════════════════════════════
+FAÇA: Perguntas claras, temporais, verificáveis
+NÃO FAÇA: Atemporais, pegadinhas, 3+ letras seguidas, concentrar em 5 e 10
+\${antiRepeticao}
 ═══════════════════════════════════════════════════════════════
 📤 SAÍDA
 ═══════════════════════════════════════════════════════════════
-Gere EXATAMENTE ${qtd} perguntas numeradas de ${campId}-001 até ${campId}-${String(qtd).padStart(3, '0')}.
-
-Retorne APENAS o JSON válido, sem explicações ou comentários.`;
+Gere EXATAMENTE \${qtd} perguntas (IDs \${campId}-\${String(idInicial).padStart(3, '0')} a \${campId}-\${String(idInicial + qtd - 1).padStart(3, '0')}).
+Retorne APENAS o JSON válido.\`;
             
             document.getElementById('promptCardCamp').style.display = 'block';
             document.getElementById('promptDisplayCamp').textContent = promptGeradoCamp;
             
-            showToast('Prompt gerado com sucesso!', 'success');
+            showToast('Prompt V3 gerado!', 'success');
         }
         
         function copiarPromptCampeonato() {
