@@ -1371,6 +1371,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-functions-compat.js"></script>
   <script src="js/firebase-init.js"></script>
 
   <!-- Utilitário de Bandeiras -->
@@ -1380,6 +1381,7 @@
     // ===================================
     // 🔧 VARIÁVEIS GLOBAIS
     // ===================================
+    const functions = firebase.functions();
     let currentStep = 1;
     let currentUserId = null;
     let currentUserData = null;
@@ -2267,20 +2269,9 @@
           status: 'aguardando'
         });
         
-        // Debitar créditos do criador
-        await db.collection('usuarios').doc(currentUserId).update({
-          creditos: firebase.firestore.FieldValue.increment(-embateData.aposta)
-        });
-        
-        // Registrar transação
-        await db.collection('transacoes').add({
-          usuarioId: currentUserId,
-          tipo: 'debito',
-          valor: embateData.aposta,
-          descricao: `Aposta no embate ${codigo}`,
-          embateId: embateRef.id,
-          data: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        // ✅ SEGURO: Cloud Function debita créditos
+        const criarEmbateFn = functions.httpsCallable('criarEmbate');
+        await criarEmbateFn({ embateId: embateRef.id, aposta: embateData.aposta });
         
         // Criar notificações para convidados
         for (const amigo of embateData.amigos) {
