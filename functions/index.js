@@ -1106,3 +1106,218 @@ exports.premiarJogo = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', 'Erro ao processar premiação');
   }
 });
+
+// =====================================================
+// FUNÇÃO: INSCREVER EM TORNEIO
+// Debita entrada e registra inscrição
+// =====================================================
+
+exports.inscreverTorneio = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const userId = context.auth.uid;
+  const { torneioId } = data;
+
+  if (!torneioId) {
+    throw new functions.https.HttpsError('invalid-argument', 'torneioId é obrigatório');
+  }
+
+  try {
+    const torneioDoc = await db.collection('torneios').doc(torneioId).get();
+    if (!torneioDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Torneio não encontrado');
+    }
+
+    const torneio = torneioDoc.data();
+    const entrada = torneio.entrada || 0;
+
+    // Verificar se já está inscrito
+    const inscritos = torneio.inscritos || [];
+    if (inscritos.includes(userId)) {
+      throw new functions.https.HttpsError('already-exists', 'Já está inscrito neste torneio');
+    }
+
+    // Verificar vagas
+    if ((torneio.totalInscritos || 0) >= torneio.vagas && torneio.vagas < 9999) {
+      throw new functions.https.HttpsError('resource-exhausted', 'Torneio cheio');
+    }
+
+    // Verificar créditos
+    if (entrada > 0) {
+      const userDoc = await db.collection('usuarios').doc(userId).get();
+      const creditos = userDoc.data().creditos || 0;
+      if (creditos < entrada) {
+        throw new functions.https.HttpsError('failed-precondition', 'Créditos insuficientes');
+      }
+    }
+
+    const batch = db.batch();
+
+    // Debitar entrada
+    if (entrada > 0) {
+      const userRef = db.collection('usuarios').doc(userId);
+      batch.update(userRef, {
+        creditos: admin.firestore.FieldValue.increment(-entrada)
+      });
+
+      // Registrar transação
+      const transRef = db.collection('transacoes').doc();
+      batch.set(transRef, {
+        usuarioId: userId,
+        tipo: 'debito',
+        valor: entrada,
+        descricao: `Inscrição no torneio ${torneio.nome || 'Torneio'}`,
+        torneioId: torneioId,
+        data: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    // Atualizar torneio
+    const torneioRef = db.collection('torneios').doc(torneioId);
+    batch.update(torneioRef, {
+      inscritos: admin.firestore.FieldValue.arrayUnion(userId),
+      totalInscritos: admin.firestore.FieldValue.increment(1),
+      prizePool: admin.firestore.FieldValue.increment(entrada)
+    });
+
+    await batch.commit();
+
+    console.log(`✅ Usuário ${userId} inscrito no torneio ${torneioId} (entrada: ${entrada})`);
+    return { success: true, entrada: entrada };
+
+  } catch (error) {
+    console.error('❌ Erro ao inscrever no torneio:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Erro ao inscrever no torneio');
+  }
+});
+
+// =====================================================
+// FUNÇÃO: FINALIZAR TORNEIO
+// Calcula ranking, premia top 3, atualiza stats
+// =====================================================
+
+exports.finalizarTorneio = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const { torneioId } = data;
+  if (!torneioId) {
+    throw new functions.https.HttpsError('invalid-argument', 'torneioId é obrigatório');
+  }
+
+  try {
+    const torneioDoc = await db.collection('torneios').doc(torneioId).get();
+    if (!torneioDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Torneio não encontrado');
+    }
+
+    const torneioAtual = torneioDoc.data();
+
+    // Já finalizado? Retornar resultado existente
+    if (torneioAtual.status === 'finalizado' && torneioAtual.resultado) {
+      return { success: true, jaFinalizado: true, resultado: torneioAtual.resultado };
+    }
+
+    // Buscar ranking
+    const participacoesSnap = await db.collection('torneios').doc(torneioId)
+      .collection('participacoes').orderBy('pontos', 'desc').get();
+
+    let ranking = [];
+    participacoesSnap.forEach(doc => {
+      ranking.push({ odId: doc.id, ...doc.data() });
+    });
+
+    // Calcular prêmios
+    const prizePool = torneioAtual.prizePool || 0;
+    const distribuicao = torneioAtual.config?.distribuicaoPremio || { primeiro: 50, segundo: 30, terceiro: 20 };
+
+    const premio1 = Math.floor(prizePool * distribuicao.primeiro / 100);
+    const premio2 = Math.floor(prizePool * distribuicao.segundo / 100);
+    const premio3 = Math.floor(prizePool * distribuicao.terceiro / 100);
+
+    const resultado = {
+      primeiro: ranking[0] ? { odId: ranking[0].odId, odNome: ranking[0].odNome, pontos: ranking[0].pontos, premio: premio1 } : null,
+      segundo: ranking[1] ? { odId: ranking[1].odId, odNome: ranking[1].odNome, pontos: ranking[1].pontos, premio: premio2 } : null,
+      terceiro: ranking[2] ? { odId: ranking[2].odId, odNome: ranking[2].odNome, pontos: ranking[2].pontos, premio: premio3 } : null,
+      ranking: ranking.map((r, i) => ({
+        posicao: i + 1, odId: r.odId, odNome: r.odNome,
+        pontos: r.pontos || 0, acertos: r.acertos || 0, erros: r.erros || 0
+      }))
+    };
+
+    const batch = db.batch();
+
+    // Premiar 1º lugar
+    if (ranking[0] && premio1 > 0) {
+      const userRef = db.collection('usuarios').doc(ranking[0].odId);
+      batch.update(userRef, {
+        creditos: admin.firestore.FieldValue.increment(premio1),
+        'torneios.vitorias': admin.firestore.FieldValue.increment(1),
+        'torneios.creditosGanhos': admin.firestore.FieldValue.increment(premio1),
+        'torneios.totalTorneios': admin.firestore.FieldValue.increment(1)
+      });
+      const transRef = db.collection('transacoes').doc();
+      batch.set(transRef, {
+        usuarioId: ranking[0].odId, tipo: 'credito', valor: premio1,
+        descricao: `🥇 1º lugar no torneio ${torneioAtual.nome || 'Torneio'}`,
+        torneioId, data: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    // Premiar 2º lugar
+    if (ranking[1] && premio2 > 0) {
+      const userRef = db.collection('usuarios').doc(ranking[1].odId);
+      batch.update(userRef, {
+        creditos: admin.firestore.FieldValue.increment(premio2),
+        'torneios.top3': admin.firestore.FieldValue.increment(1),
+        'torneios.creditosGanhos': admin.firestore.FieldValue.increment(premio2),
+        'torneios.totalTorneios': admin.firestore.FieldValue.increment(1)
+      });
+      const transRef = db.collection('transacoes').doc();
+      batch.set(transRef, {
+        usuarioId: ranking[1].odId, tipo: 'credito', valor: premio2,
+        descricao: `🥈 2º lugar no torneio ${torneioAtual.nome || 'Torneio'}`,
+        torneioId, data: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    // Premiar 3º lugar
+    if (ranking[2] && premio3 > 0) {
+      const userRef = db.collection('usuarios').doc(ranking[2].odId);
+      batch.update(userRef, {
+        creditos: admin.firestore.FieldValue.increment(premio3),
+        'torneios.top3': admin.firestore.FieldValue.increment(1),
+        'torneios.creditosGanhos': admin.firestore.FieldValue.increment(premio3),
+        'torneios.totalTorneios': admin.firestore.FieldValue.increment(1)
+      });
+      const transRef = db.collection('transacoes').doc();
+      batch.set(transRef, {
+        usuarioId: ranking[2].odId, tipo: 'credito', valor: premio3,
+        descricao: `🥉 3º lugar no torneio ${torneioAtual.nome || 'Torneio'}`,
+        torneioId, data: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    // Marcar torneio como finalizado
+    const torneioRef = db.collection('torneios').doc(torneioId);
+    batch.update(torneioRef, {
+      status: 'finalizado',
+      resultado: resultado,
+      dataFinalizacao: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    console.log(`🏆 Torneio ${torneioId} finalizado! Prêmios: ${premio1}/${premio2}/${premio3}`);
+    return { success: true, resultado: resultado };
+
+  } catch (error) {
+    console.error('❌ Erro ao finalizar torneio:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Erro ao finalizar torneio');
+  }
+});
