@@ -1321,3 +1321,226 @@ exports.finalizarTorneio = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', 'Erro ao finalizar torneio');
   }
 });
+
+// =====================================================
+// FUNÇÃO: CREDITAR INDICAÇÃO
+// Dá 2 créditos bônus ao indicador quando indicado se cadastra
+// =====================================================
+
+exports.creditarIndicacao = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const novoUserId = context.auth.uid;
+  const { indicadorId } = data;
+
+  if (!indicadorId) {
+    throw new functions.https.HttpsError('invalid-argument', 'indicadorId é obrigatório');
+  }
+
+  // Evitar que alguém se auto-indique
+  if (indicadorId === novoUserId) {
+    throw new functions.https.HttpsError('failed-precondition', 'Não pode se auto-indicar');
+  }
+
+  try {
+    // Verificar se indicador existe
+    const indicadorDoc = await db.collection('usuarios').doc(indicadorId).get();
+    if (!indicadorDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Indicador não encontrado');
+    }
+
+    // Verificar se já foi creditado (evitar duplicidade)
+    const novoUserDoc = await db.collection('usuarios').doc(novoUserId).get();
+    if (!novoUserDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Usuário novo não encontrado');
+    }
+
+    const indicadorData = indicadorDoc.data();
+    if (indicadorData.indicados && indicadorData.indicados[novoUserId]) {
+      return { success: true, jaCreditado: true };
+    }
+
+    const batch = db.batch();
+
+    // Creditar indicador
+    const indicadorRef = db.collection('usuarios').doc(indicadorId);
+    batch.update(indicadorRef, {
+      creditos: admin.firestore.FieldValue.increment(2),
+      creditosBonus: admin.firestore.FieldValue.increment(2),
+      [`indicados.${novoUserId}`]: {
+        nome: novoUserDoc.data().usuarioUnico || novoUserDoc.data().nome || 'Novo Usuário',
+        data: new Date().toISOString()
+      }
+    });
+
+    // Transação
+    const transRef = db.collection('transacoes').doc();
+    batch.set(transRef, {
+      usuarioId: indicadorId,
+      tipo: 'credito',
+      valor: 2,
+      descricao: 'Bônus de indicação',
+      data: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    console.log(`✅ Indicador ${indicadorId} creditado com 2 créditos por indicar ${novoUserId}`);
+    return { success: true };
+
+  } catch (error) {
+    console.error('❌ Erro ao creditar indicação:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Erro ao creditar indicação');
+  }
+});
+
+// =====================================================
+// FUNÇÃO: CREDITAR COMPRA
+// Adiciona créditos após confirmação de pagamento
+// =====================================================
+
+exports.creditarCompra = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const userId = context.auth.uid;
+  const { paymentId, pacoteId, creditos, bonus, externalRef } = data;
+
+  if (!paymentId || !creditos) {
+    throw new functions.https.HttpsError('invalid-argument', 'paymentId e creditos são obrigatórios');
+  }
+
+  try {
+    // Verificar se pagamento já foi processado (evitar duplicidade)
+    const pagamentoDoc = await db.collection('pagamentos_mp').doc(String(paymentId)).get();
+    if (pagamentoDoc.exists) {
+      console.log('⚠️ Pagamento já processado:', paymentId);
+      return { success: true, jaProcessado: true };
+    }
+
+    const totalCreditos = (creditos || 0) + (bonus || 0);
+
+    const batch = db.batch();
+
+    // Creditar usuário
+    const userRef = db.collection('usuarios').doc(userId);
+    batch.update(userRef, {
+      creditos: admin.firestore.FieldValue.increment(totalCreditos),
+      creditosPagos: admin.firestore.FieldValue.increment(creditos),
+      creditosBonus: admin.firestore.FieldValue.increment(bonus || 0)
+    });
+
+    // Registrar pagamento
+    const pagRef = db.collection('pagamentos_mp').doc(String(paymentId));
+    batch.set(pagRef, {
+      usuarioId: userId,
+      creditos: creditos,
+      bonus: bonus || 0,
+      totalCreditos: totalCreditos,
+      status: 'aprovado',
+      externalReference: externalRef || '',
+      processadoEm: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Registrar transação
+    const transRef = db.collection('transacoes').doc();
+    batch.set(transRef, {
+      usuarioId: userId,
+      tipo: 'credito',
+      valor: totalCreditos,
+      descricao: `Compra de ${creditos} créditos${bonus > 0 ? ` + ${bonus} bônus` : ''}`,
+      paymentId: String(paymentId),
+      data: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    console.log(`✅ Compra processada: ${userId} recebeu ${totalCreditos} créditos (pagamento ${paymentId})`);
+    return { success: true, totalCreditos: totalCreditos };
+
+  } catch (error) {
+    console.error('❌ Erro ao creditar compra:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Erro ao creditar compra');
+  }
+});
+
+// =====================================================
+// FUNÇÃO: COMPLETAR MISSÃO
+// Credita recompensa ao completar uma missão
+// =====================================================
+
+exports.completarMissao = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const userId = context.auth.uid;
+  const { missaoId } = data;
+
+  if (!missaoId) {
+    throw new functions.https.HttpsError('invalid-argument', 'missaoId é obrigatório');
+  }
+
+  try {
+    // Verificar missão do usuário
+    const missaoRef = db.collection('usuarios').doc(userId).collection('missoes').doc(missaoId);
+    const missaoDoc = await missaoRef.get();
+
+    if (!missaoDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Missão não encontrada');
+    }
+
+    const missaoData = missaoDoc.data();
+
+    // Verificar se realmente está concluída
+    if (!missaoData.concluido) {
+      throw new functions.https.HttpsError('failed-precondition', 'Missão ainda não foi concluída');
+    }
+
+    const creditosRecompensa = missaoData.recompensa?.creditos || 0;
+
+    if (creditosRecompensa <= 0) {
+      return { success: true, creditos: 0 };
+    }
+
+    // Verificar se já foi creditada (campo creditada)
+    if (missaoData.creditada) {
+      return { success: true, jaCreditada: true };
+    }
+
+    const batch = db.batch();
+
+    // Creditar usuário
+    const userRef = db.collection('usuarios').doc(userId);
+    batch.update(userRef, {
+      creditos: admin.firestore.FieldValue.increment(creditosRecompensa)
+    });
+
+    // Marcar missão como creditada
+    batch.update(missaoRef, { creditada: true });
+
+    // Registrar no extrato
+    const extratoRef = db.collection('usuarios').doc(userId).collection('extrato').doc();
+    batch.set(extratoRef, {
+      tipo: 'entrada',
+      valor: creditosRecompensa,
+      descricao: `Missão: ${missaoData.titulo}`,
+      data: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    console.log(`✅ Missão ${missaoId} creditada para ${userId}: +${creditosRecompensa} créditos`);
+    return { success: true, creditos: creditosRecompensa };
+
+  } catch (error) {
+    console.error('❌ Erro ao completar missão:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Erro ao completar missão');
+  }
+});
