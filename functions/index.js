@@ -732,3 +732,377 @@ exports.coletarPremioEmbate = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', 'Erro ao coletar prêmio');
   }
 });
+
+// =====================================================
+// FUNÇÃO: PREMIAR JOGO
+// Distribui prêmios do pool de créditos após o jogo
+// 60% Ranking, 25% Cotistas, 15% Sortudos
+// =====================================================
+
+exports.premiarJogo = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const { jogoId } = data;
+  if (!jogoId) {
+    throw new functions.https.HttpsError('invalid-argument', 'jogoId é obrigatório');
+  }
+
+  try {
+    // 1. Ler dados do jogo
+    const jogoDoc = await db.collection('jogos').doc(jogoId).get();
+    if (!jogoDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Jogo não encontrado');
+    }
+
+    const jogoData = jogoDoc.data();
+
+    // Verificar se já foi premiado
+    if (jogoData.premiado && jogoData.premiacaoDetalhes) {
+      console.log('✅ Jogo já foi premiado, retornando detalhes existentes');
+      return { success: true, jaPremiado: true, detalhes: jogoData.premiacaoDetalhes };
+    }
+
+    const timeCasaId = jogoData.timeCasaId;
+    const timeForaId = jogoData.timeForaId;
+
+    // 2. Ler nomes dos times
+    let timeCasaNome = 'Time Casa';
+    let timeForaNome = 'Time Fora';
+    try {
+      const timeCasaDoc = await db.collection('times').doc(timeCasaId).get();
+      if (timeCasaDoc.exists) timeCasaNome = timeCasaDoc.data().nome || timeCasaNome;
+      const timeForaDoc = await db.collection('times').doc(timeForaId).get();
+      if (timeForaDoc.exists) timeForaNome = timeForaDoc.data().nome || timeForaNome;
+    } catch (e) {
+      console.warn('⚠️ Erro ao buscar nomes dos times:', e);
+    }
+
+    // 3. Ler participantes
+    const participantesSnap = await db.collection('jogos').doc(jogoId)
+      .collection('participantes').get();
+
+    if (participantesSnap.empty) {
+      console.log('⚠️ Nenhum participante');
+      return { success: true, semParticipantes: true };
+    }
+
+    const participantes = [];
+    const estatisticas = {
+      timeCasa: { pontos: 0, torcedores: [], nome: timeCasaNome },
+      timeFora: { pontos: 0, torcedores: [], nome: timeForaNome }
+    };
+
+    participantesSnap.forEach(doc => {
+      const p = doc.data();
+      const pontos = p.pontos || 0;
+      let tempoMedio = 10;
+      if (p.tempoQuantidade > 0) {
+        tempoMedio = p.tempoSoma / p.tempoQuantidade;
+      }
+
+      participantes.push({
+        odId: p.odId,
+        nome: p.nome,
+        pontos: pontos,
+        tempoMedio: tempoMedio,
+        timeId: p.timeId,
+        timeNome: p.timeNome
+      });
+
+      if (p.timeId === timeCasaId) {
+        estatisticas.timeCasa.pontos += pontos;
+        estatisticas.timeCasa.torcedores.push({ odId: p.odId, nome: p.nome });
+      } else if (p.timeId === timeForaId) {
+        estatisticas.timeFora.pontos += pontos;
+        estatisticas.timeFora.torcedores.push({ odId: p.odId, nome: p.nome });
+      }
+    });
+
+    // Ordenar por pontos e tempo
+    participantes.sort((a, b) => {
+      if (b.pontos !== a.pontos) return b.pontos - a.pontos;
+      return a.tempoMedio - b.tempoMedio;
+    });
+
+    // 4. Calcular pool
+    let poolCreditos = jogoData.poolCreditos || 0;
+    if (poolCreditos === 0 && jogoData.poolCreditosPagos) {
+      poolCreditos = jogoData.poolCreditosPagos;
+    }
+    const creditosIniciais = jogoData.creditosIniciais || 0;
+    const totalPoolCreditos = poolCreditos + creditosIniciais;
+
+    if (totalPoolCreditos <= 0) {
+      console.log('⚠️ Pool vazio');
+      await db.collection('jogos').doc(jogoId).update({
+        premiado: true,
+        premiacaoDetalhes: { totalPool: 0, processadoEm: new Date().toISOString(), processadoPor: 'cloud_function' }
+      });
+      return { success: true, poolVazio: true };
+    }
+
+    // Função de arredondamento
+    function arredondar(valor) {
+      if (valor <= 0) return 0;
+      const arredondado = valor % 1 >= 0.5 ? Math.ceil(valor) : Math.floor(valor);
+      return Math.max(1, arredondado);
+    }
+
+    // 5. Distribuição: 60% Ranking, 25% Cotistas, 15% Sortudos
+    const totalRankingCreditos = arredondar(totalPoolCreditos * 0.60);
+    const totalCotistasCreditos = arredondar(totalPoolCreditos * 0.25);
+    const totalSortudoCreditos = arredondar(totalPoolCreditos * 0.15);
+    const creditosSortudoVencedor = arredondar(totalSortudoCreditos * 0.67);
+    const creditosSortudoPopular = totalSortudoCreditos - creditosSortudoVencedor;
+
+    const PERCENTUAIS_RANKING = [30, 20, 15, 10, 7, 5, 4, 3, 3, 3];
+    const top100 = participantes.slice(0, 100);
+    const numParticipantes = top100.length;
+
+    // 6. Calcular créditos por posição
+    const creditosPorPosicao = [];
+    let creditosDistribuidos = 0;
+
+    if (numParticipantes <= 10) {
+      const percentuaisAjustados = PERCENTUAIS_RANKING.slice(0, numParticipantes);
+      const somaPercentuais = percentuaisAjustados.reduce((a, b) => a + b, 0);
+      for (let i = 0; i < numParticipantes; i++) {
+        const creditos = arredondar(totalRankingCreditos * percentuaisAjustados[i] / somaPercentuais);
+        creditosPorPosicao.push(creditos);
+        creditosDistribuidos += creditos;
+      }
+    } else {
+      const creditosTop10 = arredondar(totalRankingCreditos * 0.70);
+      const creditosRestante = totalRankingCreditos - creditosTop10;
+      for (let i = 0; i < 10; i++) {
+        const creditos = arredondar(creditosTop10 * PERCENTUAIS_RANKING[i] / 100);
+        creditosPorPosicao.push(creditos);
+        creditosDistribuidos += creditos;
+      }
+      const restantes = numParticipantes - 10;
+      for (let i = 10; i < numParticipantes; i++) {
+        const peso = Math.max(1, restantes - (i - 10));
+        const somaRestante = (restantes * (restantes + 1)) / 2;
+        const creditos = arredondar(creditosRestante * peso / somaRestante);
+        creditosPorPosicao.push(creditos);
+        creditosDistribuidos += creditos;
+      }
+    }
+
+    // Ajustar diferença no 1º lugar
+    const diferencaRanking = totalRankingCreditos - creditosDistribuidos;
+    if (diferencaRanking !== 0 && creditosPorPosicao.length > 0) {
+      creditosPorPosicao[0] += diferencaRanking;
+    }
+
+    // 7. Premiar ranking (em batches de 400 para não exceder limite de 500)
+    const premiosRanking = [];
+    let batchCount = 0;
+    let batch = db.batch();
+
+    for (let i = 0; i < top100.length; i++) {
+      const p = top100[i];
+      const creditos = creditosPorPosicao[i] || 0;
+
+      premiosRanking.push({
+        odId: p.odId, nome: p.nome, posicao: i + 1,
+        pontos: p.pontos, creditos: creditos
+      });
+
+      if (creditos > 0) {
+        const userRef = db.collection('usuarios').doc(p.odId);
+        batch.update(userRef, {
+          creditos: admin.firestore.FieldValue.increment(creditos)
+        });
+        batchCount++;
+
+        if (batchCount >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          batchCount = 0;
+        }
+      }
+    }
+
+    // 8. Cotistas
+    const premiosCotistas = [];
+    const totalPontos = estatisticas.timeCasa.pontos + estatisticas.timeFora.pontos;
+
+    const distribuicaoCotistasJogo = {
+      jogoId: jogoId,
+      timeCasaId, timeCasaNome: estatisticas.timeCasa.nome,
+      timeForaId, timeForaNome: estatisticas.timeFora.nome,
+      totalPool: totalPoolCreditos, totalCotistas: totalCotistasCreditos,
+      pontosCasa: estatisticas.timeCasa.pontos, pontosFora: estatisticas.timeFora.pontos,
+      cotistasPremiados: [],
+      processadoEm: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (totalPontos > 0 && totalCotistasCreditos > 0) {
+      const proporcaoCasa = estatisticas.timeCasa.pontos / totalPontos;
+      const creditosCotistaCasa = arredondar(totalCotistasCreditos * proporcaoCasa);
+      const creditosCotistaFora = totalCotistasCreditos - creditosCotistaCasa;
+
+      distribuicaoCotistasJogo.creditosCasa = creditosCotistaCasa;
+      distribuicaoCotistasJogo.creditosFora = creditosCotistaFora;
+
+      // Função helper para premiar cotistas de um time
+      async function premiarCotistasTime(timeId, timeNome, creditosTotal) {
+        if (creditosTotal <= 0) return;
+        const cotistasSnap = await db.collection('bolsa_cotas').where('timeId', '==', timeId).get();
+        if (cotistasSnap.empty) return;
+
+        let totalCotas = 0;
+        const cotistas = [];
+        cotistasSnap.forEach(doc => {
+          const c = doc.data();
+          totalCotas += c.quantidade || 0;
+          cotistas.push({ odId: c.userId, nome: c.usuarioNome, ...c });
+        });
+
+        if (totalCotas <= 0) return;
+
+        let distribuido = 0;
+        for (let i = 0; i < cotistas.length; i++) {
+          const c = cotistas[i];
+          const proporcao = (c.quantidade || 0) / totalCotas;
+          let creditos = arredondar(creditosTotal * proporcao);
+          if (i === cotistas.length - 1) creditos = creditosTotal - distribuido;
+
+          if (creditos > 0 && c.odId) {
+            const userRef = db.collection('usuarios').doc(c.odId);
+            batch.update(userRef, {
+              creditos: admin.firestore.FieldValue.increment(creditos)
+            });
+            batchCount++;
+
+            if (batchCount >= 400) {
+              await batch.commit();
+              batch = db.batch();
+              batchCount = 0;
+            }
+
+            const cotistaInfo = {
+              odId: c.odId,
+              nome: c.nome || c.usuarioNome || c.odId,
+              time: timeNome, timeId: timeId,
+              cotas: c.quantidade, totalCotas: totalCotas,
+              creditos: creditos
+            };
+            premiosCotistas.push(cotistaInfo);
+            distribuicaoCotistasJogo.cotistasPremiados.push(cotistaInfo);
+            distribuido += creditos;
+          }
+        }
+      }
+
+      await premiarCotistasTime(timeCasaId, estatisticas.timeCasa.nome, creditosCotistaCasa);
+      await premiarCotistasTime(timeForaId, estatisticas.timeFora.nome, creditosCotistaFora);
+    }
+
+    // 9. Sortudos
+    let sortudoVencedor = null;
+    const timeVencedor = estatisticas.timeCasa.pontos > estatisticas.timeFora.pontos ? 'timeCasa' :
+                         estatisticas.timeFora.pontos > estatisticas.timeCasa.pontos ? 'timeFora' : null;
+
+    if (timeVencedor && estatisticas[timeVencedor].torcedores.length > 0) {
+      const torcedoresVencedor = estatisticas[timeVencedor].torcedores;
+      const sorteado = torcedoresVencedor[Math.floor(Math.random() * torcedoresVencedor.length)];
+
+      sortudoVencedor = {
+        odId: sorteado.odId, nome: sorteado.nome,
+        time: estatisticas[timeVencedor].nome, creditos: creditosSortudoVencedor
+      };
+
+      const userRef = db.collection('usuarios').doc(sorteado.odId);
+      batch.update(userRef, {
+        creditos: admin.firestore.FieldValue.increment(creditosSortudoVencedor)
+      });
+      batchCount++;
+    }
+
+    let sortudoPopular = null;
+    const timePopular = estatisticas.timeCasa.torcedores.length > estatisticas.timeFora.torcedores.length ? 'timeCasa' :
+                        estatisticas.timeFora.torcedores.length > estatisticas.timeCasa.torcedores.length ? 'timeFora' :
+                        (Math.random() > 0.5 ? 'timeCasa' : 'timeFora');
+    const timeAlternativo = timePopular === 'timeCasa' ? 'timeFora' : 'timeCasa';
+
+    let torcedoresPopular = [...estatisticas[timePopular].torcedores];
+    let timeEscolhido = timePopular;
+
+    if (sortudoVencedor) {
+      torcedoresPopular = torcedoresPopular.filter(t => t.odId !== sortudoVencedor.odId);
+    }
+
+    if (torcedoresPopular.length === 0 && estatisticas[timeAlternativo].torcedores.length > 0) {
+      torcedoresPopular = [...estatisticas[timeAlternativo].torcedores];
+      timeEscolhido = timeAlternativo;
+      if (sortudoVencedor) {
+        torcedoresPopular = torcedoresPopular.filter(t => t.odId !== sortudoVencedor.odId);
+      }
+    }
+
+    if (torcedoresPopular.length > 0) {
+      const sorteadoPopular = torcedoresPopular[Math.floor(Math.random() * torcedoresPopular.length)];
+
+      sortudoPopular = {
+        odId: sorteadoPopular.odId, nome: sorteadoPopular.nome,
+        time: estatisticas[timeEscolhido].nome, creditos: creditosSortudoPopular
+      };
+
+      const userRef = db.collection('usuarios').doc(sorteadoPopular.odId);
+      batch.update(userRef, {
+        creditos: admin.firestore.FieldValue.increment(creditosSortudoPopular)
+      });
+      batchCount++;
+    }
+
+    // 10. Salvar detalhes da premiação
+    const premiacaoDetalhes = {
+      totalPool: totalPoolCreditos,
+      creditosIniciais: creditosIniciais,
+      distribuicao: {
+        ranking: { percentual: 60, total: totalRankingCreditos },
+        cotistas: { percentual: 25, total: totalCotistasCreditos },
+        sortudos: { percentual: 15, total: totalSortudoCreditos }
+      },
+      ranking: premiosRanking,
+      cotistas: premiosCotistas,
+      sortudoVencedor: sortudoVencedor,
+      sortudoPopular: sortudoPopular,
+      estatisticas: {
+        timeCasa: { nome: estatisticas.timeCasa.nome, pontos: estatisticas.timeCasa.pontos, torcedores: estatisticas.timeCasa.torcedores.length },
+        timeFora: { nome: estatisticas.timeFora.nome, pontos: estatisticas.timeFora.pontos, torcedores: estatisticas.timeFora.torcedores.length }
+      },
+      processadoEm: new Date().toISOString(),
+      processadoPor: 'cloud_function'
+    };
+
+    // Marcar jogo como premiado no batch
+    const jogoRef = db.collection('jogos').doc(jogoId);
+    batch.update(jogoRef, {
+      premiado: true,
+      premiacaoDetalhes: premiacaoDetalhes
+    });
+
+    // Salvar distribuição cotistas
+    if (totalPontos > 0 && totalCotistasCreditos > 0) {
+      const distRef = db.collection('distribuicao_cotistas_jogo').doc(jogoId);
+      batch.set(distRef, distribuicaoCotistasJogo);
+    }
+
+    // Commit final
+    await batch.commit();
+
+    console.log(`🏆 Premiação do jogo ${jogoId} processada com sucesso! Pool: ${totalPoolCreditos}`);
+
+    return { success: true, detalhes: premiacaoDetalhes };
+
+  } catch (error) {
+    console.error('❌ Erro ao premiar jogo:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Erro ao processar premiação');
+  }
+});
