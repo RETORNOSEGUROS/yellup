@@ -682,6 +682,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
 
   <script>
     // ===================================
@@ -699,6 +700,7 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const auth = firebase.auth();
+    const functions = firebase.functions();
 
     // ===================================
     // 📦 VARIÁVEIS
@@ -1112,20 +1114,13 @@
       }
 
       try {
-        // 1. Descontar entrada do usuário
+        // ✅ SEGURO: Cloud Function debita entrada e atualiza torneio
+        const inscreverTorneioFn = functions.httpsCallable('inscreverTorneio');
+        await inscreverTorneioFn({ torneioId: torneioId });
+        
         if (torneio.entrada > 0) {
-          await db.collection('usuarios').doc(currentUserId).update({
-            creditos: firebase.firestore.FieldValue.increment(-torneio.entrada)
-          });
           currentUserData.creditos -= torneio.entrada;
         }
-
-        // 2. Atualizar documento do torneio
-        await db.collection('torneios').doc(torneioId).update({
-          inscritos: firebase.firestore.FieldValue.arrayUnion(currentUserId),
-          totalInscritos: firebase.firestore.FieldValue.increment(1),
-          prizePool: firebase.firestore.FieldValue.increment(torneio.entrada || 0)
-        });
 
         // 3. Criar participação na subcoleção
         await db.collection('torneios').doc(torneioId)
@@ -1139,18 +1134,6 @@
             erros: 0,
             dataInscricao: firebase.firestore.FieldValue.serverTimestamp()
           });
-
-        // 4. Registrar transação (se cobrou entrada)
-        if (torneio.entrada > 0) {
-          await db.collection('transacoes').add({
-            usuarioId: currentUserId,
-            tipo: 'debito',
-            valor: torneio.entrada,
-            descricao: `🏆 Inscrição no torneio ${torneio.nome}`,
-            torneioId: torneioId,
-            data: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        }
 
         // 5. Atualizar estatísticas do usuário
         await db.collection('usuarios').doc(currentUserId).update({
