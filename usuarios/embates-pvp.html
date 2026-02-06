@@ -558,12 +558,14 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-functions-compat.js"></script>
   <script src="js/firebase-init.js"></script>
 
   <script>
     // ===================================
     // VARIÁVEIS GLOBAIS
     // ===================================
+    const functions = firebase.functions();
     let currentUserId = null;
     let currentUserData = null;
     let tabAtual = 'ativos';
@@ -766,43 +768,14 @@
               .limit(1)
               .get();
             
-            if (transacaoExistente.empty && euVenci) {
-              // Ainda não recebemos, dar créditos
-              const meuPremio = empate ? Math.floor(premio / vencedores.length) : premio;
+            if (transacaoExistente.empty) {
+              // ✅ SEGURO: Cloud Function coleta prêmio ou registra derrota
+              const coletarPremioFn = functions.httpsCallable('coletarPremioEmbate');
+              const resultadoColeta = await coletarPremioFn({ embateId: embate.id });
               
-              await db.collection('usuarios').doc(currentUserId).update({
-                creditos: firebase.firestore.FieldValue.increment(meuPremio),
-                'pvp.vitorias': firebase.firestore.FieldValue.increment(1),
-                'pvp.creditosGanhos': firebase.firestore.FieldValue.increment(meuPremio),
-                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
-              });
-              
-              await db.collection('transacoes').add({
-                usuarioId: currentUserId,
-                tipo: 'credito',
-                valor: meuPremio,
-                descricao: `🏆 Vitória no embate ${embateAtualizado.codigo} (+${meuPremio} créditos)`,
-                embateId: embate.id,
-                data: firebase.firestore.FieldValue.serverTimestamp()
-              });
-              
-              showToast(`🏆 Você ganhou +${meuPremio} créditos!`);
-            } else if (transacaoExistente.empty && !euVenci) {
-              // Perdi, atualizar estatísticas
-              await db.collection('usuarios').doc(currentUserId).update({
-                'pvp.derrotas': firebase.firestore.FieldValue.increment(1),
-                'pvp.totalEmbates': firebase.firestore.FieldValue.increment(1)
-              });
-              
-              // Registrar que processamos este embate
-              await db.collection('transacoes').add({
-                usuarioId: currentUserId,
-                tipo: 'derrota',
-                valor: 0,
-                descricao: `😢 Derrota no embate ${embateAtualizado.codigo}`,
-                embateId: embate.id,
-                data: firebase.firestore.FieldValue.serverTimestamp()
-              });
+              if (resultadoColeta.data.venceu) {
+                showToast(`🏆 Você ganhou +${resultadoColeta.data.premio} créditos!`);
+              }
             }
           }
         }
@@ -1051,28 +1024,14 @@
           return c;
         });
 
-        // Atualizar embate
+        // Atualizar convites
         await db.collection('embates').doc(embateId).update({
-          convidados: convidadosAtualizados,
-          participantes: firebase.firestore.FieldValue.arrayUnion(currentUserId),
-          totalParticipantes: firebase.firestore.FieldValue.increment(1),
-          prizePool: firebase.firestore.FieldValue.increment(embate.aposta)
+          convidados: convidadosAtualizados
         });
 
-        // Debitar créditos
-        await db.collection('usuarios').doc(currentUserId).update({
-          creditos: firebase.firestore.FieldValue.increment(-embate.aposta)
-        });
-
-        // Registrar transação
-        await db.collection('transacoes').add({
-          usuarioId: currentUserId,
-          tipo: 'debito',
-          valor: embate.aposta,
-          descricao: `Aposta no embate ${embate.codigo}`,
-          embateId: embateId,
-          data: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        // ✅ SEGURO: Cloud Function debita créditos e atualiza participantes
+        const aceitarEmbateFn = functions.httpsCallable('aceitarEmbate');
+        await aceitarEmbateFn({ embateId: embateId });
 
         // Criar participação
         await db.collection('embates').doc(embateId)
