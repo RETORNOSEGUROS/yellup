@@ -465,6 +465,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
 
   <script>
     // ============================================
@@ -482,6 +483,7 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const auth = firebase.auth();
+    const functions = firebase.functions();
 
     // ============================================
     // DADOS DOS PACOTES (Novos valores - Janeiro 2026)
@@ -639,24 +641,18 @@
         const totalCreditos = creditos + bonus;
         console.log('💎 Créditos a adicionar:', creditos, '+ bônus:', bonus, '= total:', totalCreditos);
 
-        // 1. Creditar o usuário (créditos pagos são só os comprados, não o bônus)
-        await db.collection('usuarios').doc(currentUserId).update({
-          creditos: firebase.firestore.FieldValue.increment(totalCreditos),
-          creditosPagos: firebase.firestore.FieldValue.increment(creditos), // Só os pagos, sem bônus
-          creditosBonus: firebase.firestore.FieldValue.increment(bonus)     // Bônus separado
+        // ✅ SEGURO: Cloud Function credita e registra pagamento
+        const creditarCompraFn = functions.httpsCallable('creditarCompra');
+        const resultadoCompra = await creditarCompraFn({
+          paymentId: paymentId || 'pix_' + Date.now(),
+          pacoteId: pacoteId,
+          creditos: creditos,
+          bonus: bonus,
+          externalRef: externalRef || ''
         });
 
-        // 2. Registrar pagamento (evita duplicação)
-        if (paymentId) {
-          await db.collection('pagamentos_mp').doc(String(paymentId)).set({
-            usuarioId: currentUserId,
-            creditos: creditos,
-            bonus: bonus,
-            totalCreditos: totalCreditos,
-            status: 'aprovado',
-            externalReference: externalRef || '',
-            processadoEm: firebase.firestore.FieldValue.serverTimestamp()
-          });
+        if (resultadoCompra.data.jaProcessado) {
+          console.log('⚠️ Pagamento já processado anteriormente');
         }
 
         // 3. Registrar na coleção compras
