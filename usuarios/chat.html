@@ -102,7 +102,10 @@
     .news-list {
       flex: 1;
       overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
       padding: 15px;
+      padding-bottom: 30px;
       display: flex;
       flex-direction: column;
       gap: 15px;
@@ -135,9 +138,10 @@
       color: #a9b5c6;
       margin-bottom: 10px;
       display: -webkit-box;
-      -webkit-line-clamp: 2;
+      -webkit-line-clamp: 3;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      word-break: break-word;
     }
     .news-card-meta {
       display: flex;
@@ -158,6 +162,8 @@
     .messages-area {
       flex: 1;
       overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
       padding: 15px 20px;
       display: flex;
       flex-direction: column;
@@ -617,6 +623,67 @@
     let paginaAtual = 0;
     let temMaisNoticias = false;
 
+    // ⏰ Limite de 24 horas
+    const LIMITE_24H = 24 * 60 * 60 * 1000; // 24h em ms
+
+    function isExpired(data) {
+      if (!data) return true;
+      const d = data.toDate ? data.toDate() : new Date(data);
+      return (Date.now() - d.getTime()) > LIMITE_24H;
+    }
+
+    // 🧹 Limpa mensagens de chat com mais de 24h (roda 1x ao abrir)
+    async function limparMensagensAntigas() {
+      try {
+        const limite = new Date(Date.now() - LIMITE_24H);
+        const snap = await db.collection('chat')
+          .where('data', '<', limite)
+          .limit(100)
+          .get();
+        
+        if (snap.empty) return;
+        
+        const batch = db.batch();
+        snap.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+        console.log(`🧹 ${snap.size} mensagens antigas apagadas`);
+        
+        // Se tinha mais de 100, rodar de novo
+        if (snap.size === 100) limparMensagensAntigas();
+      } catch (e) {
+        console.log('Limpeza mensagens:', e.message);
+      }
+    }
+
+    // 🧹 Limpa notícias com mais de 24h (exceto fixadas)
+    async function limparNoticiasAntigas() {
+      try {
+        const limite = new Date(Date.now() - LIMITE_24H);
+        const snap = await db.collection('anuncios')
+          .where('data', '<', limite)
+          .limit(50)
+          .get();
+        
+        if (snap.empty) return;
+        
+        const batch = db.batch();
+        let count = 0;
+        snap.forEach(doc => {
+          const d = doc.data();
+          // Não apagar fixadas
+          if (d.fixada) return;
+          batch.update(doc.ref, { ativo: false });
+          count++;
+        });
+        if (count > 0) {
+          await batch.commit();
+          console.log(`🧹 ${count} notícias antigas desativadas`);
+        }
+      } catch (e) {
+        console.log('Limpeza notícias:', e.message);
+      }
+    }
+
     function showToast(msg) {
       const toast = document.getElementById('toast');
       toast.textContent = msg;
@@ -634,6 +701,11 @@
         await criarTabs();
         atualizarOnline();
         setInterval(atualizarOnline, 30000);
+        
+        // 🧹 Limpeza automática de conteúdo antigo (>24h)
+        limparMensagensAntigas();
+        limparNoticiasAntigas();
+        
         carregarNoticias();
         carregarMensagens();
       } catch (e) { console.error(e); }
@@ -685,7 +757,13 @@
       try {
         const snap = await db.collection('anuncios').where('ativo', '==', true).get();
         todasNoticias = [];
-        snap.forEach(doc => todasNoticias.push({ id: doc.id, ...doc.data() }));
+        snap.forEach(doc => {
+          const d = { id: doc.id, ...doc.data() };
+          // ⏰ Só mostra notícias das últimas 24h (fixadas sempre aparecem)
+          if (d.fixada || !isExpired(d.data)) {
+            todasNoticias.push(d);
+          }
+        });
         
         // Ordenar: fixadas primeiro, depois por data
         todasNoticias.sort((a, b) => {
@@ -734,10 +812,13 @@
         const likes = n.reacoes?.like || 0;
         const dislikes = n.reacoes?.dislike || 0;
         const comments = n.numComentarios || 0;
-        const img = n.imagemUrl ? `<img class="news-card-image" src="${n.imagemUrl}">` : '';
+        const img = n.imagemUrl ? `<img class="news-card-image" src="${n.imagemUrl}" loading="lazy">` : '';
         const isFixada = n.fixada;
         const pinnedClass = isFixada ? 'news-pinned' : '';
         const pinnedBadge = isFixada ? '<span class="news-pinned-badge">📌 FIXADA</span>' : '';
+        
+        // Strip HTML tags do preview para exibir corretamente no app
+        const previewText = (n.conteudo || '').replace(/<[^>]*>/g, '').substring(0, 200);
         
         return `
           <div class="news-card ${pinnedClass}" onclick="abrirNoticia('${n.id}')">
@@ -745,7 +826,7 @@
             ${img}
             <div class="news-card-content">
               <h3 class="news-card-title">${n.titulo || ''}</h3>
-              <p class="news-card-preview">${n.conteudo || ''}</p>
+              <p class="news-card-preview">${previewText}</p>
               <div class="news-card-meta">
                 <div class="news-card-stats">
                   <span>📅 ${data}</span>
@@ -960,7 +1041,10 @@
         mensagensCarregadas = [];
         snap.forEach(doc => {
           const d = doc.data();
-          if (!d.deletado) mensagensCarregadas.push({ id: doc.id, ...d });
+          // ⏰ Só mostra mensagens das últimas 24h
+          if (!d.deletado && !isExpired(d.data)) {
+            mensagensCarregadas.push({ id: doc.id, ...d });
+          }
         });
         mensagensCarregadas.sort((a, b) => (a.data?.toDate?.() || 0) - (b.data?.toDate?.() || 0));
         if (mensagensCarregadas.length === 0) {
@@ -1135,7 +1219,7 @@
       if (e.target.classList.contains('modal-overlay')) fecharModal();
     });
 
-    console.log("✅ Chat v2.4 - Com paginação de notícias");
+    console.log("✅ Chat v3.0 - Auto-limpeza 24h + Scroll fix");
   </script>
 </body>
 </html>
