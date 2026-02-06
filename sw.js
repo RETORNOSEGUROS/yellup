@@ -1,10 +1,8 @@
 const CACHE_NAME = 'yellup-v1';
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/painel.html',
-  '/editar-perfil.html',
-  '/ranking-geral.html',
+  '/usuarios/painel.html',
+  '/usuarios/editar-perfil.html',
+  '/usuarios/ranking-geral.html',
   '/icons/icon-192.png',
   '/icons/icon-512.png'
 ];
