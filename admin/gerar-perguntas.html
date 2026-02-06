@@ -192,6 +192,28 @@
         }
         .btn-copiar:hover { background: #16a34a; }
         
+        .btn-download {
+            padding: 12px 20px;
+            background: rgba(59,130,246,0.2);
+            border: 1px solid rgba(59,130,246,0.4);
+            border-radius: 8px;
+            color: #60a5fa;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+        .btn-download:hover { background: rgba(59,130,246,0.3); }
+        .btn-download.success { background: rgba(34,197,94,0.2); border-color: rgba(34,197,94,0.4); color: #22c55e; }
+        .btn-download.success:hover { background: #22c55e; color: white; }
+        .btn-download:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .json-valid { color: #22c55e; }
+        .json-error { color: #ef4444; }
+        
         .prompt-box {
             background: #0a0e14;
             border: 1px solid rgba(255,255,255,0.1);
@@ -293,7 +315,7 @@
             </div>
             <div class="prompt-box" id="promptBox"></div>
             <div class="info-box">
-                💡 Cole esse prompt no <strong>Claude</strong> ou <strong>ChatGPT</strong>. O JSON gerado pode ser importado diretamente no sistema.
+                💡 Cole esse prompt no <strong>Claude</strong> ou <strong>ChatGPT</strong>. Depois cole o JSON no importador do seu sistema.
             </div>
         </div>
     </div>
@@ -317,6 +339,7 @@
         var times = [], camps = [];
         var tipo = 'time';
         var entidade = null;
+        var jsonValido = null;
 
         var exTime = [
             'Jogadores históricos',
@@ -449,6 +472,14 @@
             var prompt = gerarPrompt(entidade, tema);
             document.getElementById('promptBox').textContent = prompt;
             document.getElementById('resultado').classList.add('show');
+            
+            // Resetar área de JSON
+            document.getElementById('jsonArea').style.display = 'none';
+            document.getElementById('jsonInput').value = '';
+            document.getElementById('jsonStatus').innerHTML = '';
+            document.getElementById('btnBaixar').disabled = true;
+            jsonValido = null;
+            
             document.getElementById('resultado').scrollIntoView({ behavior: 'smooth' });
         }
 
@@ -464,6 +495,30 @@
                 return `Gere exatamente 20 perguntas de quiz sobre o time ${ent.nome}.
 
 TEMA: ${tema}
+
+══════════════════════════════════════════════════════════════
+⚠️ VERIFICAÇÃO OBRIGATÓRIA - LEIA ANTES DE COMEÇAR
+══════════════════════════════════════════════════════════════
+
+ANTES de criar cada pergunta, você DEVE:
+1. TER CERTEZA ABSOLUTA que o fato é verdadeiro
+2. Só incluir jogadores que REALMENTE jogaram neste time
+3. Só incluir títulos que o time REALMENTE conquistou
+4. Só incluir datas/números que você tem CERTEZA
+
+❌ NÃO INCLUA perguntas se:
+- Você não tem 100% de certeza do fato
+- O jogador PODE ter jogado no time mas você não tem certeza
+- Você está "chutando" ou "supondo"
+
+✅ PREFIRA perguntas sobre:
+- Fatos históricos amplamente documentados
+- Títulos oficiais e datas confirmadas  
+- Jogadores ÍCONES indiscutíveis do clube
+- Recordes oficiais reconhecidos
+
+Se não conseguir 20 perguntas CORRETAS, faça menos.
+É melhor 15 certas do que 20 com erros.
 
 ══════════════════════════════════════════════════════════════
 FORMATO JSON OBRIGATÓRIO
@@ -485,49 +540,60 @@ FORMATO JSON OBRIGATÓRIO
     "timeNome": "${ent.nome}",
     "campeonatoId": "",
     "campeonatoNome": "",
-    "fonte": "Wikipedia"
+    "fonte": "Wikipedia - Nome do Artigo Específico"
   }
 ]
 
 ══════════════════════════════════════════════════════════════
-REGRAS OBRIGATÓRIAS
+REGRAS DE QUALIDADE
 ══════════════════════════════════════════════════════════════
 
-📌 IDs SEQUENCIAIS
-- Use o padrão: ${prefixo}-001, ${prefixo}-002, ${prefixo}-003... até ${prefixo}-020
+📌 IDs: ${prefixo}-001, ${prefixo}-002, ${prefixo}-003...
 
-📌 PONTUAÇÃO (representa dificuldade)
-- 1 a 4 = FÁCIL (qualquer torcedor casual sabe)
-- 5 a 6 = MÉDIO (torcedor que acompanha o time sabe)
-- 7 a 10 = DIFÍCIL (apenas fanáticos ou historiadores sabem)
+📌 PONTUAÇÃO:
+- 1-4 = FÁCIL (torcedor casual sabe)
+- 5-6 = MÉDIO (torcedor dedicado sabe)
+- 7-10 = DIFÍCIL (só historiador sabe)
 
-📌 DISTRIBUIÇÃO DAS 20 PERGUNTAS
-- ~6 perguntas fáceis (pontuação 1-4)
-- ~8 perguntas médias (pontuação 5-6)
-- ~6 perguntas difíceis (pontuação 7-10)
+📌 DISTRIBUIÇÃO: ~30% fácil, ~40% médio, ~30% difícil
 
-📌 ALTERNATIVAS
-- Sempre 4 alternativas (A, B, C, D)
-- As alternativas ERRADAS devem ser PLAUSÍVEIS e da mesma categoria
-  (ex: se a resposta é um ano, todas devem ser anos próximos)
-- NUNCA use "Todas as anteriores" ou "Nenhuma das anteriores"
-- Evite alternativas obviamente erradas
+📌 ALTERNATIVAS:
+- 4 opções plausíveis da mesma categoria
+- NUNCA "Todas/Nenhuma das anteriores"
 
-📌 QUALIDADE DAS PERGUNTAS
-- Fatos verificáveis e precisos
-- Sem ambiguidade na pergunta ou resposta
-- Variar os tipos: datas, nomes, números, títulos, recordes, curiosidades
-
-📌 FONTE
-- Inclua a fonte de cada pergunta (Wikipedia, site oficial do clube, etc)
+📌 FONTE: Seja específico (ex: "Wikipedia - Coritiba FC")
 
 ══════════════════════════════════════════════════════════════
 
-Retorne APENAS o JSON, sem explicações ou texto adicional.`;
+Retorne APENAS o JSON, sem explicações.`;
             } else {
                 return `Gere exatamente 20 perguntas de quiz sobre o campeonato ${ent.nome}.
 
 TEMA: ${tema}
+
+══════════════════════════════════════════════════════════════
+⚠️ VERIFICAÇÃO OBRIGATÓRIA - LEIA ANTES DE COMEÇAR
+══════════════════════════════════════════════════════════════
+
+ANTES de criar cada pergunta, você DEVE:
+1. TER CERTEZA ABSOLUTA que o fato é verdadeiro
+2. Só incluir campeões que REALMENTE venceram nas datas citadas
+3. Só incluir artilheiros/recordes CONFIRMADOS oficialmente
+4. Só incluir datas/números que você tem CERTEZA
+
+❌ NÃO INCLUA perguntas se:
+- Você não tem 100% de certeza do fato
+- O dado pode estar desatualizado
+- Você está "chutando" ou "supondo"
+
+✅ PREFIRA perguntas sobre:
+- Campeões históricos confirmados
+- Finais históricas bem documentadas
+- Recordes oficiais da competição
+- Fatos amplamente conhecidos
+
+Se não conseguir 20 perguntas CORRETAS, faça menos.
+É melhor 15 certas do que 20 com erros.
 
 ══════════════════════════════════════════════════════════════
 FORMATO JSON OBRIGATÓRIO
@@ -549,45 +615,32 @@ FORMATO JSON OBRIGATÓRIO
     "timeNome": "",
     "campeonatoId": "${ent.id}",
     "campeonatoNome": "${ent.nome}",
-    "fonte": "Wikipedia"
+    "fonte": "Wikipedia - Nome do Artigo Específico"
   }
 ]
 
 ══════════════════════════════════════════════════════════════
-REGRAS OBRIGATÓRIAS
+REGRAS DE QUALIDADE
 ══════════════════════════════════════════════════════════════
 
-📌 IDs SEQUENCIAIS
-- Use o padrão: ${prefixo}-001, ${prefixo}-002, ${prefixo}-003... até ${prefixo}-020
+📌 IDs: ${prefixo}-001, ${prefixo}-002, ${prefixo}-003...
 
-📌 PONTUAÇÃO (representa dificuldade)
-- 1 a 4 = FÁCIL (qualquer fã de futebol sabe)
-- 5 a 6 = MÉDIO (quem acompanha o campeonato sabe)
-- 7 a 10 = DIFÍCIL (apenas especialistas ou historiadores sabem)
+📌 PONTUAÇÃO:
+- 1-4 = FÁCIL (fã casual sabe)
+- 5-6 = MÉDIO (quem acompanha sabe)
+- 7-10 = DIFÍCIL (só especialista sabe)
 
-📌 DISTRIBUIÇÃO DAS 20 PERGUNTAS
-- ~6 perguntas fáceis (pontuação 1-4)
-- ~8 perguntas médias (pontuação 5-6)
-- ~6 perguntas difíceis (pontuação 7-10)
+📌 DISTRIBUIÇÃO: ~30% fácil, ~40% médio, ~30% difícil
 
-📌 ALTERNATIVAS
-- Sempre 4 alternativas (A, B, C, D)
-- As alternativas ERRADAS devem ser PLAUSÍVEIS e da mesma categoria
-  (ex: se a resposta é um time, todas devem ser times que participam do campeonato)
-- NUNCA use "Todas as anteriores" ou "Nenhuma das anteriores"
-- Evite alternativas obviamente erradas
+📌 ALTERNATIVAS:
+- 4 opções plausíveis da mesma categoria
+- NUNCA "Todas/Nenhuma das anteriores"
 
-📌 QUALIDADE DAS PERGUNTAS
-- Fatos verificáveis e precisos sobre o campeonato
-- Sem ambiguidade na pergunta ou resposta
-- Variar os tipos: campeões, artilheiros, finais, recordes, curiosidades, goleadas
-
-📌 FONTE
-- Inclua a fonte de cada pergunta (Wikipedia, RSSSF, site oficial, etc)
+📌 FONTE: Seja específico (ex: "Wikipedia - Campeonato Brasileiro")
 
 ══════════════════════════════════════════════════════════════
 
-Retorne APENAS o JSON, sem explicações ou texto adicional.`;
+Retorne APENAS o JSON, sem explicações.`;
             }
         }
 
@@ -596,6 +649,9 @@ Retorne APENAS o JSON, sem explicações ou texto adicional.`;
             navigator.clipboard.writeText(texto).then(function() {
                 var btn = document.querySelector('.btn-copiar');
                 btn.innerHTML = '<span class="material-icons">check</span> Copiado!';
+                
+                // Mostrar área de JSON
+                document.getElementById('jsonArea').style.display = 'block';
                 
                 var toast = document.createElement('div');
                 toast.className = 'toast';
@@ -607,6 +663,85 @@ Retorne APENAS o JSON, sem explicações ou texto adicional.`;
                     toast.remove();
                 }, 3000);
             });
+        }
+
+        function validarJSON() {
+            var texto = document.getElementById('jsonInput').value.trim();
+            var status = document.getElementById('jsonStatus');
+            var btnBaixar = document.getElementById('btnBaixar');
+            
+            // Limpar possíveis marcações de código
+            texto = texto.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+            
+            try {
+                var json = JSON.parse(texto);
+                
+                if (!Array.isArray(json)) {
+                    throw new Error('JSON deve ser um array de perguntas');
+                }
+                
+                if (json.length === 0) {
+                    throw new Error('Array está vazio');
+                }
+                
+                // Validar estrutura básica
+                var erros = [];
+                json.forEach(function(p, i) {
+                    if (!p.pergunta) erros.push('Pergunta ' + (i+1) + ': falta campo "pergunta"');
+                    if (!p.alternativas) erros.push('Pergunta ' + (i+1) + ': falta campo "alternativas"');
+                    if (!p.correta) erros.push('Pergunta ' + (i+1) + ': falta campo "correta"');
+                });
+                
+                if (erros.length > 0) {
+                    throw new Error(erros.slice(0, 3).join('; '));
+                }
+                
+                // Contar dificuldades
+                var facil = 0, medio = 0, dificil = 0;
+                json.forEach(function(p) {
+                    var pts = p.pontuacao || 5;
+                    if (pts <= 4) facil++;
+                    else if (pts <= 6) medio++;
+                    else dificil++;
+                });
+                
+                jsonValido = json;
+                btnBaixar.disabled = false;
+                status.className = 'json-valid';
+                status.innerHTML = '<span class="material-icons" style="font-size:18px;vertical-align:middle;">check_circle</span> ' +
+                    '<strong>JSON válido!</strong> ' + json.length + ' perguntas (' + 
+                    facil + ' fáceis, ' + medio + ' médias, ' + dificil + ' difíceis)';
+                
+            } catch (e) {
+                jsonValido = null;
+                btnBaixar.disabled = true;
+                status.className = 'json-error';
+                status.innerHTML = '<span class="material-icons" style="font-size:18px;vertical-align:middle;">error</span> ' +
+                    '<strong>Erro:</strong> ' + e.message;
+            }
+        }
+
+        function baixarJSON() {
+            if (!jsonValido || !entidade) return;
+            
+            var nomeArquivo = entidade.nome.toLowerCase()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-') + '-' + new Date().toISOString().slice(0,10) + '.json';
+            
+            var blob = new Blob([JSON.stringify(jsonValido, null, 2)], { type: 'application/json' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = nomeArquivo;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            var toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = '<span class="material-icons">download_done</span> Arquivo ' + nomeArquivo + ' baixado!';
+            document.body.appendChild(toast);
+            setTimeout(function() { toast.remove(); }, 3000);
         }
     </script>
 </body>
