@@ -212,6 +212,27 @@
       text-transform: uppercase;
     }
 
+    .stock-table th.sortable {
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.2s;
+    }
+
+    .stock-table th.sortable:hover {
+      background: rgba(255, 181, 71, 0.2);
+    }
+
+    .stock-table th.sortable .sort-icon {
+      font-size: 0.75em;
+      opacity: 0.5;
+      margin-left: 4px;
+    }
+
+    .stock-table th.sortable.active .sort-icon {
+      opacity: 1;
+      color: #10b981;
+    }
+
     .stock-table td {
       padding: 12px 10px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -623,9 +644,7 @@
       .stock-table th:nth-child(4),
       .stock-table td:nth-child(4),
       .stock-table th:nth-child(5),
-      .stock-table td:nth-child(5),
-      .stock-table th:nth-child(6),
-      .stock-table td:nth-child(6) {
+      .stock-table td:nth-child(5) {
         display: none;
       }
     }
@@ -696,20 +715,23 @@
         <table class="stock-table">
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Preço Algoritmo</th>
-              <th>Preço Mercado</th>
-              <th>Variação</th>
-              <th>Méd. Dividendos</th>
-              <th>Volume</th>
-              <th>À Venda</th>
+              <th class="sortable" onclick="ordenarTabela('nome')" title="Clique para ordenar">Time <span id="sort-icon-nome" class="sort-icon">⇅</span></th>
+              <th class="sortable" onclick="ordenarTabela('preco')" title="Clique para ordenar">Preço Mercado <span id="sort-icon-preco" class="sort-icon">⇅</span></th>
+              <th class="sortable" onclick="ordenarTabela('variacao')" title="Clique para ordenar">Variação <span id="sort-icon-variacao" class="sort-icon">⇅</span></th>
+              <th class="sortable" onclick="ordenarTabela('dividendos')" title="Clique para ordenar">Méd. Dividendos <span id="sort-icon-dividendos" class="sort-icon">⇅</span></th>
+              <th class="sortable" onclick="ordenarTabela('aVenda')" title="Clique para ordenar">À Venda <span id="sort-icon-aVenda" class="sort-icon">⇅</span></th>
               <th>Ações</th>
             </tr>
           </thead>
           <tbody id="stockTableBody">
-            <tr><td colspan="8"><div class="loading"><div class="spinner"></div></div></td></tr>
+            <tr><td colspan="6"><div class="loading"><div class="spinner"></div></div></td></tr>
           </tbody>
         </table>
+        <div id="expandirContainer" style="display: none; text-align: center; padding: 15px;">
+          <button id="btnExpandir" onclick="expandirTabela()" style="padding: 10px 25px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; border-radius: 10px; color: #111; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; font-size: 0.9rem;">
+            📋 Ver todos os times (<span id="totalRestantes">0</span> restantes)
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1226,60 +1248,148 @@
     }
 
     // ==================== RENDERIZAR ====================
+    // ==================== ORDENAÇÃO E PAGINAÇÃO ====================
+    let sortColumn = 'variacao';
+    let sortDirection = 'desc'; // maiores variações primeiro por padrão
+    let tabelaExpandida = false;
+    const LIMITE_INICIAL = 30;
+
+    function ordenarTabela(coluna) {
+      if (sortColumn === coluna) {
+        sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
+      } else {
+        sortColumn = coluna;
+        sortDirection = (coluna === 'nome') ? 'asc' : 'desc';
+      }
+      renderizarTabelaMercado();
+    }
+
+    function expandirTabela() {
+      tabelaExpandida = true;
+      renderizarTabelaMercado();
+    }
+
     function renderizarTabelaMercado() {
       const tbody = document.getElementById('stockTableBody');
       
       if (allTimes.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">Nenhum time encontrado</div></div></td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">Nenhum time encontrado</div></div></td></tr>`;
+        document.getElementById('expandirContainer').style.display = 'none';
         return;
       }
 
-      let html = '';
-      let volumeTotal = 0;
-
-      allTimes.forEach(time => {
+      // Preparar dados com métricas
+      let timesComDados = allTimes.map(time => {
         const m = metricas[time.id] || {};
-        const precoAlgo = m.precoAlgoritmo || PRECO_INICIAL;
         const precoMercado = m.precoMercado || PRECO_INICIAL;
         const variacao = m.variacaoDia || 0;
         const dividendos = m.mediaDividendos || 0;
-        const volume = m.volumeDia || 0;
-        volumeTotal += volume;
 
-        // CORREÇÃO: Filtrar ordens do próprio usuário (não pode comprar de si mesmo)
         const todasOrdensTime = ordens[time.id] || [];
         const ordensOutros = todasOrdensTime.filter(o => o.userId !== currentUser.uid);
-        
-        // Menor preço à venda e total de cotas disponíveis DE OUTROS USUÁRIOS
-        const menorPrecoVenda = ordensOutros.length > 0 ? ordensOutros[0].precoUnitario : precoAlgo;
+        const menorPrecoVenda = ordensOutros.length > 0 ? ordensOutros[0].precoUnitario : (m.precoAlgoritmo || PRECO_INICIAL);
         const cotasDisponiveis = ordensOutros.reduce((sum, o) => sum + o.quantidadeRestante, 0);
 
-        // CORREÇÃO: Verificar se possui todas as cotas
         const minhaCota = minhasCotas[time.id];
         const minhasQtd = minhaCota ? minhaCota.quantidade : 0;
         const possuiTodas = minhasQtd >= COTAS_POR_TIME;
 
+        // À Venda: se possui todas mostra as suas, senão mostra disponíveis de outros
+        const qtdAVenda = possuiTodas ? minhasQtd : cotasDisponiveis;
+
+        return {
+          time,
+          precoAlgo: m.precoAlgoritmo || PRECO_INICIAL,
+          precoMercado,
+          variacao,
+          dividendos,
+          cotasDisponiveis,
+          menorPrecoVenda,
+          possuiTodas,
+          minhasQtd,
+          qtdAVenda,
+          temVariacao: variacao !== 0
+        };
+      });
+
+      // Ordenar: primeiro por variação (quem tem variação vem antes), depois pela coluna selecionada
+      timesComDados.sort((a, b) => {
+        // Sempre priorizar quem tem variação sobre quem não tem (a não ser que esteja ordenando por nome)
+        if (sortColumn !== 'nome') {
+          if (a.temVariacao && !b.temVariacao) return -1;
+          if (!a.temVariacao && b.temVariacao) return 1;
+        }
+
+        let valA, valB;
+        switch (sortColumn) {
+          case 'nome':
+            valA = a.time.nome.toLowerCase();
+            valB = b.time.nome.toLowerCase();
+            return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+          case 'preco':
+            valA = a.precoMercado;
+            valB = b.precoMercado;
+            break;
+          case 'variacao':
+            valA = Math.abs(a.variacao);
+            valB = Math.abs(b.variacao);
+            break;
+          case 'dividendos':
+            valA = a.dividendos;
+            valB = b.dividendos;
+            break;
+          case 'aVenda':
+            valA = a.qtdAVenda;
+            valB = b.qtdAVenda;
+            break;
+          default:
+            valA = Math.abs(a.variacao);
+            valB = Math.abs(b.variacao);
+        }
+        return sortDirection === 'desc' ? valB - valA : valA - valB;
+      });
+
+      // Limitar quantidade exibida
+      const totalTimes = timesComDados.length;
+      const timesExibir = (tabelaExpandida || buscaAtiva) ? timesComDados : timesComDados.slice(0, LIMITE_INICIAL);
+      const restantes = totalTimes - LIMITE_INICIAL;
+
+      // Atualizar ícones de ordenação
+      document.querySelectorAll('.stock-table th.sortable').forEach(th => th.classList.remove('active'));
+      const activeIcon = document.getElementById(`sort-icon-${sortColumn}`);
+      if (activeIcon) {
+        activeIcon.parentElement.classList.add('active');
+        activeIcon.textContent = sortDirection === 'asc' ? '▲' : '▼';
+      }
+      // Resetar outros ícones
+      document.querySelectorAll('.sort-icon').forEach(icon => {
+        if (icon.id !== `sort-icon-${sortColumn}`) icon.textContent = '⇅';
+      });
+
+      let html = '';
+
+      timesExibir.forEach(item => {
+        const { time, precoAlgo, precoMercado, variacao, dividendos, cotasDisponiveis, menorPrecoVenda, possuiTodas, minhasQtd, qtdAVenda } = item;
+
         const varClass = variacao > 0 ? 'positive' : variacao < 0 ? 'negative' : 'neutral';
         const varIcon = variacao > 0 ? '▲' : variacao < 0 ? '▼' : '●';
 
-        // CORREÇÃO: Texto da coluna "À Venda" mais informativo
+        // Preço de mercado: menor preço à venda real ou preço do algoritmo
+        const precoMostrar = cotasDisponiveis > 0 ? menorPrecoVenda : precoAlgo;
+
+        // À Venda: número de cotas + menor preço se disponíveis
         let textoDisponivel = '';
         let corDisponivel = '#6b7280';
         if (possuiTodas) {
-          textoDisponivel = 'Você possui todas';
-          corDisponivel = '#f59e0b'; // amarelo
+          textoDisponivel = `${minhasQtd.toLocaleString('pt-BR')}`;
+          corDisponivel = '#f59e0b';
         } else if (cotasDisponiveis > 0) {
-          // Mostrar quantidade e menor preço
-          textoDisponivel = `${cotasDisponiveis} a ${menorPrecoVenda} cr`;
-          corDisponivel = '#10b981'; // verde
+          textoDisponivel = `${cotasDisponiveis.toLocaleString('pt-BR')} a ${menorPrecoVenda} cr`;
+          corDisponivel = '#10b981';
         } else {
-          // Não há ordens de venda abertas
           textoDisponivel = 'Sem ordens';
-          corDisponivel = '#6b7280'; // cinza
+          corDisponivel = '#6b7280';
         }
-
-        // CORREÇÃO: Preço de mercado deve mostrar o menor preço à venda real
-        const precoMostrar = cotasDisponiveis > 0 ? menorPrecoVenda : precoAlgo;
 
         html += `
           <tr data-time="${time.nome.toLowerCase()}">
@@ -1295,11 +1405,9 @@
                 </div>
               </div>
             </td>
-            <td class="price-algo">${precoAlgo.toFixed(2)} cr</td>
             <td class="price-market">${precoMostrar.toFixed(2)} cr</td>
             <td><span class="variation ${varClass}">${varIcon} ${variacao >= 0 ? '+' : ''}${variacao.toFixed(2)}%</span></td>
             <td class="dividend">${dividendos.toFixed(3)} cr</td>
-            <td>${volume}</td>
             <td style="color: ${corDisponivel}; font-weight: 600; cursor: pointer;" onclick="abrirBook('${time.id}')" title="Ver book de ofertas">
               ${textoDisponivel} 📖
             </td>
@@ -1314,12 +1422,26 @@
       });
 
       tbody.innerHTML = html;
-      document.getElementById('volumeTotal').textContent = volumeTotal;
+
+      // Mostrar/esconder botão de expandir
+      const expandirContainer = document.getElementById('expandirContainer');
+      if (!tabelaExpandida && !buscaAtiva && restantes > 0) {
+        document.getElementById('totalRestantes').textContent = restantes;
+        expandirContainer.style.display = 'block';
+      } else {
+        expandirContainer.style.display = 'none';
+      }
     }
 
     // ==================== FILTRAR ====================
+    let buscaAtiva = false;
     function filterTimes() {
       const search = document.getElementById('searchInput').value.toLowerCase();
+      const novaAtiva = search.length > 0;
+      if (novaAtiva !== buscaAtiva) {
+        buscaAtiva = novaAtiva;
+        renderizarTabelaMercado();
+      }
       document.querySelectorAll('#stockTableBody tr').forEach(row => {
         const timeNome = row.getAttribute('data-time') || '';
         row.style.display = timeNome.includes(search) ? '' : 'none';
