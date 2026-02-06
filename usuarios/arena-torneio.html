@@ -769,12 +769,14 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-functions-compat.js"></script>
   <script src="js/firebase-init.js"></script>
 
   <script>
     // ===================================
     // 🔧 VARIÁVEIS GLOBAIS
     // ===================================
+    const functions = firebase.functions();
     let currentUserId = null;
     let currentUserData = null;
     let torneioId = null;
@@ -1561,85 +1563,12 @@
         
         console.log("📝 Resultado calculado:", resultado);
         
-        // Distribuir prêmios para top 3
-        if (ranking[0] && premio1 > 0) {
-          try {
-            console.log("🥇 Premiando 1º lugar:", ranking[0].odNome);
-            await db.collection('usuarios').doc(ranking[0].odId).update({
-              creditos: firebase.firestore.FieldValue.increment(premio1),
-              'torneios.vitorias': firebase.firestore.FieldValue.increment(1),
-              'torneios.creditosGanhos': firebase.firestore.FieldValue.increment(premio1),
-              'torneios.totalTorneios': firebase.firestore.FieldValue.increment(1)
-            });
-            
-            await db.collection('transacoes').add({
-              usuarioId: ranking[0].odId,
-              tipo: 'credito',
-              valor: premio1,
-              descricao: `🥇 1º lugar no torneio ${torneioAtual.nome || 'Torneio'}`,
-              torneioId: torneioId,
-              data: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            console.log("✅ 1º lugar premiado!");
-          } catch (e) { console.error("❌ Erro ao premiar 1º:", e); }
-        }
+        // ✅ SEGURO: Cloud Function distribui prêmios e finaliza
+        const finalizarTorneioFn = functions.httpsCallable('finalizarTorneio');
+        const resultadoFn = await finalizarTorneioFn({ torneioId: torneioId });
         
-        if (ranking[1] && premio2 > 0) {
-          try {
-            console.log("🥈 Premiando 2º lugar:", ranking[1].odNome);
-            await db.collection('usuarios').doc(ranking[1].odId).update({
-              creditos: firebase.firestore.FieldValue.increment(premio2),
-              'torneios.top3': firebase.firestore.FieldValue.increment(1),
-              'torneios.creditosGanhos': firebase.firestore.FieldValue.increment(premio2),
-              'torneios.totalTorneios': firebase.firestore.FieldValue.increment(1)
-            });
-            
-            await db.collection('transacoes').add({
-              usuarioId: ranking[1].odId,
-              tipo: 'credito',
-              valor: premio2,
-              descricao: `🥈 2º lugar no torneio ${torneioAtual.nome || 'Torneio'}`,
-              torneioId: torneioId,
-              data: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            console.log("✅ 2º lugar premiado!");
-          } catch (e) { console.error("❌ Erro ao premiar 2º:", e); }
-        }
-        
-        if (ranking[2] && premio3 > 0) {
-          try {
-            console.log("🥉 Premiando 3º lugar:", ranking[2].odNome);
-            await db.collection('usuarios').doc(ranking[2].odId).update({
-              creditos: firebase.firestore.FieldValue.increment(premio3),
-              'torneios.top3': firebase.firestore.FieldValue.increment(1),
-              'torneios.creditosGanhos': firebase.firestore.FieldValue.increment(premio3),
-              'torneios.totalTorneios': firebase.firestore.FieldValue.increment(1)
-            });
-            
-            await db.collection('transacoes').add({
-              usuarioId: ranking[2].odId,
-              tipo: 'credito',
-              valor: premio3,
-              descricao: `🥉 3º lugar no torneio ${torneioAtual.nome || 'Torneio'}`,
-              torneioId: torneioId,
-              data: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            console.log("✅ 3º lugar premiado!");
-          } catch (e) { console.error("❌ Erro ao premiar 3º:", e); }
-        }
-        
-        // Marcar torneio como finalizado
-        console.log("📝 Marcando torneio como finalizado...");
-        try {
-          await db.collection('torneios').doc(torneioId).update({
-            status: 'finalizado',
-            resultado: resultado,
-            dataFinalizacao: firebase.firestore.FieldValue.serverTimestamp()
-          });
-          console.log("✅ Torneio marcado como finalizado!");
-        } catch (updateError) {
-          console.error("❌ Erro ao atualizar status do torneio:", updateError);
-          showToast('⚠️ Erro de permissão. Verifique as regras do Firestore.');
+        if (resultadoFn.data.resultado) {
+          resultado = resultadoFn.data.resultado;
         }
         
         showToast(`🏆 ${ranking[0]?.odNome || 'Torneio'} venceu!`);
