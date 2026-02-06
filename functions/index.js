@@ -387,7 +387,7 @@ exports.finalizarEmbate = functions.https.onCall(async (data, context) => {
     const embate = embateDoc.data();
 
     // Verificar se o embate está em andamento
-    if (embate.status !== 'em_andamento' && embate.status !== 'respondendo') {
+    if (embate.status !== 'em_andamento' && embate.status !== 'respondendo' && embate.status !== 'finalizando') {
       throw new functions.https.HttpsError('failed-precondition', 'Embate não pode ser finalizado neste status');
     }
 
