@@ -197,7 +197,7 @@
       flex-shrink: 0;
     }
 
-    .notification-icon.desafio { background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.1)); }
+    .notification-icon.desafio, .notification-icon.convite_embate { background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.1)); }
     .notification-icon.conquista { background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(217, 119, 6, 0.1)); }
     .notification-icon.credito { background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.1)); }
     .notification-icon.jogo { background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.1)); }
@@ -206,6 +206,12 @@
     .notification-icon.quiz { background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.1)); }
     .notification-icon.nivel { background: linear-gradient(135deg, rgba(155, 89, 182, 0.2), rgba(142, 68, 173, 0.1)); }
     .notification-icon.indicacao { background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.1)); }
+    .notification-icon.premiacao { background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 193, 7, 0.1)); }
+    .notification-icon.bolsa { background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.1)); }
+    .notification-icon.cotista { background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.1)); }
+    .notification-icon.sortudo { background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(217, 119, 6, 0.1)); }
+    .notification-icon.ranking { background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 193, 7, 0.1)); }
+    .notification-icon.amizade, .notification-icon.solicitacao_amizade { background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.1)); }
 
     .notification-content {
       flex: 1;
@@ -621,6 +627,39 @@
           <span class="toggle-slider"></span>
         </label>
       </div>
+
+      <div class="setting-item">
+        <div>
+          <div class="setting-label">Premiações</div>
+          <div class="setting-desc">Quando receber créditos por ranking de jogos</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="notifPremiacao" checked onchange="salvarPreferencia('premiacao', this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-item">
+        <div>
+          <div class="setting-label">Bolsa / Cotista</div>
+          <div class="setting-desc">Dividendos e variações dos seus times</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="notifBolsa" checked onchange="salvarPreferencia('bolsa', this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-item">
+        <div>
+          <div class="setting-label">Sorteios</div>
+          <div class="setting-desc">Quando for sorteado em jogos</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="notifSortudo" checked onchange="salvarPreferencia('sortudo', this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
     </div>
 
   </div>
@@ -764,16 +803,33 @@
     // ===================================
     async function carregarNotificacoes() {
       try {
-        let query = db.collection('notificacoes')
-          .where('para', '==', currentUserId)
-          .orderBy('data', 'desc')
-          .limit(PAGE_SIZE);
-
-        const snapshot = await query.get();
+        let snapshot;
+        try {
+          // Query principal (requer índice composto: para + data)
+          snapshot = await db.collection('notificacoes')
+            .where('para', '==', currentUserId)
+            .orderBy('data', 'desc')
+            .limit(PAGE_SIZE)
+            .get();
+        } catch (indexError) {
+          // Fallback se índice não existir
+          console.warn('⚠️ Índice composto faltando, usando fallback:', indexError.message);
+          snapshot = await db.collection('notificacoes')
+            .where('para', '==', currentUserId)
+            .limit(PAGE_SIZE)
+            .get();
+        }
 
         notificacoes = [];
         snapshot.forEach(doc => {
           notificacoes.push({ id: doc.id, ...doc.data() });
+        });
+
+        // Ordenar client-side (garante ordem mesmo sem índice)
+        notificacoes.sort((a, b) => {
+          const dA = a.data?.toDate ? a.data.toDate() : new Date(a.data || 0);
+          const dB = b.data?.toDate ? b.data.toDate() : new Date(b.data || 0);
+          return dB - dA;
         });
 
         // Guardar último doc para paginação
@@ -807,15 +863,21 @@
       carregandoMais = true;
 
       try {
-        const snapshot = await db.collection('notificacoes')
-          .where('para', '==', currentUserId)
-          .orderBy('data', 'desc')
-          .startAfter(ultimoDocumento)
-          .limit(PAGE_SIZE)
-          .get();
+        let snapshot;
+        try {
+          snapshot = await db.collection('notificacoes')
+            .where('para', '==', currentUserId)
+            .orderBy('data', 'desc')
+            .startAfter(ultimoDocumento)
+            .limit(PAGE_SIZE)
+            .get();
+        } catch (e) {
+          // Fallback sem paginação (carrega tudo restante)
+          snapshot = { docs: [], forEach: () => {} };
+          acabouNotificacoes = true;
+        }
 
         snapshot.forEach(doc => {
-          // Evitar duplicatas
           if (!notificacoes.find(n => n.id === doc.id)) {
             notificacoes.push({ id: doc.id, ...doc.data() });
           }
@@ -826,6 +888,14 @@
         }
 
         acabouNotificacoes = snapshot.docs.length < PAGE_SIZE;
+        
+        // Re-ordenar
+        notificacoes.sort((a, b) => {
+          const dA = a.data?.toDate ? a.data.toDate() : new Date(a.data || 0);
+          const dB = b.data?.toDate ? b.data.toDate() : new Date(b.data || 0);
+          return dB - dA;
+        });
+        
         renderizarNotificacoes();
 
       } catch (error) {
@@ -842,30 +912,28 @@
     function iniciarRealtimeListener() {
       if (unsubscribeRealtime) unsubscribeRealtime();
 
-      // Escutar apenas não-lidas novas
-      unsubscribeRealtime = db.collection('notificacoes')
-        .where('para', '==', currentUserId)
-        .where('lida', '==', false)
-        .orderBy('data', 'desc')
-        .limit(5)
-        .onSnapshot(snapshot => {
-          let novasAdicionadas = false;
+      try {
+        // Escutar apenas não-lidas novas
+        unsubscribeRealtime = db.collection('notificacoes')
+          .where('para', '==', currentUserId)
+          .where('lida', '==', false)
+          .onSnapshot(snapshot => {
+            let novasAdicionadas = false;
 
-          snapshot.docChanges().forEach(change => {
-            if (change.type === 'added') {
-              const existe = notificacoes.find(n => n.id === change.doc.id);
-              if (!existe) {
-                // Nova notificação - adiciona no topo
-                notificacoes.unshift({ id: change.doc.id, ...change.doc.data() });
-                novasAdicionadas = true;
+            snapshot.docChanges().forEach(change => {
+              if (change.type === 'added') {
+                const existe = notificacoes.find(n => n.id === change.doc.id);
+                if (!existe) {
+                  notificacoes.unshift({ id: change.doc.id, ...change.doc.data() });
+                  novasAdicionadas = true;
+                }
+              } else if (change.type === 'modified') {
+                const index = notificacoes.findIndex(n => n.id === change.doc.id);
+                if (index >= 0) {
+                  notificacoes[index] = { id: change.doc.id, ...change.doc.data() };
+                }
               }
-            } else if (change.type === 'modified') {
-              const index = notificacoes.findIndex(n => n.id === change.doc.id);
-              if (index >= 0) {
-                notificacoes[index] = { id: change.doc.id, ...change.doc.data() };
-              }
-            }
-          });
+            });
 
           if (novasAdicionadas) {
             renderizarNotificacoes();
@@ -873,6 +941,9 @@
         }, error => {
           console.error("Erro no listener:", error);
         });
+      } catch (e) {
+        console.warn('⚠️ Erro ao iniciar listener tempo real:', e.message);
+      }
     }
 
     // ===================================
@@ -959,6 +1030,8 @@
     function getIcone(tipo) {
       const icones = {
         desafio: '⚔️',
+        convite_embate: '⚔️',
+        solicitacao_amizade: '👋',
         conquista: '🏆',
         credito: '💎',
         jogo: '⚽',
@@ -966,7 +1039,13 @@
         torneio: '🏅',
         quiz: '🧠',
         nivel: '⬆️',
-        indicacao: '🔗'
+        indicacao: '🔗',
+        premiacao: '🎉',
+        bolsa: '📈',
+        cotista: '💰',
+        sortudo: '🎰',
+        ranking: '🏆',
+        amizade: '🤝'
       };
       return icones[tipo] || '🔔';
     }
@@ -1081,6 +1160,9 @@
           document.getElementById('notifTorneios').checked = prefs.torneios !== false;
           document.getElementById('notifIndicacoes').checked = prefs.indicacoes !== false;
           document.getElementById('notifQuiz').checked = prefs.quiz !== false;
+          document.getElementById('notifPremiacao').checked = prefs.premiacao !== false;
+          document.getElementById('notifBolsa').checked = prefs.bolsa !== false;
+          document.getElementById('notifSortudo').checked = prefs.sortudo !== false;
         }
       } catch (error) {
         console.error("Erro ao carregar preferências:", error);
