@@ -3,326 +3,316 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gerar Perguntas V8 - Yellup</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <title>Gerar Perguntas com IA - Yellup Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
     <style>
+        :root {
+            --bg-primary: #0c0e14; --bg-secondary: #12141c; --bg-card: #181a24;
+            --bg-card-hover: #1e2030; --bg-sidebar: #10121a;
+            --border: #1e2030; --border-light: #282a3a;
+            --text-primary: #e8e9ed; --text-secondary: #8b8d9a; --text-muted: #5c5e6e;
+            --accent: #f0b429; --accent-dim: rgba(240, 180, 41, 0.12);
+            --green: #34d399; --green-dim: rgba(52, 211, 153, 0.12);
+            --red: #f87171; --red-dim: rgba(248, 113, 113, 0.12);
+            --blue: #60a5fa; --blue-dim: rgba(96, 165, 250, 0.12);
+            --purple: #a78bfa; --purple-dim: rgba(167, 139, 250, 0.12);
+            --orange: #fb923c; --orange-dim: rgba(251, 146, 60, 0.12);
+            --sidebar-w: 250px; --header-h: 64px;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Poppins', sans-serif; 
-            background: linear-gradient(135deg, #0a0e14 0%, #1a1a2e 100%); 
-            color: #e4e8ee; 
-            min-height: 100vh; 
-            padding: 20px;
+        body { font-family: 'DM Sans', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+
+        /* SIDEBAR */
+        .sidebar { position: fixed; left: 0; top: 0; width: var(--sidebar-w); height: 100vh; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 100; transition: transform 0.3s ease; }
+        .sidebar-brand { height: var(--header-h); display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .sidebar-brand .logo { width: 32px; height: 32px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: #000; }
+        .sidebar-brand h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+        .sidebar-brand h1 span { color: var(--text-muted); font-weight: 500; font-size: 12px; margin-left: 6px; }
+        .sidebar-nav { flex: 1; overflow-y: auto; padding: 12px 0; }
+        .sidebar-nav::-webkit-scrollbar { width: 0; }
+        .nav-group { margin-bottom: 8px; }
+        .nav-group-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); padding: 12px 20px 6px; }
+        .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 16px; margin: 1px 8px; border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+        .nav-item:hover { background: var(--bg-card); color: var(--text-primary); }
+        .nav-item.active { background: var(--accent-dim); color: var(--accent); }
+        .nav-item .icon { width: 20px; text-align: center; font-size: 14px; flex-shrink: 0; }
+        .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
+        .sidebar-footer .admin-box { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; }
+        .admin-avatar { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), #e09800); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #000; }
+        .admin-info-text { flex: 1; }
+        .admin-info-text .name { font-size: 13px; font-weight: 600; }
+        .admin-info-text .role { font-size: 11px; color: var(--text-muted); }
+        .btn-logout { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px; border-radius: 6px; }
+        .btn-logout:hover { color: var(--red); background: var(--red-dim); }
+
+        /* MAIN */
+        .main { margin-left: var(--sidebar-w); min-height: 100vh; }
+        .topbar { height: var(--header-h); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 32px; background: var(--bg-primary); position: sticky; top: 0; z-index: 50; }
+        .topbar-left h2 { font-size: 16px; font-weight: 600; }
+        .topbar-left p { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+        .content { padding: 24px 32px 40px; max-width: 820px; }
+
+        /* CARD */
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 16px; }
+        .card-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .card-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .card-body { padding: 20px; }
+
+        /* FORM */
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 5px; }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%; padding: 10px 14px;
+            border: 1px solid var(--border); border-radius: 8px;
+            background: var(--bg-secondary); color: var(--text-primary);
+            font-size: 13px; font-family: inherit; transition: border-color 0.15s;
         }
-        .container { max-width: 900px; margin: 0 auto; }
-        
-        h1 { text-align: center; font-size: 1.6rem; margin-bottom: 5px; color: #ffb547; }
-        .subtitle { text-align: center; color: #6b7280; margin-bottom: 25px; font-size: 0.85rem; }
-        
-        .card {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 15px;
-        }
-        .card-title {
-            font-size: 0.95rem;
-            font-weight: 600;
-            margin-bottom: 15px;
-            color: #ffb547;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        /* Tipo Tabs */
-        .tipo-tabs { display: flex; gap: 10px; }
+        .form-group textarea { min-height: 200px; font-family: 'JetBrains Mono', monospace; font-size: 12px; resize: vertical; }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--accent); }
+        .form-group input::placeholder, .form-group textarea::placeholder { color: var(--text-muted); }
+        .form-group select option { background: var(--bg-card); }
+        .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+        /* TABS */
+        .tipo-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
         .tipo-tab {
-            flex: 1;
-            padding: 18px;
-            background: rgba(255,255,255,0.03);
-            border: 2px solid rgba(255,255,255,0.1);
-            border-radius: 12px;
-            cursor: pointer;
-            text-align: center;
-            transition: all 0.2s;
+            flex: 1; padding: 14px; text-align: center;
+            background: var(--bg-secondary); border: 2px solid var(--border);
+            border-radius: 10px; cursor: pointer; transition: all 0.2s;
         }
-        .tipo-tab:hover { border-color: rgba(255,181,71,0.3); }
-        .tipo-tab.active { border-color: #ffb547; background: rgba(255,181,71,0.1); }
-        .tipo-tab .icon { font-size: 2rem; margin-bottom: 5px; }
-        .tipo-tab .label { font-size: 0.9rem; font-weight: 600; }
-        
-        /* Search */
-        .search-box { position: relative; margin-bottom: 15px; }
-        .search-box input {
-            width: 100%;
-            padding: 14px 15px 14px 45px;
-            border-radius: 10px;
-            border: 2px solid rgba(255,255,255,0.1);
-            background: rgba(255,255,255,0.05);
-            color: #e4e8ee;
-            font-size: 1rem;
-            font-family: 'Poppins', sans-serif;
-        }
-        .search-box input:focus { outline: none; border-color: #ffb547; }
-        .search-box .icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #6b7280; }
-        
-        .dropdown {
-            position: absolute; top: 100%; left: 0; right: 0;
-            background: #1a1a2e;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 10px;
-            max-height: 280px;
-            overflow-y: auto;
-            z-index: 100;
-            display: none;
-            margin-top: 5px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-        }
+        .tipo-tab:hover { border-color: var(--border-light); }
+        .tipo-tab.active { border-color: var(--accent); background: var(--accent-dim); }
+        .tipo-tab .tab-icon { font-size: 24px; margin-bottom: 4px; }
+        .tipo-tab .tab-label { font-size: 12px; font-weight: 600; }
+
+        /* SEARCH */
+        .search-wrap { position: relative; }
+        .search-wrap input { padding-left: 36px; }
+        .search-wrap .si { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 14px; pointer-events: none; }
+        .dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; max-height: 250px; overflow-y: auto; z-index: 50; display: none; box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
         .dropdown.show { display: block; }
-        .dropdown-item {
-            padding: 12px 15px;
-            cursor: pointer;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            display: flex;
-            align-items: center;
-            gap: 10px;
+        .dropdown-item { padding: 10px 14px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+        .dropdown-item:hover { background: var(--accent-dim); }
+        .dropdown-item:last-child { border-bottom: none; }
+        .dropdown-count { padding: 6px 14px; font-size: 10px; color: var(--text-muted); background: var(--bg-secondary); }
+
+        /* SELECTED */
+        .selected-box { display: none; padding: 12px 16px; background: var(--green-dim); border: 1px solid rgba(52,211,153,0.3); border-radius: 10px; margin-bottom: 14px; }
+        .selected-box.show { display: flex; align-items: center; gap: 12px; }
+        .sel-icon { font-size: 24px; }
+        .sel-info { flex: 1; }
+        .sel-name { font-weight: 600; font-size: 14px; }
+        .sel-meta { font-size: 11px; color: var(--text-muted); }
+        .btn-change { background: none; border: 1px solid rgba(52,211,153,0.3); color: var(--green); padding: 4px 12px; border-radius: 6px; font-size: 11px; cursor: pointer; font-family: inherit; }
+        .btn-change:hover { background: var(--green-dim); }
+
+        /* EXAMPLES */
+        .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+        .example-tag { padding: 4px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; }
+        .example-tag:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* BUTTONS */
+        .btn-validate {
+            width: 100%; padding: 13px 20px; border-radius: 10px; border: none;
+            background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: #fff;
+            font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+            transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;
         }
-        .dropdown-item:hover { background: rgba(255,181,71,0.1); }
-        .dropdown-count { padding: 8px 15px; background: rgba(0,0,0,0.3); font-size: 0.75rem; color: #6b7280; }
-        
-        /* Selecionado */
-        .selecionado {
-            background: linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05));
-            border: 1px solid rgba(34,197,94,0.3);
-            border-radius: 12px;
-            padding: 15px;
-            display: none;
-            align-items: center;
-            gap: 12px;
+        .btn-validate:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-primary { padding: 10px 20px; border-radius: 8px; border: none; background: var(--accent); color: #000; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-outline { padding: 10px 20px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .btn-outline:hover { border-color: var(--accent); }
+        .btn-danger-sm { padding: 4px 8px; border-radius: 6px; border: none; background: var(--red-dim); color: var(--red); font-size: 11px; cursor: pointer; font-family: inherit; }
+
+        /* PROMPT BOX */
+        .prompt-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); white-space: pre-wrap; max-height: 350px; overflow-y: auto; line-height: 1.6; user-select: all; }
+
+        /* STEPS */
+        .step-badge { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; font-size: 11px; font-weight: 700; margin-right: 2px; flex-shrink: 0; }
+        .step-badge.s1 { background: var(--purple-dim); color: var(--purple); }
+        .step-badge.s2 { background: var(--blue-dim); color: var(--blue); }
+        .step-badge.s3 { background: var(--accent-dim); color: var(--accent); }
+        .step-badge.s4 { background: var(--green-dim); color: var(--green); }
+        .steps-bar { display: flex; gap: 4px; align-items: center; padding: 10px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; }
+        .steps-bar .arrow { margin: 0 2px; }
+
+        /* RESULTS */
+        .q-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 8px; }
+        .q-card:hover { border-color: var(--border-light); }
+        .q-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .q-num { font-size: 10px; font-weight: 600; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+        .q-pts { font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+        .q-pts.easy { background: var(--green-dim); color: var(--green); }
+        .q-pts.medium { background: var(--accent-dim); color: var(--accent); }
+        .q-pts.hard { background: var(--red-dim); color: var(--red); }
+        .q-text { font-size: 13px; font-weight: 500; line-height: 1.5; margin-bottom: 10px; }
+        .q-alts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+        .q-alt { padding: 6px 10px; border-radius: 6px; font-size: 12px; background: var(--bg-card); border: 1px solid var(--border); }
+        .q-alt.correct { background: var(--green-dim); border-color: rgba(52,211,153,0.3); color: var(--green); font-weight: 600; }
+        .q-alt .alt-letter { font-weight: 700; margin-right: 4px; opacity: 0.6; }
+        .q-footer { display: flex; justify-content: space-between; align-items: center; }
+        .q-fonte { font-size: 10px; color: var(--text-muted); }
+        .results-count { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
+        .results-actions { display: flex; gap: 8px; }
+
+        /* PROGRESS */
+        .progress-bar { width: 100%; height: 6px; background: var(--bg-secondary); border-radius: 3px; margin: 12px 0; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--green), var(--accent)); border-radius: 3px; transition: width 0.3s; }
+        .import-status { font-size: 12px; color: var(--text-secondary); text-align: center; margin-top: 8px; }
+
+        /* VALIDATION */
+        .json-status { padding: 10px 14px; border-radius: 8px; font-size: 12px; margin-top: 8px; display: none; }
+        .json-status.ok { display: block; background: var(--green-dim); border: 1px solid rgba(52,211,153,0.3); color: var(--green); }
+        .json-status.err { display: block; background: var(--red-dim); border: 1px solid rgba(248,113,113,0.3); color: var(--red); }
+        .result-msg { display: none; padding: 12px 16px; border-radius: 10px; font-size: 13px; font-weight: 500; margin-top: 12px; }
+        .result-msg.success { display: block; background: var(--green-dim); border: 1px solid rgba(52,211,153,0.3); color: var(--green); }
+        .result-msg.error { display: block; background: var(--red-dim); border: 1px solid rgba(248,113,113,0.3); color: var(--red); }
+
+        /* TOAST */
+        .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 10px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); font-size: 13px; font-weight: 500; z-index: 999; transform: translateY(100px); opacity: 0; transition: all 0.3s; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+
+        /* MOBILE */
+        .mobile-toggle { display: none; position: fixed; top: 16px; left: 16px; z-index: 200; width: 40px; height: 40px; border-radius: 10px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); font-size: 18px; cursor: pointer; align-items: center; justify-content: center; }
+        .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 90; }
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .overlay.open { display: block; }
+            .mobile-toggle { display: flex; }
+            .main { margin-left: 0; }
+            .topbar { padding: 0 16px 0 64px; }
+            .content { padding: 16px; }
+            .q-alts { grid-template-columns: 1fr; }
         }
-        .selecionado.show { display: flex; }
-        .selecionado .icon { font-size: 2rem; }
-        .selecionado .info h4 { font-size: 1.1rem; }
-        .selecionado .info p { font-size: 0.8rem; color: #6b7280; }
-        .selecionado .trocar {
-            margin-left: auto;
-            padding: 8px 15px;
-            background: rgba(255,255,255,0.1);
-            border: none; border-radius: 8px;
-            color: white; cursor: pointer; font-size: 0.8rem;
-        }
-        
-        /* Tema */
-        textarea {
-            width: 100%;
-            padding: 14px;
-            border-radius: 10px;
-            border: 2px solid rgba(255,255,255,0.1);
-            background: rgba(255,255,255,0.05);
-            color: #e4e8ee;
-            font-size: 0.95rem;
-            font-family: 'Poppins', sans-serif;
-            min-height: 90px;
-            resize: vertical;
-        }
-        textarea:focus { outline: none; border-color: #ffb547; }
-        
-        .exemplos { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
-        .exemplo {
-            padding: 6px 12px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 20px;
-            font-size: 0.8rem;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .exemplo:hover { background: rgba(255,181,71,0.2); border-color: rgba(255,181,71,0.3); }
-        
-        /* Botão */
-        .btn-gerar {
-            width: 100%;
-            padding: 16px;
-            background: linear-gradient(135deg, #ffb547, #ff9500);
-            border: none;
-            border-radius: 12px;
-            color: #0a0e14;
-            font-size: 1.05rem;
-            font-weight: 700;
-            cursor: pointer;
-            font-family: 'Poppins', sans-serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            transition: all 0.2s;
-        }
-        .btn-gerar:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(255,181,71,0.3); }
-        .btn-gerar:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-        
-        /* Resultado */
-        .resultado { display: none; }
-        .resultado.show { display: block; }
-        
-        .resultado-header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            margin-bottom: 12px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        .resultado-header h3 { color: #22c55e; font-size: 1rem; display: flex; align-items: center; gap: 8px; }
-        
-        .btn-copiar {
-            padding: 10px 20px;
-            background: #22c55e;
-            border: none;
-            border-radius: 8px;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
-            font-family: 'Poppins', sans-serif;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .btn-copiar:hover { background: #16a34a; }
-        
-        .btn-download {
-            padding: 12px 20px;
-            background: rgba(59,130,246,0.2);
-            border: 1px solid rgba(59,130,246,0.4);
-            border-radius: 8px;
-            color: #60a5fa;
-            font-weight: 600;
-            cursor: pointer;
-            font-family: 'Poppins', sans-serif;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            transition: all 0.2s;
-        }
-        .btn-download:hover { background: rgba(59,130,246,0.3); }
-        .btn-download.success { background: rgba(34,197,94,0.2); border-color: rgba(34,197,94,0.4); color: #22c55e; }
-        .btn-download.success:hover { background: #22c55e; color: white; }
-        .btn-download:disabled { opacity: 0.5; cursor: not-allowed; }
-        
-        .json-valid { color: #22c55e; }
-        .json-error { color: #ef4444; }
-        
-        .prompt-box {
-            background: #0a0e14;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 10px;
-            padding: 18px;
-            font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 0.82rem;
-            line-height: 1.6;
-            white-space: pre-wrap;
-            max-height: 500px;
-            overflow-y: auto;
-            color: #d4d4d8;
-        }
-        
-        .info-box {
-            background: rgba(59,130,246,0.1);
-            border: 1px solid rgba(59,130,246,0.3);
-            border-radius: 10px;
-            padding: 12px 15px;
-            margin-top: 15px;
-            font-size: 0.85rem;
-            color: #93c5fd;
-        }
-        
-        .toast {
-            position: fixed; bottom: 20px; right: 20px;
-            padding: 15px 25px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border-radius: 10px;
-            color: white;
-            font-weight: 500;
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            animation: slideIn 0.3s ease;
-        }
-        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-        
-        .hidden { display: none !important; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>⚽ Gerador de Perguntas V8</h1>
-        <p class="subtitle">Interface simples • Regras completas • 20 perguntas por vez</p>
 
-        <!-- Tipo -->
-        <div class="card">
-            <div class="card-title"><span class="material-icons">category</span> Tipo</div>
-            <div class="tipo-tabs">
-                <div class="tipo-tab active" onclick="setTipo('time')">
-                    <div class="icon">⚽</div>
-                    <div class="label">Time</div>
-                </div>
-                <div class="tipo-tab" onclick="setTipo('camp')">
-                    <div class="icon">🏆</div>
-                    <div class="label">Campeonato</div>
-                </div>
+    <button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+    <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand"><div class="logo">Y</div><h1>Yellup <span>Admin</span></h1></div>
+        <nav class="sidebar-nav">
+            <div class="nav-group"><div class="nav-group-title">Visão Geral</div><a href="dashboard.html" class="nav-item"><span class="icon">📊</span> Dashboard</a></div>
+            <div class="nav-group"><div class="nav-group-title">Conteúdo</div><a href="jogos.html" class="nav-item"><span class="icon">🎮</span> Jogos</a><a href="perguntas.html" class="nav-item"><span class="icon">❓</span> Perguntas</a><a href="importar-perguntas.html" class="nav-item"><span class="icon">📥</span> Importar</a><a href="gerar-perguntas.html" class="nav-item active"><span class="icon">🤖</span> Gerar com IA</a><a href="times.html" class="nav-item"><span class="icon">⚽</span> Times</a></div>
+            <div class="nav-group"><div class="nav-group-title">Jogadores</div><a href="usuarios.html" class="nav-item"><span class="icon">👥</span> Usuários</a><a href="ranking.html" class="nav-item"><span class="icon">🏆</span> Rankings</a><a href="admin-noticias.html" class="nav-item"><span class="icon">📰</span> Notícias</a></div>
+            <div class="nav-group"><div class="nav-group-title">Competições</div><a href="torneios.html" class="nav-item"><span class="icon">🏅</span> Torneios</a><a href="inicializar-pvp.html" class="nav-item"><span class="icon">⚔️</span> Embates PvP</a></div>
+            <div class="nav-group"><div class="nav-group-title">Financeiro</div><a href="financeiro.html" class="nav-item"><span class="icon">💰</span> Resumo</a><a href="creditar-manual.html" class="nav-item"><span class="icon">➕</span> Creditar Manual</a><a href="transacoes.html" class="nav-item"><span class="icon">💳</span> Transações</a><a href="premiacao.html" class="nav-item"><span class="icon">🎁</span> Premiação</a><a href="indicacoes.html" class="nav-item"><span class="icon">🔗</span> Indicações</a></div>
+            <div class="nav-group"><div class="nav-group-title">Bolsa</div><a href="bolsa-admin.html" class="nav-item"><span class="icon">📈</span> Gestão da Bolsa</a></div>
+            <div class="nav-group"><div class="nav-group-title">Sistema</div><a href="configuracoes.html" class="nav-item"><span class="icon">⚙️</span> Configurações</a><a href="checkup.html" class="nav-item"><span class="icon">🔍</span> Checkup</a><a href="simulador_avancado.html" class="nav-item"><span class="icon">🧪</span> Simulador</a><a href="teste-regras.html" class="nav-item"><span class="icon">📜</span> Regras</a></div>
+        </nav>
+        <div class="sidebar-footer"><div class="admin-box"><div class="admin-avatar">A</div><div class="admin-info-text"><div class="name">Admin</div><div class="role">Administrador</div></div><button class="btn-logout" onclick="sair()" title="Sair">⏻</button></div></div>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="main">
+        <div class="topbar">
+            <div class="topbar-left">
+                <h2>🤖 Gerar Perguntas com IA</h2>
+                <p>Gere o prompt, cole no Claude, importe direto aqui</p>
             </div>
         </div>
 
-        <!-- Entidade -->
-        <div class="card">
-            <div class="card-title"><span class="material-icons">search</span> <span id="labelEntidade">Selecione o Time</span></div>
-            <div class="search-box" id="searchBox">
-                <span class="material-icons icon">search</span>
-                <input type="text" id="searchInput" placeholder="Digite para buscar..." autocomplete="off">
-                <div class="dropdown" id="dropdown"></div>
+        <div class="content">
+            <!-- Steps -->
+            <div class="steps-bar">
+                <span class="step-badge s1">1</span> Escolhe time + tema
+                <span class="arrow">→</span>
+                <span class="step-badge s2">2</span> Copia o prompt
+                <span class="arrow">→</span>
+                <span class="step-badge s3">3</span> Cola no Claude e copia o JSON
+                <span class="arrow">→</span>
+                <span class="step-badge s4">4</span> Cola aqui e importa direto
             </div>
-            <div class="selecionado" id="selecionado">
-                <span class="icon" id="entIcon">⚽</span>
-                <div class="info">
-                    <h4 id="entNome">-</h4>
-                    <p id="entInfo">-</p>
+
+            <!-- Step 1 -->
+            <div class="card">
+                <div class="card-header"><div class="card-title"><span class="step-badge s1">1</span> Escolher Entidade + Tema</div></div>
+                <div class="card-body">
+                    <div class="tipo-tabs">
+                        <div class="tipo-tab active" onclick="setTipo('time')"><div class="tab-icon">⚽</div><div class="tab-label">Time</div></div>
+                        <div class="tipo-tab" onclick="setTipo('campeonato')"><div class="tab-icon">🏆</div><div class="tab-label">Campeonato</div></div>
+                    </div>
+                    <div class="form-group search-wrap" id="searchBox">
+                        <label id="labelEntidade">Selecione o Time</label>
+                        <span class="si">🔍</span>
+                        <input type="text" id="searchInput" placeholder="Buscar..." autocomplete="off">
+                        <div class="dropdown" id="dropdown"></div>
+                    </div>
+                    <div class="selected-box" id="selecionado">
+                        <div class="sel-icon" id="entIcon">⚽</div>
+                        <div class="sel-info"><div class="sel-name" id="entNome">—</div><div class="sel-meta" id="entInfo">—</div></div>
+                        <button class="btn-change" onclick="trocar()">Trocar</button>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>Tema das Perguntas</label>
+                        <input type="text" id="tema" placeholder="Ex: títulos históricos, jogadores lendários...">
+                        <div class="form-hint">Sugestões:</div>
+                        <div class="examples" id="exemplos"></div>
+                    </div>
                 </div>
-                <button class="trocar" onclick="trocar()">✕ Trocar</button>
             </div>
-        </div>
 
-        <!-- Tema -->
-        <div class="card">
-            <div class="card-title"><span class="material-icons">topic</span> Tema das Perguntas</div>
-            <textarea id="tema" placeholder="Sobre o que serão as perguntas?&#10;&#10;Exemplos:&#10;• Perguntas sobre Romário na seleção&#10;• Campeões de 1990 a 2010&#10;• Jogadores que fizeram história no clube"></textarea>
-            <div class="exemplos" id="exemplos"></div>
-            <button class="btn-gerar" onclick="gerar()" id="btnGerar" disabled>
-                <span class="material-icons">auto_awesome</span>
-                Gerar Prompt (20 perguntas)
-            </button>
-        </div>
-
-        <!-- Resultado -->
-        <div class="card resultado" id="resultado">
-            <div class="resultado-header">
-                <h3><span class="material-icons">check_circle</span> Prompt Gerado</h3>
-                <button class="btn-copiar" onclick="copiar()">
-                    <span class="material-icons">content_copy</span> Copiar
-                </button>
+            <!-- Step 2 -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title"><span class="step-badge s2">2</span> Copiar Prompt</div>
+                    <button class="btn-outline" style="font-size:11px;padding:5px 14px;" onclick="copiarPrompt()" id="btnCopiar" disabled>📋 Copiar Prompt</button>
+                </div>
+                <div class="card-body">
+                    <div class="prompt-box" id="promptBox">Selecione um time/campeonato e digite um tema acima...</div>
+                    <div class="form-hint" style="margin-top:8px">
+                        ↑ Copie e cole no <a href="https://claude.ai" target="_blank" style="color:var(--purple);text-decoration:none;font-weight:600;">claude.ai</a> — ele gera as perguntas em JSON. Depois copie o JSON e cole abaixo.
+                    </div>
+                </div>
             </div>
-            <div class="prompt-box" id="promptBox"></div>
-            <div class="info-box">
-                💡 Cole esse prompt no <strong>Claude</strong> ou <strong>ChatGPT</strong>. Depois cole o JSON no importador do seu sistema.
+
+            <!-- Step 3 -->
+            <div class="card">
+                <div class="card-header"><div class="card-title"><span class="step-badge s3">3</span> Colar JSON do Claude</div></div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label>JSON gerado pelo Claude</label>
+                        <textarea id="jsonInput" placeholder='Cole aqui o JSON que o Claude gerou (começa com [ e termina com ])...'></textarea>
+                    </div>
+                    <button class="btn-validate" onclick="validarJSON()">✅ Validar e Visualizar</button>
+                    <div class="json-status" id="jsonStatus"></div>
+                </div>
+            </div>
+
+            <!-- Step 4 -->
+            <div id="resultsSection" style="display:none">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title"><span class="step-badge s4">4</span> Revisar e Importar</div>
+                        <div class="results-actions">
+                            <button class="btn-outline" style="font-size:11px;padding:5px 12px;" onclick="baixarJSON()">📥 JSON</button>
+                            <button class="btn-primary" style="font-size:11px;padding:5px 14px;" id="btnImportar" onclick="importarFirestore()">🚀 Importar no Firestore</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="results-count" id="resultsCount">0 perguntas</div>
+                        <div id="resultsContainer"></div>
+                        <div id="importProgress" style="display:none">
+                            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+                            <div class="import-status" id="importStatus">Importando...</div>
+                        </div>
+                        <div id="resultMsg" class="result-msg"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <div class="toast" id="toast"></div>
 
     <script>
         firebase.initializeApp({
@@ -333,440 +323,253 @@
             messagingSenderId: "608347210297",
             appId: "1:608347210297:web:75092713724e617c7203e8"
         });
-        var db = firebase.firestore();
-        var auth = firebase.auth();
+        const db = firebase.firestore();
+        const auth = firebase.auth();
 
-        var times = [], camps = [];
-        var tipo = 'time';
-        var entidade = null;
-        var jsonValido = null;
+        let tipo = 'time', entidade = null, times = [], camps = [], perguntasGeradas = [];
 
-        var exTime = [
-            'Jogadores históricos',
-            'Títulos conquistados', 
-            'Artilheiros',
-            'Décadas (ex: anos 80)',
-            'Técnicos marcantes',
-            'Rivalidades e clássicos',
-            'História do estádio',
-            'Jogador específico'
-        ];
-        var exCamp = [
-            'Campeões por década',
-            'Finais históricas',
-            'Artilheiros de todas edições',
-            'Recordes do campeonato',
-            'Times mais vezes campeões',
-            'Goleadas marcantes',
-            'Edição específica (ex: 2019)',
-            'Curiosidades e fatos'
-        ];
+        const exTime = ['Títulos históricos', 'Jogadores lendários', 'Curiosidades e recordes', 'Finais marcantes', 'Grandes rivalidades', 'Gols históricos'];
+        const exCamp = ['Campeões por década', 'Artilheiros históricos', 'Finais inesquecíveis', 'Recordes do campeonato', 'Times revelação', 'Maiores goleadas'];
 
-        document.addEventListener('DOMContentLoaded', function() {
-            auth.onAuthStateChanged(function(user) {
-                if (!user || user.email !== "admin@yellup.com") {
-                    window.location.href = "login.html";
-                } else {
-                    carregar();
-                }
-            });
-            setup();
-            renderExemplos();
+        auth.onAuthStateChanged(user => {
+            if (!user || user.email !== 'admin@yellup.com') { window.location.href = 'login.html'; return; }
+            carregar(); renderExemplos(); setupSearch();
         });
 
+        function sair() { auth.signOut().then(() => window.location.href = 'login.html'); }
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('overlay').classList.toggle('open'); }
+
         async function carregar() {
-            var st = await db.collection('times').orderBy('nome').get();
-            times = []; st.forEach(function(d) { times.push({id: d.id, ...d.data()}); });
-            
-            var sc = await db.collection('campeonatos').orderBy('nome').get();
-            camps = []; sc.forEach(function(d) { camps.push({id: d.id, ...d.data()}); });
+            const [st, sc] = await Promise.all([
+                db.collection('times').orderBy('nome').get(),
+                db.collection('campeonatos').orderBy('nome').get()
+            ]);
+            times = []; st.forEach(d => times.push({ id: d.id, ...d.data() }));
+            camps = []; sc.forEach(d => camps.push({ id: d.id, ...d.data() }));
         }
 
-        function setup() {
-            var input = document.getElementById('searchInput');
-            input.addEventListener('focus', showDropdown);
-            input.addEventListener('input', showDropdown);
-            document.addEventListener('click', function(e) {
-                if (!e.target.closest('.search-box')) {
-                    document.getElementById('dropdown').classList.remove('show');
-                }
-            });
-            document.getElementById('tema').addEventListener('input', checkBtn);
-        }
-
+        // ===== TIPO & SEARCH =====
         function setTipo(t) {
-            tipo = t;
-            entidade = null;
-            document.querySelectorAll('.tipo-tab').forEach(function(x) { x.classList.remove('active'); });
+            tipo = t; entidade = null;
+            document.querySelectorAll('.tipo-tab').forEach(x => x.classList.remove('active'));
             document.querySelectorAll('.tipo-tab')[t === 'time' ? 0 : 1].classList.add('active');
             document.getElementById('labelEntidade').textContent = t === 'time' ? 'Selecione o Time' : 'Selecione o Campeonato';
             document.getElementById('searchInput').value = '';
-            document.getElementById('searchBox').classList.remove('hidden');
+            document.getElementById('searchBox').style.display = '';
             document.getElementById('selecionado').classList.remove('show');
-            document.getElementById('btnGerar').disabled = true;
-            document.getElementById('resultado').classList.remove('show');
-            renderExemplos();
+            renderExemplos(); atualizarPrompt();
+        }
+
+        function setupSearch() {
+            const input = document.getElementById('searchInput');
+            input.addEventListener('focus', showDropdown);
+            input.addEventListener('input', showDropdown);
+            document.addEventListener('click', e => { if (!e.target.closest('.search-wrap')) document.getElementById('dropdown').classList.remove('show'); });
+            document.getElementById('tema').addEventListener('input', atualizarPrompt);
         }
 
         function showDropdown() {
-            var input = document.getElementById('searchInput');
-            var drop = document.getElementById('dropdown');
-            var busca = input.value.toLowerCase();
-            var lista = tipo === 'time' ? times : camps;
-            
-            var filtrados = lista.filter(function(x) { return x.nome.toLowerCase().includes(busca); });
-            var icon = tipo === 'time' ? '⚽' : '🏆';
-            
-            var html = '<div class="dropdown-count">' + filtrados.length + ' encontrados</div>';
-            html += filtrados.slice(0, 25).map(function(x) {
-                return '<div class="dropdown-item" onclick="selecionar(\'' + x.id + '\')">' +
-                    '<span>' + icon + '</span>' +
-                    '<span>' + x.nome + (x.pais ? ' <small style="color:#6b7280;">(' + x.pais + ')</small>' : '') + '</span>' +
-                '</div>';
-            }).join('');
-            
-            drop.innerHTML = html;
-            drop.classList.add('show');
+            const busca = document.getElementById('searchInput').value.toLowerCase();
+            const drop = document.getElementById('dropdown');
+            const lista = tipo === 'time' ? times : camps;
+            const filtrados = lista.filter(x => x.nome.toLowerCase().includes(busca));
+            const icon = tipo === 'time' ? '⚽' : '🏆';
+            let html = `<div class="dropdown-count">${filtrados.length} encontrados</div>`;
+            html += filtrados.slice(0, 30).map(x =>
+                `<div class="dropdown-item" onclick="selecionar('${x.id}')">${icon} ${esc(x.nome)}${x.pais ? ` <span style="color:var(--text-muted);font-size:11px;">(${x.pais})</span>` : ''}</div>`
+            ).join('');
+            drop.innerHTML = html; drop.classList.add('show');
         }
 
         function selecionar(id) {
-            var lista = tipo === 'time' ? times : camps;
-            entidade = lista.find(function(x) { return x.id === id; });
+            const lista = tipo === 'time' ? times : camps;
+            entidade = lista.find(x => x.id === id);
             if (!entidade) return;
-            
             document.getElementById('dropdown').classList.remove('show');
-            document.getElementById('searchBox').classList.add('hidden');
+            document.getElementById('searchBox').style.display = 'none';
             document.getElementById('entIcon').textContent = tipo === 'time' ? '⚽' : '🏆';
             document.getElementById('entNome').textContent = entidade.nome;
             document.getElementById('entInfo').textContent = (tipo === 'time' ? 'Time' : 'Campeonato') + (entidade.pais ? ' • ' + entidade.pais : '');
             document.getElementById('selecionado').classList.add('show');
-            checkBtn();
+            atualizarPrompt();
         }
 
         function trocar() {
             entidade = null;
-            document.getElementById('searchBox').classList.remove('hidden');
+            document.getElementById('searchBox').style.display = '';
             document.getElementById('selecionado').classList.remove('show');
             document.getElementById('searchInput').value = '';
             document.getElementById('searchInput').focus();
-            document.getElementById('btnGerar').disabled = true;
+            atualizarPrompt();
         }
 
         function renderExemplos() {
-            var lista = tipo === 'time' ? exTime : exCamp;
-            document.getElementById('exemplos').innerHTML = lista.map(function(e) {
-                return '<span class="exemplo" onclick="usarEx(\'' + e.replace(/'/g, "\\'") + '\')">' + e + '</span>';
-            }).join('');
+            const lista = tipo === 'time' ? exTime : exCamp;
+            document.getElementById('exemplos').innerHTML = lista.map(e => `<span class="example-tag" onclick="usarEx('${e}')">${e}</span>`).join('');
         }
+        function usarEx(t) { document.getElementById('tema').value = t; atualizarPrompt(); }
 
-        function usarEx(t) { document.getElementById('tema').value = t; checkBtn(); }
+        // ===== PROMPT =====
+        function gerarPrompt() {
+            if (!entidade) return '';
+            const tema = document.getElementById('tema').value.trim();
+            if (!tema) return '';
+            const prefixo = entidade.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').substring(0, 12);
+            const tipoLabel = tipo === 'time' ? 'time' : 'campeonato';
+            const ef = tipo === 'time'
+                ? `"timeId": "${entidade.id}",\n    "timeNome": "${entidade.nome}",\n    "campeonatoId": "",\n    "campeonatoNome": ""`
+                : `"timeId": "",\n    "timeNome": "",\n    "campeonatoId": "${entidade.id}",\n    "campeonatoNome": "${entidade.nome}"`;
 
-        function checkBtn() {
-            var ok = entidade !== null && document.getElementById('tema').value.trim().length > 2;
-            document.getElementById('btnGerar').disabled = !ok;
-        }
-
-        function gerar() {
-            if (!entidade) return;
-            var tema = document.getElementById('tema').value.trim();
-            var prompt = gerarPrompt(entidade, tema);
-            document.getElementById('promptBox').textContent = prompt;
-            document.getElementById('resultado').classList.add('show');
-            
-            // Resetar área de JSON
-            document.getElementById('jsonArea').style.display = 'none';
-            document.getElementById('jsonInput').value = '';
-            document.getElementById('jsonStatus').innerHTML = '';
-            document.getElementById('btnBaixar').disabled = true;
-            jsonValido = null;
-            
-            document.getElementById('resultado').scrollIntoView({ behavior: 'smooth' });
-        }
-
-        function gerarPrompt(ent, tema) {
-            // Gerar prefixo para ID
-            var prefixo = ent.nome.toLowerCase()
-                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-                .replace(/[^a-z0-9]/g, '-')
-                .replace(/-+/g, '-')
-                .substring(0, 12);
-            
-            if (tipo === 'time') {
-                return `Gere exatamente 20 perguntas de quiz sobre o time ${ent.nome}.
+            return `Gere exatamente 20 perguntas de quiz sobre o ${tipoLabel} ${entidade.nome}.
 
 TEMA: ${tema}
 
-══════════════════════════════════════════════════════════════
-⚠️ VERIFICAÇÃO OBRIGATÓRIA - LEIA ANTES DE COMEÇAR
-══════════════════════════════════════════════════════════════
+⚠️ REGRAS CRÍTICAS:
+1. CERTEZA ABSOLUTA em cada fato - não invente nem suponha
+2. EVITE perguntas que ficam obsoletas ("maior artilheiro da história", "recorde de gols")
+3. PREFIRA perguntas com DATA FIXA: "campeão de 2019", "artilheiro do Brasileirão 2008"
+4. Se não tiver certeza, faça menos. Melhor 15 certas que 20 com erros.
+5. Só inclua jogadores/títulos/datas que você tem CERTEZA
 
-ANTES de criar cada pergunta, você DEVE:
-1. TER CERTEZA ABSOLUTA que o fato é verdadeiro
-2. Só incluir jogadores que REALMENTE jogaram neste time
-3. Só incluir títulos que o time REALMENTE conquistou
-4. Só incluir datas/números que você tem CERTEZA
-
-⚠️ EVITE PERGUNTAS QUE PODEM FICAR OBSOLETAS:
-- NÃO pergunte "maior artilheiro DA HISTÓRIA" (pode mudar)
-- NÃO pergunte "recorde de jogos/gols" (pode ser quebrado)
-- NÃO pergunte "quem tem mais títulos" (pode mudar)
-- PREFIRA perguntas com DATA FIXA: "artilheiro do Brasileirão 2008", "quem fez o gol na final de 1985", "campeão de 1990"
-
-❌ RUIM: "Quem é o maior artilheiro da história do clube?"
-✅ BOM: "Quem foi o artilheiro do Campeonato Brasileiro de 2008 pelo Coritiba?"
-
-❌ RUIM: "Qual jogador tem mais jogos pelo time?"  
-✅ BOM: "Qual goleiro foi titular na conquista do Brasileiro de 1985?"
-
-❌ NÃO INCLUA perguntas se:
-- Você não tem 100% de certeza do fato
-- O jogador PODE ter jogado no time mas você não tem certeza
-- Você está "chutando" ou "supondo"
-
-✅ PREFIRA perguntas sobre:
-- Fatos históricos amplamente documentados
-- Títulos oficiais e datas confirmadas  
-- Jogadores ÍCONES indiscutíveis do clube
-- Recordes oficiais reconhecidos
-
-Se não conseguir 20 perguntas CORRETAS, faça menos.
-É melhor 15 certas do que 20 com erros.
-
-══════════════════════════════════════════════════════════════
-FORMATO JSON OBRIGATÓRIO
-══════════════════════════════════════════════════════════════
-
+FORMATO JSON - Retorne APENAS o array JSON, sem texto extra:
 [
   {
     "id": "${prefixo}-001",
-    "pergunta": "Texto da pergunta aqui?",
-    "alternativas": {
-      "A": "Primeira alternativa",
-      "B": "Segunda alternativa",
-      "C": "Terceira alternativa",
-      "D": "Quarta alternativa"
-    },
+    "pergunta": "Texto da pergunta?",
+    "alternativas": { "A": "Opção A", "B": "Opção B", "C": "Opção C", "D": "Opção D" },
     "correta": "B",
     "pontuacao": 5,
-    "timeId": "${ent.id}",
-    "timeNome": "${ent.nome}",
-    "campeonatoId": "",
-    "campeonatoNome": "",
-    "fonte": "Wikipedia - Nome do Artigo Específico"
+    ${ef},
+    "fonte": "Wikipedia - Artigo Específico"
   }
 ]
 
-══════════════════════════════════════════════════════════════
-REGRAS DE QUALIDADE
-══════════════════════════════════════════════════════════════
+PONTUAÇÃO: 1-4 = fácil (torcedor casual), 5-6 = médio (dedicado), 7-10 = difícil (historiador)
+DISTRIBUIÇÃO: ~30% fácil, ~40% médio, ~30% difícil
+ALTERNATIVAS: 4 opções plausíveis, nunca "todas/nenhuma das anteriores"
+IDs sequenciais: ${prefixo}-001, ${prefixo}-002, ...
 
-📌 IDs: ${prefixo}-001, ${prefixo}-002, ${prefixo}-003...
+Retorne APENAS o JSON.`;
+        }
 
-📌 PONTUAÇÃO:
-- 1-4 = FÁCIL (torcedor casual sabe)
-- 5-6 = MÉDIO (torcedor dedicado sabe)
-- 7-10 = DIFÍCIL (só historiador sabe)
+        function atualizarPrompt() {
+            const prompt = gerarPrompt();
+            const box = document.getElementById('promptBox');
+            const btn = document.getElementById('btnCopiar');
+            if (prompt) { box.textContent = prompt; btn.disabled = false; }
+            else { box.textContent = 'Selecione um time/campeonato e digite um tema acima...'; btn.disabled = true; }
+        }
 
-📌 DISTRIBUIÇÃO: ~30% fácil, ~40% médio, ~30% difícil
+        function copiarPrompt() {
+            const text = document.getElementById('promptBox').textContent;
+            if (!text || text.startsWith('Selecione')) return;
+            navigator.clipboard.writeText(text).then(() => showToast('📋 Prompt copiado! Cole no claude.ai'));
+        }
 
-📌 ALTERNATIVAS:
-- 4 opções plausíveis da mesma categoria
-- NUNCA "Todas/Nenhuma das anteriores"
+        // ===== VALIDAR JSON =====
+        function validarJSON() {
+            const raw = document.getElementById('jsonInput').value.trim();
+            const st = document.getElementById('jsonStatus');
+            if (!raw) { st.className = 'json-status err'; st.textContent = '❌ Cole o JSON gerado pelo Claude'; return; }
 
-📌 FONTE: Seja específico (ex: "Wikipedia - Coritiba FC")
+            try {
+                let parsed;
+                try { parsed = JSON.parse(raw); }
+                catch { const m = raw.match(/\[[\s\S]*\]/); if (m) parsed = JSON.parse(m[0]); else throw new Error('JSON inválido'); }
+                if (!Array.isArray(parsed)) throw new Error('Esperado um array []');
+                if (parsed.length === 0) throw new Error('Array vazio');
 
-══════════════════════════════════════════════════════════════
+                let erros = 0;
+                parsed.forEach(p => {
+                    if (!p.pergunta) { erros++; return; }
+                    if (!p.alternativas || !p.alternativas.A || !p.alternativas.B || !p.alternativas.C || !p.alternativas.D) erros++;
+                    if (!p.correta || !['A','B','C','D'].includes(p.correta.toUpperCase())) erros++;
+                });
 
-Retorne APENAS o JSON, sem explicações.`;
-            } else {
-                return `Gere exatamente 20 perguntas de quiz sobre o campeonato ${ent.nome}.
+                if (erros > 0) { st.className = 'json-status err'; st.textContent = `⚠️ ${erros} pergunta(s) com problemas`; return; }
 
-TEMA: ${tema}
-
-══════════════════════════════════════════════════════════════
-⚠️ VERIFICAÇÃO OBRIGATÓRIA - LEIA ANTES DE COMEÇAR
-══════════════════════════════════════════════════════════════
-
-ANTES de criar cada pergunta, você DEVE:
-1. TER CERTEZA ABSOLUTA que o fato é verdadeiro
-2. Só incluir campeões que REALMENTE venceram nas datas citadas
-3. Só incluir artilheiros/recordes CONFIRMADOS oficialmente
-4. Só incluir datas/números que você tem CERTEZA
-
-⚠️ EVITE PERGUNTAS QUE PODEM FICAR OBSOLETAS:
-- NÃO pergunte "maior artilheiro DA HISTÓRIA" (pode mudar)
-- NÃO pergunte "time com mais títulos" (pode mudar)
-- NÃO pergunte "recorde de gols/pontos" (pode ser quebrado)
-- PREFIRA perguntas com DATA FIXA: "campeão de 2019", "artilheiro da edição de 2015", "final de 1990"
-
-❌ RUIM: "Qual time mais vezes foi campeão?"
-✅ BOM: "Qual time foi campeão em 2019?"
-
-❌ RUIM: "Quem é o maior artilheiro da história do campeonato?"
-✅ BOM: "Quem foi o artilheiro da edição de 2008?"
-
-❌ NÃO INCLUA perguntas se:
-- Você não tem 100% de certeza do fato
-- O dado pode estar desatualizado
-- Você está "chutando" ou "supondo"
-
-✅ PREFIRA perguntas sobre:
-- Campeões históricos confirmados
-- Finais históricas bem documentadas
-- Recordes oficiais da competição
-- Fatos amplamente conhecidos
-
-Se não conseguir 20 perguntas CORRETAS, faça menos.
-É melhor 15 certas do que 20 com erros.
-
-══════════════════════════════════════════════════════════════
-FORMATO JSON OBRIGATÓRIO
-══════════════════════════════════════════════════════════════
-
-[
-  {
-    "id": "${prefixo}-001",
-    "pergunta": "Texto da pergunta aqui?",
-    "alternativas": {
-      "A": "Primeira alternativa",
-      "B": "Segunda alternativa",
-      "C": "Terceira alternativa",
-      "D": "Quarta alternativa"
-    },
-    "correta": "B",
-    "pontuacao": 5,
-    "timeId": "",
-    "timeNome": "",
-    "campeonatoId": "${ent.id}",
-    "campeonatoNome": "${ent.nome}",
-    "fonte": "Wikipedia - Nome do Artigo Específico"
-  }
-]
-
-══════════════════════════════════════════════════════════════
-REGRAS DE QUALIDADE
-══════════════════════════════════════════════════════════════
-
-📌 IDs: ${prefixo}-001, ${prefixo}-002, ${prefixo}-003...
-
-📌 PONTUAÇÃO:
-- 1-4 = FÁCIL (fã casual sabe)
-- 5-6 = MÉDIO (quem acompanha sabe)
-- 7-10 = DIFÍCIL (só especialista sabe)
-
-📌 DISTRIBUIÇÃO: ~30% fácil, ~40% médio, ~30% difícil
-
-📌 ALTERNATIVAS:
-- 4 opções plausíveis da mesma categoria
-- NUNCA "Todas/Nenhuma das anteriores"
-
-📌 FONTE: Seja específico (ex: "Wikipedia - Campeonato Brasileiro")
-
-══════════════════════════════════════════════════════════════
-
-Retorne APENAS o JSON, sem explicações.`;
+                perguntasGeradas = parsed;
+                st.className = 'json-status ok';
+                st.textContent = `✅ ${parsed.length} perguntas válidas!`;
+                renderizarResultados();
+            } catch (e) {
+                st.className = 'json-status err'; st.textContent = '❌ ' + e.message;
+                perguntasGeradas = [];
+                document.getElementById('resultsSection').style.display = 'none';
             }
         }
 
-        function copiar() {
-            var texto = document.getElementById('promptBox').textContent;
-            navigator.clipboard.writeText(texto).then(function() {
-                var btn = document.querySelector('.btn-copiar');
-                btn.innerHTML = '<span class="material-icons">check</span> Copiado!';
-                
-                // Mostrar área de JSON
-                document.getElementById('jsonArea').style.display = 'block';
-                
-                var toast = document.createElement('div');
-                toast.className = 'toast';
-                toast.innerHTML = '<span class="material-icons">check_circle</span> Prompt copiado! Cole no Claude/ChatGPT';
-                document.body.appendChild(toast);
-                
-                setTimeout(function() { 
-                    btn.innerHTML = '<span class="material-icons">content_copy</span> Copiar';
-                    toast.remove();
-                }, 3000);
-            });
+        // ===== RESULTADOS =====
+        function renderizarResultados() {
+            document.getElementById('resultsSection').style.display = '';
+            document.getElementById('resultsCount').textContent = `${perguntasGeradas.length} perguntas prontas`;
+            document.getElementById('resultMsg').className = 'result-msg';
+            document.getElementById('importProgress').style.display = 'none';
+            document.getElementById('btnImportar').disabled = false;
+
+            document.getElementById('resultsContainer').innerHTML = perguntasGeradas.map((p, i) => {
+                const pts = p.pontuacao || 5;
+                const cls = pts <= 4 ? 'easy' : pts <= 6 ? 'medium' : 'hard';
+                const lbl = pts <= 4 ? 'Fácil' : pts <= 6 ? 'Médio' : 'Difícil';
+                const alts = p.alternativas || {};
+                const cor = (p.correta || 'A').toUpperCase();
+                return `<div class="q-card"><div class="q-top"><span class="q-num">#${i+1} · ${esc(p.id||'')}</span><div style="display:flex;gap:6px;align-items:center;"><span class="q-pts ${cls}">${pts} pts · ${lbl}</span><button class="btn-danger-sm" onclick="remover(${i})">✕</button></div></div><div class="q-text">${esc(p.pergunta||'')}</div><div class="q-alts">${['A','B','C','D'].map(l=>`<div class="q-alt ${l===cor?'correct':''}"><span class="alt-letter">${l})</span> ${esc(alts[l]||'')}</div>`).join('')}</div><div class="q-footer"><span class="q-fonte">📎 ${esc(p.fonte||'Sem fonte')}</span></div></div>`;
+            }).join('');
+
+            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
         }
 
-        function validarJSON() {
-            var texto = document.getElementById('jsonInput').value.trim();
-            var status = document.getElementById('jsonStatus');
-            var btnBaixar = document.getElementById('btnBaixar');
-            
-            // Limpar possíveis marcações de código
-            texto = texto.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
-            
+        function remover(i) { perguntasGeradas.splice(i, 1); renderizarResultados(); showToast(`Removida (${perguntasGeradas.length} restantes)`); }
+        function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+        // ===== IMPORTAR =====
+        async function importarFirestore() {
+            if (perguntasGeradas.length === 0) return;
+            if (!confirm(`Importar ${perguntasGeradas.length} perguntas no Firestore?`)) return;
+
+            const pDiv = document.getElementById('importProgress');
+            const pFill = document.getElementById('progressFill');
+            const pStat = document.getElementById('importStatus');
+            const msg = document.getElementById('resultMsg');
+            pDiv.style.display = ''; msg.className = 'result-msg';
+            document.getElementById('btnImportar').disabled = true;
+            let done = 0; const total = perguntasGeradas.length;
+
             try {
-                var json = JSON.parse(texto);
-                
-                if (!Array.isArray(json)) {
-                    throw new Error('JSON deve ser um array de perguntas');
+                for (let i = 0; i < total; i += 50) {
+                    const batch = db.batch();
+                    perguntasGeradas.slice(i, i+50).forEach(p => {
+                        batch.set(db.collection('perguntas').doc(), {
+                            id: String(p.id||''), pergunta: String(p.pergunta||''),
+                            alternativas: { A: String((p.alternativas||{}).A||''), B: String((p.alternativas||{}).B||''), C: String((p.alternativas||{}).C||''), D: String((p.alternativas||{}).D||'') },
+                            correta: String(p.correta||'A').toUpperCase(), pontuacao: Number(p.pontuacao)||5,
+                            timeId: String(p.timeId||''), timeNome: String(p.timeNome||''),
+                            campeonatoId: String(p.campeonatoId||''), campeonatoNome: String(p.campeonatoNome||''),
+                            fonte: String(p.fonte||''), criadoEm: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    });
+                    await batch.commit();
+                    done += Math.min(50, total - i);
+                    const pct = Math.round((done/total)*100);
+                    pFill.style.width = pct+'%'; pStat.textContent = `${done} de ${total} (${pct}%)`;
                 }
-                
-                if (json.length === 0) {
-                    throw new Error('Array está vazio');
-                }
-                
-                // Validar estrutura básica
-                var erros = [];
-                json.forEach(function(p, i) {
-                    if (!p.pergunta) erros.push('Pergunta ' + (i+1) + ': falta campo "pergunta"');
-                    if (!p.alternativas) erros.push('Pergunta ' + (i+1) + ': falta campo "alternativas"');
-                    if (!p.correta) erros.push('Pergunta ' + (i+1) + ': falta campo "correta"');
-                });
-                
-                if (erros.length > 0) {
-                    throw new Error(erros.slice(0, 3).join('; '));
-                }
-                
-                // Contar dificuldades
-                var facil = 0, medio = 0, dificil = 0;
-                json.forEach(function(p) {
-                    var pts = p.pontuacao || 5;
-                    if (pts <= 4) facil++;
-                    else if (pts <= 6) medio++;
-                    else dificil++;
-                });
-                
-                jsonValido = json;
-                btnBaixar.disabled = false;
-                status.className = 'json-valid';
-                status.innerHTML = '<span class="material-icons" style="font-size:18px;vertical-align:middle;">check_circle</span> ' +
-                    '<strong>JSON válido!</strong> ' + json.length + ' perguntas (' + 
-                    facil + ' fáceis, ' + medio + ' médias, ' + dificil + ' difíceis)';
-                
+                msg.className = 'result-msg success';
+                msg.innerHTML = `✅ ${done} perguntas importadas com sucesso!`;
+                showToast(`🚀 ${done} perguntas no Firestore!`);
             } catch (e) {
-                jsonValido = null;
-                btnBaixar.disabled = true;
-                status.className = 'json-error';
-                status.innerHTML = '<span class="material-icons" style="font-size:18px;vertical-align:middle;">error</span> ' +
-                    '<strong>Erro:</strong> ' + e.message;
+                msg.className = 'result-msg error'; msg.innerHTML = '❌ '+e.message;
             }
         }
 
         function baixarJSON() {
-            if (!jsonValido || !entidade) return;
-            
-            var nomeArquivo = entidade.nome.toLowerCase()
-                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-                .replace(/[^a-z0-9]/g, '-')
-                .replace(/-+/g, '-') + '-' + new Date().toISOString().slice(0,10) + '.json';
-            
-            var blob = new Blob([JSON.stringify(jsonValido, null, 2)], { type: 'application/json' });
-            var url = URL.createObjectURL(blob);
-            var a = document.createElement('a');
-            a.href = url;
-            a.download = nomeArquivo;
-            a.click();
-            URL.revokeObjectURL(url);
-            
-            var toast = document.createElement('div');
-            toast.className = 'toast';
-            toast.innerHTML = '<span class="material-icons">download_done</span> Arquivo ' + nomeArquivo + ' baixado!';
-            document.body.appendChild(toast);
-            setTimeout(function() { toast.remove(); }, 3000);
+            if (!perguntasGeradas.length) return;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([JSON.stringify(perguntasGeradas,null,2)],{type:'application/json'}));
+            a.download = `perguntas-${entidade?.nome||'geradas'}-${new Date().toISOString().slice(0,10)}.json`;
+            a.click(); showToast('📥 JSON baixado!');
         }
+
+        function showToast(m) { const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3000); }
     </script>
 </body>
 </html>
