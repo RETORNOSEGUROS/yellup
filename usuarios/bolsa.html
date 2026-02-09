@@ -1283,6 +1283,9 @@
         // Carregar dividendos recebidos
         await carregarDividendosRecebidos();
 
+        // ✅ AUTO-PROCESSAR jogos finalizados pendentes (silencioso)
+        await autoProcessarJogosPendentes();
+
         // Renderizar
         popularPaises();
         renderizarTabelaMercado();
@@ -2523,6 +2526,7 @@
     // ==================== ADMIN ====================
     function logAdmin(msg, tipo = 'info') {
       const log = document.getElementById('adminLog');
+      if (!log) { console.log(`[BOLSA ${tipo}] ${msg}`); return; }
       log.style.display = 'block';
       const cores = { info: '#3b82f6', success: '#10b981', error: '#ef4444', warn: '#f59e0b' };
       log.innerHTML += `<div style="color: ${cores[tipo]};">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
@@ -2711,6 +2715,53 @@
     }
 
     // ==================== PROCESSAR JOGOS PARA BOLSA ====================
+    // ==================== AUTO-PROCESSAR JOGOS (silencioso) ====================
+    async function autoProcessarJogosPendentes() {
+      try {
+        const jogosSnap = await db.collection('jogos').get();
+        const now = new Date();
+        const pendentes = [];
+        
+        jogosSnap.forEach(doc => {
+          const jogo = { id: doc.id, ...doc.data() };
+          const dataFim = jogo.dataFim?.toDate ? jogo.dataFim.toDate() : null;
+          const isFinalizado = jogo.status === 'finalizado' || (dataFim && dataFim < now);
+          
+          if (isFinalizado && !jogo.bolsaProcessado) {
+            pendentes.push(jogo);
+          }
+        });
+
+        if (pendentes.length === 0) {
+          console.log('📊 Bolsa: todos os jogos já processados');
+          return;
+        }
+
+        console.log(`📊 Bolsa: processando ${pendentes.length} jogos pendentes...`);
+
+        let processados = 0;
+        for (const jogo of pendentes) {
+          try {
+            await processarJogoIndividual(jogo);
+            processados++;
+          } catch (e) {
+            console.warn(`⚠️ Erro ao processar jogo ${jogo.id}:`, e.message);
+          }
+        }
+
+        if (processados > 0) {
+          console.log(`✅ Bolsa: ${processados} jogos processados automaticamente`);
+          // Recarregar métricas e re-renderizar
+          await carregarMetricas();
+          renderizarTabelaMercado();
+          showToast(`📈 ${processados} jogo(s) atualizado(s) na bolsa!`);
+        }
+      } catch (error) {
+        console.error('Erro no auto-processamento da bolsa:', error);
+      }
+    }
+
+    // ==================== ADMIN: PROCESSAR JOGOS (manual, com logs) ====================
     async function processarJogosParaBolsa() {
       logAdmin('🎮 Buscando jogos finalizados para processar...', 'info');
       
