@@ -835,11 +835,72 @@ exports.premiarJogo = functions.https.onCall(async (data, context) => {
     const totalPoolCreditos = poolCreditos + creditosIniciais;
 
     if (totalPoolCreditos <= 0) {
-      console.log('⚠️ Pool vazio');
-      await db.collection('jogos').doc(jogoId).update({
-        premiado: true,
-        premiacaoDetalhes: { totalPool: 0, processadoEm: new Date().toISOString(), processadoPor: 'cloud_function' }
-      });
+      console.log('⚠️ Pool vazio - atualizando bolsa mesmo assim');
+      
+      // Mesmo sem pool, atualizar preço dos times na bolsa
+      try {
+        const CONFIG_BOLSA = {
+          porJogo: 0.25, porTorcedor: 0.05, porVitoriaTorcida: 0.5,
+          porVitoriaPontuacao: 0.9, porPonto: 0.005,
+          porDerrotaTorcida: 0.3, porDerrotaPontuacao: 0.5, maxVariacao: 12
+        };
+        const PRECO_INICIAL = 500;
+        const tc = estatisticas.timeCasa.torcedores.length;
+        const tf = estatisticas.timeFora.torcedores.length;
+        const pc = estatisticas.timeCasa.pontos;
+        const pf = estatisticas.timeFora.pontos;
+
+        let vc = CONFIG_BOLSA.porJogo + tc * CONFIG_BOLSA.porTorcedor + pc * CONFIG_BOLSA.porPonto;
+        let vf = CONFIG_BOLSA.porJogo + tf * CONFIG_BOLSA.porTorcedor + pf * CONFIG_BOLSA.porPonto;
+        if (tc > tf) { vc += CONFIG_BOLSA.porVitoriaTorcida; vf -= CONFIG_BOLSA.porDerrotaTorcida; }
+        else if (tf > tc) { vf += CONFIG_BOLSA.porVitoriaTorcida; vc -= CONFIG_BOLSA.porDerrotaTorcida; }
+        if (pc > pf) { vc += CONFIG_BOLSA.porVitoriaPontuacao; vf -= CONFIG_BOLSA.porDerrotaPontuacao; }
+        else if (pf > pc) { vf += CONFIG_BOLSA.porVitoriaPontuacao; vc -= CONFIG_BOLSA.porDerrotaPontuacao; }
+        vc = Math.max(-CONFIG_BOLSA.maxVariacao, Math.min(CONFIG_BOLSA.maxVariacao, vc));
+        vf = Math.max(-CONFIG_BOLSA.maxVariacao, Math.min(CONFIG_BOLSA.maxVariacao, vf));
+
+        const [mCDoc, mFDoc] = await Promise.all([
+          db.collection('bolsa_metricas_time').doc(timeCasaId).get(),
+          db.collection('bolsa_metricas_time').doc(timeForaId).get()
+        ]);
+        const mC = mCDoc.exists ? mCDoc.data() : { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0, totalJogos: 0, totalTorcedores: 0, mediaDividendos: 0 };
+        const mF = mFDoc.exists ? mFDoc.data() : { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0, totalJogos: 0, totalTorcedores: 0, mediaDividendos: 0 };
+
+        const batchBolsa = db.batch();
+        batchBolsa.update(db.collection('jogos').doc(jogoId), {
+          premiado: true, bolsaProcessado: true,
+          premiacaoDetalhes: { totalPool: 0, processadoEm: new Date().toISOString(), processadoPor: 'cloud_function' }
+        });
+        batchBolsa.set(db.collection('bolsa_metricas_time').doc(timeCasaId), {
+          timeId: timeCasaId, timeNome: timeCasaNome,
+          precoAlgoritmo: Math.round(mC.precoAlgoritmo * (1 + vc / 100) * 100) / 100,
+          precoMercado: Math.round(mC.precoAlgoritmo * (1 + vc / 100) * 100) / 100,
+          variacaoDia: Math.round(((mC.variacaoDia || 0) + vc) * 100) / 100,
+          mediaDividendos: mC.mediaDividendos || 0,
+          totalJogos: (mC.totalJogos || 0) + 1,
+          totalTorcedores: (mC.totalTorcedores || 0) + tc,
+          ultimaAtualizacao: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        batchBolsa.set(db.collection('bolsa_metricas_time').doc(timeForaId), {
+          timeId: timeForaId, timeNome: timeForaNome,
+          precoAlgoritmo: Math.round(mF.precoAlgoritmo * (1 + vf / 100) * 100) / 100,
+          precoMercado: Math.round(mF.precoAlgoritmo * (1 + vf / 100) * 100) / 100,
+          variacaoDia: Math.round(((mF.variacaoDia || 0) + vf) * 100) / 100,
+          mediaDividendos: mF.mediaDividendos || 0,
+          totalJogos: (mF.totalJogos || 0) + 1,
+          totalTorcedores: (mF.totalTorcedores || 0) + tf,
+          ultimaAtualizacao: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        await batchBolsa.commit();
+        console.log(`📈 Bolsa (pool vazio): ${timeCasaNome} ${vc >= 0?'+':''}${vc.toFixed(2)}% | ${timeForaNome} ${vf >= 0?'+':''}${vf.toFixed(2)}%`);
+      } catch (bolsaErr) {
+        console.error('⚠️ Erro bolsa pool vazio:', bolsaErr);
+        // Fallback: pelo menos marcar como premiado
+        await db.collection('jogos').doc(jogoId).update({
+          premiado: true, bolsaProcessado: true,
+          premiacaoDetalhes: { totalPool: 0, processadoEm: new Date().toISOString(), processadoPor: 'cloud_function' }
+        });
+      }
       return { success: true, poolVazio: true };
     }
 
@@ -1084,6 +1145,7 @@ exports.premiarJogo = functions.https.onCall(async (data, context) => {
     const jogoRef = db.collection('jogos').doc(jogoId);
     batch.update(jogoRef, {
       premiado: true,
+      bolsaProcessado: true,
       premiacaoDetalhes: premiacaoDetalhes
     });
 
@@ -1091,6 +1153,85 @@ exports.premiarJogo = functions.https.onCall(async (data, context) => {
     if (totalPontos > 0 && totalCotistasCreditos > 0) {
       const distRef = db.collection('distribuicao_cotistas_jogo').doc(jogoId);
       batch.set(distRef, distribuicaoCotistasJogo);
+    }
+
+    // ============================================
+    // 📈 ATUALIZAR MÉTRICAS DA BOLSA (no mesmo batch!)
+    // ============================================
+    try {
+      const CONFIG_BOLSA = {
+        porJogo: 0.25,
+        porTorcedor: 0.05,
+        porVitoriaTorcida: 0.5,
+        porVitoriaPontuacao: 0.9,
+        porPonto: 0.005,
+        porDerrotaTorcida: 0.3,
+        porDerrotaPontuacao: 0.5,
+        maxVariacao: 12
+      };
+      const PRECO_INICIAL = 500;
+
+      const torcidaCasa = estatisticas.timeCasa.torcedores.length;
+      const torcidaFora = estatisticas.timeFora.torcedores.length;
+      const pontosCasa = estatisticas.timeCasa.pontos;
+      const pontosFora = estatisticas.timeFora.pontos;
+
+      // Calcular variação Casa
+      let varCasa = CONFIG_BOLSA.porJogo + (torcidaCasa * CONFIG_BOLSA.porTorcedor) + (pontosCasa * CONFIG_BOLSA.porPonto);
+      let varFora = CONFIG_BOLSA.porJogo + (torcidaFora * CONFIG_BOLSA.porTorcedor) + (pontosFora * CONFIG_BOLSA.porPonto);
+
+      if (torcidaCasa > torcidaFora) { varCasa += CONFIG_BOLSA.porVitoriaTorcida; varFora -= CONFIG_BOLSA.porDerrotaTorcida; }
+      else if (torcidaFora > torcidaCasa) { varFora += CONFIG_BOLSA.porVitoriaTorcida; varCasa -= CONFIG_BOLSA.porDerrotaTorcida; }
+
+      if (pontosCasa > pontosFora) { varCasa += CONFIG_BOLSA.porVitoriaPontuacao; varFora -= CONFIG_BOLSA.porDerrotaPontuacao; }
+      else if (pontosFora > pontosCasa) { varFora += CONFIG_BOLSA.porVitoriaPontuacao; varCasa -= CONFIG_BOLSA.porDerrotaPontuacao; }
+
+      varCasa = Math.max(-CONFIG_BOLSA.maxVariacao, Math.min(CONFIG_BOLSA.maxVariacao, varCasa));
+      varFora = Math.max(-CONFIG_BOLSA.maxVariacao, Math.min(CONFIG_BOLSA.maxVariacao, varFora));
+
+      // Buscar métricas atuais
+      const [metCasaDoc, metForaDoc] = await Promise.all([
+        db.collection('bolsa_metricas_time').doc(timeCasaId).get(),
+        db.collection('bolsa_metricas_time').doc(timeForaId).get()
+      ]);
+
+      const metCasa = metCasaDoc.exists ? metCasaDoc.data() : { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0, mediaDividendos: 0, totalJogos: 0, totalTorcedores: 0 };
+      const metFora = metForaDoc.exists ? metForaDoc.data() : { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0, mediaDividendos: 0, totalJogos: 0, totalTorcedores: 0 };
+
+      const novoPrecoCasa = Math.round(metCasa.precoAlgoritmo * (1 + varCasa / 100) * 100) / 100;
+      const novoPrecoFora = Math.round(metFora.precoAlgoritmo * (1 + varFora / 100) * 100) / 100;
+
+      // Dividendos
+      const divCasa = totalPontos > 0 ? totalCotistasCreditos * (pontosCasa / totalPontos) : 0;
+      const divFora = totalPontos > 0 ? totalCotistasCreditos * (pontosFora / totalPontos) : 0;
+      const jCasa = (metCasa.totalJogos || 0) + 1;
+      const jFora = (metFora.totalJogos || 0) + 1;
+      const mediaDivCasa = Math.round(((metCasa.mediaDividendos || 0) * (metCasa.totalJogos || 0) + divCasa) / jCasa * 1000) / 1000;
+      const mediaDivFora = Math.round(((metFora.mediaDividendos || 0) * (metFora.totalJogos || 0) + divFora) / jFora * 1000) / 1000;
+
+      // Adicionar ao batch
+      batch.set(db.collection('bolsa_metricas_time').doc(timeCasaId), {
+        timeId: timeCasaId, timeNome: timeCasaNome,
+        precoAlgoritmo: novoPrecoCasa, precoMercado: novoPrecoCasa,
+        variacaoDia: Math.round(((metCasa.variacaoDia || 0) + varCasa) * 100) / 100,
+        mediaDividendos: mediaDivCasa, totalJogos: jCasa,
+        totalTorcedores: (metCasa.totalTorcedores || 0) + torcidaCasa,
+        ultimaAtualizacao: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      batch.set(db.collection('bolsa_metricas_time').doc(timeForaId), {
+        timeId: timeForaId, timeNome: timeForaNome,
+        precoAlgoritmo: novoPrecoFora, precoMercado: novoPrecoFora,
+        variacaoDia: Math.round(((metFora.variacaoDia || 0) + varFora) * 100) / 100,
+        mediaDividendos: mediaDivFora, totalJogos: jFora,
+        totalTorcedores: (metFora.totalTorcedores || 0) + torcidaFora,
+        ultimaAtualizacao: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      console.log(`📈 Bolsa: ${timeCasaNome} ${varCasa >= 0 ? '+' : ''}${varCasa.toFixed(2)}% → ${novoPrecoCasa} cr`);
+      console.log(`📈 Bolsa: ${timeForaNome} ${varFora >= 0 ? '+' : ''}${varFora.toFixed(2)}% → ${novoPrecoFora} cr`);
+    } catch (bolsaErr) {
+      console.error('⚠️ Erro bolsa (não impede premiação):', bolsaErr);
     }
 
     // Commit final
