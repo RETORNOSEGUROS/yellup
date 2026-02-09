@@ -1239,6 +1239,78 @@ exports.premiarJogo = functions.https.onCall(async (data, context) => {
 
     console.log(`🏆 Premiação do jogo ${jogoId} processada com sucesso! Pool: ${totalPoolCreditos}`);
 
+    // ============================================
+    // 🔔 CRIAR NOTIFICAÇÕES (após commit, não bloqueia premiação)
+    // ============================================
+    try {
+      const jogoNome = `${timeCasaNome} vs ${timeForaNome}`;
+      const notifBatch = db.batch();
+      let notifCount = 0;
+
+      // Notificar Top 10 do ranking
+      for (const p of premiosRanking.slice(0, 10)) {
+        if (p.creditos > 0) {
+          const emoji = p.posicao <= 3 ? ['🥇', '🥈', '🥉'][p.posicao - 1] : '🏆';
+          notifBatch.set(db.collection('notificacoes').doc(), {
+            para: p.odId,
+            tipo: 'premiacao',
+            titulo: `${emoji} ${p.posicao}º lugar - ${jogoNome}`,
+            mensagem: `Você fez ${p.pontos} pts e ganhou +${p.creditos} créditos!`,
+            lida: false,
+            data: admin.firestore.FieldValue.serverTimestamp()
+          });
+          notifCount++;
+        }
+      }
+
+      // Notificar Sortudos
+      if (sortudoVencedor) {
+        notifBatch.set(db.collection('notificacoes').doc(), {
+          para: sortudoVencedor.odId,
+          tipo: 'sortudo',
+          titulo: `🎰 Sortudo Vencedor - ${jogoNome}`,
+          mensagem: `Sorteado no time vencedor (${sortudoVencedor.time})! +${sortudoVencedor.creditos} créditos`,
+          lida: false,
+          data: admin.firestore.FieldValue.serverTimestamp()
+        });
+        notifCount++;
+      }
+
+      if (sortudoPopular) {
+        notifBatch.set(db.collection('notificacoes').doc(), {
+          para: sortudoPopular.odId,
+          tipo: 'sortudo',
+          titulo: `🎰 Sortudo Popular - ${jogoNome}`,
+          mensagem: `Sorteado no time popular (${sortudoPopular.time})! +${sortudoPopular.creditos} créditos`,
+          lida: false,
+          data: admin.firestore.FieldValue.serverTimestamp()
+        });
+        notifCount++;
+      }
+
+      // Notificar Cotistas (até 20 para não exceder batch)
+      for (const c of premiosCotistas.slice(0, 20)) {
+        if (c.creditos > 0) {
+          notifBatch.set(db.collection('notificacoes').doc(), {
+            para: c.odId,
+            tipo: 'cotista',
+            titulo: `💰 Dividendo - ${jogoNome}`,
+            mensagem: `Cotista de ${c.timeNome || 'time'}: +${c.creditos} créditos`,
+            lida: false,
+            data: admin.firestore.FieldValue.serverTimestamp()
+          });
+          notifCount++;
+        }
+      }
+
+      if (notifCount > 0) {
+        await notifBatch.commit();
+        console.log(`🔔 ${notifCount} notificações criadas`);
+      }
+    } catch (notifErr) {
+      console.error('⚠️ Erro notificações (não impede premiação):', notifErr);
+    }
+
     return { success: true, detalhes: premiacaoDetalhes };
 
   } catch (error) {
