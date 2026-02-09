@@ -776,10 +776,6 @@
                 <a href="financeiro.html" class="nav-item">
                     <span class="icon">💰</span> Resumo
                 </a>
-                <a href="vendas-creditos.html" class="nav-item">
-                    <span class="icon">💸</span> Saques
-                    <span class="badge" id="badgeSaques" style="display:none"></span>
-                </a>
                 <a href="creditar-manual.html" class="nav-item">
                     <span class="icon">➕</span> Creditar Manual
                 </a>
@@ -906,13 +902,6 @@
                     <div class="stat-label">Mensagens hoje</div>
                 </div>
 
-                <div class="stat-card">
-                    <div class="stat-top">
-                        <div class="stat-icon-box green">💸</div>
-                    </div>
-                    <div class="stat-value" id="statSaques"><span class="loading-dots"></span></div>
-                    <div class="stat-label">Saques pendentes</div>
-                </div>
             </div>
 
             <!-- Quick Actions -->
@@ -933,9 +922,9 @@
                     <div class="qicon" style="background:var(--purple-dim)">❓</div>
                     Nova Pergunta
                 </a>
-                <a href="vendas-creditos.html" class="quick-btn">
-                    <div class="qicon" style="background:var(--red-dim)">💸</div>
-                    Ver Saques
+                <a href="transacoes.html" class="quick-btn">
+                    <div class="qicon" style="background:var(--red-dim)">💳</div>
+                    Transações
                 </a>
             </div>
 
@@ -965,13 +954,13 @@
             </div>
 
             <div class="grid-2">
-                <!-- Saques Pendentes -->
+                <!-- Compras Recentes -->
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title">💸 Saques Pendentes <span class="count" id="countSaques">—</span></div>
-                        <a href="vendas-creditos.html" class="card-link">Gerenciar →</a>
+                        <div class="card-title">🛒 Compras Recentes <span class="count" id="countCompras">—</span></div>
+                        <a href="financeiro.html" class="card-link">Financeiro →</a>
                     </div>
-                    <div class="card-body" id="listaSaques">
+                    <div class="card-body" id="listaCompras">
                         <div class="empty-state"><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line short"></div></div>
                     </div>
                 </div>
@@ -1064,7 +1053,7 @@
                 carregarStats(),
                 carregarUltimosUsuarios(),
                 carregarJogosRecentes(),
-                carregarSaquesPendentes(),
+                carregarComprasRecentes(),
                 carregarTorneiosAtivos(),
                 carregarGraficoJogos(),
                 carregarAtividade()
@@ -1133,12 +1122,6 @@
                 } catch (e) {
                     setStat('statMensagens', '—');
                 }
-
-                // Saques pendentes
-                const saquesSnap = await db.collection('vendas_creditos')
-                    .where('status', '==', 'pendente').get();
-                setStat('statSaques', saquesSnap.size);
-                showBadge('badgeSaques', saquesSnap.size);
 
             } catch (error) {
                 console.error('Erro stats:', error);
@@ -1243,42 +1226,42 @@
         }
 
         // ===================================
-        // 💸 SAQUES PENDENTES
+        // 🛒 COMPRAS RECENTES
         // ===================================
-        async function carregarSaquesPendentes() {
-            const el = document.getElementById('listaSaques');
+        async function carregarComprasRecentes() {
+            const el = document.getElementById('listaCompras');
             try {
-                const snap = await db.collection('vendas_creditos')
-                    .where('status', '==', 'pendente')
-                    .orderBy('dataSolicitacao', 'desc')
+                const snap = await db.collection('compras')
+                    .orderBy('data', 'desc')
                     .limit(5).get();
 
                 if (snap.empty) {
-                    el.innerHTML = emptyHTML('✅ Nenhum saque pendente');
-                    document.getElementById('countSaques').textContent = '0';
+                    el.innerHTML = emptyHTML('Nenhuma compra');
+                    document.getElementById('countCompras').textContent = '0';
                     return;
                 }
-                document.getElementById('countSaques').textContent = snap.size;
+                document.getElementById('countCompras').textContent = snap.size;
 
                 let html = '';
                 snap.forEach(doc => {
-                    const s = doc.data();
-                    const valor = ((s.creditos || 0) * 0.40).toFixed(2);
-                    const data = s.dataSolicitacao?.toDate ? s.dataSolicitacao.toDate().toLocaleDateString('pt-BR') : '—';
+                    const c = doc.data();
+                    const data = c.data?.toDate ? c.data.toDate().toLocaleDateString('pt-BR') : '—';
+                    const sClass = c.status === 'aprovado' ? 'badge-live' : 'badge-pending';
+                    const sText = c.status === 'aprovado' ? '✓' : '⏳';
 
                     html += `
                         <div class="list-item">
-                            <div class="list-avatar" style="background:var(--red-dim);color:var(--red)">💸</div>
+                            <div class="list-avatar" style="background:var(--green-dim);color:var(--green)">🛒</div>
                             <div class="list-content">
-                                <h4>${s.usuarioNome || 'Usuário'}</h4>
-                                <p>${(s.creditos || 0).toLocaleString('pt-BR')} cr → R$ ${valor}</p>
+                                <h4>${c.userName || c.userEmail || 'Usuário'}</h4>
+                                <p>${c.creditos || 0} cr — R$ ${(c.valor || 0).toFixed(2)}</p>
                             </div>
-                            <span class="list-badge badge-pending">⏳ ${data}</span>
+                            <span class="list-badge ${sClass}">${sText} ${data}</span>
                         </div>`;
                 });
                 el.innerHTML = html;
             } catch (e) {
-                console.error('Erro saques:', e);
+                console.error('Erro compras:', e);
                 el.innerHTML = emptyHTML('Erro ao carregar');
             }
         }
@@ -1408,17 +1391,17 @@
                     });
                 });
 
-                // Últimos saques
-                const saqSnap = await db.collection('vendas_creditos')
-                    .orderBy('dataSolicitacao', 'desc')
+                // Últimas compras
+                const compSnap = await db.collection('compras')
+                    .orderBy('data', 'desc')
                     .limit(2).get();
 
-                saqSnap.forEach(doc => {
-                    const s = doc.data();
-                    const d = s.dataSolicitacao?.toDate ? s.dataSolicitacao.toDate() : new Date();
+                compSnap.forEach(doc => {
+                    const c = doc.data();
+                    const d = c.data?.toDate ? c.data.toDate() : new Date();
                     atividades.push({
-                        color: 'var(--orange)',
-                        text: `<strong>${s.usuarioNome || 'Usuário'}</strong> solicitou saque de ${s.creditos || 0} cr`,
+                        color: 'var(--green)',
+                        text: `<strong>${c.userName || 'Usuário'}</strong> comprou ${c.creditos || 0} créditos`,
                         time: d
                     });
                 });
