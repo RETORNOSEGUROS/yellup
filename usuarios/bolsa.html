@@ -1283,9 +1283,6 @@
         // Carregar dividendos recebidos
         await carregarDividendosRecebidos();
 
-        // ✅ AUTO-PROCESSAR jogos finalizados pendentes (silencioso)
-        await autoProcessarJogosPendentes();
-
         // Renderizar
         popularPaises();
         renderizarTabelaMercado();
@@ -1396,20 +1393,20 @@
     // ✅ CORRIGIDO: Busca de distribuicao_cotistas_jogo (dados salvos pelo painel-jogo)
     async function carregarDividendosRecebidos() {
       try {
-        // Buscar todos os registros de distribuição de cotistas
-        const distSnap = await db.collection('distribuicao_cotistas_jogo').get();
+        // Limitar para performance (últimos 100 jogos)
+        const distSnap = await db.collection('distribuicao_cotistas_jogo')
+          .limit(100).get();
         dividendosRecebidos = 0;
         
         distSnap.forEach(doc => {
           const dist = doc.data();
-          // Verificar se tem cotistas premiados
           if (dist.cotistasPremiados && Array.isArray(dist.cotistasPremiados)) {
-            dist.cotistasPremiados.forEach(cotista => {
-              // Verificar se o cotista é o usuário atual
+            for (const cotista of dist.cotistasPremiados) {
               if (cotista.odId === currentUser.uid) {
                 dividendosRecebidos += cotista.creditos || 0;
+                break;
               }
-            });
+            }
           }
         });
         
@@ -2715,70 +2712,20 @@
     }
 
     // ==================== PROCESSAR JOGOS PARA BOLSA ====================
-    // ==================== AUTO-PROCESSAR JOGOS (silencioso) ====================
-    async function autoProcessarJogosPendentes() {
-      try {
-        const jogosSnap = await db.collection('jogos').get();
-        const now = new Date();
-        const pendentes = [];
-        
-        jogosSnap.forEach(doc => {
-          const jogo = { id: doc.id, ...doc.data() };
-          const dataFim = jogo.dataFim?.toDate ? jogo.dataFim.toDate() : null;
-          const isFinalizado = jogo.status === 'finalizado' || (dataFim && dataFim < now);
-          
-          if (isFinalizado && !jogo.bolsaProcessado) {
-            pendentes.push(jogo);
-          }
-        });
-
-        if (pendentes.length === 0) {
-          console.log('📊 Bolsa: todos os jogos já processados');
-          return;
-        }
-
-        console.log(`📊 Bolsa: processando ${pendentes.length} jogos pendentes...`);
-
-        let processados = 0;
-        for (const jogo of pendentes) {
-          try {
-            await processarJogoIndividual(jogo);
-            processados++;
-          } catch (e) {
-            console.warn(`⚠️ Erro ao processar jogo ${jogo.id}:`, e.message);
-          }
-        }
-
-        if (processados > 0) {
-          console.log(`✅ Bolsa: ${processados} jogos processados automaticamente`);
-          // Recarregar métricas e re-renderizar
-          await carregarMetricas();
-          renderizarTabelaMercado();
-          showToast(`📈 ${processados} jogo(s) atualizado(s) na bolsa!`);
-        }
-      } catch (error) {
-        console.error('Erro no auto-processamento da bolsa:', error);
-      }
-    }
-
-    // ==================== ADMIN: PROCESSAR JOGOS (manual, com logs) ====================
     async function processarJogosParaBolsa() {
       logAdmin('🎮 Buscando jogos finalizados para processar...', 'info');
       
       try {
-        // Buscar jogos finalizados que ainda não foram processados na bolsa
-        const jogosSnap = await db.collection('jogos').get();
+        // Buscar só jogos finalizados (não TODOS)
+        const jogosSnap = await db.collection('jogos')
+          .where('status', '==', 'finalizado')
+          .get();
         
-        // Filtrar jogos finalizados não processados
         const jogosParaProcessar = [];
-        const now = new Date();
         
         jogosSnap.forEach(doc => {
           const jogo = { id: doc.id, ...doc.data() };
-          const dataFim = jogo.dataFim?.toDate ? jogo.dataFim.toDate() : null;
-          const isFinalizado = jogo.status === 'finalizado' || (dataFim && dataFim < now);
-          
-          if (isFinalizado && !jogo.bolsaProcessado) {
+          if (!jogo.bolsaProcessado) {
             jogosParaProcessar.push(jogo);
           }
         });
