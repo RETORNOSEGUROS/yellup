@@ -1,632 +1,801 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard Financeiro - Yellup Admin</title>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financeiro - Yellup Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0c0e14;
+            --bg-secondary: #12141c;
+            --bg-card: #181a24;
+            --bg-card-hover: #1e2030;
+            --bg-sidebar: #10121a;
+            --border: #1e2030;
+            --border-light: #282a3a;
+            --text-primary: #e8e9ed;
+            --text-secondary: #8b8d9a;
+            --text-muted: #5c5e6e;
+            --accent: #f0b429;
+            --accent-dim: rgba(240, 180, 41, 0.12);
+            --green: #34d399;
+            --green-dim: rgba(52, 211, 153, 0.12);
+            --red: #f87171;
+            --red-dim: rgba(248, 113, 113, 0.12);
+            --blue: #60a5fa;
+            --blue-dim: rgba(96, 165, 250, 0.12);
+            --purple: #a78bfa;
+            --purple-dim: rgba(167, 139, 250, 0.12);
+            --orange: #fb923c;
+            --orange-dim: rgba(251, 146, 60, 0.12);
+            --sidebar-w: 250px;
+            --header-h: 64px;
+        }
 
-    body {
-      font-family: 'Poppins', sans-serif;
-      background: linear-gradient(135deg, #0e141b 0%, #1a2332 100%);
-      color: #e7eef7;
-      min-height: 100vh;
-      padding-bottom: 30px;
-    }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    .header {
-      background: rgba(14, 20, 27, 0.95);
-      backdrop-filter: blur(20px);
-      padding: 15px 20px;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
+        body {
+            font-family: 'DM Sans', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
 
-    .header-content {
-      max-width: 1400px;
-      margin: 0 auto;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
+        /* ===== SIDEBAR (shared) ===== */
+        .sidebar {
+            position: fixed; left: 0; top: 0;
+            width: var(--sidebar-w); height: 100vh;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border);
+            display: flex; flex-direction: column;
+            z-index: 100; transition: transform 0.3s ease;
+        }
+        .sidebar-brand {
+            height: var(--header-h);
+            display: flex; align-items: center; gap: 10px;
+            padding: 0 20px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .sidebar-brand .logo {
+            width: 32px; height: 32px;
+            background: var(--accent); border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; font-weight: 700; color: #000;
+        }
+        .sidebar-brand h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+        .sidebar-brand h1 span { color: var(--text-muted); font-weight: 500; font-size: 12px; margin-left: 6px; }
+        .sidebar-nav { flex: 1; overflow-y: auto; padding: 12px 0; }
+        .sidebar-nav::-webkit-scrollbar { width: 0; }
+        .nav-group { margin-bottom: 8px; }
+        .nav-group-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); padding: 12px 20px 6px; }
+        .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 16px; margin: 1px 8px; border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+        .nav-item:hover { background: var(--bg-card); color: var(--text-primary); }
+        .nav-item.active { background: var(--accent-dim); color: var(--accent); }
+        .nav-item .icon { width: 20px; text-align: center; font-size: 14px; flex-shrink: 0; }
+        .nav-item .badge { margin-left: auto; background: var(--red); color: #fff; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 10px; }
+        .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
+        .sidebar-footer .admin-box { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; }
+        .admin-avatar { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), #e09800); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #000; }
+        .admin-info-text { flex: 1; }
+        .admin-info-text .name { font-size: 13px; font-weight: 600; }
+        .admin-info-text .role { font-size: 11px; color: var(--text-muted); }
+        .btn-logout { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px; border-radius: 6px; transition: all 0.15s; }
+        .btn-logout:hover { color: var(--red); background: var(--red-dim); }
 
-    .header h1 { font-size: 1.3em; display: flex; align-items: center; gap: 10px; }
+        /* ===== MAIN ===== */
+        .main { margin-left: var(--sidebar-w); min-height: 100vh; }
 
-    .btn-back {
-      padding: 8px 16px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 8px;
-      color: #e7eef7;
-      text-decoration: none;
-      font-size: 0.9em;
-      transition: all 0.3s;
-    }
+        .header {
+            height: var(--header-h);
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 32px;
+            background: var(--bg-primary);
+            position: sticky; top: 0; z-index: 50;
+        }
+        .header-left h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+        .header-left p { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
 
-    .btn-back:hover { background: rgba(255, 255, 255, 0.2); }
+        .header-actions { display: flex; gap: 8px; }
+        .btn-header { display: flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; text-decoration: none; }
+        .btn-header:hover { border-color: var(--border-light); background: var(--bg-card-hover); }
 
-    .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .content { padding: 24px 32px 40px; }
 
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 15px;
-      margin-bottom: 25px;
-    }
+        /* ===== STATS ===== */
+        .stats-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 24px; }
 
-    .stat-card {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 12px;
-      padding: 18px;
-      text-align: center;
-      transition: all 0.3s;
-    }
+        .stat-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 16px; transition: border-color 0.2s;
+        }
+        .stat-card:hover { border-color: var(--border-light); }
+        .stat-icon-box { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-bottom: 10px; }
+        .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700; line-height: 1; margin-bottom: 3px; }
+        .stat-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
 
-    .stat-card:hover { background: rgba(255, 255, 255, 0.08); transform: translateY(-2px); }
+        .text-green { color: var(--green); }
+        .text-red { color: var(--red); }
+        .text-blue { color: var(--blue); }
+        .text-accent { color: var(--accent); }
+        .text-purple { color: var(--purple); }
+        .text-orange { color: var(--orange); }
 
-    .stat-icon { font-size: 1.8em; margin-bottom: 8px; }
-    .stat-valor { font-size: 1.5em; font-weight: 800; margin-bottom: 5px; }
-    .stat-label { font-size: 0.75em; color: #a9b5c6; }
-    
-    .stat-valor.verde { color: #2ecc71; }
-    .stat-valor.vermelho { color: #e74c3c; }
-    .stat-valor.amarelo { color: #f1c40f; }
-    .stat-valor.azul { color: #3498db; }
-    .stat-valor.roxo { color: #9b59b6; }
+        /* ===== CARDS ===== */
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 16px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+        .card-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .card-link { font-size: 12px; color: var(--text-muted); text-decoration: none; font-weight: 500; transition: color 0.15s; }
+        .card-link:hover { color: var(--accent); }
 
-    .section { margin-bottom: 30px; }
-    .section-header { 
-      display: flex; 
-      justify-content: space-between; 
-      align-items: center; 
-      margin-bottom: 15px;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    .section-title { font-size: 1em; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+        .grid-2-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
 
-    .filtros { display: flex; gap: 8px; flex-wrap: wrap; }
+        /* ===== CHART ===== */
+        .chart-wrap { padding: 16px 20px; }
+        .chart-wrap canvas { max-height: 220px; }
 
-    .filtro-btn {
-      padding: 6px 14px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 20px;
-      color: #a9b5c6;
-      cursor: pointer;
-      font-family: 'Poppins', sans-serif;
-      font-size: 0.75em;
-      transition: all 0.3s;
-    }
+        .filtros { display: flex; gap: 4px; }
+        .filtro-btn {
+            padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border);
+            background: transparent; color: var(--text-muted); font-size: 11px;
+            font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s;
+        }
+        .filtro-btn:hover { border-color: var(--border-light); color: var(--text-secondary); }
+        .filtro-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
 
-    .filtro-btn:hover { background: rgba(255, 255, 255, 0.1); }
-    .filtro-btn.active { background: rgba(255, 181, 71, 0.2); border-color: #ffb547; color: #ffb547; }
+        /* ===== TABLE ===== */
+        .table-wrap { overflow-x: auto; }
 
-    .chart-container {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 20px;
-    }
+        table { width: 100%; border-collapse: collapse; }
+        thead th {
+            font-size: 10px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.8px; color: var(--text-muted);
+            padding: 10px 16px; text-align: left;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-secondary);
+        }
+        tbody td {
+            padding: 10px 16px; font-size: 12px; color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+        tbody tr:hover { background: var(--bg-card-hover); }
+        tbody tr:last-child td { border-bottom: none; }
 
-    .chart-title { font-size: 0.9em; font-weight: 600; margin-bottom: 15px; color: #a9b5c6; }
+        .badge-status {
+            display: inline-block; padding: 2px 10px; border-radius: 6px;
+            font-size: 10px; font-weight: 600;
+        }
+        .badge-aprovado { color: var(--green); background: var(--green-dim); }
+        .badge-pendente { color: var(--orange); background: var(--orange-dim); }
+        .badge-rejeitado { color: var(--red); background: var(--red-dim); }
 
-    .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .btn-action {
+            padding: 4px 10px; border: none; border-radius: 6px;
+            cursor: pointer; font-size: 12px; font-family: inherit;
+            transition: all 0.15s; margin: 0 2px;
+        }
+        .btn-aprovar { background: var(--green-dim); color: var(--green); }
+        .btn-aprovar:hover { background: rgba(52, 211, 153, 0.25); }
+        .btn-rejeitar { background: var(--red-dim); color: var(--red); }
+        .btn-rejeitar:hover { background: rgba(248, 113, 113, 0.25); }
 
-    .table-container {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 12px;
-      overflow: hidden;
-    }
+        .pix-cell { font-size: 10px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 
-    table { width: 100%; border-collapse: collapse; }
+        .empty-state { text-align: center; padding: 32px 20px; color: var(--text-muted); font-size: 13px; }
 
-    th, td { padding: 12px 15px; text-align: left; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .fw600 { font-weight: 600; }
 
-    th { 
-      background: rgba(255, 255, 255, 0.05); 
-      font-size: 0.75em; 
-      color: #a9b5c6;
-      font-weight: 600;
-    }
+        /* ===== TOAST ===== */
+        .toast {
+            position: fixed; bottom: 20px; left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: var(--bg-card); border: 1px solid var(--border);
+            color: var(--text-primary); padding: 10px 24px;
+            border-radius: 10px; font-size: 13px; font-weight: 500;
+            opacity: 0; transition: all 0.3s; z-index: 1000;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-    td { 
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05); 
-      font-size: 0.85em;
-    }
+        /* ===== MOBILE ===== */
+        .mobile-toggle {
+            display: none; position: fixed; top: 16px; left: 16px; z-index: 200;
+            width: 40px; height: 40px; border-radius: 10px;
+            background: var(--bg-card); border: 1px solid var(--border);
+            color: var(--text-primary); font-size: 18px; cursor: pointer;
+            align-items: center; justify-content: center;
+        }
+        .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 90; }
 
-    tr:hover td { background: rgba(255, 255, 255, 0.02); }
-
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 20px;
-      font-size: 0.7em;
-      font-weight: 600;
-    }
-
-    .badge-pendente { background: rgba(241, 196, 15, 0.2); color: #f1c40f; }
-    .badge-aprovado { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
-    .badge-rejeitado { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
-
-    .btn-action {
-      padding: 5px 10px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-family: 'Poppins', sans-serif;
-      font-size: 0.75em;
-      transition: all 0.3s;
-      margin: 2px;
-    }
-
-    .btn-aprovar { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
-    .btn-aprovar:hover { background: rgba(46, 204, 113, 0.4); }
-    .btn-rejeitar { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
-    .btn-rejeitar:hover { background: rgba(231, 76, 60, 0.4); }
-
-    .loading { text-align: center; padding: 40px; color: #a9b5c6; }
-
-    .loading-spinner {
-      width: 40px; height: 40px;
-      border: 3px solid rgba(255, 181, 71, 0.2);
-      border-top-color: #ffb547;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 15px;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .empty-state { text-align: center; padding: 30px; color: #6b7a8f; }
-    .empty-icon { font-size: 2em; margin-bottom: 8px; }
-
-    .toast {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%) translateY(100px);
-      background: rgba(0, 0, 0, 0.9);
-      color: white;
-      padding: 12px 24px;
-      border-radius: 8px;
-      opacity: 0;
-      transition: all 0.3s;
-      z-index: 1000;
-    }
-
-    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
-    @media (max-width: 900px) {
-      .charts-row { grid-template-columns: 1fr; }
-    }
-
-    @media (max-width: 600px) {
-      .stats-grid { grid-template-columns: repeat(2, 1fr); }
-      .table-container { overflow-x: auto; }
-      table { min-width: 600px; }
-    }
-  </style>
+        @media (max-width: 1200px) { .stats-row { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .overlay.open { display: block; }
+            .mobile-toggle { display: flex; }
+            .main { margin-left: 0; }
+            .header { padding: 0 16px 0 64px; }
+            .content { padding: 16px; }
+            .stats-row { grid-template-columns: 1fr 1fr; }
+            .grid-2, .grid-2-1 { grid-template-columns: 1fr; }
+        }
+    </style>
 </head>
 <body>
 
-  <div class="header">
-    <div class="header-content">
-      <h1>💰 Dashboard Financeiro</h1>
-      <a href="dashboard.html" class="btn-back">← Painel Admin</a>
-    </div>
-  </div>
+    <button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+    <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
 
-  <div class="container">
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-icon">💳</div>
-        <div class="stat-valor verde" id="receitaTotal">R$ --</div>
-        <div class="stat-label">Receita Total</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">📅</div>
-        <div class="stat-valor verde" id="receitaMes">R$ --</div>
-        <div class="stat-label">Receita do Mês</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">🛒</div>
-        <div class="stat-valor azul" id="comprasHoje">--</div>
-        <div class="stat-label">Compras Hoje</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">🏆</div>
-        <div class="stat-valor amarelo" id="premiosPagos">--</div>
-        <div class="stat-label">Prêmios (mês)</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">💸</div>
-        <div class="stat-valor vermelho" id="saquesPendentes">--</div>
-        <div class="stat-label">Saques Pendentes</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">📊</div>
-        <div class="stat-valor roxo" id="ticketMedio">R$ --</div>
-        <div class="stat-label">Ticket Médio</div>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-header">
-        <div class="section-title">📈 Evolução de Receita</div>
-        <div class="filtros">
-          <button class="filtro-btn active" onclick="filtrarGrafico('7d')">7 dias</button>
-          <button class="filtro-btn" onclick="filtrarGrafico('30d')">30 dias</button>
-          <button class="filtro-btn" onclick="filtrarGrafico('90d')">90 dias</button>
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <div class="logo">Y</div>
+            <h1>Yellup <span>Admin</span></h1>
         </div>
-      </div>
-
-      <div class="charts-row">
-        <div class="chart-container">
-          <div class="chart-title">Receita por Dia</div>
-          <canvas id="chartReceita"></canvas>
+        <nav class="sidebar-nav">
+            <div class="nav-group">
+                <div class="nav-group-title">Visão Geral</div>
+                <a href="dashboard.html" class="nav-item"><span class="icon">📊</span> Dashboard</a>
+            </div>
+            <div class="nav-group">
+                <div class="nav-group-title">Conteúdo</div>
+                <a href="jogos.html" class="nav-item"><span class="icon">🎮</span> Jogos</a>
+                <a href="perguntas.html" class="nav-item"><span class="icon">❓</span> Perguntas</a>
+                <a href="importar-perguntas.html" class="nav-item"><span class="icon">📥</span> Importar Perguntas</a>
+                <a href="gerar-perguntas.html" class="nav-item"><span class="icon">🤖</span> Gerar com IA</a>
+                <a href="times.html" class="nav-item"><span class="icon">⚽</span> Times</a>
+            </div>
+            <div class="nav-group">
+                <div class="nav-group-title">Jogadores</div>
+                <a href="usuarios.html" class="nav-item"><span class="icon">👥</span> Usuários</a>
+                <a href="ranking.html" class="nav-item"><span class="icon">🏆</span> Rankings</a>
+                <a href="admin-noticias.html" class="nav-item"><span class="icon">📰</span> Notícias</a>
+            </div>
+            <div class="nav-group">
+                <div class="nav-group-title">Competições</div>
+                <a href="torneios.html" class="nav-item"><span class="icon">🏅</span> Torneios</a>
+                <a href="inicializar-pvp.html" class="nav-item"><span class="icon">⚔️</span> Embates PvP</a>
+            </div>
+            <div class="nav-group">
+                <div class="nav-group-title">Financeiro</div>
+                <a href="financeiro.html" class="nav-item active"><span class="icon">💰</span> Resumo</a>
+                <a href="vendas-creditos.html" class="nav-item"><span class="icon">💸</span> Saques</a>
+                <a href="creditar-manual.html" class="nav-item"><span class="icon">➕</span> Creditar Manual</a>
+                <a href="transacoes.html" class="nav-item"><span class="icon">💳</span> Transações</a>
+                <a href="premiacao.html" class="nav-item"><span class="icon">🎁</span> Premiação</a>
+                <a href="indicacoes.html" class="nav-item"><span class="icon">🔗</span> Indicações</a>
+            </div>
+            <div class="nav-group">
+                <div class="nav-group-title">Bolsa</div>
+                <a href="bolsa-admin.html" class="nav-item"><span class="icon">📈</span> Gestão da Bolsa</a>
+            </div>
+            <div class="nav-group">
+                <div class="nav-group-title">Sistema</div>
+                <a href="configuracoes.html" class="nav-item"><span class="icon">⚙️</span> Configurações</a>
+                <a href="checkup.html" class="nav-item"><span class="icon">🔍</span> Checkup</a>
+                <a href="simulador_avancado.html" class="nav-item"><span class="icon">🧪</span> Simulador</a>
+                <a href="teste-regras.html" class="nav-item"><span class="icon">📜</span> Regras</a>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="admin-box">
+                <div class="admin-avatar">A</div>
+                <div class="admin-info-text">
+                    <div class="name">Admin</div>
+                    <div class="role">Administrador</div>
+                </div>
+                <button class="btn-logout" onclick="sair()" title="Sair">⏻</button>
+            </div>
         </div>
-        <div class="chart-container">
-          <div class="chart-title">Compras por Pacote</div>
-          <canvas id="chartPacotes"></canvas>
+    </aside>
+
+    <!-- ===== MAIN ===== -->
+    <div class="main">
+        <header class="header">
+            <div class="header-left">
+                <h2>💰 Financeiro</h2>
+                <p>Receita, saques e compras</p>
+            </div>
+            <div class="header-actions">
+                <a href="creditar-manual.html" class="btn-header">➕ Creditar Manual</a>
+                <button class="btn-header" onclick="location.reload()">↻ Atualizar</button>
+            </div>
+        </header>
+
+        <div class="content">
+            <!-- Stats -->
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-icon-box" style="background:var(--green-dim)">💳</div>
+                    <div class="stat-value text-green" id="receitaTotal">...</div>
+                    <div class="stat-label">Receita Total</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon-box" style="background:var(--green-dim)">📅</div>
+                    <div class="stat-value text-green" id="receitaMes">...</div>
+                    <div class="stat-label">Receita do Mês</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon-box" style="background:var(--blue-dim)">🛒</div>
+                    <div class="stat-value text-blue" id="comprasHoje">...</div>
+                    <div class="stat-label">Compras Hoje</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon-box" style="background:var(--accent-dim)">🏆</div>
+                    <div class="stat-value text-accent" id="premiosPagos">...</div>
+                    <div class="stat-label">Prêmios (mês)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon-box" style="background:var(--red-dim)">💸</div>
+                    <div class="stat-value text-red" id="saquesPendentes">...</div>
+                    <div class="stat-label">Saques Pendentes</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon-box" style="background:var(--purple-dim)">📊</div>
+                    <div class="stat-value text-purple" id="ticketMedio">...</div>
+                    <div class="stat-label">Ticket Médio</div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="grid-2-1">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">📈 Evolução de Receita</div>
+                        <div class="filtros">
+                            <button class="filtro-btn active" onclick="filtrarGrafico('7d', this)">7d</button>
+                            <button class="filtro-btn" onclick="filtrarGrafico('30d', this)">30d</button>
+                            <button class="filtro-btn" onclick="filtrarGrafico('90d', this)">90d</button>
+                        </div>
+                    </div>
+                    <div class="chart-wrap"><canvas id="chartReceita"></canvas></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">🎯 Pacotes Vendidos</div>
+                    </div>
+                    <div class="chart-wrap"><canvas id="chartPacotes"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Saques -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">💸 Solicitações de Saque</div>
+                    <a href="vendas-creditos.html" class="card-link">Gerenciar →</a>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Usuário</th>
+                                <th>Créditos</th>
+                                <th>Valor R$</th>
+                                <th>PIX</th>
+                                <th>Data</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabelaSaques">
+                            <tr><td colspan="7" class="empty-state">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Compras + Top -->
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">🛒 Compras Recentes</div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Usuário</th><th>Créditos</th><th>Valor</th><th>Data</th><th>Status</th></tr></thead>
+                            <tbody id="tabelaCompras">
+                                <tr><td colspan="5" class="empty-state">Carregando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">👑 Top Compradores (mês)</div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>#</th><th>Usuário</th><th>Compras</th><th>Total</th></tr></thead>
+                            <tbody id="tabelaTop">
+                                <tr><td colspan="4" class="empty-state">Carregando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
     </div>
 
-    <div class="section">
-      <div class="section-header">
-        <div class="section-title">💸 Solicitações de Saque</div>
-      </div>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Usuário</th>
-              <th>Créditos</th>
-              <th>Valor</th>
-              <th>PIX</th>
-              <th>Data</th>
-              <th>Status</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody id="tabelaSaques">
-            <tr><td colspan="7" class="loading"><div class="loading-spinner"></div>Carregando...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <div class="toast" id="toast"></div>
 
-    <div class="section">
-      <div class="section-header">
-        <div class="section-title">🛒 Compras Recentes</div>
-      </div>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Usuário</th>
-              <th>Créditos</th>
-              <th>Valor</th>
-              <th>Data</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="tabelaCompras">
-            <tr><td colspan="5" class="loading"><div class="loading-spinner"></div>Carregando...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <script>
+        // ===================================
+        // 🔧 FIREBASE
+        // ===================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+            authDomain: "painel-yellup.firebaseapp.com",
+            projectId: "painel-yellup",
+            storageBucket: "painel-yellup.appspot.com",
+            messagingSenderId: "608347210297",
+            appId: "1:608347210297:web:75092713724e617c7203e8"
+        };
 
-    <div class="section">
-      <div class="section-header">
-        <div class="section-title">👑 Top Compradores do Mês</div>
-      </div>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Usuário</th>
-              <th>Compras</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody id="tabelaTop">
-            <tr><td colspan="4" class="loading"><div class="loading-spinner"></div>Carregando...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
 
-  <div class="toast" id="toast"></div>
+        let chartReceita = null;
+        let chartPacotes = null;
+        let todasCompras = [];
+        let periodoGrafico = '7d';
+        const VALOR_CREDITO = 0.40;
+        let cacheUsuarios = {};
 
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
-      authDomain: "painel-yellup.firebaseapp.com",
-      projectId: "painel-yellup",
-      storageBucket: "painel-yellup.appspot.com",
-      messagingSenderId: "608347210297",
-      appId: "1:608347210297:web:75092713724e617c7203e8"
-    };
-
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-    const auth = firebase.auth();
-
-    let chartReceita = null;
-    let chartPacotes = null;
-    let todasCompras = [];
-    let periodoGrafico = '7d';
-    const VALOR_CREDITO = 0.40;
-
-    auth.onAuthStateChanged(async (user) => {
-      if (!user || user.email !== 'admin@yellup.com') {
-        window.location.href = '../usuarios/index.html';
-        return;
-      }
-      await carregarDados();
-    });
-
-    function showToast(msg) {
-      const toast = document.getElementById('toast');
-      toast.textContent = msg;
-      toast.classList.add('show');
-      setTimeout(() => toast.classList.remove('show'), 3000);
-    }
-
-    async function carregarDados() {
-      await Promise.all([
-        carregarEstatisticas(),
-        carregarCompras(),
-        carregarSaques(),
-        carregarTopCompradores()
-      ]);
-      atualizarGraficos();
-    }
-
-    async function carregarEstatisticas() {
-      try {
-        const agora = new Date();
-        const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
-        const inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
-
-        const comprasSnap = await db.collection('compras').where('status', '==', 'aprovado').get();
-
-        let receitaTotal = 0, receitaMes = 0, comprasHoje = 0, totalCompras = 0;
-
-        comprasSnap.forEach(doc => {
-          const c = doc.data();
-          const valor = c.valor || 0;
-          const data = c.data?.toDate ? c.data.toDate() : new Date();
-          
-          receitaTotal += valor;
-          totalCompras++;
-          if (data >= inicioMes) receitaMes += valor;
-          if (data >= inicioHoje) comprasHoje++;
+        // ===================================
+        // 🔐 AUTH
+        // ===================================
+        auth.onAuthStateChanged(user => {
+            if (!user || user.email !== 'admin@yellup.com') {
+                window.location.href = 'login.html';
+                return;
+            }
+            carregarDados();
         });
 
-        document.getElementById('receitaTotal').textContent = `R$ ${receitaTotal.toFixed(2)}`;
-        document.getElementById('receitaMes').textContent = `R$ ${receitaMes.toFixed(2)}`;
-        document.getElementById('comprasHoje').textContent = comprasHoje;
-        document.getElementById('ticketMedio').textContent = `R$ ${(totalCompras > 0 ? receitaTotal / totalCompras : 0).toFixed(2)}`;
-
-        const saquesSnap = await db.collection('vendas_creditos').where('status', '==', 'pendente').get();
-        document.getElementById('saquesPendentes').textContent = saquesSnap.size;
-
-        // Buscar transações de prêmio (sem índice composto)
-        const premiosSnap = await db.collection('transacoes').where('tipo', '==', 'credito').limit(200).get();
-        let premiosPagos = 0;
-        premiosSnap.forEach(doc => {
-          const t = doc.data();
-          const dataT = t.data?.toDate ? t.data.toDate() : new Date(0);
-          if (t.categoria?.includes('premio') && dataT >= inicioMes) {
-            premiosPagos += t.valor || 0;
-          }
-        });
-        document.getElementById('premiosPagos').textContent = premiosPagos + ' 💎';
-      } catch (e) { console.error(e); }
-    }
-
-    // Cache de nomes de usuários
-    let cacheUsuarios = {};
-
-    async function carregarCompras() {
-      try {
-        const snap = await db.collection('compras').orderBy('data', 'desc').limit(50).get();
-        todasCompras = [];
-        snap.forEach(doc => todasCompras.push({ id: doc.id, ...doc.data() }));
-        
-        // Buscar nomes dos usuários que não tem userName
-        const idsParaBuscar = [...new Set(todasCompras.filter(c => !c.userName).map(c => c.usuarioId))];
-        
-        for (const odId of idsParaBuscar) {
-          if (!cacheUsuarios[odId] && odId) {
-            try {
-              const userDoc = await db.collection('usuarios').doc(odId).get();
-              if (userDoc.exists) {
-                const userData = userDoc.data();
-                cacheUsuarios[odId] = userData.nome || userData.usuarioUnico || userData.email || odId.substring(0,8);
-              }
-            } catch (e) { /* ignora */ }
-          }
+        function sair() { auth.signOut().then(() => window.location.href = 'login.html'); }
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+            document.getElementById('overlay').classList.toggle('open');
         }
-        
-        renderizarCompras();
-      } catch (e) { console.error(e); }
-    }
 
-    function renderizarCompras() {
-      const tbody = document.getElementById('tabelaCompras');
-      if (todasCompras.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="empty-icon">📭</div>Nenhuma compra</td></tr>';
-        return;
-      }
-      tbody.innerHTML = todasCompras.slice(0, 15).map(c => {
-        const data = c.data?.toDate ? c.data.toDate() : new Date();
-        const statusClass = c.status === 'aprovado' ? 'badge-aprovado' : 'badge-pendente';
-        const statusText = c.status === 'aprovado' ? 'OK' : 'Pend';
-        const nome = c.userName || cacheUsuarios[c.usuarioId] || c.userEmail || c.usuarioId?.substring(0,8) || 'Anônimo';
-        return `<tr><td>${nome}</td><td>${c.creditos || 0} 💎</td><td>R$ ${(c.valor || 0).toFixed(2)}</td><td>${data.toLocaleString('pt-BR')}</td><td><span class="badge ${statusClass}">${statusText}</span></td></tr>`;
-      }).join('');
-    }
-
-    async function carregarSaques() {
-      try {
-        const snap = await db.collection('vendas_creditos').orderBy('dataSolicitacao', 'desc').limit(20).get();
-        const saques = [];
-        snap.forEach(doc => saques.push({ id: doc.id, ...doc.data() }));
-        renderizarSaques(saques);
-      } catch (e) { console.error(e); }
-    }
-
-    function renderizarSaques(saques) {
-      const tbody = document.getElementById('tabelaSaques');
-      if (saques.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="empty-icon">📭</div>Nenhuma solicitação</td></tr>';
-        return;
-      }
-      tbody.innerHTML = saques.map(s => {
-        const data = s.dataSolicitacao?.toDate ? s.dataSolicitacao.toDate() : new Date();
-        const valor = (s.creditos || 0) * VALOR_CREDITO;
-        let statusClass = s.status === 'aprovado' ? 'badge-aprovado' : s.status === 'rejeitado' ? 'badge-rejeitado' : 'badge-pendente';
-        const acoes = s.status === 'pendente' ? `<button class="btn-action btn-aprovar" onclick="aprovarSaque('${s.id}')">✓</button><button class="btn-action btn-rejeitar" onclick="rejeitarSaque('${s.id}')">✗</button>` : '--';
-        return `<tr><td>${s.usuarioNome || 'Anônimo'}</td><td>${s.creditos || 0} 💎</td><td>R$ ${valor.toFixed(2)}</td><td style="font-size:0.7em;max-width:120px;overflow:hidden;text-overflow:ellipsis;">${s.chavePix || '--'}</td><td>${data.toLocaleDateString('pt-BR')}</td><td><span class="badge ${statusClass}">${s.status || 'pendente'}</span></td><td>${acoes}</td></tr>`;
-      }).join('');
-    }
-
-    async function aprovarSaque(id) {
-      if (!confirm('Aprovar saque?')) return;
-      try {
-        const doc = await db.collection('vendas_creditos').doc(id).get();
-        const s = doc.data();
-        await db.collection('vendas_creditos').doc(id).update({ status: 'aprovado', dataAprovacao: firebase.firestore.FieldValue.serverTimestamp() });
-        await db.collection('usuarios').doc(s.usuarioId).update({ creditos: firebase.firestore.FieldValue.increment(-(s.creditos || 0)), creditosPagos: firebase.firestore.FieldValue.increment(-(s.creditos || 0)) });
-        await db.collection('transacoes').add({ usuarioId: s.usuarioId, tipo: 'debito', categoria: 'saque', valor: s.creditos || 0, descricao: 'Saque aprovado', data: firebase.firestore.FieldValue.serverTimestamp() });
-        await db.collection('notificacoes').add({ para: s.usuarioId, tipo: 'saque_aprovado', titulo: '💰 Saque Aprovado!', mensagem: `Seu saque de ${s.creditos} créditos foi aprovado!`, lida: false, data: firebase.firestore.FieldValue.serverTimestamp() });
-        showToast('✅ Saque aprovado!');
-        carregarSaques();
-        carregarEstatisticas();
-      } catch (e) { showToast('❌ Erro'); console.error(e); }
-    }
-
-    async function rejeitarSaque(id) {
-      const motivo = prompt('Motivo:');
-      if (motivo === null) return;
-      try {
-        const doc = await db.collection('vendas_creditos').doc(id).get();
-        const s = doc.data();
-        await db.collection('vendas_creditos').doc(id).update({ status: 'rejeitado', motivoRejeicao: motivo || 'Não informado' });
-        await db.collection('notificacoes').add({ para: s.usuarioId, tipo: 'saque_rejeitado', titulo: '❌ Saque Rejeitado', mensagem: motivo || 'Seu saque foi rejeitado.', lida: false, data: firebase.firestore.FieldValue.serverTimestamp() });
-        showToast('Saque rejeitado');
-        carregarSaques();
-      } catch (e) { showToast('❌ Erro'); console.error(e); }
-    }
-
-    async function carregarTopCompradores() {
-      try {
-        const inicioMes = new Date(); inicioMes.setDate(1); inicioMes.setHours(0, 0, 0, 0);
-        // Buscar compras aprovadas (sem índice composto - filtra no JS)
-        const snap = await db.collection('compras').where('status', '==', 'aprovado').limit(500).get();
-        const porUsuario = {};
-        snap.forEach(doc => {
-          const c = doc.data();
-          const dataC = c.data?.toDate ? c.data.toDate() : new Date(0);
-          if (dataC < inicioMes) return; // Filtrar por data no JS
-          const uid = c.usuarioId;
-          if (!porUsuario[uid]) porUsuario[uid] = { odId: uid, nome: c.userName || cacheUsuarios[uid] || null, compras: 0, total: 0 };
-          porUsuario[uid].compras++;
-          porUsuario[uid].total += c.valor || 0;
-        });
-        
-        // Buscar nomes que faltam
-        const semNome = Object.values(porUsuario).filter(u => !u.nome);
-        for (const u of semNome) {
-          if (!cacheUsuarios[u.odId] && u.odId) {
-            try {
-              const userDoc = await db.collection('usuarios').doc(u.odId).get();
-              if (userDoc.exists) {
-                const userData = userDoc.data();
-                cacheUsuarios[u.odId] = userData.nome || userData.usuarioUnico || userData.email || u.odId.substring(0,8);
-              }
-            } catch (e) { /* ignora */ }
-          }
-          u.nome = cacheUsuarios[u.odId] || u.odId?.substring(0,8) || 'Anônimo';
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg; t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 3000);
         }
-        
-        const top = Object.values(porUsuario).sort((a, b) => b.total - a.total).slice(0, 10);
-        const tbody = document.getElementById('tabelaTop');
-        if (top.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Nenhum</td></tr>'; return; }
-        tbody.innerHTML = top.map((u, i) => `<tr><td>${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</td><td>${u.nome}</td><td>${u.compras}</td><td style="color:#2ecc71;font-weight:700;">R$ ${u.total.toFixed(2)}</td></tr>`).join('');
-      } catch (e) { console.error(e); }
-    }
 
-    function atualizarGraficos() {
-      const dias = periodoGrafico === '7d' ? 7 : periodoGrafico === '30d' ? 30 : 90;
-      const receitaPorDia = {};
-      const compraPorPacote = { '10': 0, '30': 0, '60': 0, '75': 0, '150': 0, '200': 0, 'Outro': 0 };
+        // ===================================
+        // 🚀 CARREGAR TUDO
+        // ===================================
+        async function carregarDados() {
+            await Promise.allSettled([
+                carregarEstatisticas(),
+                carregarCompras(),
+                carregarSaques(),
+                carregarTopCompradores()
+            ]);
+            atualizarGraficos();
+        }
 
-      for (let i = dias - 1; i >= 0; i--) {
-        const d = new Date(); d.setDate(d.getDate() - i);
-        receitaPorDia[d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })] = 0;
-      }
+        // ===================================
+        // 📊 ESTATÍSTICAS
+        // ===================================
+        async function carregarEstatisticas() {
+            try {
+                const agora = new Date();
+                const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
+                const inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
 
-      const limite = new Date(); limite.setDate(limite.getDate() - dias);
-      todasCompras.forEach(c => {
-        if (c.status !== 'aprovado') return;
-        const data = c.data?.toDate ? c.data.toDate() : new Date();
-        if (data < limite) return;
-        const key = data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-        if (receitaPorDia[key] !== undefined) receitaPorDia[key] += c.valor || 0;
-        const cred = c.creditos || 0;
-        if (cred === 10) compraPorPacote['10']++;
-        else if (cred === 30) compraPorPacote['30']++;
-        else if (cred === 60) compraPorPacote['60']++;
-        else if (cred === 75) compraPorPacote['75']++;
-        else if (cred === 150) compraPorPacote['150']++;
-        else if (cred === 200) compraPorPacote['200']++;
-        else compraPorPacote['Outro']++;
-      });
+                const comprasSnap = await db.collection('compras').where('status', '==', 'aprovado').get();
 
-      if (chartReceita) chartReceita.destroy();
-      chartReceita = new Chart(document.getElementById('chartReceita'), {
-        type: 'line',
-        data: { labels: Object.keys(receitaPorDia), datasets: [{ label: 'R$', data: Object.values(receitaPorDia), borderColor: '#2ecc71', backgroundColor: 'rgba(46,204,113,0.1)', fill: true, tension: 0.4 }] },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { color: '#a9b5c6' }, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { ticks: { color: '#a9b5c6' }, grid: { display: false } } } }
-      });
+                let receitaTotal = 0, receitaMes = 0, comprasHoje = 0, totalCompras = 0;
+                comprasSnap.forEach(doc => {
+                    const c = doc.data();
+                    const valor = c.valor || 0;
+                    const data = c.data?.toDate ? c.data.toDate() : new Date();
+                    receitaTotal += valor;
+                    totalCompras++;
+                    if (data >= inicioMes) receitaMes += valor;
+                    if (data >= inicioHoje) comprasHoje++;
+                });
 
-      if (chartPacotes) chartPacotes.destroy();
-      chartPacotes = new Chart(document.getElementById('chartPacotes'), {
-        type: 'doughnut',
-        data: { labels: Object.keys(compraPorPacote).map(k => k + ' créd'), datasets: [{ data: Object.values(compraPorPacote), backgroundColor: ['#3498db', '#9b59b6', '#e74c3c', '#1abc9c', '#f39c12', '#e67e22', '#95a5a6'] }] },
-        options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#a9b5c6' } } } }
-      });
-    }
+                document.getElementById('receitaTotal').textContent = `R$${receitaTotal.toFixed(2)}`;
+                document.getElementById('receitaMes').textContent = `R$${receitaMes.toFixed(2)}`;
+                document.getElementById('comprasHoje').textContent = comprasHoje;
+                document.getElementById('ticketMedio').textContent = `R$${(totalCompras > 0 ? receitaTotal / totalCompras : 0).toFixed(2)}`;
 
-    function filtrarGrafico(p) {
-      periodoGrafico = p;
-      document.querySelectorAll('.filtros .filtro-btn').forEach(b => b.classList.remove('active'));
-      event.target.classList.add('active');
-      atualizarGraficos();
-    }
+                const saquesSnap = await db.collection('vendas_creditos').where('status', '==', 'pendente').get();
+                document.getElementById('saquesPendentes').textContent = saquesSnap.size;
 
-    console.log('✅ Dashboard Financeiro Yellup v2.0');
-  </script>
+                const premiosSnap = await db.collection('transacoes').where('tipo', '==', 'credito').limit(200).get();
+                let premiosPagos = 0;
+                premiosSnap.forEach(doc => {
+                    const t = doc.data();
+                    const dataT = t.data?.toDate ? t.data.toDate() : new Date(0);
+                    if (t.categoria?.includes('premio') && dataT >= inicioMes) premiosPagos += t.valor || 0;
+                });
+                document.getElementById('premiosPagos').textContent = premiosPagos + ' cr';
+            } catch (e) { console.error('Erro stats:', e); }
+        }
+
+        // ===================================
+        // 🛒 COMPRAS
+        // ===================================
+        async function carregarCompras() {
+            try {
+                const snap = await db.collection('compras').orderBy('data', 'desc').limit(50).get();
+                todasCompras = [];
+                snap.forEach(doc => todasCompras.push({ id: doc.id, ...doc.data() }));
+
+                const idsParaBuscar = [...new Set(todasCompras.filter(c => !c.userName).map(c => c.usuarioId))];
+                for (const odId of idsParaBuscar) {
+                    if (!cacheUsuarios[odId] && odId) {
+                        try {
+                            const userDoc = await db.collection('usuarios').doc(odId).get();
+                            if (userDoc.exists) {
+                                const u = userDoc.data();
+                                cacheUsuarios[odId] = u.nome || u.usuarioUnico || u.email || odId.substring(0,8);
+                            }
+                        } catch (e) {}
+                    }
+                }
+                renderizarCompras();
+            } catch (e) { console.error('Erro compras:', e); }
+        }
+
+        function renderizarCompras() {
+            const tbody = document.getElementById('tabelaCompras');
+            if (todasCompras.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">📭 Nenhuma compra</td></tr>';
+                return;
+            }
+            tbody.innerHTML = todasCompras.slice(0, 15).map(c => {
+                const data = c.data?.toDate ? c.data.toDate() : new Date();
+                const sClass = c.status === 'aprovado' ? 'badge-aprovado' : 'badge-pendente';
+                const sText = c.status === 'aprovado' ? '✓ OK' : '⏳ Pend';
+                const nome = c.userName || cacheUsuarios[c.usuarioId] || c.userEmail || 'Anônimo';
+                return `<tr>
+                    <td class="fw600">${nome}</td>
+                    <td class="mono">${c.creditos || 0}</td>
+                    <td class="mono text-green">R$${(c.valor || 0).toFixed(2)}</td>
+                    <td>${data.toLocaleDateString('pt-BR')}</td>
+                    <td><span class="badge-status ${sClass}">${sText}</span></td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ===================================
+        // 💸 SAQUES
+        // ===================================
+        async function carregarSaques() {
+            try {
+                const snap = await db.collection('vendas_creditos').orderBy('dataSolicitacao', 'desc').limit(20).get();
+                const saques = [];
+                snap.forEach(doc => saques.push({ id: doc.id, ...doc.data() }));
+                renderizarSaques(saques);
+            } catch (e) { console.error('Erro saques:', e); }
+        }
+
+        function renderizarSaques(saques) {
+            const tbody = document.getElementById('tabelaSaques');
+            if (saques.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">✅ Nenhuma solicitação</td></tr>';
+                return;
+            }
+            tbody.innerHTML = saques.map(s => {
+                const data = s.dataSolicitacao?.toDate ? s.dataSolicitacao.toDate() : new Date();
+                const valor = (s.creditos || 0) * VALOR_CREDITO;
+                const sClass = s.status === 'aprovado' ? 'badge-aprovado' : s.status === 'rejeitado' ? 'badge-rejeitado' : 'badge-pendente';
+                const acoes = s.status === 'pendente'
+                    ? `<button class="btn-action btn-aprovar" onclick="aprovarSaque('${s.id}')">✓ Aprovar</button><button class="btn-action btn-rejeitar" onclick="rejeitarSaque('${s.id}')">✗</button>`
+                    : '<span style="color:var(--text-muted)">—</span>';
+                return `<tr>
+                    <td class="fw600">${s.usuarioNome || 'Anônimo'}</td>
+                    <td class="mono">${s.creditos || 0}</td>
+                    <td class="mono text-green">R$${valor.toFixed(2)}</td>
+                    <td class="pix-cell" title="${s.chavePix || ''}">${s.chavePix || '—'}</td>
+                    <td>${data.toLocaleDateString('pt-BR')}</td>
+                    <td><span class="badge-status ${sClass}">${s.status || 'pendente'}</span></td>
+                    <td>${acoes}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function aprovarSaque(id) {
+            if (!confirm('Aprovar este saque?')) return;
+            try {
+                const doc = await db.collection('vendas_creditos').doc(id).get();
+                const s = doc.data();
+                await db.collection('vendas_creditos').doc(id).update({
+                    status: 'aprovado',
+                    dataAprovacao: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                await db.collection('usuarios').doc(s.usuarioId).update({
+                    creditos: firebase.firestore.FieldValue.increment(-(s.creditos || 0)),
+                    creditosPagos: firebase.firestore.FieldValue.increment(-(s.creditos || 0))
+                });
+                await db.collection('transacoes').add({
+                    usuarioId: s.usuarioId, tipo: 'debito', categoria: 'saque',
+                    valor: s.creditos || 0, descricao: 'Saque aprovado',
+                    data: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                await db.collection('notificacoes').add({
+                    para: s.usuarioId, tipo: 'saque_aprovado',
+                    titulo: '💰 Saque Aprovado!',
+                    mensagem: `Seu saque de ${s.creditos} créditos foi aprovado!`,
+                    lida: false, data: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                showToast('✅ Saque aprovado!');
+                carregarSaques();
+                carregarEstatisticas();
+            } catch (e) { showToast('❌ Erro ao aprovar'); console.error(e); }
+        }
+
+        async function rejeitarSaque(id) {
+            const motivo = prompt('Motivo da rejeição:');
+            if (motivo === null) return;
+            try {
+                const doc = await db.collection('vendas_creditos').doc(id).get();
+                const s = doc.data();
+                await db.collection('vendas_creditos').doc(id).update({
+                    status: 'rejeitado',
+                    motivoRejeicao: motivo || 'Não informado'
+                });
+                await db.collection('notificacoes').add({
+                    para: s.usuarioId, tipo: 'saque_rejeitado',
+                    titulo: '❌ Saque Rejeitado',
+                    mensagem: motivo || 'Seu saque foi rejeitado.',
+                    lida: false, data: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                showToast('Saque rejeitado');
+                carregarSaques();
+            } catch (e) { showToast('❌ Erro'); console.error(e); }
+        }
+
+        // ===================================
+        // 👑 TOP COMPRADORES
+        // ===================================
+        async function carregarTopCompradores() {
+            try {
+                const inicioMes = new Date();
+                inicioMes.setDate(1); inicioMes.setHours(0, 0, 0, 0);
+
+                const snap = await db.collection('compras').where('status', '==', 'aprovado').limit(500).get();
+                const porUsuario = {};
+
+                snap.forEach(doc => {
+                    const c = doc.data();
+                    const dataC = c.data?.toDate ? c.data.toDate() : new Date(0);
+                    if (dataC < inicioMes) return;
+                    const uid = c.usuarioId;
+                    if (!porUsuario[uid]) porUsuario[uid] = { odId: uid, nome: c.userName || cacheUsuarios[uid] || null, compras: 0, total: 0 };
+                    porUsuario[uid].compras++;
+                    porUsuario[uid].total += c.valor || 0;
+                });
+
+                const semNome = Object.values(porUsuario).filter(u => !u.nome);
+                for (const u of semNome) {
+                    if (!cacheUsuarios[u.odId] && u.odId) {
+                        try {
+                            const userDoc = await db.collection('usuarios').doc(u.odId).get();
+                            if (userDoc.exists) {
+                                const ud = userDoc.data();
+                                cacheUsuarios[u.odId] = ud.nome || ud.usuarioUnico || ud.email || u.odId.substring(0,8);
+                            }
+                        } catch (e) {}
+                    }
+                    u.nome = cacheUsuarios[u.odId] || u.odId?.substring(0,8) || 'Anônimo';
+                }
+
+                const top = Object.values(porUsuario).sort((a, b) => b.total - a.total).slice(0, 10);
+                const tbody = document.getElementById('tabelaTop');
+                if (top.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Nenhum no mês</td></tr>';
+                    return;
+                }
+                const medals = ['🥇', '🥈', '🥉'];
+                tbody.innerHTML = top.map((u, i) => `<tr>
+                    <td class="fw600">${medals[i] || (i + 1)}</td>
+                    <td class="fw600">${u.nome}</td>
+                    <td class="mono">${u.compras}</td>
+                    <td class="mono text-green fw600">R$${u.total.toFixed(2)}</td>
+                </tr>`).join('');
+            } catch (e) { console.error('Erro top:', e); }
+        }
+
+        // ===================================
+        // 📈 GRÁFICOS
+        // ===================================
+        function atualizarGraficos() {
+            const dias = periodoGrafico === '7d' ? 7 : periodoGrafico === '30d' ? 30 : 90;
+            const receitaPorDia = {};
+            const compraPorPacote = { '10': 0, '30': 0, '60': 0, '75': 0, '150': 0, '200': 0, 'Outro': 0 };
+
+            for (let i = dias - 1; i >= 0; i--) {
+                const d = new Date(); d.setDate(d.getDate() - i);
+                receitaPorDia[d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })] = 0;
+            }
+
+            const limite = new Date(); limite.setDate(limite.getDate() - dias);
+            todasCompras.forEach(c => {
+                if (c.status !== 'aprovado') return;
+                const data = c.data?.toDate ? c.data.toDate() : new Date();
+                if (data < limite) return;
+                const key = data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+                if (receitaPorDia[key] !== undefined) receitaPorDia[key] += c.valor || 0;
+                const cred = c.creditos || 0;
+                const pacotes = { 10: '10', 30: '30', 60: '60', 75: '75', 150: '150', 200: '200' };
+                compraPorPacote[pacotes[cred] || 'Outro']++;
+            });
+
+            // Chart.js global config
+            Chart.defaults.color = '#5c5e6e';
+            Chart.defaults.borderColor = 'rgba(30, 32, 48, 0.8)';
+
+            if (chartReceita) chartReceita.destroy();
+            chartReceita = new Chart(document.getElementById('chartReceita'), {
+                type: 'line',
+                data: {
+                    labels: Object.keys(receitaPorDia),
+                    datasets: [{
+                        label: 'R$',
+                        data: Object.values(receitaPorDia),
+                        borderColor: '#34d399',
+                        backgroundColor: 'rgba(52, 211, 153, 0.08)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: '#34d399'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { font: { size: 10, family: 'JetBrains Mono' } }, grid: { color: 'rgba(30,32,48,0.5)' } },
+                        x: { ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { display: false } }
+                    }
+                }
+            });
+
+            if (chartPacotes) chartPacotes.destroy();
+            chartPacotes = new Chart(document.getElementById('chartPacotes'), {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(compraPorPacote).map(k => k + ' cr'),
+                    datasets: [{
+                        data: Object.values(compraPorPacote),
+                        backgroundColor: ['#60a5fa', '#a78bfa', '#f87171', '#34d399', '#f0b429', '#fb923c', '#5c5e6e'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '65%',
+                    plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, padding: 12, usePointStyle: true, pointStyleWidth: 8 } } }
+                }
+            });
+        }
+
+        function filtrarGrafico(p, el) {
+            periodoGrafico = p;
+            document.querySelectorAll('.filtro-btn').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            atualizarGraficos();
+        }
+
+        console.log('✅ Financeiro Yellup Admin v3.0');
+    </script>
 </body>
 </html>
