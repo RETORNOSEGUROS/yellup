@@ -1757,3 +1757,256 @@ exports.completarMissao = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', 'Erro ao completar missão');
   }
 });
+
+
+// #####################################################
+// #####################################################
+//
+//   🤖 AUTOMAÇÕES v3.0 (adicionadas, não alteram nada acima)
+//
+// #####################################################
+// #####################################################
+
+// =====================================================
+// HELPER: Calcular Nível por XP
+// =====================================================
+function calcularNivelUsuario(xp) {
+  if (xp >= 5000) return { nome: "Mestre", emoji: "💜", threshold: 5000 };
+  if (xp >= 3000) return { nome: "Diamante", emoji: "💎", threshold: 3000 };
+  if (xp >= 1500) return { nome: "Ouro", emoji: "🥇", threshold: 1500 };
+  if (xp >= 500) return { nome: "Prata", emoji: "🥈", threshold: 500 };
+  if (xp >= 100) return { nome: "Bronze", emoji: "🥉", threshold: 100 };
+  return { nome: "Iniciante", emoji: "🆕", threshold: 0 };
+}
+
+// =====================================================
+// HELPER: Criar Notificação (dual-write)
+// =====================================================
+// Escreve na subcollection do usuário (sininho do app)
+// E na collection global (compatibilidade com admin/notificacoes)
+async function criarNotificacaoHelper(userId, tipo, titulo, corpo, extra = {}) {
+  if (!userId || !titulo) return null;
+  try {
+    const base = {
+      titulo,
+      corpo: corpo || "",
+      lida: false,
+      data: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    // Subcollection do usuário (sininho no app)
+    await db.collection("usuarios").doc(userId).collection("notificacoes").add(base);
+
+    // Collection global (compatibilidade admin)
+    await db.collection("notificacoes").add({
+      para: userId,
+      userId,
+      tipo,
+      titulo,
+      mensagem: corpo || "",
+      lida: false,
+      ...extra,
+      data: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`📬 [${tipo}] → ${userId}: ${titulo}`);
+    return true;
+  } catch (error) {
+    console.error("Erro notificação helper:", error);
+    return null;
+  }
+}
+
+
+// =====================================================
+// 🤖 AUTO 1: ATUALIZAR STATUS DOS JOGOS (Cron 1 min)
+// =====================================================
+// Verifica dataInicio/dataFim e atualiza status automaticamente.
+// Não precisa mais abrir jogos.html para atualizar.
+exports.atualizarStatusJogos = functions.pubsub
+  .schedule("every 1 minutes")
+  .timeZone("America/Sao_Paulo")
+  .onRun(async () => {
+    try {
+      const agora = new Date();
+
+      // Buscar jogos que NÃO estão finalizados
+      const snap = await db
+        .collection("jogos")
+        .where("status", "in", ["agendado", "ao_vivo"])
+        .get();
+
+      if (snap.empty) return null;
+
+      const batch = db.batch();
+      let alterados = 0;
+
+      snap.forEach((doc) => {
+        const jogo = doc.data();
+        const dataInicio = jogo.dataInicio?.toDate
+          ? jogo.dataInicio.toDate()
+          : new Date(jogo.dataInicio);
+        const dataFim = jogo.dataFim?.toDate
+          ? jogo.dataFim.toDate()
+          : new Date(jogo.dataFim);
+
+        let novoStatus;
+        if (agora < dataInicio) {
+          novoStatus = "agendado";
+        } else if (agora >= dataInicio && agora <= dataFim) {
+          novoStatus = "ao_vivo";
+        } else {
+          novoStatus = "finalizado";
+        }
+
+        if (novoStatus !== jogo.status) {
+          batch.update(doc.ref, { status: novoStatus });
+          alterados++;
+          console.log(`🎮 ${doc.id}: ${jogo.status} → ${novoStatus}`);
+        }
+      });
+
+      if (alterados > 0) {
+        await batch.commit();
+        console.log(`⏱️ ${alterados} jogos atualizados automaticamente`);
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Erro atualizarStatusJogos:", error);
+      return null;
+    }
+  });
+
+
+// =====================================================
+// 🤖 AUTO 2: BEM-VINDO AO NOVO USUÁRIO (Trigger)
+// =====================================================
+// Dispara quando um documento é criado em 'usuarios'
+exports.bemVindoNovoUsuario = functions.firestore
+  .document("usuarios/{userId}")
+  .onCreate(async (snap, context) => {
+    const userId = context.params.userId;
+    const userData = snap.data();
+    const nome =
+      userData.nome || userData.usuario || userData.usuarioUnico || "Jogador";
+
+    console.log(`🎉 Novo usuário: ${nome} (${userId})`);
+
+    await criarNotificacaoHelper(
+      userId,
+      "sistema",
+      "🎉 Bem-vindo ao Yellup!",
+      `Olá ${nome}! Comece jogando e acumulando XP para subir de nível. Boa sorte! ⚽`
+    );
+
+    // Se tem código de indicação, notificar quem indicou
+    const codigoUsado = userData.indicadoPor || userData.codigoUsado;
+    if (codigoUsado) {
+      try {
+        const indicadorSnap = await db
+          .collection("usuarios")
+          .where("codigoIndicacao", "==", codigoUsado)
+          .limit(1)
+          .get();
+
+        if (!indicadorSnap.empty) {
+          const indicadorId = indicadorSnap.docs[0].id;
+          await criarNotificacaoHelper(
+            indicadorId,
+            "indicacao",
+            "🔗 Nova indicação!",
+            `${nome} se cadastrou usando seu código de indicação!`
+          );
+        }
+      } catch (e) {
+        console.error("Erro notificar indicador:", e);
+      }
+    }
+
+    return null;
+  });
+
+
+// =====================================================
+// 🤖 AUTO 3: VERIFICAR SUBIDA DE NÍVEL (Trigger)
+// =====================================================
+// Dispara quando 'usuarios/{userId}' é atualizado.
+// Compara XP anterior com novo para detectar subida de nível.
+exports.verificarNivel = functions.firestore
+  .document("usuarios/{userId}")
+  .onUpdate(async (change, context) => {
+    const userId = context.params.userId;
+    const antes = change.before.data();
+    const depois = change.after.data();
+
+    const xpAntes = antes.xp || antes.pontuacao || 0;
+    const xpDepois = depois.xp || depois.pontuacao || 0;
+
+    // Só processar se XP aumentou
+    if (xpDepois <= xpAntes) return null;
+
+    const nivelAntes = calcularNivelUsuario(xpAntes);
+    const nivelDepois = calcularNivelUsuario(xpDepois);
+
+    // Subiu de nível?
+    if (nivelDepois.threshold > nivelAntes.threshold) {
+      const nome = depois.nome || depois.usuarioUnico || "Jogador";
+      console.log(
+        `⬆️ ${nome} subiu para ${nivelDepois.emoji} ${nivelDepois.nome} (${xpDepois} XP)`
+      );
+
+      await criarNotificacaoHelper(
+        userId,
+        "nivel",
+        `${nivelDepois.emoji} Subiu de Nível!`,
+        `Parabéns ${nome}! Você alcançou o nível ${nivelDepois.nome} com ${xpDepois.toLocaleString()} XP!`
+      );
+
+      // Atualizar campo de nível no documento (útil para queries)
+      await db.collection("usuarios").doc(userId).update({
+        nivel: nivelDepois.nome.toLowerCase(),
+      });
+    }
+
+    return null;
+  });
+
+
+// =====================================================
+// 🤖 AUTO 4: LIMPAR NOTIFICAÇÕES ANTIGAS (Cron 3h)
+// =====================================================
+// Remove notificações lidas com mais de 30 dias.
+exports.limparNotificacoes = functions.pubsub
+  .schedule("every day 03:00")
+  .timeZone("America/Sao_Paulo")
+  .onRun(async () => {
+    try {
+      const trintaDiasAtras = new Date();
+      trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
+      const timestamp30 = admin.firestore.Timestamp.fromDate(trintaDiasAtras);
+
+      // Limpar collection global
+      const snap = await db
+        .collection("notificacoes")
+        .where("lida", "==", true)
+        .where("data", "<", timestamp30)
+        .limit(500)
+        .get();
+
+      if (snap.empty) {
+        console.log("🧹 Nenhuma notificação antiga para limpar");
+        return null;
+      }
+
+      const batch = db.batch();
+      snap.forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+
+      console.log(`🧹 ${snap.size} notificações antigas removidas`);
+      return null;
+    } catch (error) {
+      console.error("Erro limparNotificacoes:", error);
+      return null;
+    }
+  });
