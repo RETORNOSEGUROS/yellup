@@ -266,7 +266,6 @@
             <div class="nav-group">
                 <div class="nav-group-title">Financeiro</div>
                 <a href="financeiro.html" class="nav-item active"><span class="icon">💰</span> Resumo</a>
-                <a href="vendas-creditos.html" class="nav-item"><span class="icon">💸</span> Saques</a>
                 <a href="creditar-manual.html" class="nav-item"><span class="icon">➕</span> Creditar Manual</a>
                 <a href="transacoes.html" class="nav-item"><span class="icon">💳</span> Transações</a>
                 <a href="premiacao.html" class="nav-item"><span class="icon">🎁</span> Premiação</a>
@@ -301,7 +300,7 @@
         <header class="header">
             <div class="header-left">
                 <h2>💰 Financeiro</h2>
-                <p>Receita, saques e compras</p>
+                <p>Receita, compras e métricas financeiras</p>
             </div>
             <div class="header-actions">
                 <a href="creditar-manual.html" class="btn-header">➕ Creditar Manual</a>
@@ -333,9 +332,9 @@
                     <div class="stat-label">Prêmios (mês)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-icon-box" style="background:var(--red-dim)">💸</div>
-                    <div class="stat-value text-red" id="saquesPendentes">...</div>
-                    <div class="stat-label">Saques Pendentes</div>
+                    <div class="stat-icon-box" style="background:var(--orange-dim)">📦</div>
+                    <div class="stat-value text-orange" id="comprasMes">...</div>
+                    <div class="stat-label">Compras no Mês</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon-box" style="background:var(--purple-dim)">📊</div>
@@ -362,32 +361,6 @@
                         <div class="card-title">🎯 Pacotes Vendidos</div>
                     </div>
                     <div class="chart-wrap"><canvas id="chartPacotes"></canvas></div>
-                </div>
-            </div>
-
-            <!-- Saques -->
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">💸 Solicitações de Saque</div>
-                    <a href="vendas-creditos.html" class="card-link">Gerenciar →</a>
-                </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Usuário</th>
-                                <th>Créditos</th>
-                                <th>Valor R$</th>
-                                <th>PIX</th>
-                                <th>Data</th>
-                                <th>Status</th>
-                                <th>Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tabelaSaques">
-                            <tr><td colspan="7" class="empty-state">Carregando...</td></tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
 
@@ -447,7 +420,6 @@
         let chartPacotes = null;
         let todasCompras = [];
         let periodoGrafico = '7d';
-        const VALOR_CREDITO = 0.40;
         let cacheUsuarios = {};
 
         // ===================================
@@ -480,7 +452,6 @@
             await Promise.allSettled([
                 carregarEstatisticas(),
                 carregarCompras(),
-                carregarSaques(),
                 carregarTopCompradores()
             ]);
             atualizarGraficos();
@@ -513,8 +484,14 @@
                 document.getElementById('comprasHoje').textContent = comprasHoje;
                 document.getElementById('ticketMedio').textContent = `R$${(totalCompras > 0 ? receitaTotal / totalCompras : 0).toFixed(2)}`;
 
-                const saquesSnap = await db.collection('vendas_creditos').where('status', '==', 'pendente').get();
-                document.getElementById('saquesPendentes').textContent = saquesSnap.size;
+                // Compras no mês
+                let comprasMes = 0;
+                comprasSnap.forEach(doc => {
+                    const c = doc.data();
+                    const data = c.data?.toDate ? c.data.toDate() : new Date();
+                    if (data >= inicioMes) comprasMes++;
+                });
+                document.getElementById('comprasMes').textContent = comprasMes;
 
                 const premiosSnap = await db.collection('transacoes').where('tipo', '==', 'credito').limit(200).get();
                 let premiosPagos = 0;
@@ -571,94 +548,6 @@
                     <td><span class="badge-status ${sClass}">${sText}</span></td>
                 </tr>`;
             }).join('');
-        }
-
-        // ===================================
-        // 💸 SAQUES
-        // ===================================
-        async function carregarSaques() {
-            try {
-                const snap = await db.collection('vendas_creditos').orderBy('dataSolicitacao', 'desc').limit(20).get();
-                const saques = [];
-                snap.forEach(doc => saques.push({ id: doc.id, ...doc.data() }));
-                renderizarSaques(saques);
-            } catch (e) { console.error('Erro saques:', e); }
-        }
-
-        function renderizarSaques(saques) {
-            const tbody = document.getElementById('tabelaSaques');
-            if (saques.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">✅ Nenhuma solicitação</td></tr>';
-                return;
-            }
-            tbody.innerHTML = saques.map(s => {
-                const data = s.dataSolicitacao?.toDate ? s.dataSolicitacao.toDate() : new Date();
-                const valor = (s.creditos || 0) * VALOR_CREDITO;
-                const sClass = s.status === 'aprovado' ? 'badge-aprovado' : s.status === 'rejeitado' ? 'badge-rejeitado' : 'badge-pendente';
-                const acoes = s.status === 'pendente'
-                    ? `<button class="btn-action btn-aprovar" onclick="aprovarSaque('${s.id}')">✓ Aprovar</button><button class="btn-action btn-rejeitar" onclick="rejeitarSaque('${s.id}')">✗</button>`
-                    : '<span style="color:var(--text-muted)">—</span>';
-                return `<tr>
-                    <td class="fw600">${s.usuarioNome || 'Anônimo'}</td>
-                    <td class="mono">${s.creditos || 0}</td>
-                    <td class="mono text-green">R$${valor.toFixed(2)}</td>
-                    <td class="pix-cell" title="${s.chavePix || ''}">${s.chavePix || '—'}</td>
-                    <td>${data.toLocaleDateString('pt-BR')}</td>
-                    <td><span class="badge-status ${sClass}">${s.status || 'pendente'}</span></td>
-                    <td>${acoes}</td>
-                </tr>`;
-            }).join('');
-        }
-
-        async function aprovarSaque(id) {
-            if (!confirm('Aprovar este saque?')) return;
-            try {
-                const doc = await db.collection('vendas_creditos').doc(id).get();
-                const s = doc.data();
-                await db.collection('vendas_creditos').doc(id).update({
-                    status: 'aprovado',
-                    dataAprovacao: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                await db.collection('usuarios').doc(s.usuarioId).update({
-                    creditos: firebase.firestore.FieldValue.increment(-(s.creditos || 0)),
-                    creditosPagos: firebase.firestore.FieldValue.increment(-(s.creditos || 0))
-                });
-                await db.collection('transacoes').add({
-                    usuarioId: s.usuarioId, tipo: 'debito', categoria: 'saque',
-                    valor: s.creditos || 0, descricao: 'Saque aprovado',
-                    data: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                await db.collection('notificacoes').add({
-                    para: s.usuarioId, tipo: 'saque_aprovado',
-                    titulo: '💰 Saque Aprovado!',
-                    mensagem: `Seu saque de ${s.creditos} créditos foi aprovado!`,
-                    lida: false, data: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                showToast('✅ Saque aprovado!');
-                carregarSaques();
-                carregarEstatisticas();
-            } catch (e) { showToast('❌ Erro ao aprovar'); console.error(e); }
-        }
-
-        async function rejeitarSaque(id) {
-            const motivo = prompt('Motivo da rejeição:');
-            if (motivo === null) return;
-            try {
-                const doc = await db.collection('vendas_creditos').doc(id).get();
-                const s = doc.data();
-                await db.collection('vendas_creditos').doc(id).update({
-                    status: 'rejeitado',
-                    motivoRejeicao: motivo || 'Não informado'
-                });
-                await db.collection('notificacoes').add({
-                    para: s.usuarioId, tipo: 'saque_rejeitado',
-                    titulo: '❌ Saque Rejeitado',
-                    mensagem: motivo || 'Seu saque foi rejeitado.',
-                    lida: false, data: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                showToast('Saque rejeitado');
-                carregarSaques();
-            } catch (e) { showToast('❌ Erro'); console.error(e); }
         }
 
         // ===================================
