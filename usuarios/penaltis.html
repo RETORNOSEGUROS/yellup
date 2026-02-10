@@ -38,7 +38,7 @@
     .match-card:hover{border-color:rgba(255,159,67,0.2);transform:translateY(-1px)}.match-card.my-match{border-color:rgba(46,213,115,0.3)}
     .match-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
     .match-creator{display:flex;align-items:center;gap:10px}
-    .match-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#ffb547,#ff8c42);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85em;color:var(--bg-dark)}
+    .match-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#ffb547,#ff8c42);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85em;color:var(--bg-dark);overflow:hidden;flex-shrink:0}
     .match-name{font-weight:600;font-size:0.9em}.match-time{font-size:0.7em;color:var(--text-secondary)}
     .match-status{padding:4px 10px;border-radius:20px;font-size:0.65em;font-weight:700;text-transform:uppercase}
     .status-aguardando{background:rgba(255,159,67,0.2);color:var(--accent-primary)}
@@ -72,7 +72,7 @@
     .friends-list{max-height:300px;overflow-y:auto;margin-bottom:16px}
     .friend-item{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;cursor:pointer;transition:all 0.2s;border:2px solid transparent}
     .friend-item:hover{background:rgba(255,255,255,0.05)}.friend-item.selected{background:rgba(59,130,246,0.15);border-color:#3b82f6}
-    .friend-avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#60a5fa);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85em;color:white;flex-shrink:0}
+    .friend-avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#60a5fa);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85em;color:white;flex-shrink:0;overflow:hidden}
     .friend-info{flex:1}.friend-name{font-weight:600;font-size:0.9em}.friend-credits{font-size:0.75em;color:var(--text-secondary)}
     .friend-check{font-size:1.2em;opacity:0;transition:opacity 0.2s}.friend-item.selected .friend-check{opacity:1}
     .friends-empty{text-align:center;padding:30px 10px;color:var(--text-secondary);font-size:0.85em}
@@ -96,7 +96,7 @@
     .history-card.win{border-left:3px solid var(--win-green)}.history-card.loss{border-left:3px solid var(--live-red)}
     .history-info{flex:1}.history-opponent{font-weight:600;font-size:0.85em}.history-score{font-size:0.75em;color:var(--text-secondary)}
     .history-result{font-weight:700;font-size:0.85em;padding:4px 12px;border-radius:8px}
-    .history-result.win{background:rgba(46,213,115,0.15);color:var(--win-green)}.history-result.loss{background:rgba(255,71,87,0.15);color:var(--live-red)}
+    .history-result.win{background:rgba(46,213,115,0.15);color:var(--win-green)}.history-result.loss{background:rgba(255,71,87,0.15);color:var(--live-red)}.history-result.draw{background:rgba(255,159,67,0.15);color:#ff9f43}
     .rules-card{background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:16px;padding:18px;margin-bottom:24px}
     .rules-title{font-weight:700;font-size:0.95em;margin-bottom:10px;display:flex;align-items:center;gap:8px}
     .rule-item{display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-size:0.8em;color:var(--text-secondary);line-height:1.4}
@@ -214,23 +214,39 @@
     const db=firebase.firestore(),auth=firebase.auth();
     auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>console.error(e));
 
-    let currentUser=null,currentUserData=null,allMatches=[],allFriends=[],selectedFriendUid=null,modalMode='publica',currentTab='abertas';
+    let currentUser=null,currentUserData=null,allMatches=[],allFriends=[],allUsers=[],friendUids=new Set(),selectedFriendUid=null,modalMode='publica',currentTab='abertas';
     let allTimes=[],selectedTimeId=null,selectedTimeData=null;
     let acceptingMatchId=null,acceptingMatchValor=0,selectedTimeAcceptId=null,selectedTimeAcceptData=null;
+    let unsubDisputas=null;
 
     auth.onAuthStateChanged(async user=>{
       if(!user){window.location.href='index.html';return}
       currentUser=user;
-      const doc=await db.collection('usuarios').doc(user.uid).get();
-      if(doc.exists){currentUserData=doc.data();document.getElementById('myCredits').textContent=(currentUserData.creditos||0).toLocaleString()}
+      try{
+        const doc=await db.collection('usuarios').doc(user.uid).get();
+        if(doc.exists){currentUserData=doc.data();document.getElementById('myCredits').textContent=(currentUserData.creditos||0).toLocaleString()}
+      }catch(e){console.error('User data error:',e)}
       carregarDisputas();
       carregarAmigos();
       carregarTimes();
+      limparJogosPresos();
+    });
+
+    // Fix freeze: reload user data when returning from arena/other pages
+    document.addEventListener('visibilitychange',async()=>{
+      if(document.visibilityState==='visible'&&currentUser){
+        try{
+          const doc=await db.collection('usuarios').doc(currentUser.uid).get();
+          if(doc.exists){currentUserData=doc.data();document.getElementById('myCredits').textContent=(currentUserData.creditos||0).toLocaleString()}
+          renderCurrentTab();
+        }catch(e){console.error('Refresh:',e)}
+      }
     });
 
     // SIMPLE QUERY - no composite index needed, just orderBy timestamp
     function carregarDisputas(){
-      db.collection('penaltis').limit(50).onSnapshot(snap=>{
+      if(unsubDisputas) unsubDisputas();
+      unsubDisputas=db.collection('penaltis').limit(50).onSnapshot(snap=>{
         allMatches=[];
         snap.forEach(doc=>allMatches.push({id:doc.id,...doc.data()}));
         allMatches.sort((a,b)=>(b.criadoEm?.seconds||0)-(a.criadoEm?.seconds||0));
@@ -243,16 +259,64 @@
 
     async function carregarAmigos(){
       try{
-        const snap=await db.collection('usuarios').limit(50).get();
+        friendUids=new Set();
         allFriends=[];
+
+        // Load real friendships where user is remetente
+        const snap1=await db.collection('amizades').where('remetenteId','==',currentUser.uid).where('status','==','aceita').get();
+        snap1.forEach(doc=>{const d=doc.data();friendUids.add(d.destinatarioId)});
+
+        // Load real friendships where user is destinatario
+        const snap2=await db.collection('amizades').where('destinatarioId','==',currentUser.uid).where('status','==','aceita').get();
+        snap2.forEach(doc=>{const d=doc.data();friendUids.add(d.remetenteId)});
+
+        console.log('👥 Amigos encontrados:',friendUids.size);
+
+        // Load friend user data
+        if(friendUids.size>0){
+          const uids=Array.from(friendUids);
+          // Firestore 'in' supports max 30 items
+          for(let i=0;i<uids.length;i+=30){
+            const batch=uids.slice(i,i+30);
+            const snap=await db.collection('usuarios').where(firebase.firestore.FieldPath.documentId(),'in',batch).get();
+            snap.forEach(doc=>{
+              if(doc.id===currentUser.uid) return;
+              const d=doc.data();
+              if(d.status==='bloqueado') return;
+              allFriends.push({uid:doc.id,nome:d.usuarioUnico||d.usuario||d.nome||'Jogador',creditos:d.creditos||0,avatarUrl:d.avatarUrl||null,isFriend:true});
+            });
+          }
+        }
+        allFriends.sort((a,b)=>a.nome.localeCompare(b.nome));
+      }catch(e){
+        console.error('Amigos:',e);
+        // Fallback: load all users if amizades query fails (index issue)
+        try{
+          const snap=await db.collection('usuarios').limit(50).get();
+          allFriends=[];
+          snap.forEach(doc=>{
+            if(doc.id===currentUser.uid) return;
+            const d=doc.data();
+            if(d.status==='bloqueado') return;
+            allFriends.push({uid:doc.id,nome:d.usuarioUnico||d.usuario||d.nome||'Jogador',creditos:d.creditos||0,avatarUrl:d.avatarUrl||null,isFriend:false});
+          });
+          allFriends.sort((a,b)=>a.nome.localeCompare(b.nome));
+        }catch(e2){console.error('Fallback:',e2)}
+      }
+    }
+
+    async function buscarTodosUsuarios(){
+      if(allUsers.length>0) return; // already loaded
+      try{
+        const snap=await db.collection('usuarios').limit(100).get();
+        allUsers=[];
         snap.forEach(doc=>{
           if(doc.id===currentUser.uid) return;
           const d=doc.data();
           if(d.status==='bloqueado') return;
-          allFriends.push({uid:doc.id,nome:d.usuarioUnico||d.usuario||d.nome||'Jogador',creditos:d.creditos||0});
+          allUsers.push({uid:doc.id,nome:d.usuarioUnico||d.usuario||d.nome||'Jogador',creditos:d.creditos||0,avatarUrl:d.avatarUrl||null,isFriend:friendUids.has(doc.id)});
         });
-        allFriends.sort((a,b)=>a.nome.localeCompare(b.nome));
-      }catch(e){console.error('Amigos:',e)}
+      }catch(e){console.error('AllUsers:',e)}
     }
 
     async function carregarTimes(){
@@ -361,8 +425,16 @@
       const list=allMatches.filter(d=>d.status==='finalizado'&&(d.jogador1?.uid===currentUser.uid||d.jogador2?.uid===currentUser.uid));
       if(!list.length){c.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><p>Jogue sua primeira disputa!</p></div>';return}
       c.innerHTML=list.map(d=>{
-        const w=d.vencedor===currentUser.uid,op=d.jogador1?.uid===currentUser.uid?d.jogador2?.nome:d.jogador1?.nome;
-        return `<div class="history-card ${w?'win':'loss'}"><div class="history-info"><div class="history-opponent">vs ${op||'???'}</div><div class="history-score">${d.placar?.jogador1||0} × ${d.placar?.jogador2||0} • 💰 ${d.valorAposta}</div></div><span class="history-result ${w?'win':'loss'}">${w?'+'+d.valorAposta:'-'+d.valorAposta}</span></div>`
+        const isTimeout=d.vencedor==='empate_timeout';
+        const wasAbandoned=!!d.abandonou;
+        const w=d.vencedor===currentUser.uid;
+        const op=d.jogador1?.uid===currentUser.uid?d.jogador2?.nome:d.jogador1?.nome;
+        let resultClass,resultText;
+        if(isTimeout){resultClass='draw';resultText='🔄 '+d.valorAposta}
+        else if(w){resultClass='win';resultText='+'+(d.valorAposta*2)}
+        else{resultClass='loss';resultText='-'+d.valorAposta}
+        const suffix=isTimeout?' (empate/tempo)':wasAbandoned?(d.abandonou===currentUser.uid?' (abandonou)':' (W.O.)'):'';
+        return `<div class="history-card ${isTimeout?'':w?'win':'loss'}"><div class="history-info"><div class="history-opponent">vs ${op||'???'}${suffix}</div><div class="history-score">${d.placar?.jogador1||0} × ${d.placar?.jogador2||0} • 💰 ${d.valorAposta}</div></div><span class="history-result ${resultClass}">${resultText}</span></div>`
       }).join('');
     }
 
@@ -386,9 +458,31 @@
 
     function renderFriendsList(filter=''){
       const c=document.getElementById('friendsList');
-      const f=filter?allFriends.filter(x=>x.nome.toLowerCase().includes(filter.toLowerCase())):allFriends;
-      if(!f.length){c.innerHTML='<div class="friends-empty">Nenhum jogador encontrado</div>';return}
-      c.innerHTML=f.map(x=>`<div class="friend-item ${selectedFriendUid===x.uid?'selected':''}" onclick="selectFriend('${x.uid}')"><div class="friend-avatar">${x.nome.charAt(0).toUpperCase()}</div><div class="friend-info"><div class="friend-name">${x.nome}</div><div class="friend-credits">💰 ${x.creditos.toLocaleString()}</div></div><span class="friend-check">✅</span></div>`).join('');
+      let list;
+      if(filter){
+        // When searching, search through all users (load if needed)
+        buscarTodosUsuarios().then(()=>{
+          const combined=[...allFriends,...allUsers.filter(u=>!friendUids.has(u.uid)&&!allFriends.find(f=>f.uid===u.uid))];
+          const filtered=combined.filter(x=>x.nome.toLowerCase().includes(filter.toLowerCase()));
+          renderFriendsListHTML(c,filtered);
+        });
+        // Show friends matching filter immediately while loading all
+        list=allFriends.filter(x=>x.nome.toLowerCase().includes(filter.toLowerCase()));
+      }else{
+        // No filter: show only friends
+        list=allFriends;
+      }
+      renderFriendsListHTML(c,list);
+    }
+
+    function renderFriendsListHTML(c,list){
+      if(!list.length){c.innerHTML='<div class="friends-empty">'+(allFriends.length===0?'Nenhum amigo ainda. Digite para buscar jogadores.':'Nenhum jogador encontrado')+'</div>';return}
+      c.innerHTML=list.map(x=>{
+        const sel=selectedFriendUid===x.uid?'selected':'';
+        const badge=x.isFriend?'<span style="font-size:0.65em;background:rgba(46,213,115,0.15);color:#2ed573;padding:1px 6px;border-radius:4px;margin-left:4px">amigo</span>':'';
+        const avatar=x.avatarUrl?`<img src="${x.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`:`${x.nome.charAt(0).toUpperCase()}`;
+        return `<div class="friend-item ${sel}" onclick="selectFriend('${x.uid}')"><div class="friend-avatar">${avatar}</div><div class="friend-info"><div class="friend-name">${x.nome}${badge}</div><div class="friend-credits">💰 ${x.creditos.toLocaleString()}</div></div><span class="friend-check">✅</span></div>`
+      }).join('');
     }
     function filtrarAmigos(){renderFriendsList(document.getElementById('searchFriend').value)}
     function selectFriend(uid){selectedFriendUid=uid;renderFriendsList(document.getElementById('searchFriend').value)}
@@ -464,6 +558,63 @@
         document.getElementById('myCredits').textContent=currentUserData.creditos.toLocaleString();
         showToast('✅ Cancelada, créditos devolvidos');
       }catch(e){console.error('Cancelar:',e);showToast('❌ Erro')}
+    }
+
+    // AUTO-CLEANUP: finalize stuck games (>10 min em_andamento) + stale aguardando (>1 hour)
+    async function limparJogosPresos(){
+      try{
+        const agora=Date.now();
+        const TIMEOUT=10*60*1000; // 10 minutes for em_andamento
+        const STALE_TIMEOUT=60*60*1000; // 1 hour for aguardando
+
+        // Clean stuck em_andamento games where I'm jogador1 (writer)
+        const snapEm=await db.collection('penaltis').where('status','==','em_andamento').get();
+        for(const doc of snapEm.docs){
+          const d=doc.data();
+          if(!d.criadoEm||!d.criadoEm.toDate) continue;
+          const elapsed=agora-d.criadoEm.toDate().getTime();
+          if(elapsed<TIMEOUT) continue;
+          if(d.jogador1?.uid!==currentUser.uid) continue;
+
+          console.log('🧹 Auto-cleaning stuck game:',doc.id);
+          const p1s=d.placar?.jogador1||0, p2s=d.placar?.jogador2||0;
+          const aposta=d.valorAposta||0;
+
+          if(p1s===p2s){
+            await db.collection('usuarios').doc(d.jogador1.uid).update({creditos:firebase.firestore.FieldValue.increment(aposta)});
+            if(d.jogador2?.uid) await db.collection('usuarios').doc(d.jogador2.uid).update({creditos:firebase.firestore.FieldValue.increment(aposta)});
+            await db.collection('penaltis').doc(doc.id).update({status:'finalizado',vencedor:'empate_timeout'});
+            await db.collection('usuarios').doc(d.jogador1.uid).collection('extrato').doc().set({tipo:'entrada',valor:aposta,descricao:'Pênaltis: empate por tempo (reembolso)',data:firebase.firestore.FieldValue.serverTimestamp()});
+            if(d.jogador2?.uid) await db.collection('usuarios').doc(d.jogador2.uid).collection('extrato').doc().set({tipo:'entrada',valor:aposta,descricao:'Pênaltis: empate por tempo (reembolso)',data:firebase.firestore.FieldValue.serverTimestamp()});
+          }else{
+            const vencedorUid=p1s>p2s?d.jogador1.uid:d.jogador2.uid;
+            const premio=aposta*2;
+            await db.collection('usuarios').doc(vencedorUid).update({creditos:firebase.firestore.FieldValue.increment(premio)});
+            await db.collection('penaltis').doc(doc.id).update({status:'finalizado',vencedor:vencedorUid,timeout:true});
+            await db.collection('usuarios').doc(vencedorUid).collection('extrato').doc().set({tipo:'entrada',valor:premio,descricao:'Pênaltis: vitória por tempo (+'+premio+')',data:firebase.firestore.FieldValue.serverTimestamp()});
+          }
+        }
+
+        // Clean stale aguardando matches (>1 hour, refund creator)
+        const snapAg=await db.collection('penaltis').where('status','==','aguardando').get();
+        for(const doc of snapAg.docs){
+          const d=doc.data();
+          if(!d.criadoEm||!d.criadoEm.toDate) continue;
+          const elapsed=agora-d.criadoEm.toDate().getTime();
+          if(elapsed<STALE_TIMEOUT) continue;
+          if(d.jogador1?.uid!==currentUser.uid) continue;
+
+          console.log('🧹 Auto-canceling stale match:',doc.id);
+          const aposta=d.valorAposta||0;
+          await db.collection('usuarios').doc(d.jogador1.uid).update({creditos:firebase.firestore.FieldValue.increment(aposta)});
+          await db.collection('penaltis').doc(doc.id).update({status:'cancelado'});
+          await db.collection('usuarios').doc(d.jogador1.uid).collection('extrato').doc().set({tipo:'entrada',valor:aposta,descricao:'Pênaltis: disputa expirada (reembolso)',data:firebase.firestore.FieldValue.serverTimestamp()});
+        }
+
+        // Refresh credits display
+        const myDoc=await db.collection('usuarios').doc(currentUser.uid).get();
+        if(myDoc.exists){currentUserData=myDoc.data();document.getElementById('myCredits').textContent=(currentUserData.creditos||0).toLocaleString()}
+      }catch(e){console.error('Cleanup:',e)}
     }
 
     // ABANDONAR (player forfeits - opponent wins)
