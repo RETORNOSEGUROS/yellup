@@ -662,6 +662,14 @@
       background: rgba(255,255,255,0.08);
       color: var(--txt2); box-shadow: none; cursor: default;
     }
+    .btn-abandon {
+      padding: 10px 20px; margin-top: 8px;
+      background: rgba(255,71,87,0.1); border: 1px solid rgba(255,71,87,0.2);
+      border-radius: 10px; color: var(--red); font-family: 'Poppins', sans-serif;
+      font-weight: 600; font-size: 0.75em; cursor: pointer; transition: all 0.3s;
+    }
+    .btn-abandon:hover { background: rgba(255,71,87,0.2); }
+    .match-timer { font-size: 0.7em; color: var(--txt2); margin-top: 6px; text-align: center; }
 
     .waiting-spinner {
       display: inline-block; width: 18px; height: 18px;
@@ -842,6 +850,8 @@
   <div class="controls">
     <div class="instruction waiting" id="instruction">Carregando...</div>
     <button class="btn-confirm" id="btnConfirm" disabled onclick="confirmarEscolha()">Confirmar</button>
+    <div class="match-timer" id="matchTimer"></div>
+    <button class="btn-abandon" onclick="abandonarArena()">🏳️ Abandonar Partida</button>
   </div>
 
   <!-- ============ RESULT OVERLAY ============ -->
@@ -946,6 +956,8 @@
     var selectedZone = null;
     var isProcessing = false;
     var unsubMatch = null;
+    var matchTimerInterval = null;
+    var MATCH_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
     var ZONE_POSITIONS = {
       TL: { x: '18%', y: '18%' }, TC: { x: '50%', y: '12%' }, TR: { x: '82%', y: '18%' },
@@ -997,7 +1009,19 @@
         myRole = matchData.jogador1 && matchData.jogador1.uid === currentUser.uid ? 'jogador1' : 'jogador2';
 
         if (matchData.status === 'finalizado') {
+          clearInterval(matchTimerInterval);
           renderFinished();
+          return;
+        }
+
+        // Start match timer (10 min timeout)
+        startMatchTimer();
+
+        // Check if match timed out (10 minutes since creation or last update)
+        var startTime = matchData.criadoEm ? matchData.criadoEm.toDate().getTime() : Date.now();
+        var elapsed = Date.now() - startTime;
+        if (elapsed >= MATCH_TIMEOUT_MS && matchData.status === 'em_andamento') {
+          handleTimeout();
           return;
         }
 
@@ -1005,6 +1029,89 @@
         renderTracker();
         renderRound();
       });
+    }
+
+    function startMatchTimer() {
+      if (matchTimerInterval) return;
+      matchTimerInterval = setInterval(function() {
+        if (!matchData || !matchData.criadoEm) return;
+        var startTime = matchData.criadoEm.toDate().getTime();
+        var elapsed = Date.now() - startTime;
+        var remaining = Math.max(0, MATCH_TIMEOUT_MS - elapsed);
+        var min = Math.floor(remaining / 60000);
+        var sec = Math.floor((remaining % 60000) / 1000);
+        var timerEl = document.getElementById('matchTimer');
+        if (remaining <= 0) {
+          timerEl.textContent = '⏰ Tempo esgotado!';
+          timerEl.style.color = 'var(--red)';
+          clearInterval(matchTimerInterval);
+          handleTimeout();
+        } else if (remaining <= 120000) {
+          timerEl.textContent = '⏱ ' + min + ':' + (sec < 10 ? '0' : '') + sec + ' restantes';
+          timerEl.style.color = 'var(--red)';
+        } else {
+          timerEl.textContent = '⏱ ' + min + ':' + (sec < 10 ? '0' : '') + sec;
+          timerEl.style.color = 'var(--txt2)';
+        }
+      }, 1000);
+    }
+
+    async function handleTimeout() {
+      if (isProcessing) return;
+      isProcessing = true;
+      try {
+        var docSnap = await db.collection('penaltis').doc(matchId).get();
+        var d = docSnap.data();
+        if (d.status === 'finalizado') return; // already handled
+
+        var p1score = d.placar ? (d.placar.jogador1 || 0) : 0;
+        var p2score = d.placar ? (d.placar.jogador2 || 0) : 0;
+
+        if (p1score === p2score) {
+          // Tie → refund both
+          var aposta = d.valorAposta || 0;
+          await db.collection('usuarios').doc(d.jogador1.uid).update({ creditos: firebase.firestore.FieldValue.increment(aposta) });
+          await db.collection('usuarios').doc(d.jogador2.uid).update({ creditos: firebase.firestore.FieldValue.increment(aposta) });
+          await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: 'empate_timeout' });
+          // Extrato for both
+          await db.collection('usuarios').doc(d.jogador1.uid).collection('extrato').doc().set({ tipo: 'entrada', valor: aposta, descricao: 'Pênaltis: empate por tempo (reembolso)', data: firebase.firestore.FieldValue.serverTimestamp() });
+          await db.collection('usuarios').doc(d.jogador2.uid).collection('extrato').doc().set({ tipo: 'entrada', valor: aposta, descricao: 'Pênaltis: empate por tempo (reembolso)', data: firebase.firestore.FieldValue.serverTimestamp() });
+        } else {
+          // Not tied → whoever is ahead wins
+          var vencedorUid = p1score > p2score ? d.jogador1.uid : d.jogador2.uid;
+          var premio = (d.valorAposta || 0) * 2;
+          await db.collection('usuarios').doc(vencedorUid).update({ creditos: firebase.firestore.FieldValue.increment(premio) });
+          await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: vencedorUid, timeout: true });
+          await db.collection('usuarios').doc(vencedorUid).collection('extrato').doc().set({ tipo: 'entrada', valor: premio, descricao: 'Pênaltis: vitória por tempo (+' + premio + ')', data: firebase.firestore.FieldValue.serverTimestamp() });
+        }
+      } catch (e) {
+        console.error('Timeout error:', e);
+      }
+      isProcessing = false;
+    }
+
+    async function abandonarArena() {
+      if (!confirm('🏳️ Tem certeza? Você perderá seus créditos apostados.')) return;
+      if (isProcessing) return;
+      isProcessing = true;
+      try {
+        var d = matchData;
+        if (!d || d.status !== 'em_andamento') { showToast('❌ Partida não está em andamento'); isProcessing = false; return; }
+        var isP1 = myRole === 'jogador1';
+        var vencedorUid = isP1 ? d.jogador2.uid : d.jogador1.uid;
+        var perdedorUid = currentUser.uid;
+        var premio = (d.valorAposta || 0) * 2;
+        await db.collection('usuarios').doc(vencedorUid).update({ creditos: firebase.firestore.FieldValue.increment(premio) });
+        await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: vencedorUid, abandonou: perdedorUid });
+        var nomeVencedor = isP1 ? d.jogador2.nome : d.jogador1.nome;
+        var nomePerdedor = isP1 ? d.jogador1.nome : d.jogador2.nome;
+        await db.collection('notificacoes').add({ para: vencedorUid, tipo: 'penalti_resultado', titulo: '🏆 Vitória por W.O.!', mensagem: nomePerdedor + ' abandonou a partida! Você ganhou ' + d.valorAposta + ' créditos.', link: 'penaltis.html', lida: false, data: firebase.firestore.FieldValue.serverTimestamp() });
+        await db.collection('usuarios').doc(vencedorUid).collection('extrato').doc().set({ tipo: 'entrada', valor: premio, descricao: 'Pênaltis: vitória por W.O. (+' + premio + ')', data: firebase.firestore.FieldValue.serverTimestamp() });
+      } catch (e) {
+        console.error('Abandon error:', e);
+        showToast('❌ Erro ao abandonar');
+      }
+      isProcessing = false;
     }
 
     // ============================================================
@@ -1040,20 +1147,28 @@
 
       // Apply team colors to avatars and team badges
       if (p1 && p1.time) {
-        document.getElementById('p1Avatar').style.background = 'linear-gradient(135deg,' + p1.time.cor1 + ',' + (p1.time.cor2 || p1.time.cor1) + ')';
+        document.getElementById('p1Avatar').style.background = 'linear-gradient(135deg,' + p1.time.primaria + ',' + (p1.time.secundaria || p1.time.primaria) + ')';
         var t1 = document.getElementById('p1Team');
         t1.textContent = p1.time.abreviacao || p1.time.nome;
-        t1.style.background = p1.time.cor1 + '22';
-        t1.style.color = p1.time.cor1;
+        t1.style.background = p1.time.primaria + '22';
+        t1.style.color = p1.time.primaria;
         t1.style.display = 'inline-block';
       }
       if (p2 && p2.time) {
-        document.getElementById('p2Avatar').style.background = 'linear-gradient(135deg,' + p2.time.cor1 + ',' + (p2.time.cor2 || p2.time.cor1) + ')';
+        document.getElementById('p2Avatar').style.background = 'linear-gradient(135deg,' + p2.time.primaria + ',' + (p2.time.secundaria || p2.time.primaria) + ')';
         var t2 = document.getElementById('p2Team');
         t2.textContent = p2.time.abreviacao || p2.time.nome;
-        t2.style.background = p2.time.cor1 + '22';
-        t2.style.color = p2.time.cor1;
+        t2.style.background = p2.time.primaria + '22';
+        t2.style.color = p2.time.primaria;
         t2.style.display = 'inline-block';
+      }
+
+      // Apply avatar photos if available
+      if (p1 && p1.avatarUrl) {
+        document.getElementById('p1Avatar').innerHTML = '<img src="' + p1.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';
+      }
+      if (p2 && p2.avatarUrl) {
+        document.getElementById('p2Avatar').innerHTML = '<img src="' + p2.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';
       }
 
       // Apply team colors to player characters
@@ -1079,12 +1194,13 @@
       var kArmR = document.getElementById('kArmR');
       var kShorts = document.getElementById('kShorts');
       if (kickerTeam) {
-        var kColor = kickerTeam.cor1 || '#2563eb';
-        var kColor2 = kickerTeam.cor2 || kickerTeam.cor1 || '#1e3a5f';
-        kBody.style.background = 'linear-gradient(180deg,' + kColor + ',' + kColor2 + ')';
+        var kColor = kickerTeam.primaria || '#2563eb';
+        var kColor2 = kickerTeam.secundaria || kickerTeam.primaria || '#1e3a5f';
+        var kColor3 = kickerTeam.terciaria || kickerTeam.primaria || '#1e3a5f';
+        kBody.style.background = 'linear-gradient(180deg,' + kColor + ',' + kColor + ')';
         kArmL.style.background = kColor;
         kArmR.style.background = kColor;
-        kShorts.style.background = kColor2;
+        kShorts.style.background = kColor3;
       } else {
         kBody.style.background = '#2563eb';
         kArmL.style.background = '#2563eb';
@@ -1098,11 +1214,12 @@
       var gkArmR = document.getElementById('gkArmR');
       var gkCap = document.getElementById('gkCap');
       if (keeperTeam) {
-        var gColor = keeperTeam.cor1 || '#22aa22';
+        var gColor = keeperTeam.primaria || '#22aa22';
+        var gColor2 = keeperTeam.terciaria || keeperTeam.primaria || '#22aa22';
         gkBody.style.background = gColor;
         gkArmL.style.background = gColor;
         gkArmR.style.background = gColor;
-        gkCap.style.background = gColor;
+        gkCap.style.background = gColor2;
       } else {
         gkBody.style.background = '#22aa22';
         gkArmL.style.background = '#22aa22';
@@ -1487,6 +1604,8 @@
       renderScoreboard();
       renderTracker();
 
+      var isTimeout = matchData.vencedor === 'empate_timeout';
+      var wasAbandoned = !!matchData.abandonou;
       var ganhei = matchData.vencedor === currentUser.uid;
       var placarStr = (matchData.placar ? matchData.placar.jogador1 || 0 : 0) + ' × ' + (matchData.placar ? matchData.placar.jogador2 || 0 : 0);
       var premio = matchData.valorAposta * 2;
@@ -1498,10 +1617,20 @@
       var credits = document.getElementById('resultCredits');
       var btn = document.getElementById('btnResult');
 
-      if (ganhei) {
+      if (isTimeout) {
+        // Draw due to timeout - both refunded
+        card.className = 'result-card';
+        icon.textContent = '⏰';
+        title.textContent = 'Empate por Tempo';
+        title.style.color = 'var(--accent)';
+        credits.className = 'r-credits';
+        credits.textContent = '🔄 ' + matchData.valorAposta + ' créditos devolvidos';
+        credits.style.color = 'var(--accent)';
+        btn.className = 'btn-result';
+      } else if (ganhei) {
         card.className = 'result-card win';
-        icon.textContent = '🏆';
-        title.textContent = 'VITÓRIA!';
+        icon.textContent = wasAbandoned ? '🏆' : '🏆';
+        title.textContent = wasAbandoned ? 'W.O. - VITÓRIA!' : 'VITÓRIA!';
         title.style.color = 'var(--green)';
         credits.className = 'r-credits win';
         credits.textContent = '+' + premio + ' créditos 💰';
@@ -1509,8 +1638,8 @@
         spawnConfetti();
       } else {
         card.className = 'result-card loss';
-        icon.textContent = '😢';
-        title.textContent = 'Derrota...';
+        icon.textContent = wasAbandoned && matchData.abandonou === currentUser.uid ? '🏳️' : '😢';
+        title.textContent = wasAbandoned && matchData.abandonou === currentUser.uid ? 'Você abandonou' : 'Derrota...';
         title.style.color = 'var(--red)';
         credits.className = 'r-credits loss';
         credits.textContent = '-' + matchData.valorAposta + ' créditos';
