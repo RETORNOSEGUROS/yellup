@@ -1014,45 +1014,51 @@
           return;
         }
 
-        // Start match timer (10 min timeout)
-        startMatchTimer();
-
-        // Check if match timed out (10 minutes since creation or last update)
-        var startTime = matchData.criadoEm ? matchData.criadoEm.toDate().getTime() : Date.now();
-        var elapsed = Date.now() - startTime;
-        if (elapsed >= MATCH_TIMEOUT_MS && matchData.status === 'em_andamento') {
-          handleTimeout();
-          return;
-        }
-
+        // ALWAYS render first - never let timer code block rendering
         renderScoreboard();
         renderTracker();
         renderRound();
+
+        // Then handle timer (wrapped in try-catch so it never blocks the game)
+        try {
+          startMatchTimer();
+          if (matchData.criadoEm && matchData.criadoEm.toDate) {
+            var startTime = matchData.criadoEm.toDate().getTime();
+            var elapsed = Date.now() - startTime;
+            if (elapsed >= MATCH_TIMEOUT_MS && matchData.status === 'em_andamento') {
+              handleTimeout();
+            }
+          }
+        } catch (timerErr) {
+          console.warn('Timer check skipped (timestamp pending):', timerErr);
+        }
       });
     }
 
     function startMatchTimer() {
       if (matchTimerInterval) return;
       matchTimerInterval = setInterval(function() {
-        if (!matchData || !matchData.criadoEm) return;
-        var startTime = matchData.criadoEm.toDate().getTime();
-        var elapsed = Date.now() - startTime;
-        var remaining = Math.max(0, MATCH_TIMEOUT_MS - elapsed);
-        var min = Math.floor(remaining / 60000);
-        var sec = Math.floor((remaining % 60000) / 1000);
-        var timerEl = document.getElementById('matchTimer');
-        if (remaining <= 0) {
-          timerEl.textContent = '⏰ Tempo esgotado!';
-          timerEl.style.color = 'var(--red)';
-          clearInterval(matchTimerInterval);
-          handleTimeout();
-        } else if (remaining <= 120000) {
-          timerEl.textContent = '⏱ ' + min + ':' + (sec < 10 ? '0' : '') + sec + ' restantes';
-          timerEl.style.color = 'var(--red)';
+        try {
+          if (!matchData || !matchData.criadoEm || !matchData.criadoEm.toDate) return;
+          var startTime = matchData.criadoEm.toDate().getTime();
+          var elapsed = Date.now() - startTime;
+          var remaining = Math.max(0, MATCH_TIMEOUT_MS - elapsed);
+          var min = Math.floor(remaining / 60000);
+          var sec = Math.floor((remaining % 60000) / 1000);
+          var timerEl = document.getElementById('matchTimer');
+          if (remaining <= 0) {
+            timerEl.textContent = '⏰ Tempo esgotado!';
+            timerEl.style.color = 'var(--red)';
+            clearInterval(matchTimerInterval);
+            handleTimeout();
+          } else if (remaining <= 120000) {
+            timerEl.textContent = '⏱ ' + min + ':' + (sec < 10 ? '0' : '') + sec + ' restantes';
+            timerEl.style.color = 'var(--red)';
         } else {
           timerEl.textContent = '⏱ ' + min + ':' + (sec < 10 ? '0' : '') + sec;
           timerEl.style.color = 'var(--txt2)';
         }
+        } catch(e) { console.warn('Timer tick error:', e); }
       }, 1000);
     }
 
@@ -1122,10 +1128,13 @@
       var p2 = matchData.jogador2;
       var rodada = matchData.rodadaAtual || 1;
 
+      console.log('🎨 renderScoreboard - p1.time:', p1 && p1.time ? JSON.stringify(p1.time) : 'null');
+      console.log('🎨 renderScoreboard - p2.time:', p2 && p2.time ? JSON.stringify(p2.time) : 'null');
+      console.log('📸 p1.avatarUrl:', p1 ? p1.avatarUrl : 'null');
+      console.log('📸 p2.avatarUrl:', p2 ? p2.avatarUrl : 'null');
+
       document.getElementById('p1Name').textContent = p1 ? p1.nome : '???';
       document.getElementById('p2Name').textContent = p2 ? p2.nome : '???';
-      document.getElementById('p1Avatar').textContent = (p1 ? p1.nome : '?').charAt(0).toUpperCase();
-      document.getElementById('p2Avatar').textContent = (p2 ? p2.nome : '?').charAt(0).toUpperCase();
       document.getElementById('score1').textContent = matchData.placar ? (matchData.placar.jogador1 || 0) : 0;
       document.getElementById('score2').textContent = matchData.placar ? (matchData.placar.jogador2 || 0) : 0;
 
@@ -1145,34 +1154,46 @@
         p2R.textContent = '⚽ Cobrador'; p2R.className = 'sb-role cobrador';
       }
 
-      // Apply team colors to avatars and team badges
-      if (p1 && p1.time) {
-        document.getElementById('p1Avatar').style.background = 'linear-gradient(135deg,' + p1.time.primaria + ',' + (p1.time.secundaria || p1.time.primaria) + ')';
-        var t1 = document.getElementById('p1Team');
-        t1.textContent = p1.time.abreviacao || p1.time.nome;
-        t1.style.background = p1.time.primaria + '22';
-        t1.style.color = p1.time.primaria;
-        t1.style.display = 'inline-block';
-      }
-      if (p2 && p2.time) {
-        document.getElementById('p2Avatar').style.background = 'linear-gradient(135deg,' + p2.time.primaria + ',' + (p2.time.secundaria || p2.time.primaria) + ')';
-        var t2 = document.getElementById('p2Team');
-        t2.textContent = p2.time.abreviacao || p2.time.nome;
-        t2.style.background = p2.time.primaria + '22';
-        t2.style.color = p2.time.primaria;
-        t2.style.display = 'inline-block';
-      }
-
-      // Apply avatar photos if available
+      // Apply avatar photos FIRST (before setting text content which would clear innerHTML)
+      var av1 = document.getElementById('p1Avatar');
+      var av2 = document.getElementById('p2Avatar');
       if (p1 && p1.avatarUrl) {
-        document.getElementById('p1Avatar').innerHTML = '<img src="' + p1.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';
+        av1.innerHTML = '<img src="' + p1.avatarUrl + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';
+      } else {
+        av1.textContent = (p1 ? p1.nome : '?').charAt(0).toUpperCase();
       }
       if (p2 && p2.avatarUrl) {
-        document.getElementById('p2Avatar').innerHTML = '<img src="' + p2.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';
+        av2.innerHTML = '<img src="' + p2.avatarUrl + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';
+      } else {
+        av2.textContent = (p2 ? p2.nome : '?').charAt(0).toUpperCase();
       }
 
-      // Apply team colors to player characters
-      applyTeamColors(cobrador, rodada);
+      // Apply team colors to avatars and team badges
+      try {
+        if (p1 && p1.time && p1.time.primaria) {
+          av1.style.background = 'linear-gradient(135deg,' + p1.time.primaria + ',' + (p1.time.secundaria || p1.time.primaria) + ')';
+          av1.style.boxShadow = '0 3px 14px ' + p1.time.primaria + '66';
+          var t1 = document.getElementById('p1Team');
+          t1.textContent = p1.time.abreviacao || p1.time.nome || '';
+          t1.style.background = p1.time.primaria + '22';
+          t1.style.color = p1.time.primaria;
+          t1.style.display = 'inline-block';
+        }
+        if (p2 && p2.time && p2.time.primaria) {
+          av2.style.background = 'linear-gradient(135deg,' + p2.time.primaria + ',' + (p2.time.secundaria || p2.time.primaria) + ')';
+          av2.style.boxShadow = '0 3px 14px ' + p2.time.primaria + '66';
+          var t2 = document.getElementById('p2Team');
+          t2.textContent = p2.time.abreviacao || p2.time.nome || '';
+          t2.style.background = p2.time.primaria + '22';
+          t2.style.color = p2.time.primaria;
+          t2.style.display = 'inline-block';
+        }
+      } catch(e) { console.error('🚫 Team badge error:', e); }
+
+      // Apply team colors to player characters (jerseys)
+      try {
+        applyTeamColors(cobrador, rodada);
+      } catch(e) { console.error('🚫 applyTeamColors error:', e); }
 
       // Update banner with team names
       var t1n = (p1 && p1.time) ? p1.time.nome : (p1 ? p1.nome : '');
@@ -1187,6 +1208,8 @@
       var keeperRole = cobrador === 'jogador1' ? 'jogador2' : 'jogador1';
       var kickerTeam = matchData[kickerRole] ? matchData[kickerRole].time : null;
       var keeperTeam = matchData[keeperRole] ? matchData[keeperRole].time : null;
+
+      console.log('👕 applyTeamColors - cobrador:', cobrador, 'kickerTeam:', kickerTeam ? kickerTeam.primaria : 'null', 'keeperTeam:', keeperTeam ? keeperTeam.primaria : 'null');
 
       // Kicker jersey
       var kBody = document.getElementById('kBody');
