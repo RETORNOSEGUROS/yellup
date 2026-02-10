@@ -561,19 +561,21 @@
     }
 
     // AUTO-CLEANUP: finalize stuck games (>10 min em_andamento) + stale aguardando (>1 hour)
+    // Each player only updates their OWN credits. Opponent claims via resgatarCreditos()
     async function limparJogosPresos(){
       try{
         const agora=Date.now();
-        const TIMEOUT=10*60*1000; // 10 minutes for em_andamento
-        const STALE_TIMEOUT=60*60*1000; // 1 hour for aguardando
+        const TIMEOUT=10*60*1000;
+        const STALE_TIMEOUT=60*60*1000;
 
-        // Clean stuck em_andamento games where I'm jogador1 (writer)
+        // Clean stuck em_andamento games where I'm involved
         const snapEm=await db.collection('penaltis').where('status','==','em_andamento').get();
         for(const doc of snapEm.docs){
           const d=doc.data();
           if(!d.criadoEm||!d.criadoEm.toDate) continue;
           const elapsed=agora-d.criadoEm.toDate().getTime();
           if(elapsed<TIMEOUT) continue;
+          // Only jogador1 finalizes the match (to avoid double writes)
           if(d.jogador1?.uid!==currentUser.uid) continue;
 
           console.log('🧹 Auto-cleaning stuck game:',doc.id);
@@ -581,21 +583,26 @@
           const aposta=d.valorAposta||0;
 
           if(p1s===p2s){
-            await db.collection('usuarios').doc(d.jogador1.uid).update({creditos:firebase.firestore.FieldValue.increment(aposta)});
-            if(d.jogador2?.uid) await db.collection('usuarios').doc(d.jogador2.uid).update({creditos:firebase.firestore.FieldValue.increment(aposta)});
-            await db.collection('penaltis').doc(doc.id).update({status:'finalizado',vencedor:'empate_timeout'});
-            await db.collection('usuarios').doc(d.jogador1.uid).collection('extrato').doc().set({tipo:'entrada',valor:aposta,descricao:'Pênaltis: empate por tempo (reembolso)',data:firebase.firestore.FieldValue.serverTimestamp()});
-            if(d.jogador2?.uid) await db.collection('usuarios').doc(d.jogador2.uid).collection('extrato').doc().set({tipo:'entrada',valor:aposta,descricao:'Pênaltis: empate por tempo (reembolso)',data:firebase.firestore.FieldValue.serverTimestamp()});
+            // Tie - refund myself (jogador1), store pending for jogador2
+            await db.collection('usuarios').doc(currentUser.uid).update({creditos:firebase.firestore.FieldValue.increment(aposta)});
+            await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({tipo:'entrada',valor:aposta,descricao:'Pênaltis: empate por tempo (reembolso)',data:firebase.firestore.FieldValue.serverTimestamp()});
+            const pendente=d.jogador2?.uid?{uid:d.jogador2.uid,valor:aposta,tipo:'reembolso'}:null;
+            await db.collection('penaltis').doc(doc.id).update({status:'finalizado',vencedor:'empate_timeout',creditoPendente:pendente,j1Resgatado:true});
           }else{
             const vencedorUid=p1s>p2s?d.jogador1.uid:d.jogador2.uid;
             const premio=aposta*2;
-            await db.collection('usuarios').doc(vencedorUid).update({creditos:firebase.firestore.FieldValue.increment(premio)});
-            await db.collection('penaltis').doc(doc.id).update({status:'finalizado',vencedor:vencedorUid,timeout:true});
-            await db.collection('usuarios').doc(vencedorUid).collection('extrato').doc().set({tipo:'entrada',valor:premio,descricao:'Pênaltis: vitória por tempo (+'+premio+')',data:firebase.firestore.FieldValue.serverTimestamp()});
+            // If I'm the winner, credit myself; otherwise store pending
+            if(vencedorUid===currentUser.uid){
+              await db.collection('usuarios').doc(currentUser.uid).update({creditos:firebase.firestore.FieldValue.increment(premio)});
+              await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({tipo:'entrada',valor:premio,descricao:'Pênaltis: vitória por tempo (+'+premio+')',data:firebase.firestore.FieldValue.serverTimestamp()});
+              await db.collection('penaltis').doc(doc.id).update({status:'finalizado',vencedor:vencedorUid,timeout:true,j1Resgatado:true});
+            }else{
+              await db.collection('penaltis').doc(doc.id).update({status:'finalizado',vencedor:vencedorUid,timeout:true,creditoPendente:{uid:vencedorUid,valor:premio,tipo:'vitoria'},j1Resgatado:true});
+            }
           }
         }
 
-        // Clean stale aguardando matches (>1 hour, refund creator)
+        // Clean stale aguardando matches (>1 hour, refund creator = me)
         const snapAg=await db.collection('penaltis').where('status','==','aguardando').get();
         for(const doc of snapAg.docs){
           const d=doc.data();
@@ -606,15 +613,38 @@
 
           console.log('🧹 Auto-canceling stale match:',doc.id);
           const aposta=d.valorAposta||0;
-          await db.collection('usuarios').doc(d.jogador1.uid).update({creditos:firebase.firestore.FieldValue.increment(aposta)});
+          await db.collection('usuarios').doc(currentUser.uid).update({creditos:firebase.firestore.FieldValue.increment(aposta)});
           await db.collection('penaltis').doc(doc.id).update({status:'cancelado'});
-          await db.collection('usuarios').doc(d.jogador1.uid).collection('extrato').doc().set({tipo:'entrada',valor:aposta,descricao:'Pênaltis: disputa expirada (reembolso)',data:firebase.firestore.FieldValue.serverTimestamp()});
+          await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({tipo:'entrada',valor:aposta,descricao:'Pênaltis: disputa expirada (reembolso)',data:firebase.firestore.FieldValue.serverTimestamp()});
         }
+
+        // CLAIM PENDING CREDITS: check finalized games where I'm owed credits
+        await resgatarCreditos();
 
         // Refresh credits display
         const myDoc=await db.collection('usuarios').doc(currentUser.uid).get();
         if(myDoc.exists){currentUserData=myDoc.data();document.getElementById('myCredits').textContent=(currentUserData.creditos||0).toLocaleString()}
       }catch(e){console.error('Cleanup:',e)}
+    }
+
+    // RESGATAR: claim pending credits from finalized games
+    async function resgatarCreditos(){
+      try{
+        // Find games where I have pending credits
+        const snap=await db.collection('penaltis').where('status','==','finalizado').where('creditoPendente.uid','==',currentUser.uid).get();
+        for(const doc of snap.docs){
+          const d=doc.data();
+          const pendente=d.creditoPendente;
+          if(!pendente||pendente.uid!==currentUser.uid) continue;
+
+          console.log('💰 Claiming pending credits from:',doc.id,'valor:',pendente.valor);
+          await db.collection('usuarios').doc(currentUser.uid).update({creditos:firebase.firestore.FieldValue.increment(pendente.valor)});
+          const desc=pendente.tipo==='wo'?`Pênaltis: vitória por W.O. (+${pendente.valor})`:pendente.tipo==='reembolso'?`Pênaltis: empate por tempo (reembolso)`:`Pênaltis: vitória por tempo (+${pendente.valor})`;
+          await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({tipo:'entrada',valor:pendente.valor,descricao:desc,data:firebase.firestore.FieldValue.serverTimestamp()});
+          // Clear the pending flag
+          await db.collection('penaltis').doc(doc.id).update({creditoPendente:firebase.firestore.FieldValue.delete()});
+        }
+      }catch(e){console.error('Resgate:',e)}
     }
 
     // ABANDONAR (player forfeits - opponent wins)
@@ -628,15 +658,20 @@
         const vencedorUid=isP1?d.jogador2.uid:d.jogador1.uid;
         const perdedorUid=currentUser.uid;
         const premio=d.valorAposta*2;
-        // Give credits to winner
-        await db.collection('usuarios').doc(vencedorUid).update({creditos:firebase.firestore.FieldValue.increment(premio)});
-        await db.collection('penaltis').doc(id).update({status:'finalizado',vencedor:vencedorUid,abandonou:perdedorUid});
+        // Only update penaltis doc - credits will be claimed by winner on their next page load
+        await db.collection('penaltis').doc(id).update({
+          status:'finalizado',
+          vencedor:vencedorUid,
+          abandonou:perdedorUid,
+          creditoPendente:{uid:vencedorUid,valor:premio,tipo:'wo'}
+        });
         // Notify winner
-        const nomeVencedor=isP1?d.jogador2.nome:d.jogador1.nome;
         const nomePerdedor=isP1?d.jogador1.nome:d.jogador2.nome;
-        await db.collection('notificacoes').add({para:vencedorUid,tipo:'penalti_resultado',titulo:'🏆 Vitória por W.O.!',mensagem:`${nomePerdedor} abandonou a partida! Você ganhou ${d.valorAposta} créditos.`,link:'penaltis.html',lida:false,data:firebase.firestore.FieldValue.serverTimestamp()});
-        await db.collection('usuarios').doc(vencedorUid).collection('extrato').doc().set({tipo:'entrada',valor:premio,descricao:`Pênaltis: vitória por W.O. (+${premio})`,data:firebase.firestore.FieldValue.serverTimestamp()});
+        try{
+          await db.collection('notificacoes').add({para:vencedorUid,tipo:'penalti_resultado',titulo:'🏆 Vitória por W.O.!',mensagem:`${nomePerdedor} abandonou a partida! Você ganhou ${d.valorAposta} créditos.`,link:'penaltis.html',lida:false,data:firebase.firestore.FieldValue.serverTimestamp()});
+        }catch(e){console.warn('Notif:',e)}
         showToast('🏳️ Partida abandonada. Créditos perdidos.');
+        renderCurrentTab();
       }catch(e){console.error('Abandonar:',e);showToast('❌ Erro ao abandonar')}
     }
 
