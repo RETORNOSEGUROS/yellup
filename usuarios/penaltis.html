@@ -78,6 +78,20 @@
     .friends-empty{text-align:center;padding:30px 10px;color:var(--text-secondary);font-size:0.85em}
     .friends-search{width:100%;padding:10px 14px;margin-bottom:12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text-primary);font-family:'Poppins',sans-serif;font-size:0.85em;outline:none}
     .friends-search:focus{border-color:#3b82f6}
+    .team-picker-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:240px;overflow-y:auto;padding:4px}
+    .team-pick{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px;border-radius:12px;border:2px solid transparent;cursor:pointer;transition:all 0.2s;background:rgba(255,255,255,0.03)}
+    .team-pick:hover{background:rgba(255,255,255,0.06)}
+    .team-pick.selected{border-color:var(--accent-primary);background:rgba(255,159,67,0.12)}
+    .team-pick-shield{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.65em;color:white}
+    .team-pick-name{font-size:0.6em;font-weight:600;color:var(--text-secondary);text-align:center;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .team-pick.selected .team-pick-name{color:var(--accent-primary)}
+    .team-search{width:100%;padding:8px 12px;margin-bottom:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text-primary);font-family:'Poppins',sans-serif;font-size:0.8em;outline:none}
+    .team-search:focus{border-color:var(--accent-primary)}
+    .ranking-link{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;background:linear-gradient(135deg,rgba(168,85,247,0.12),rgba(168,85,247,0.04));border:1px solid rgba(168,85,247,0.25);border-radius:14px;color:#c084fc;font-weight:600;font-size:0.85em;text-decoration:none;margin-bottom:20px;transition:all 0.3s}
+    .ranking-link:hover{background:rgba(168,85,247,0.2);transform:translateY(-1px)}
+    .match-team-badge{display:inline-flex;align-items:center;gap:4px;font-size:0.7em;padding:2px 8px;border-radius:6px;font-weight:600;margin-top:2px}
+    .accept-team-modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:2001;justify-content:center;align-items:center;backdrop-filter:blur(8px)}
+    .accept-team-modal.active{display:flex}
     .history-card{background:var(--bg-card);border:1px solid rgba(255,255,255,0.05);border-radius:14px;padding:14px;display:flex;align-items:center;justify-content:space-between;gap:12px}
     .history-card.win{border-left:3px solid var(--win-green)}.history-card.loss{border-left:3px solid var(--live-red)}
     .history-info{flex:1}.history-opponent{font-weight:600;font-size:0.85em}.history-score{font-size:0.75em;color:var(--text-secondary)}
@@ -108,6 +122,8 @@
       <button class="btn-create" onclick="abrirModalCriar('publica')">⚽ Criar Disputa</button>
       <button class="btn-challenge" onclick="abrirModalCriar('amigo')">👥 Desafiar Amigo</button>
     </div>
+
+    <a href="ranking-penaltis.html" class="ranking-link">🏆 Ver Ranking de Pênaltis →</a>
 
     <div class="tabs">
       <div class="tab active" onclick="switchTab('abertas')" id="tabAbertas">🔴 Abertas</div>
@@ -142,6 +158,11 @@
         </div>
       </div>
       <div class="modal-field">
+        <div class="modal-label">🎽 Escolha seu time</div>
+        <input type="text" class="team-search" id="searchTeam" placeholder="🔍 Buscar time..." oninput="filtrarTimes()">
+        <div class="team-picker-grid" id="teamPickerGrid"><div style="grid-column:span 4;text-align:center;color:var(--text-secondary);font-size:0.8em;padding:20px">Carregando times...</div></div>
+      </div>
+      <div class="modal-field">
         <div class="modal-label">Quanto apostar?</div>
         <div class="modal-presets">
           <button class="preset-btn" onclick="setValor(5)">5</button>
@@ -156,6 +177,22 @@
       <div class="modal-actions">
         <button class="btn-modal-cancel" onclick="fecharModal()">Cancelar</button>
         <button class="btn-modal-confirm" id="btnModalConfirm" onclick="criarDisputa()">⚽ Criar!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACCEPT TEAM MODAL -->
+  <div class="accept-team-modal" id="modalAcceptTeam" onclick="if(event.target===this)fecharAcceptTeam()">
+    <div class="modal-card">
+      <div class="modal-title" id="acceptTeamTitle">🎽 Escolha seu time</div>
+      <div class="modal-field">
+        <div class="modal-label">Selecione o time para esta disputa</div>
+        <input type="text" class="team-search" id="searchTeamAccept" placeholder="🔍 Buscar time..." oninput="filtrarTimesAccept()">
+        <div class="team-picker-grid" id="teamPickerAccept"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-modal-cancel" onclick="fecharAcceptTeam()">Cancelar</button>
+        <button class="btn-modal-confirm" onclick="confirmarAceitar()">⚽ Aceitar!</button>
       </div>
     </div>
   </div>
@@ -178,6 +215,8 @@
     auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>console.error(e));
 
     let currentUser=null,currentUserData=null,allMatches=[],allFriends=[],selectedFriendUid=null,modalMode='publica',currentTab='abertas';
+    let allTimes=[],selectedTimeId=null,selectedTimeData=null;
+    let acceptingMatchId=null,acceptingMatchValor=0,selectedTimeAcceptId=null,selectedTimeAcceptData=null;
 
     auth.onAuthStateChanged(async user=>{
       if(!user){window.location.href='index.html';return}
@@ -186,6 +225,7 @@
       if(doc.exists){currentUserData=doc.data();document.getElementById('myCredits').textContent=(currentUserData.creditos||0).toLocaleString()}
       carregarDisputas();
       carregarAmigos();
+      carregarTimes();
     });
 
     // SIMPLE QUERY - no composite index needed, just orderBy timestamp
@@ -203,7 +243,6 @@
 
     async function carregarAmigos(){
       try{
-        // Load ALL users as potential opponents (simpler, avoids amizades index issues)
         const snap=await db.collection('usuarios').limit(50).get();
         allFriends=[];
         snap.forEach(doc=>{
@@ -215,6 +254,57 @@
         allFriends.sort((a,b)=>a.nome.localeCompare(b.nome));
       }catch(e){console.error('Amigos:',e)}
     }
+
+    async function carregarTimes(){
+      try{
+        const snap=await db.collection('times').orderBy('nome').get();
+        allTimes=[];
+        snap.forEach(doc=>{
+          const d=doc.data();
+          allTimes.push({id:doc.id,nome:d.nome||'Time',abreviacao:d.abreviacao||d.nome?.substring(0,3).toUpperCase()||'???',cor1:d.cor1||d.cores?.principal||'#333',cor2:d.cor2||d.cores?.secundaria||'#666',cor3:d.cor3||d.cores?.terciaria||'#999',escudo:d.escudo||null});
+        });
+        // Pre-select user's favorite team
+        if(currentUserData?.timeId){
+          const fav=allTimes.find(t=>t.id===currentUserData.timeId);
+          if(fav){selectedTimeId=fav.id;selectedTimeData=fav}
+        }
+        renderTimePicker('teamPickerGrid','create');
+        renderTimePicker('teamPickerAccept','accept');
+      }catch(e){console.error('Times:',e);
+        document.getElementById('teamPickerGrid').innerHTML='<div style="grid-column:span 4;text-align:center;color:var(--text-secondary);font-size:0.75em;padding:12px">Opcional - jogue sem time</div>';
+      }
+    }
+
+    function renderTimePicker(containerId,mode,filter=''){
+      const c=document.getElementById(containerId);
+      const list=filter?allTimes.filter(t=>t.nome.toLowerCase().includes(filter.toLowerCase())):allTimes;
+      const selId=mode==='create'?selectedTimeId:selectedTimeAcceptId;
+
+      if(!list.length){c.innerHTML='<div style="grid-column:span 4;text-align:center;color:var(--text-secondary);font-size:0.75em;padding:12px">'+(filter?'Nenhum time encontrado':'Nenhum time cadastrado')+'</div>';return}
+
+      c.innerHTML=list.map(t=>{
+        const sel=selId===t.id?'selected':'';
+        return `<div class="team-pick ${sel}" onclick="${mode==='create'?'selectTime':'selectTimeAccept'}('${t.id}')">
+          <div class="team-pick-shield" style="background:linear-gradient(135deg,${t.cor1},${t.cor2})">${t.abreviacao.substring(0,3)}</div>
+          <div class="team-pick-name">${t.nome}</div>
+        </div>`;
+      }).join('');
+    }
+
+    function selectTime(id){
+      const t=allTimes.find(x=>x.id===id);
+      if(selectedTimeId===id){selectedTimeId=null;selectedTimeData=null}
+      else{selectedTimeId=id;selectedTimeData=t}
+      renderTimePicker('teamPickerGrid','create',document.getElementById('searchTeam').value);
+    }
+    function selectTimeAccept(id){
+      const t=allTimes.find(x=>x.id===id);
+      if(selectedTimeAcceptId===id){selectedTimeAcceptId=null;selectedTimeAcceptData=null}
+      else{selectedTimeAcceptId=id;selectedTimeAcceptData=t}
+      renderTimePicker('teamPickerAccept','accept',document.getElementById('searchTeamAccept').value);
+    }
+    function filtrarTimes(){renderTimePicker('teamPickerGrid','create',document.getElementById('searchTeam').value)}
+    function filtrarTimesAccept(){renderTimePicker('teamPickerAccept','accept',document.getElementById('searchTeamAccept').value)}
 
     // TABS
     function switchTab(tab){
@@ -239,7 +329,8 @@
       if(!list.length){c.innerHTML='<div class="empty-state"><div class="empty-icon">😴</div><p>Nenhuma disputa aberta. Crie uma!</p></div>';return}
       c.innerHTML=list.map(d=>{
         const nome=d.jogador1?.nome||'Jogador',ini=nome.charAt(0).toUpperCase(),tempo=d.criadoEm?.toDate?tempoRelativo(d.criadoEm.toDate()):'',isDesafio=d.desafiadoUid===currentUser.uid;
-        return `<div class="match-card"><div class="match-top"><div class="match-creator"><div class="match-avatar">${ini}</div><div><div class="match-name">${nome}</div><div class="match-time">${tempo}</div></div></div><span class="match-status status-aguardando">${isDesafio?'📩 Desafio':'Aguardando'}</span></div>${isDesafio?'<div class="match-challenge-info">👊 Você foi desafiado!</div>':''}<div class="match-middle"><div><div class="match-bet-value">💰 ${d.valorAposta}</div><div class="match-bet-label">créditos cada</div></div></div><button class="btn-accept" onclick="aceitarDisputa('${d.id}',${d.valorAposta})">⚽ Aceitar Desafio!</button></div>`
+        const teamBadge=d.jogador1?.time?`<div class="match-team-badge" style="background:${d.jogador1.time.cor1}22;color:${d.jogador1.time.cor1}">${d.jogador1.time.abreviacao}</div>`:'';
+        return `<div class="match-card"><div class="match-top"><div class="match-creator"><div class="match-avatar" ${d.jogador1?.time?'style="background:linear-gradient(135deg,'+d.jogador1.time.cor1+','+d.jogador1.time.cor2+')"':''}>${ini}</div><div><div class="match-name">${nome}</div>${teamBadge}<div class="match-time">${tempo}</div></div></div><span class="match-status status-aguardando">${isDesafio?'📩 Desafio':'Aguardando'}</span></div>${isDesafio?'<div class="match-challenge-info">👊 Você foi desafiado!</div>':''}<div class="match-middle"><div><div class="match-bet-value">💰 ${d.valorAposta}</div><div class="match-bet-label">créditos cada</div></div></div><button class="btn-accept" onclick="aceitarDisputa('${d.id}',${d.valorAposta})">⚽ Aceitar Desafio!</button></div>`
       }).join('');
     }
 
@@ -306,7 +397,9 @@
       try{
         const nome=currentUserData.usuarioUnico||currentUserData.usuario||currentUserData.nome||'Jogador';
         await db.collection('usuarios').doc(currentUser.uid).update({creditos:firebase.firestore.FieldValue.increment(-valor)});
-        const matchData={jogador1:{uid:currentUser.uid,nome},jogador2:null,status:'aguardando',valorAposta:valor,rodadaAtual:1,rodadas:[],placar:{jogador1:0,jogador2:0},escolhaJogador1:null,escolhaJogador2:null,vencedor:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp()};
+        const j1={uid:currentUser.uid,nome};
+        if(selectedTimeData) j1.time={id:selectedTimeData.id,nome:selectedTimeData.nome,cor1:selectedTimeData.cor1,cor2:selectedTimeData.cor2,cor3:selectedTimeData.cor3,abreviacao:selectedTimeData.abreviacao};
+        const matchData={jogador1:j1,jogador2:null,status:'aguardando',valorAposta:valor,rodadaAtual:1,rodadas:[],placar:{jogador1:0,jogador2:0},escolhaJogador1:null,escolhaJogador2:null,vencedor:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp()};
         if(modalMode==='amigo'&&selectedFriendUid){
           const amigo=allFriends.find(f=>f.uid===selectedFriendUid);
           matchData.desafiadoUid=selectedFriendUid;
@@ -322,13 +415,26 @@
       }catch(e){console.error('Criar:',e);showToast('❌ Erro ao criar')}
     }
 
-    // ACEITAR
-    async function aceitarDisputa(id,valor){
+    // ACEITAR - show team picker first
+    function aceitarDisputa(id,valor){
       if((currentUserData?.creditos||0)<valor){showToast('❌ Créditos insuficientes');return}
+      acceptingMatchId=id;acceptingMatchValor=valor;
+      selectedTimeAcceptId=selectedTimeId;selectedTimeAcceptData=selectedTimeData; // pre-select favorite
+      renderTimePicker('teamPickerAccept','accept');
+      document.getElementById('modalAcceptTeam').classList.add('active');
+    }
+    function fecharAcceptTeam(){document.getElementById('modalAcceptTeam').classList.remove('active');acceptingMatchId=null}
+
+    async function confirmarAceitar(){
+      if(!acceptingMatchId) return;
+      const id=acceptingMatchId,valor=acceptingMatchValor;
+      document.getElementById('modalAcceptTeam').classList.remove('active');
       try{
         const nome=currentUserData.usuarioUnico||currentUserData.usuario||currentUserData.nome||'Jogador';
         await db.collection('usuarios').doc(currentUser.uid).update({creditos:firebase.firestore.FieldValue.increment(-valor)});
-        await db.collection('penaltis').doc(id).update({jogador2:{uid:currentUser.uid,nome},status:'em_andamento'});
+        const j2={uid:currentUser.uid,nome};
+        if(selectedTimeAcceptData) j2.time={id:selectedTimeAcceptData.id,nome:selectedTimeAcceptData.nome,cor1:selectedTimeAcceptData.cor1,cor2:selectedTimeAcceptData.cor2,cor3:selectedTimeAcceptData.cor3,abreviacao:selectedTimeAcceptData.abreviacao};
+        await db.collection('penaltis').doc(id).update({jogador2:j2,status:'em_andamento'});
         await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({tipo:'saida',valor,descricao:`Pênaltis: aposta de ${valor} créditos`,data:firebase.firestore.FieldValue.serverTimestamp()});
         currentUserData.creditos-=valor;
         document.getElementById('myCredits').textContent=currentUserData.creditos.toLocaleString();
