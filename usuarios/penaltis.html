@@ -261,7 +261,7 @@
         allTimes=[];
         snap.forEach(doc=>{
           const d=doc.data();
-          allTimes.push({id:doc.id,nome:d.nome||'Time',abreviacao:d.abreviacao||d.nome?.substring(0,3).toUpperCase()||'???',cor1:d.cor1||d.cores?.principal||'#333',cor2:d.cor2||d.cores?.secundaria||'#666',cor3:d.cor3||d.cores?.terciaria||'#999',escudo:d.escudo||null});
+          allTimes.push({id:doc.id,nome:d.nome||'Time',abreviacao:d.abreviacao||d.nome?.substring(0,3).toUpperCase()||'???',primaria:d.primaria||'#333',secundaria:d.secundaria||'#fff',terciaria:d.terciaria||'#333',escudo:d.escudo||null});
         });
         // Pre-select user's favorite team
         if(currentUserData?.timeId){
@@ -285,7 +285,7 @@
       c.innerHTML=list.map(t=>{
         const sel=selId===t.id?'selected':'';
         return `<div class="team-pick ${sel}" onclick="${mode==='create'?'selectTime':'selectTimeAccept'}('${t.id}')">
-          <div class="team-pick-shield" style="background:linear-gradient(135deg,${t.cor1},${t.cor2})">${t.abreviacao.substring(0,3)}</div>
+          <div class="team-pick-shield" style="background:linear-gradient(135deg,${t.primaria},${t.secundaria})">${t.abreviacao.substring(0,3)}</div>
           <div class="team-pick-name">${t.nome}</div>
         </div>`;
       }).join('');
@@ -329,8 +329,10 @@
       if(!list.length){c.innerHTML='<div class="empty-state"><div class="empty-icon">😴</div><p>Nenhuma disputa aberta. Crie uma!</p></div>';return}
       c.innerHTML=list.map(d=>{
         const nome=d.jogador1?.nome||'Jogador',ini=nome.charAt(0).toUpperCase(),tempo=d.criadoEm?.toDate?tempoRelativo(d.criadoEm.toDate()):'',isDesafio=d.desafiadoUid===currentUser.uid;
-        const teamBadge=d.jogador1?.time?`<div class="match-team-badge" style="background:${d.jogador1.time.cor1}22;color:${d.jogador1.time.cor1}">${d.jogador1.time.abreviacao}</div>`:'';
-        return `<div class="match-card"><div class="match-top"><div class="match-creator"><div class="match-avatar" ${d.jogador1?.time?'style="background:linear-gradient(135deg,'+d.jogador1.time.cor1+','+d.jogador1.time.cor2+')"':''}>${ini}</div><div><div class="match-name">${nome}</div>${teamBadge}<div class="match-time">${tempo}</div></div></div><span class="match-status status-aguardando">${isDesafio?'📩 Desafio':'Aguardando'}</span></div>${isDesafio?'<div class="match-challenge-info">👊 Você foi desafiado!</div>':''}<div class="match-middle"><div><div class="match-bet-value">💰 ${d.valorAposta}</div><div class="match-bet-label">créditos cada</div></div></div><button class="btn-accept" onclick="aceitarDisputa('${d.id}',${d.valorAposta})">⚽ Aceitar Desafio!</button></div>`
+        const teamBadge=d.jogador1?.time?`<div class="match-team-badge" style="background:${d.jogador1.time.primaria}22;color:${d.jogador1.time.primaria}">${d.jogador1.time.abreviacao||d.jogador1.time.nome}</div>`:'';
+        const avatarContent=d.jogador1?.avatarUrl?`<img src="${d.jogador1.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`:`${ini}`;
+        const avatarStyle=d.jogador1?.time?`style="background:linear-gradient(135deg,${d.jogador1.time.primaria},${d.jogador1.time.secundaria})"`:'';
+        return `<div class="match-card"><div class="match-top"><div class="match-creator"><div class="match-avatar" ${avatarStyle}>${avatarContent}</div><div><div class="match-name">${nome}</div>${teamBadge}<div class="match-time">${tempo}</div></div></div><span class="match-status status-aguardando">${isDesafio?'📩 Desafio':'Aguardando'}</span></div>${isDesafio?'<div class="match-challenge-info">👊 Você foi desafiado!</div>':''}<div class="match-middle"><div><div class="match-bet-value">💰 ${d.valorAposta}</div><div class="match-bet-label">créditos cada</div></div></div><button class="btn-accept" onclick="aceitarDisputa('${d.id}',${d.valorAposta})">⚽ Aceitar Desafio!</button></div>`
       }).join('');
     }
 
@@ -345,7 +347,10 @@
         let info='';if(isAg&&d.desafiadoNome)info=`<div class="match-challenge-info">📩 Desafio enviado para <strong>${d.desafiadoNome}</strong></div>`;
         let btns='';
         if(isAg&&isCr)btns=`<button class="btn-cancel-match" onclick="cancelarDisputa('${d.id}')">❌ Cancelar</button>`;
-        else if(d.status==='em_andamento')btns=`<button class="btn-enter" onclick="window.location.href='arena-penalti.html?id=${d.id}'">🎯 Entrar na Arena</button>`;
+        else if(d.status==='em_andamento'){
+          btns=`<button class="btn-enter" onclick="window.location.href='arena-penalti.html?id=${d.id}'">🎯 Entrar na Arena</button>`;
+          btns+=`<button class="btn-cancel-match" onclick="abandonarDisputa('${d.id}')">🏳️ Abandonar Partida</button>`;
+        }
         return `<div class="match-card my-match"><div class="match-top"><div class="match-creator"><div class="match-avatar">⚽</div><div><div class="match-name">vs ${op}</div><div class="match-time">${!isAg?'Rodada '+(d.rodadaAtual||1)+' • '+placar+' • ':''}💰 ${d.valorAposta}</div></div></div><span class="match-status ${isAg?'status-aguardando':'status-em-andamento'}">${isAg?'Aguardando':'Ao Vivo'}</span></div>${info}${btns}</div>`
       }).join('');
     }
@@ -397,8 +402,8 @@
       try{
         const nome=currentUserData.usuarioUnico||currentUserData.usuario||currentUserData.nome||'Jogador';
         await db.collection('usuarios').doc(currentUser.uid).update({creditos:firebase.firestore.FieldValue.increment(-valor)});
-        const j1={uid:currentUser.uid,nome};
-        if(selectedTimeData) j1.time={id:selectedTimeData.id,nome:selectedTimeData.nome,cor1:selectedTimeData.cor1,cor2:selectedTimeData.cor2,cor3:selectedTimeData.cor3,abreviacao:selectedTimeData.abreviacao};
+        const j1={uid:currentUser.uid,nome,avatarUrl:currentUserData.avatarUrl||null};
+        if(selectedTimeData) j1.time={id:selectedTimeData.id,nome:selectedTimeData.nome,primaria:selectedTimeData.primaria,secundaria:selectedTimeData.secundaria,terciaria:selectedTimeData.terciaria,abreviacao:selectedTimeData.abreviacao};
         const matchData={jogador1:j1,jogador2:null,status:'aguardando',valorAposta:valor,rodadaAtual:1,rodadas:[],placar:{jogador1:0,jogador2:0},escolhaJogador1:null,escolhaJogador2:null,vencedor:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp()};
         if(modalMode==='amigo'&&selectedFriendUid){
           const amigo=allFriends.find(f=>f.uid===selectedFriendUid);
@@ -432,8 +437,8 @@
       try{
         const nome=currentUserData.usuarioUnico||currentUserData.usuario||currentUserData.nome||'Jogador';
         await db.collection('usuarios').doc(currentUser.uid).update({creditos:firebase.firestore.FieldValue.increment(-valor)});
-        const j2={uid:currentUser.uid,nome};
-        if(selectedTimeAcceptData) j2.time={id:selectedTimeAcceptData.id,nome:selectedTimeAcceptData.nome,cor1:selectedTimeAcceptData.cor1,cor2:selectedTimeAcceptData.cor2,cor3:selectedTimeAcceptData.cor3,abreviacao:selectedTimeAcceptData.abreviacao};
+        const j2={uid:currentUser.uid,nome,avatarUrl:currentUserData.avatarUrl||null};
+        if(selectedTimeAcceptData) j2.time={id:selectedTimeAcceptData.id,nome:selectedTimeAcceptData.nome,primaria:selectedTimeAcceptData.primaria,secundaria:selectedTimeAcceptData.secundaria,terciaria:selectedTimeAcceptData.terciaria,abreviacao:selectedTimeAcceptData.abreviacao};
         await db.collection('penaltis').doc(id).update({jogador2:j2,status:'em_andamento'});
         await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({tipo:'saida',valor,descricao:`Pênaltis: aposta de ${valor} créditos`,data:firebase.firestore.FieldValue.serverTimestamp()});
         currentUserData.creditos-=valor;
@@ -456,6 +461,29 @@
         document.getElementById('myCredits').textContent=currentUserData.creditos.toLocaleString();
         showToast('✅ Cancelada, créditos devolvidos');
       }catch(e){console.error('Cancelar:',e);showToast('❌ Erro')}
+    }
+
+    // ABANDONAR (player forfeits - opponent wins)
+    async function abandonarDisputa(id){
+      if(!confirm('🏳️ Tem certeza? Você perderá seus créditos apostados.')) return;
+      try{
+        const doc=await db.collection('penaltis').doc(id).get();
+        const d=doc.data();
+        if(d.status!=='em_andamento'){showToast('❌ Partida não está em andamento');return}
+        const isP1=d.jogador1?.uid===currentUser.uid;
+        const vencedorUid=isP1?d.jogador2.uid:d.jogador1.uid;
+        const perdedorUid=currentUser.uid;
+        const premio=d.valorAposta*2;
+        // Give credits to winner
+        await db.collection('usuarios').doc(vencedorUid).update({creditos:firebase.firestore.FieldValue.increment(premio)});
+        await db.collection('penaltis').doc(id).update({status:'finalizado',vencedor:vencedorUid,abandonou:perdedorUid});
+        // Notify winner
+        const nomeVencedor=isP1?d.jogador2.nome:d.jogador1.nome;
+        const nomePerdedor=isP1?d.jogador1.nome:d.jogador2.nome;
+        await db.collection('notificacoes').add({para:vencedorUid,tipo:'penalti_resultado',titulo:'🏆 Vitória por W.O.!',mensagem:`${nomePerdedor} abandonou a partida! Você ganhou ${d.valorAposta} créditos.`,link:'penaltis.html',lida:false,data:firebase.firestore.FieldValue.serverTimestamp()});
+        await db.collection('usuarios').doc(vencedorUid).collection('extrato').doc().set({tipo:'entrada',valor:premio,descricao:`Pênaltis: vitória por W.O. (+${premio})`,data:firebase.firestore.FieldValue.serverTimestamp()});
+        showToast('🏳️ Partida abandonada. Créditos perdidos.');
+      }catch(e){console.error('Abandonar:',e);showToast('❌ Erro ao abandonar')}
     }
 
     function tempoRelativo(date){const d=Date.now()-date.getTime(),m=Math.floor(d/60000);if(m<1)return'Agora';if(m<60)return m+'min';const h=Math.floor(m/60);if(h<24)return h+'h';return Math.floor(h/24)+'d'}
