@@ -447,6 +447,53 @@
       opacity: 1;
     }
 
+    /* Info Grid */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .info-card {
+      background: linear-gradient(135deg, rgba(30,41,54,0.9), rgba(24,34,46,0.9));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+    }
+    .info-card-value { font-size: 1.2em; font-weight: 800; color: #ffb547; }
+    .info-card-label { font-size: 0.75em; color: #a9b5c6; margin-top: 2px; }
+
+    /* Share Button */
+    .btn-share {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+    }
+
+    /* Confetti */
+    .confetti-container {
+      position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none; z-index: 999; overflow: hidden;
+    }
+    .confetti {
+      position: absolute; top: -10px;
+      animation: confettiFall 3s ease-in forwards;
+    }
+    @keyframes confettiFall {
+      0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+    }
+
+    /* Trophy bounce */
+    .torneio-header .torneio-badge {
+      animation: trophyBounce 2s ease infinite;
+    }
+    @keyframes trophyBounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+    }
+
     /* Loading */
     .loading-container {
       display: flex;
@@ -494,9 +541,29 @@
     
     <!-- Header do Torneio -->
     <div class="torneio-header">
-      <div class="torneio-badge">🏁 Finalizado</div>
+      <div class="torneio-badge" id="torneioBadge">🏁 Finalizado</div>
       <h1 class="torneio-nome" id="torneioNome">Carregando...</h1>
       <p class="torneio-codigo" id="torneioCodigo">...</p>
+    </div>
+
+    <!-- Info Grid -->
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="info-card-value" id="infoParticipantes">0</div>
+        <div class="info-card-label">Participantes</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-value" id="infoPrizePool">0 💎</div>
+        <div class="info-card-label">Prize Pool</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-value" id="infoPerguntas">0</div>
+        <div class="info-card-label">Perguntas total</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-value" id="infoDuracao">0 min</div>
+        <div class="info-card-label">Duração</div>
+      </div>
     </div>
 
     <!-- Pódio -->
@@ -573,10 +640,14 @@
     <!-- Ações -->
     <div class="actions">
       <a href="torneios.html" class="btn-action primary">🏆 Ver Outros Torneios</a>
+      <button class="btn-action btn-share" onclick="compartilhar()" style="border:none; cursor:pointer; font-family:'Poppins',sans-serif; font-weight:700; font-size:1em; padding:16px 24px; border-radius:14px; background:linear-gradient(135deg,#10b981,#059669); color:#fff;">📤 Compartilhar</button>
       <a href="painel.html" class="btn-action secondary">🏠 Voltar ao Painel</a>
     </div>
 
   </div>
+
+  <!-- Confetti -->
+  <div class="confetti-container" id="confettiContainer"></div>
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>
@@ -688,6 +759,27 @@
       document.getElementById('torneioNome').textContent = torneioData.nome || 'Torneio';
       document.getElementById('torneioCodigo').textContent = torneioData.codigo || '';
       
+      // Badge dinâmico
+      const badge = document.getElementById('torneioBadge');
+      if (torneioData.status === 'finalizado') {
+        badge.textContent = '🏁 Finalizado';
+      } else if (torneioData.status === 'em_andamento') {
+        badge.textContent = '🟡 Em Andamento';
+        badge.style.background = 'rgba(255,181,71,0.15)';
+        badge.style.color = '#ffb547';
+      } else if (torneioData.status === 'cancelado') {
+        badge.textContent = '❌ Cancelado';
+        badge.style.background = 'rgba(239,68,68,0.15)';
+        badge.style.color = '#ef4444';
+      }
+      
+      // Info grid
+      document.getElementById('infoParticipantes').textContent = participacoes.length;
+      document.getElementById('infoPrizePool').textContent = (torneioData.prizePool || 0) + ' 💎';
+      const totalPerguntas = participacoes.reduce((sum, p) => sum + ((p.acertos || 0) + (p.erros || 0)), 0);
+      document.getElementById('infoPerguntas').textContent = totalPerguntas;
+      document.getElementById('infoDuracao').textContent = (torneioData.config?.duracaoFase || 15) + ' min';
+      
       // Resultado salvo ou calcular
       const resultado = torneioData.resultado || {};
       const distribuicao = torneioData.config?.distribuicaoPremio || { primeiro: 50, segundo: 30, terceiro: 20 };
@@ -709,6 +801,14 @@
       
       // Ranking completo
       renderizarRanking(distribuicao, prizePool);
+      
+      // Confetti para top 3
+      if (torneioData.status === 'finalizado') {
+        const meuIndex = participacoes.findIndex(p => p.odId === currentUserId);
+        if (meuIndex >= 0 && meuIndex < 3) {
+          setTimeout(spawnConfetti, 500);
+        }
+      }
     }
 
     // ===================================
@@ -824,6 +924,57 @@
       toast.textContent = message;
       toast.classList.add('show');
       setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // ===================================
+    // 🎊 CONFETTI
+    // ===================================
+    function spawnConfetti() {
+      const container = document.getElementById('confettiContainer');
+      if (!container) return;
+      const colors = ['#FFD700', '#ffb547', '#ff8c42', '#10b981', '#3b82f6', '#a855f7', '#ff4757'];
+      for (let i = 0; i < 60; i++) {
+        const c = document.createElement('div');
+        c.className = 'confetti';
+        c.style.left = Math.random() * 100 + '%';
+        c.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+        c.style.animationDelay = Math.random() * 1.5 + 's';
+        c.style.animationDuration = (2 + Math.random() * 2) + 's';
+        c.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+        c.style.width = (6 + Math.random() * 8) + 'px';
+        c.style.height = (6 + Math.random() * 8) + 'px';
+        container.appendChild(c);
+        setTimeout(() => c.remove(), 5000);
+      }
+    }
+
+    // ===================================
+    // 📤 COMPARTILHAR
+    // ===================================
+    function compartilhar() {
+      const meuIndex = participacoes.findIndex(p => p.odId === currentUserId);
+      const posicao = meuIndex >= 0 ? (meuIndex + 1) : null;
+      const pontos = meuIndex >= 0 ? (participacoes[meuIndex].pontos || 0) : 0;
+
+      let texto = `🏆 Torneio: ${torneioData.nome}\n`;
+      if (posicao) {
+        const medals = { 1: '🥇', 2: '🥈', 3: '🥉' };
+        texto += `${medals[posicao] || '📊'} Fiquei em ${posicao}º lugar com ${pontos} pontos!\n`;
+      }
+      texto += `\nJogue na Yellup! ⚽🎮`;
+
+      if (navigator.share) {
+        navigator.share({ title: 'Resultado do Torneio - Yellup', text: texto })
+          .catch(() => copiarTexto(texto));
+      } else {
+        copiarTexto(texto);
+      }
+    }
+
+    function copiarTexto(texto) {
+      navigator.clipboard.writeText(texto).then(() => {
+        showToast('📋 Copiado para a área de transferência!');
+      }).catch(() => showToast('❌ Erro ao copiar'));
     }
 
     console.log("✅ Resultado Torneio carregado");
