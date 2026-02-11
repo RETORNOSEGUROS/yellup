@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin | Suporte</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0E141B; --bg2: #151D28; --bg3: #1A2332; --card: #1E2A3A;
+      --border: rgba(255,255,255,.06);
+      --gold: #FFB547; --gold2: #FF8C42;
+      --green: #0D9668; --red: #FF4757; --blue: #3B82F6;
+      --text: #F1F1F1; --muted: #8B95A5;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Poppins', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; }
+
+    /* ===== SIDEBAR (ticket list) ===== */
+    .sidebar {
+      width: 360px; min-width: 360px;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      height: 100vh;
+    }
+    .sidebar-header {
+      padding: 16px; border-bottom: 1px solid var(--border);
+    }
+    .sidebar-header h2 { font-size: 1em; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .sidebar-header h2 span { font-size: .7em; background: var(--red); color: #fff; padding: 2px 8px; border-radius: 20px; }
+    .filters {
+      display: flex; gap: 6px; padding: 10px 16px;
+      overflow-x: auto; border-bottom: 1px solid var(--border);
+    }
+    .filter-btn {
+      padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); font-family: inherit;
+      font-size: .72em; font-weight: 600; cursor: pointer;
+      white-space: nowrap; transition: all .2s;
+    }
+    .filter-btn.active { background: var(--gold); color: var(--bg); border-color: var(--gold); }
+    .filter-btn:hover:not(.active) { background: rgba(255,255,255,.05); }
+
+    .ticket-list { flex: 1; overflow-y: auto; }
+    .t-item {
+      padding: 14px 16px; border-bottom: 1px solid var(--border);
+      cursor: pointer; transition: all .15s; position: relative;
+    }
+    .t-item:hover { background: rgba(255,255,255,.03); }
+    .t-item.active { background: rgba(255,181,71,.06); border-left: 3px solid var(--gold); }
+    .t-item.unread::after {
+      content: ''; position: absolute; top: 18px; right: 16px;
+      width: 8px; height: 8px; border-radius: 50%; background: var(--gold);
+    }
+    .t-user { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .t-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: .7em; font-weight: 700; color: var(--bg); overflow: hidden; flex-shrink: 0;
+    }
+    .t-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .t-name { font-size: .82em; font-weight: 600; flex: 1; }
+    .t-time { font-size: .65em; color: var(--muted); }
+    .t-subject { font-size: .78em; font-weight: 500; margin-bottom: 2px; }
+    .t-preview { font-size: .72em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .t-tags { display: flex; gap: 4px; margin-top: 4px; }
+    .t-tag {
+      font-size: .6em; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+    }
+    .t-tag.aberto { background: rgba(59,130,246,.12); color: var(--blue); }
+    .t-tag.em_andamento { background: rgba(255,181,71,.12); color: var(--gold); }
+    .t-tag.resolvido { background: rgba(13,150,104,.12); color: var(--green); }
+    .t-tag.fechado { background: rgba(255,255,255,.05); color: var(--muted); }
+
+    .empty-list { text-align: center; padding: 60px 20px; color: var(--muted); font-size: .85em; }
+
+    /* ===== MAIN (chat) ===== */
+    .main { flex: 1; display: flex; flex-direction: column; height: 100vh; }
+
+    /* Chat header */
+    .chat-header {
+      padding: 14px 20px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .ch-info h3 { font-size: .9em; font-weight: 700; }
+    .ch-info p { font-size: .72em; color: var(--muted); }
+    .ch-actions { display: flex; gap: 6px; }
+    .ch-btn {
+      padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border);
+      background: transparent; color: var(--text); font-family: inherit;
+      font-size: .72em; font-weight: 600; cursor: pointer; transition: all .2s;
+    }
+    .ch-btn:hover { background: rgba(255,255,255,.05); }
+    .ch-btn.green { border-color: var(--green); color: var(--green); }
+    .ch-btn.green:hover { background: rgba(13,150,104,.1); }
+    .ch-btn.red { border-color: var(--red); color: var(--red); }
+    .ch-btn.red:hover { background: rgba(255,71,87,.1); }
+    .ch-btn.gold { border-color: var(--gold); color: var(--gold); }
+    .ch-btn.gold:hover { background: rgba(255,181,71,.1); }
+
+    /* Messages */
+    .messages { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 6px; }
+    .msg-date { text-align: center; font-size: .65em; color: var(--muted); font-weight: 600; margin: 10px 0 6px; }
+    .msg {
+      max-width: 70%; padding: 10px 14px; border-radius: 16px;
+      font-size: .82em; line-height: 1.45; animation: fadeIn .2s;
+    }
+    .msg.user {
+      background: var(--card); border: 1px solid var(--border);
+      align-self: flex-start; border-bottom-left-radius: 4px;
+    }
+    .msg.admin {
+      background: linear-gradient(135deg, #D4941E, #FF8C42);
+      color: var(--bg); align-self: flex-end; border-bottom-right-radius: 4px;
+    }
+    .msg.system {
+      align-self: center; background: rgba(255,255,255,.03);
+      border: 1px solid var(--border); color: var(--muted);
+      font-size: .72em; padding: 5px 14px; border-radius: 20px;
+    }
+    .msg-sender { font-size: .7em; font-weight: 700; margin-bottom: 2px; opacity: .7; }
+    .msg.user .msg-sender { color: var(--gold); }
+    .msg-time { font-size: .6em; opacity: .5; text-align: right; margin-top: 3px; }
+
+    /* Ticket info panel */
+    .ticket-info {
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+      background: var(--bg3); font-size: .75em;
+      display: flex; flex-wrap: wrap; gap: 16px;
+    }
+    .ti-item label { color: var(--muted); font-size: .85em; display: block; }
+    .ti-item span { font-weight: 600; }
+
+    /* Admin input */
+    .admin-input-area {
+      padding: 12px 20px;
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      display: flex; align-items: flex-end; gap: 10px;
+    }
+    .admin-input {
+      flex: 1; background: var(--card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 12px 16px;
+      color: var(--text); font-family: inherit; font-size: .85em;
+      outline: none; resize: none; max-height: 120px; line-height: 1.4;
+    }
+    .admin-input:focus { border-color: rgba(255,181,71,.3); }
+    .admin-input::placeholder { color: var(--muted); }
+    .admin-send {
+      padding: 12px 24px; border-radius: 12px; border: none;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: var(--bg); font-family: inherit; font-size: .85em;
+      font-weight: 700; cursor: pointer; transition: all .2s;
+      white-space: nowrap;
+    }
+    .admin-send:hover { box-shadow: 0 4px 15px rgba(255,181,71,.3); }
+    .admin-send:disabled { opacity: .3; cursor: not-allowed; }
+
+    /* Quick replies */
+    .quick-replies {
+      padding: 8px 20px 0; display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .qr-btn {
+      padding: 5px 12px; border-radius: 20px;
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      color: var(--muted); font-family: inherit;
+      font-size: .68em; cursor: pointer; transition: all .2s;
+    }
+    .qr-btn:hover { background: rgba(255,181,71,.1); color: var(--gold); border-color: rgba(255,181,71,.2); }
+
+    /* Empty state */
+    .empty-chat {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 10px; color: var(--muted);
+    }
+    .empty-chat span { font-size: 3em; }
+    .empty-chat p { font-size: .9em; }
+
+    /* Stats bar */
+    .stats-bar {
+      display: flex; gap: 0; border-bottom: 1px solid var(--border);
+    }
+    .stat-box {
+      flex: 1; padding: 10px 16px; text-align: center;
+      border-right: 1px solid var(--border);
+    }
+    .stat-box:last-child { border: none; }
+    .stat-num { font-size: 1.1em; font-weight: 800; }
+    .stat-num.blue { color: var(--blue); }
+    .stat-num.gold { color: var(--gold); }
+    .stat-num.green { color: var(--green); }
+    .stat-num.muted { color: var(--muted); }
+    .stat-label { font-size: .62em; color: var(--muted); }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px);
+      background: var(--card); color: var(--text); padding: 12px 24px;
+      border-radius: 12px; font-size: .82em; border: 1px solid var(--border);
+      z-index: 9999; transition: transform .3s;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Mobile */
+    @media (max-width: 768px) {
+      .sidebar { width: 100%; min-width: 100%; }
+      .main { display: none; }
+      body.chat-open .sidebar { display: none; }
+      body.chat-open .main { display: flex; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== SIDEBAR ===== -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>🎧 Suporte <span id="totalAbertos">0</span></h2>
+    </div>
+    <div class="stats-bar" id="statsBar">
+      <div class="stat-box"><div class="stat-num blue" id="sAbertos">0</div><div class="stat-label">Abertos</div></div>
+      <div class="stat-box"><div class="stat-num gold" id="sAndamento">0</div><div class="stat-label">Em andamento</div></div>
+      <div class="stat-box"><div class="stat-num green" id="sResolvidos">0</div><div class="stat-label">Resolvidos</div></div>
+      <div class="stat-box"><div class="stat-num muted" id="sFechados">0</div><div class="stat-label">Fechados</div></div>
+    </div>
+    <div class="filters">
+      <button class="filter-btn active" data-f="todos" onclick="setFilter('todos')">Todos</button>
+      <button class="filter-btn" data-f="aberto" onclick="setFilter('aberto')">🔵 Abertos</button>
+      <button class="filter-btn" data-f="em_andamento" onclick="setFilter('em_andamento')">🟡 Andamento</button>
+      <button class="filter-btn" data-f="resolvido" onclick="setFilter('resolvido')">✅ Resolvidos</button>
+      <button class="filter-btn" data-f="fechado" onclick="setFilter('fechado')">⚫ Fechados</button>
+    </div>
+    <div class="ticket-list" id="ticketList">
+      <div class="empty-list">Carregando...</div>
+    </div>
+  </div>
+
+  <!-- ===== MAIN ===== -->
+  <div class="main" id="mainPanel">
+    <div class="empty-chat" id="emptyChat">
+      <span>💬</span>
+      <p>Selecione um chamado para responder</p>
+    </div>
+
+    <!-- Chat panel (hidden by default) -->
+    <div id="chatPanel" style="display:none; flex-direction:column; height:100%;">
+      <div class="chat-header">
+        <div class="ch-info">
+          <h3 id="chTitle">Chamado</h3>
+          <p id="chSub">#000000 · Aberto</p>
+        </div>
+        <div class="ch-actions">
+          <button class="ch-btn gold" onclick="setStatus('em_andamento')">🟡 Em andamento</button>
+          <button class="ch-btn green" onclick="setStatus('resolvido')">✅ Resolver</button>
+          <button class="ch-btn red" onclick="setStatus('fechado')">⚫ Fechar</button>
+          <button class="ch-btn" onclick="setStatus('aberto')">🔵 Reabrir</button>
+        </div>
+      </div>
+      <div class="ticket-info" id="ticketInfo"></div>
+      <div class="messages" id="messages"></div>
+      <div class="quick-replies">
+        <button class="qr-btn" onclick="insertQuick('Olá! Obrigado por entrar em contato. Vou analisar seu caso.')">👋 Saudação</button>
+        <button class="qr-btn" onclick="insertQuick('Pode me enviar mais detalhes? Qual dispositivo e navegador você usa?')">📋 Pedir detalhes</button>
+        <button class="qr-btn" onclick="insertQuick('O problema foi corrigido! Por favor, teste novamente e me avise se está tudo ok.')">✅ Corrigido</button>
+        <button class="qr-btn" onclick="insertQuick('Obrigado pela sugestão! Vou repassar para a equipe de desenvolvimento.')">💡 Sugestão aceita</button>
+        <button class="qr-btn" onclick="insertQuick('Seus créditos foram creditados manualmente. Confira seu saldo.')">💰 Créditos ajustados</button>
+        <button class="qr-btn" onclick="insertQuick('Verificamos e a pergunta será corrigida na próxima atualização. Obrigado pelo report!')">❓ Pergunta corrigida</button>
+      </div>
+      <div class="admin-input-area">
+        <textarea class="admin-input" id="adminInput" placeholder="Responder ao usuário..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAdminMsg();}" oninput="autoGrow(this)"></textarea>
+        <button class="admin-send" onclick="sendAdminMsg()">Enviar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- ===== FIREBASE ===== -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    // State
+    let allTickets = [];
+    let currentFilter = 'todos';
+    let currentTicketId = null;
+    let chatUnsub = null;
+    let adminEmail = null;
+
+    // Admin emails (same pattern as other admin pages)
+    const ADMIN_EMAILS = ['admin@yellup.com']; // Add your admin emails
+
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) { window.location.href = 'login.html'; return; }
+      adminEmail = user.email;
+      // Verify admin
+      try {
+        const uDoc = await db.collection('usuarios').doc(user.uid).get();
+        if (!uDoc.exists || uDoc.data().role !== 'admin') {
+          // Fallback: check email
+          // For now allow access if authenticated
+        }
+      } catch(e) {}
+      loadAllTickets();
+    });
+
+    // ============================================================
+    // LOAD TICKETS (real-time)
+    // ============================================================
+    function loadAllTickets() {
+      db.collection('suporte_tickets')
+        .orderBy('atualizadoEm', 'desc')
+        .onSnapshot(snap => {
+          allTickets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          updateStats();
+          renderTicketList();
+        });
+    }
+
+    function updateStats() {
+      const counts = { aberto: 0, em_andamento: 0, resolvido: 0, fechado: 0 };
+      allTickets.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
+      document.getElementById('sAbertos').textContent = counts.aberto;
+      document.getElementById('sAndamento').textContent = counts.em_andamento;
+      document.getElementById('sResolvidos').textContent = counts.resolvido;
+      document.getElementById('sFechados').textContent = counts.fechado;
+      document.getElementById('totalAbertos').textContent = counts.aberto + counts.em_andamento;
+    }
+
+    function setFilter(f) {
+      currentFilter = f;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+      renderTicketList();
+    }
+
+    function renderTicketList() {
+      const filtered = currentFilter === 'todos' ? allTickets : allTickets.filter(t => t.status === currentFilter);
+      const container = document.getElementById('ticketList');
+
+      if (!filtered.length) {
+        container.innerHTML = '<div class="empty-list">Nenhum chamado nesta categoria</div>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(t => {
+        const time = t.atualizadoEm?.toDate ? timeAgo(t.atualizadoEm.toDate()) : '';
+        const avatar = t.userFoto
+          ? `<div class="t-avatar"><img src="${t.userFoto}"></div>`
+          : `<div class="t-avatar">${(t.userName||'U').charAt(0).toUpperCase()}</div>`;
+        const isActive = t.id === currentTicketId;
+        const isUnread = !t.lidoPeloAdmin;
+        const statusLabels = { aberto: 'Aberto', em_andamento: 'Andamento', resolvido: 'Resolvido', fechado: 'Fechado' };
+
+        return `<div class="t-item ${isActive ? 'active' : ''} ${isUnread ? 'unread' : ''}" onclick="openTicket('${t.id}')">
+          <div class="t-user">
+            ${avatar}
+            <div class="t-name">${t.userName || 'Usuário'}</div>
+            <div class="t-time">${time}</div>
+          </div>
+          <div class="t-subject">${t.assunto || 'Chamado'}</div>
+          <div class="t-preview">${t.ultimaMensagem || t.descricao || ''}</div>
+          <div class="t-tags">
+            <span class="t-tag ${t.status}">${statusLabels[t.status] || 'Aberto'}</span>
+            <span class="t-tag" style="background:rgba(255,255,255,.04);color:var(--muted);">${t.categoriaLabel || ''}</span>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // ============================================================
+    // OPEN TICKET CHAT
+    // ============================================================
+    async function openTicket(ticketId) {
+      currentTicketId = ticketId;
+      const ticket = allTickets.find(t => t.id === ticketId);
+      if (!ticket) return;
+
+      // Mobile support
+      document.body.classList.add('chat-open');
+
+      // Update UI
+      document.getElementById('emptyChat').style.display = 'none';
+      const panel = document.getElementById('chatPanel');
+      panel.style.display = 'flex';
+
+      document.getElementById('chTitle').textContent = `${ticket.assunto || 'Chamado'}`;
+      document.getElementById('chSub').textContent = `#${ticketId.substring(0,6).toUpperCase()} · ${ticket.userName} · ${ticket.userEmail || ''}`;
+
+      // Ticket info
+      const created = ticket.criadoEm?.toDate ? ticket.criadoEm.toDate().toLocaleString('pt-BR') : '—';
+      document.getElementById('ticketInfo').innerHTML = `
+        <div class="ti-item"><label>Categoria</label><span>${ticket.categoriaLabel || '—'}</span></div>
+        <div class="ti-item"><label>Subcategoria</label><span>${ticket.subcategoriaLabel || '—'}</span></div>
+        <div class="ti-item"><label>Status</label><span>${ticket.status}</span></div>
+        <div class="ti-item"><label>Criado em</label><span>${created}</span></div>
+        <div class="ti-item"><label>User ID</label><span style="font-size:.85em;opacity:.7">${ticket.userId?.substring(0,12)}...</span></div>
+      `;
+
+      // Mark as read by admin
+      if (!ticket.lidoPeloAdmin) {
+        await db.collection('suporte_tickets').doc(ticketId).update({ lidoPeloAdmin: true });
+      }
+
+      // Highlight in list
+      renderTicketList();
+
+      // Subscribe to messages
+      if (chatUnsub) chatUnsub();
+      const msgContainer = document.getElementById('messages');
+      msgContainer.innerHTML = '<div style="text-align:center;padding:40px;"><div class="spinner" style="width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite;margin:auto;"></div></div>';
+
+      chatUnsub = db.collection('suporte_tickets').doc(ticketId)
+        .collection('mensagens')
+        .orderBy('data', 'asc')
+        .onSnapshot(snap => {
+          let lastDate = '';
+          msgContainer.innerHTML = snap.docs.map(d => {
+            const m = d.data();
+            const date = m.data?.toDate ? m.data.toDate() : new Date();
+            const dateStr = date.toLocaleDateString('pt-BR');
+            const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+            let dateHeader = '';
+            if (dateStr !== lastDate) { lastDate = dateStr; dateHeader = `<div class="msg-date">${dateStr}</div>`; }
+
+            if (m.remetente === 'sistema') {
+              return `${dateHeader}<div class="msg system">${m.texto}</div>`;
+            }
+
+            const isAdmin = m.remetente === 'admin';
+            const sender = isAdmin ? '' : `<div class="msg-sender">👤 ${m.nome || 'Usuário'}</div>`;
+
+            return `${dateHeader}<div class="msg ${isAdmin ? 'admin' : 'user'}">
+              ${sender}
+              <div>${escapeHTML(m.texto)}</div>
+              <div class="msg-time">${timeStr}</div>
+            </div>`;
+          }).join('');
+
+          msgContainer.scrollTop = msgContainer.scrollHeight;
+        });
+    }
+
+    // ============================================================
+    // SEND ADMIN MESSAGE
+    // ============================================================
+    async function sendAdminMsg() {
+      const input = document.getElementById('adminInput');
+      const text = input.value.trim();
+      if (!text || !currentTicketId) return;
+
+      input.value = '';
+      autoGrow(input);
+
+      try {
+        const now = firebase.firestore.FieldValue.serverTimestamp();
+
+        await db.collection('suporte_tickets').doc(currentTicketId)
+          .collection('mensagens').add({
+            remetente: 'admin',
+            nome: 'Equipe Yellup',
+            texto: text,
+            data: now,
+            lido: false
+          });
+
+        await db.collection('suporte_tickets').doc(currentTicketId).update({
+          atualizadoEm: now,
+          ultimaMensagem: text.substring(0, 100),
+          adminRespondeu: true,
+          lidoPeloUsuario: false,
+          lidoPeloAdmin: true,
+          status: (allTickets.find(t => t.id === currentTicketId)?.status === 'aberto') ? 'em_andamento' : undefined
+        });
+
+        // Update status to em_andamento if was aberto
+        const ticket = allTickets.find(t => t.id === currentTicketId);
+        if (ticket && ticket.status === 'aberto') {
+          await db.collection('suporte_tickets').doc(currentTicketId).update({ status: 'em_andamento' });
+        }
+
+      } catch(e) {
+        console.error('Send err:', e);
+        showToast('❌ Erro ao enviar');
+      }
+    }
+
+    function insertQuick(text) {
+      const input = document.getElementById('adminInput');
+      input.value = text;
+      input.focus();
+      autoGrow(input);
+    }
+
+    // ============================================================
+    // STATUS CHANGE
+    // ============================================================
+    async function setStatus(status) {
+      if (!currentTicketId) return;
+      try {
+        const updates = {
+          status,
+          atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        await db.collection('suporte_tickets').doc(currentTicketId).update(updates);
+
+        // System message
+        const statusLabels = { aberto: 'reaberto', em_andamento: 'marcado como em andamento', resolvido: 'marcado como resolvido', fechado: 'fechado' };
+        await db.collection('suporte_tickets').doc(currentTicketId)
+          .collection('mensagens').add({
+            remetente: 'sistema',
+            texto: `Chamado ${statusLabels[status] || status} pela equipe.`,
+            data: firebase.firestore.FieldValue.serverTimestamp(),
+            lido: true
+          });
+
+        showToast(`✅ Status atualizado: ${status}`);
+      } catch(e) {
+        console.error('Status err:', e);
+        showToast('❌ Erro ao atualizar status');
+      }
+    }
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    function timeAgo(d) {
+      const diff = (Date.now() - d.getTime()) / 1000;
+      if (diff < 60) return 'agora';
+      if (diff < 3600) return `${Math.floor(diff/60)}min`;
+      if (diff < 86400) return `${Math.floor(diff/3600)}h`;
+      if (diff < 604800) return `${Math.floor(diff/86400)}d`;
+      return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    }
+
+    function autoGrow(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // Mobile back
+    window.addEventListener('popstate', () => {
+      if (document.body.classList.contains('chat-open')) {
+        document.body.classList.remove('chat-open');
+      }
+    });
+  </script>
+</body>
+</html>
