@@ -203,7 +203,30 @@
 
     function startResetTimer(){function u(){const a=new Date(),mn=new Date(a);mn.setDate(mn.getDate()+1);mn.setHours(0,0,0,0);const d=mn-a;const h=Math.floor(d/36e5),m=Math.floor((d%36e5)/6e4),s=Math.floor((d%6e4)/1e3);document.getElementById('resetTimer').textContent=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}u();setInterval(u,1000)}
 
-    window.atualizarMissao=async function(userId,idMissao){const ref=db.collection('usuarios').doc(userId).collection('missoes').doc(idMissao);const doc=await ref.get();if(!doc.exists)return;const dados=doc.data();if(dados.concluido)return;const novo=(dados.atual||0)+1;const concluido=novo>=dados.total;await ref.update({atual:novo,concluido});if(concluido){try{await firebase.functions().httpsCallable('completarMissao')({missaoId:idMissao})}catch(e){console.error(e)}}};
+    window.atualizarMissao=async function(userId,idMissao){
+      try{
+        const ref=db.collection('usuarios').doc(userId).collection('missoes').doc(idMissao);
+        const doc=await ref.get();
+        if(!doc.exists)return;
+        const dados=doc.data();
+        const hoje=new Date();hoje.setHours(0,0,0,0);
+        const dataM=dados.data&&dados.data.toDate?dados.data.toDate():null;
+
+        // Se a missão é de outro dia, resetar antes de incrementar
+        if(dataM&&dataM<hoje){
+          await ref.update({atual:1,concluido:1>=(dados.total||1),creditada:false,data:firebase.firestore.Timestamp.now()});
+          if(1>=(dados.total||1)){try{await firebase.functions().httpsCallable('completarMissao')({missaoId:idMissao})}catch(e){console.error(e)}}
+          return;
+        }
+
+        // Missão de hoje - incrementar normalmente
+        if(dados.concluido)return;
+        const novo=(dados.atual||0)+1;
+        const concluido=novo>=(dados.total||1);
+        await ref.update({atual:novo,concluido});
+        if(concluido){try{await firebase.functions().httpsCallable('completarMissao')({missaoId:idMissao})}catch(e){console.error(e)}}
+      }catch(e){console.error('atualizarMissao erro:',e)}
+    };
 
     function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}
   </script>
