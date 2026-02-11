@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin | Extrato de Atividades</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0E141B; --bg2: #151D28; --bg3: #1A2332; --card: #1E2A3A;
+      --border: rgba(255,255,255,.06);
+      --gold: #FFB547; --gold2: #FF8C42;
+      --green: #0D9668; --red: #FF4757; --blue: #3B82F6; --purple: #8B5CF6;
+      --text: #F1F1F1; --muted: #8B95A5;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Poppins', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 20px; }
+
+    .page-header { margin-bottom: 20px; }
+    .page-header h1 { font-size: 1.3em; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+    .page-header p { font-size: .78em; color: var(--muted); margin-top: 4px; }
+
+    /* Search */
+    .search-bar {
+      display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .search-input {
+      flex: 1; min-width: 250px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 16px;
+      color: var(--text); font-family: inherit; font-size: .85em;
+      outline: none;
+    }
+    .search-input:focus { border-color: var(--gold); }
+    .search-input::placeholder { color: var(--muted); }
+    .search-btn {
+      padding: 12px 24px; border-radius: 12px; border: none;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: var(--bg); font-family: inherit; font-size: .85em;
+      font-weight: 700; cursor: pointer; transition: all .2s;
+    }
+    .search-btn:hover { box-shadow: 0 4px 15px rgba(255,181,71,.3); }
+    .filter-select {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px;
+      color: var(--text); font-family: inherit; font-size: .82em;
+      outline: none; cursor: pointer;
+    }
+
+    /* User info card */
+    .user-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 18px 20px; margin-bottom: 20px;
+      display: none; animation: fadeIn .3s;
+    }
+    .user-card.show { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .user-avatar {
+      width: 50px; height: 50px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2em; font-weight: 700; color: var(--bg);
+      overflow: hidden; flex-shrink: 0;
+    }
+    .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .user-info { flex: 1; }
+    .user-info h3 { font-size: .95em; font-weight: 700; }
+    .user-info p { font-size: .72em; color: var(--muted); }
+    .user-stats { display: flex; gap: 14px; flex-wrap: wrap; }
+    .us {
+      text-align: center; padding: 8px 14px;
+      background: rgba(255,255,255,.03); border-radius: 10px;
+    }
+    .us-val { font-size: 1.05em; font-weight: 800; }
+    .us-val.gold { color: var(--gold); }
+    .us-val.green { color: var(--green); }
+    .us-val.red { color: var(--red); }
+    .us-val.blue { color: var(--blue); }
+    .us-label { font-size: .6em; color: var(--muted); }
+
+    /* Logs table */
+    .logs-container { overflow-x: auto; }
+    .logs-table {
+      width: 100%; border-collapse: collapse;
+      background: var(--card); border-radius: 14px;
+      overflow: hidden;
+    }
+    .logs-table th {
+      text-align: left; padding: 12px 14px;
+      font-size: .72em; font-weight: 600;
+      color: var(--muted); background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .logs-table td {
+      padding: 11px 14px; font-size: .78em;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .logs-table tr:hover { background: rgba(255,255,255,.02); }
+    .logs-table tr:last-child td { border-bottom: none; }
+
+    .type-badge {
+      display: inline-block; padding: 3px 10px;
+      border-radius: 20px; font-size: .7em; font-weight: 600;
+      white-space: nowrap;
+    }
+    .type-badge.compra { background: rgba(13,150,104,.12); color: var(--green); }
+    .type-badge.debito_pvp, .type-badge.debito_torneio { background: rgba(255,71,87,.12); color: var(--red); }
+    .type-badge.premio_pvp, .type-badge.premio_torneio { background: rgba(139,92,246,.12); color: var(--purple); }
+    .type-badge.reembolso_pvp { background: rgba(59,130,246,.12); color: var(--blue); }
+    .type-badge.missao { background: rgba(255,181,71,.12); color: var(--gold); }
+    .type-badge.indicacao { background: rgba(59,130,246,.12); color: var(--blue); }
+    .type-badge.jogo_ranking, .type-badge.jogo_cotista, .type-badge.jogo_sortudo { background: rgba(13,150,104,.12); color: var(--green); }
+    .type-badge.bolsa_compra { background: rgba(255,71,87,.12); color: var(--red); }
+    .type-badge.bolsa_venda { background: rgba(13,150,104,.12); color: var(--green); }
+    .type-badge.admin_manual { background: rgba(139,92,246,.12); color: var(--purple); }
+
+    .val-positive { color: var(--green); font-weight: 700; }
+    .val-negative { color: var(--red); font-weight: 700; }
+    .val-zero { color: var(--muted); }
+
+    .saldo-col { white-space: nowrap; font-size: .72em; }
+    .saldo-arrow { color: var(--muted); margin: 0 3px; }
+
+    .meta-btn {
+      background: rgba(255,255,255,.06); border: none;
+      padding: 3px 8px; border-radius: 6px;
+      color: var(--muted); font-size: .68em;
+      cursor: pointer; font-family: inherit;
+    }
+    .meta-btn:hover { background: rgba(255,181,71,.1); color: var(--gold); }
+
+    .load-more {
+      display: block; width: 100%; margin-top: 14px;
+      padding: 12px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; color: var(--muted);
+      font-family: inherit; font-size: .82em; cursor: pointer;
+      text-align: center; transition: all .2s;
+    }
+    .load-more:hover { background: var(--bg3); color: var(--text); }
+
+    .empty-msg { text-align: center; padding: 60px 20px; color: var(--muted); font-size: .85em; }
+    .empty-msg span { font-size: 2.5em; display: block; margin-bottom: 10px; }
+
+    /* Modal for metadata */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.6);
+      z-index: 999; display: none; align-items: center; justify-content: center;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal-box {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 20px; max-width: 500px; width: 90%;
+      max-height: 80vh; overflow-y: auto;
+    }
+    .modal-box h3 { font-size: .9em; margin-bottom: 12px; }
+    .modal-box pre {
+      background: var(--bg); padding: 12px; border-radius: 8px;
+      font-size: .75em; overflow-x: auto; color: var(--muted);
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .modal-close {
+      margin-top: 12px; padding: 8px 20px; border-radius: 8px; border: none;
+      background: rgba(255,255,255,.06); color: var(--text);
+      font-family: inherit; cursor: pointer;
+    }
+
+    .toast {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px);
+      background: var(--card); color: var(--text); padding: 12px 24px;
+      border-radius: 12px; font-size: .82em; border: 1px solid var(--border);
+      z-index: 9999; transition: transform .3s;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    @media (max-width: 768px) {
+      body { padding: 12px; }
+      .user-card.show { flex-direction: column; align-items: flex-start; }
+      .user-stats { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-header">
+    <h1>📋 Extrato de Atividades</h1>
+    <p>Histórico completo de movimentação de créditos dos usuários</p>
+  </div>
+
+  <div class="search-bar">
+    <input class="search-input" id="searchInput" placeholder="Buscar por nome, email ou ID do usuário..." onkeydown="if(event.key==='Enter')buscarUsuario()">
+    <select class="filter-select" id="filterTipo" onchange="aplicarFiltro()">
+      <option value="">Todos os tipos</option>
+      <option value="compra">💰 Compras</option>
+      <option value="debito_pvp">⚔️ Débito PvP</option>
+      <option value="premio_pvp">🏆 Prêmio PvP</option>
+      <option value="reembolso_pvp">🔄 Reembolso PvP</option>
+      <option value="debito_torneio">🎫 Débito Torneio</option>
+      <option value="premio_torneio">🏆 Prêmio Torneio</option>
+      <option value="missao">📋 Missão</option>
+      <option value="indicacao">🔗 Indicação</option>
+      <option value="jogo_ranking">⚽ Jogo Ranking</option>
+      <option value="jogo_cotista">📈 Jogo Cotista</option>
+      <option value="jogo_sortudo">🎰 Jogo Sortudo</option>
+      <option value="bolsa_compra">📉 Bolsa Compra</option>
+      <option value="bolsa_venda">📈 Bolsa Venda</option>
+    </select>
+    <button class="search-btn" onclick="buscarUsuario()">🔍 Buscar</button>
+  </div>
+
+  <div class="user-card" id="userCard">
+    <div class="user-avatar" id="userAvatar">?</div>
+    <div class="user-info">
+      <h3 id="userName">—</h3>
+      <p id="userDetails">—</p>
+    </div>
+    <div class="user-stats">
+      <div class="us"><div class="us-val gold" id="usSaldo">0</div><div class="us-label">Saldo atual</div></div>
+      <div class="us"><div class="us-val green" id="usEntradas">0</div><div class="us-label">Total entradas</div></div>
+      <div class="us"><div class="us-val red" id="usSaidas">0</div><div class="us-label">Total saídas</div></div>
+      <div class="us"><div class="us-val blue" id="usOps">0</div><div class="us-label">Operações</div></div>
+    </div>
+  </div>
+
+  <div class="logs-container" id="logsContainer">
+    <div class="empty-msg">
+      <span>🔍</span>
+      Busque um usuário para ver o extrato completo de atividades.
+    </div>
+  </div>
+
+  <!-- Modal metadata -->
+  <div class="modal-overlay" id="metaModal" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="modal-box">
+      <h3>📦 Detalhes da operação</h3>
+      <pre id="metaContent"></pre>
+      <button class="modal-close" onclick="document.getElementById('metaModal').classList.remove('show')">Fechar</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    let currentUserId = null;
+    let allLogs = [];
+    let lastDoc = null;
+    const PAGE_SIZE = 50;
+
+    auth.onAuthStateChanged(user => {
+      if (!user) window.location.href = 'login.html';
+    });
+
+    // ========================================
+    // BUSCAR USUÁRIO
+    // ========================================
+    async function buscarUsuario() {
+      const query = document.getElementById('searchInput').value.trim();
+      if (!query) return;
+
+      showToast('🔍 Buscando...');
+
+      try {
+        let userDoc = null;
+        let userId = null;
+
+        // Tentar buscar por ID direto
+        const byId = await db.collection('usuarios').doc(query).get();
+        if (byId.exists) {
+          userDoc = byId;
+          userId = byId.id;
+        }
+
+        // Buscar por nome/usuario
+        if (!userDoc) {
+          const byNome = await db.collection('usuarios')
+            .where('usuarioUnico', '==', query).limit(1).get();
+          if (!byNome.empty) {
+            userDoc = byNome.docs[0];
+            userId = userDoc.id;
+          }
+        }
+
+        // Buscar por email
+        if (!userDoc) {
+          const byEmail = await db.collection('usuarios')
+            .where('email', '==', query).limit(1).get();
+          if (!byEmail.empty) {
+            userDoc = byEmail.docs[0];
+            userId = userDoc.id;
+          }
+        }
+
+        // Busca parcial por nome
+        if (!userDoc) {
+          const byNomePartial = await db.collection('usuarios')
+            .where('nome', '>=', query)
+            .where('nome', '<=', query + '\uf8ff')
+            .limit(1).get();
+          if (!byNomePartial.empty) {
+            userDoc = byNomePartial.docs[0];
+            userId = userDoc.id;
+          }
+        }
+
+        if (!userDoc) {
+          showToast('❌ Usuário não encontrado');
+          return;
+        }
+
+        currentUserId = userId;
+        const data = userDoc.data();
+
+        // Preencher card
+        const card = document.getElementById('userCard');
+        card.classList.add('show');
+
+        const avatar = document.getElementById('userAvatar');
+        if (data.fotoPerfil) {
+          avatar.innerHTML = `<img src="${data.fotoPerfil}">`;
+        } else {
+          avatar.textContent = (data.nome || data.usuarioUnico || '?').charAt(0).toUpperCase();
+        }
+
+        document.getElementById('userName').textContent = data.usuarioUnico || data.nome || userId;
+        document.getElementById('userDetails').textContent =
+          `${data.email || ''} · ID: ${userId.substring(0,12)}... · Nível: ${data.nivel || 'iniciante'} · XP: ${(data.xp || data.pontuacao || 0).toLocaleString()}`;
+        document.getElementById('usSaldo').textContent = (data.creditos || 0).toLocaleString();
+
+        // Carregar logs
+        allLogs = [];
+        lastDoc = null;
+        document.getElementById('filterTipo').value = '';
+        await carregarLogs();
+
+      } catch (e) {
+        console.error('Erro busca:', e);
+        showToast('❌ Erro ao buscar: ' + e.message);
+      }
+    }
+
+    // ========================================
+    // CARREGAR LOGS
+    // ========================================
+    async function carregarLogs(append = false) {
+      if (!currentUserId) return;
+
+      const tipo = document.getElementById('filterTipo').value;
+
+      try {
+        let query = db.collection('logs_atividade')
+          .where('userId', '==', currentUserId)
+          .orderBy('criadoEm', 'desc')
+          .limit(PAGE_SIZE);
+
+        if (tipo) {
+          query = db.collection('logs_atividade')
+            .where('userId', '==', currentUserId)
+            .where('tipo', '==', tipo)
+            .orderBy('criadoEm', 'desc')
+            .limit(PAGE_SIZE);
+        }
+
+        if (append && lastDoc) {
+          query = query.startAfter(lastDoc);
+        }
+
+        const snap = await query.get();
+
+        if (!append) allLogs = [];
+
+        snap.forEach(doc => {
+          allLogs.push({ id: doc.id, ...doc.data() });
+          lastDoc = doc;
+        });
+
+        renderLogs(snap.size >= PAGE_SIZE);
+
+        // Calcular totais
+        if (!append) {
+          let entradas = 0, saidas = 0;
+          allLogs.forEach(l => {
+            if (l.valor > 0) entradas += l.valor;
+            else saidas += Math.abs(l.valor);
+          });
+          document.getElementById('usEntradas').textContent = '+' + entradas.toLocaleString();
+          document.getElementById('usSaidas').textContent = '-' + saidas.toLocaleString();
+          document.getElementById('usOps').textContent = allLogs.length;
+        } else {
+          document.getElementById('usOps').textContent = allLogs.length;
+        }
+
+      } catch (e) {
+        console.error('Erro logs:', e);
+        if (e.message.includes('index')) {
+          document.getElementById('logsContainer').innerHTML = `
+            <div class="empty-msg">
+              <span>⚙️</span>
+              Índice do Firestore necessário.<br>
+              <a href="${e.message.match(/https:\/\/[^\s]+/)?.[0] || '#'}" target="_blank" style="color:var(--gold)">Clique aqui para criar</a>
+            </div>`;
+        } else {
+          showToast('❌ Erro: ' + e.message);
+        }
+      }
+    }
+
+    function aplicarFiltro() {
+      allLogs = [];
+      lastDoc = null;
+      carregarLogs();
+    }
+
+    // ========================================
+    // RENDER
+    // ========================================
+    function renderLogs(hasMore) {
+      const container = document.getElementById('logsContainer');
+
+      if (!allLogs.length) {
+        container.innerHTML = '<div class="empty-msg"><span>📭</span>Nenhuma atividade registrada para este usuário.</div>';
+        return;
+      }
+
+      const typeLabels = {
+        compra: '💰 Compra', debito_pvp: '⚔️ PvP Entrada', premio_pvp: '🏆 PvP Prêmio',
+        reembolso_pvp: '🔄 PvP Reembolso', debito_torneio: '🎫 Torneio Entrada',
+        premio_torneio: '🏆 Torneio Prêmio', missao: '📋 Missão', indicacao: '🔗 Indicação',
+        jogo_ranking: '⚽ Jogo Ranking', jogo_cotista: '📈 Cotista', jogo_sortudo: '🎰 Sortudo',
+        bolsa_compra: '📉 Bolsa Compra', bolsa_venda: '📈 Bolsa Venda', admin_manual: '👤 Admin'
+      };
+
+      let html = `<table class="logs-table">
+        <thead><tr>
+          <th>Data</th><th>Tipo</th><th>Valor</th><th>Saldo</th><th>Descrição</th><th></th>
+        </tr></thead><tbody>`;
+
+      allLogs.forEach((l, i) => {
+        const date = l.criadoEm?.toDate ? l.criadoEm.toDate() : new Date();
+        const dateStr = date.toLocaleDateString('pt-BR') + ' ' + date.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+        const typeClass = l.tipo || 'default';
+        const typeLabel = typeLabels[l.tipo] || l.tipo;
+        const valClass = l.valor > 0 ? 'val-positive' : (l.valor < 0 ? 'val-negative' : 'val-zero');
+        const valStr = l.valor > 0 ? `+${l.valor}` : `${l.valor}`;
+
+        let saldoStr = '—';
+        if (l.saldoAnterior != null && l.saldoPosterior != null) {
+          saldoStr = `${l.saldoAnterior} <span class="saldo-arrow">→</span> ${l.saldoPosterior}`;
+        }
+
+        const hasMeta = l.metadata && Object.keys(l.metadata).length > 0;
+
+        html += `<tr>
+          <td style="white-space:nowrap;color:var(--muted);font-size:.72em">${dateStr}</td>
+          <td><span class="type-badge ${typeClass}">${typeLabel}</span></td>
+          <td class="${valClass}" style="font-weight:700">${valStr}</td>
+          <td class="saldo-col">${saldoStr}</td>
+          <td style="max-width:300px">${l.descricao || '—'}</td>
+          <td>${hasMeta ? `<button class="meta-btn" onclick="showMeta(${i})">📦</button>` : ''}</td>
+        </tr>`;
+      });
+
+      html += '</tbody></table>';
+
+      if (hasMore) {
+        html += `<button class="load-more" onclick="carregarLogs(true)">Carregar mais...</button>`;
+      }
+
+      container.innerHTML = html;
+    }
+
+    function showMeta(index) {
+      const log = allLogs[index];
+      if (!log?.metadata) return;
+      document.getElementById('metaContent').textContent = JSON.stringify(log.metadata, null, 2);
+      document.getElementById('metaModal').classList.add('show');
+    }
+
+    // ========================================
+    // HELPERS
+    // ========================================
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>
