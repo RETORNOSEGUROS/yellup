@@ -2305,10 +2305,18 @@ exports.responderPergunta = functions.https.onCall(async (data, context) => {
     const acertos = (participante.acertos || 0) + (acertou ? 1 : 0);
     const erros = (participante.erros || 0) + (acertou ? 0 : 1);
 
+    // Buscar nome do time ANTES do batch.set
+    let timeNome = participante.timeNome || "Time";
+    try {
+      const timeDoc = await db.collection("times").doc(timeTorcida).get();
+      if (timeDoc.exists) timeNome = timeDoc.data().nome || "Time";
+    } catch (e) { /* não crítico */ }
+
     batch.set(participanteRef, {
-      odontId: uid,
-      odontNome: userData.nome || userData.apelido || "Anônimo",
+      odId: uid,
+      nome: userData.usuarioUnico || userData.usuario || userData.nome || "Anônimo",
       timeId: timeTorcida,
+      timeNome: timeNome,
       pontos: (participante.pontos || 0) + pontosFinais,
       acertos,
       erros,
@@ -2319,7 +2327,7 @@ exports.responderPergunta = functions.https.onCall(async (data, context) => {
       tempoMedio: acertou
         ? ((participante.tempoSoma || 0) + tempoRespostaSegundos) / ((participante.tempoQuantidade || 0) + 1)
         : participante.tempoMedio || 0,
-      ultimaResposta: admin.firestore.Timestamp.now()
+      atualizadoEm: admin.firestore.Timestamp.now()
     }, { merge: true });
 
     await batch.commit();
