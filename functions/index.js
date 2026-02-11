@@ -5,6 +5,43 @@ admin.initializeApp();
 const db = admin.firestore();
 
 // =====================================================
+// 📋 HELPER: LOG DE ATIVIDADE (EXTRATO UNIFICADO)
+// Registra toda movimentação de créditos do usuário
+// =====================================================
+async function logAtividade(userId, tipo, valor, saldoAnterior, descricao, metadata = {}) {
+  try {
+    await db.collection('logs_atividade').add({
+      userId,
+      tipo,
+      valor,
+      saldoAnterior: saldoAnterior ?? null,
+      saldoPosterior: saldoAnterior != null ? saldoAnterior + valor : null,
+      descricao,
+      metadata,
+      criadoEm: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (e) {
+    console.error('⚠️ Erro ao gravar log:', e.message);
+    // Não lança erro - log não pode impedir a operação principal
+  }
+}
+
+// Helper para log em batch (quando precisa logar vários de uma vez)
+function logAtividadeBatch(batch, userId, tipo, valor, saldoAnterior, descricao, metadata = {}) {
+  const logRef = db.collection('logs_atividade').doc();
+  batch.set(logRef, {
+    userId,
+    tipo,
+    valor,
+    saldoAnterior: saldoAnterior ?? null,
+    saldoPosterior: saldoAnterior != null ? saldoAnterior + valor : null,
+    descricao,
+    metadata,
+    criadoEm: admin.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+// =====================================================
 // FUNÇÃO: EXECUTAR COMPRA NA BOLSA
 // O SISTEMA faz a transferência, não o usuário
 // =====================================================
@@ -162,6 +199,17 @@ exports.executarCompraBolsa = functions.https.onCall(async (data, context) => {
     // 10. EXECUTAR TUDO
     await batch.commit();
     
+    // 📋 Log de atividade
+    await logAtividade(compradorId, 'bolsa_compra', -valorTotal, creditosComprador,
+      `Bolsa: comprou ${quantidade} cotas por ${valorTotal} cr`,
+      { ordemId, quantidade, precoUnitario, vendedorId, timeId: ordem.timeId || '' });
+    if (vendedorId !== compradorId) {
+      const saldoVendedor = (await db.collection('usuarios').doc(vendedorId).get()).data()?.creditos || 0;
+      await logAtividade(vendedorId, 'bolsa_venda', valorTotal, saldoVendedor - valorTotal,
+        `Bolsa: vendeu ${quantidade} cotas por ${valorTotal} cr`,
+        { ordemId, quantidade, precoUnitario, compradorId });
+    }
+    
     console.log(`✅ Compra executada: ${compradorId} comprou ${quantidade} cotas por ${valorTotal} cr`);
     
     return {
@@ -253,6 +301,11 @@ exports.criarEmbate = functions.https.onCall(async (data, context) => {
     });
 
     await batch.commit();
+
+    // 📋 Log
+    await logAtividade(userId, 'debito_pvp', -aposta, creditos,
+      `PvP: entrada no embate ${embate.codigo || embateId}`,
+      { embateId, aposta });
 
     console.log(`✅ Embate criado: ${userId} debitou ${aposta} cr no embate ${embateId}`);
 
@@ -349,6 +402,11 @@ exports.aceitarEmbate = functions.https.onCall(async (data, context) => {
     });
 
     await batch.commit();
+
+    // 📋 Log
+    await logAtividade(userId, 'debito_pvp', -aposta, creditos,
+      `PvP: entrada no embate ${embate.codigo || embateId}`,
+      { embateId, aposta });
 
     console.log(`✅ Embate aceito: ${userId} entrou no embate ${embateId} (-${aposta} cr)`);
 
@@ -508,6 +566,22 @@ exports.finalizarEmbate = functions.https.onCall(async (data, context) => {
 
     await batch.commit();
 
+    // 📋 Log vencedores
+    try {
+      if (resultado.empate && resultado.vencedoresEmpate) {
+        const premioPorJogador = Math.floor(premio / resultado.vencedoresEmpate.length);
+        for (const odId of resultado.vencedoresEmpate) {
+          await logAtividade(odId, 'premio_pvp', premioPorJogador, null,
+            `PvP: empate no embate ${embate.codigo || embateId}`,
+            { embateId, premio: premioPorJogador });
+        }
+      } else if (resultado.vencedorId) {
+        await logAtividade(resultado.vencedorId, 'premio_pvp', premio, null,
+          `PvP: vitória no embate ${embate.codigo || embateId}`,
+          { embateId, premio });
+      }
+    } catch(logErr) { console.error('⚠️ Log embate:', logErr.message); }
+
     console.log(`✅ Embate ${embateId} finalizado. Prêmio: ${premio} cr`);
 
     return { success: true, resultado: resultado, premio: premio };
@@ -584,6 +658,15 @@ exports.cancelarEmbate = functions.https.onCall(async (data, context) => {
     });
 
     await batch.commit();
+
+    // 📋 Log reembolsos
+    try {
+      for (const odId of participantes) {
+        await logAtividade(odId, 'reembolso_pvp', aposta, null,
+          `PvP: reembolso — embate ${embate.codigo || embateId} cancelado`,
+          { embateId, aposta });
+      }
+    } catch(logErr) { console.error('⚠️ Log cancelamento:', logErr.message); }
 
     console.log(`✅ Embate ${embateId} cancelado. ${participantes.length} participantes reembolsados.`);
 
@@ -721,6 +804,11 @@ exports.coletarPremioEmbate = functions.https.onCall(async (data, context) => {
     });
 
     await batch.commit();
+
+    // 📋 Log
+    await logAtividade(userId, 'premio_pvp', meuPremio, null,
+      `PvP: prêmio coletado — embate ${embate.codigo || embateId}`,
+      { embateId, premio: meuPremio });
 
     console.log(`✅ Prêmio coletado: ${userId} recebeu ${meuPremio} cr do embate ${embateId}`);
 
@@ -1237,6 +1325,38 @@ exports.premiarJogo = functions.https.onCall(async (data, context) => {
     // Commit final
     await batch.commit();
 
+    // 📋 Logs de atividade - premiação do jogo
+    try {
+      const jogoDesc = `${timeCasaNome} vs ${timeForaNome}`;
+      // Log top 20 do ranking (mais relevantes)
+      for (const p of premiosRanking.slice(0, 20)) {
+        if (p.creditos > 0) {
+          await logAtividade(p.odId, 'jogo_ranking', p.creditos, null,
+            `Jogo: ${p.posicao}º lugar — ${jogoDesc} (+${p.creditos} cr)`,
+            { jogoId, posicao: p.posicao, pontos: p.pontos });
+        }
+      }
+      // Log cotistas
+      for (const c of premiosCotistas) {
+        if (c.creditos > 0) {
+          await logAtividade(c.odId, 'jogo_cotista', c.creditos, null,
+            `Cotista: dividendo ${jogoDesc} (+${c.creditos} cr)`,
+            { jogoId, time: c.time, cotas: c.cotas });
+        }
+      }
+      // Log sortudos
+      if (sortudoVencedor) {
+        await logAtividade(sortudoVencedor.odId, 'jogo_sortudo', sortudoVencedor.creditos, null,
+          `Sortudo vencedor: ${jogoDesc} (+${sortudoVencedor.creditos} cr)`,
+          { jogoId, time: sortudoVencedor.time });
+      }
+      if (sortudoPopular) {
+        await logAtividade(sortudoPopular.odId, 'jogo_sortudo', sortudoPopular.creditos, null,
+          `Sortudo popular: ${jogoDesc} (+${sortudoPopular.creditos} cr)`,
+          { jogoId, time: sortudoPopular.time });
+      }
+    } catch(logErr) { console.error('⚠️ Log premiação jogo:', logErr.message); }
+
     console.log(`🏆 Premiação do jogo ${jogoId} processada com sucesso! Pool: ${totalPoolCreditos}`);
 
     // ============================================
@@ -1397,6 +1517,13 @@ exports.inscreverTorneio = functions.https.onCall(async (data, context) => {
 
     await batch.commit();
 
+    // 📋 Log
+    if (entrada > 0) {
+      await logAtividade(userId, 'debito_torneio', -entrada, creditos,
+        `Torneio: inscrição em ${torneio.nome || 'Torneio'}`,
+        { torneioId, entrada });
+    }
+
     console.log(`✅ Usuário ${userId} inscrito no torneio ${torneioId} (entrada: ${entrada})`);
     return { success: true, entrada: entrada };
 
@@ -1525,6 +1652,14 @@ exports.finalizarTorneio = functions.https.onCall(async (data, context) => {
 
     await batch.commit();
 
+    // 📋 Logs
+    try {
+      const tNome = torneioAtual.nome || 'Torneio';
+      if (ranking[0] && premio1 > 0) await logAtividade(ranking[0].odId, 'premio_torneio', premio1, null, `Torneio: 🥇 1º lugar — ${tNome}`, { torneioId, posicao: 1 });
+      if (ranking[1] && premio2 > 0) await logAtividade(ranking[1].odId, 'premio_torneio', premio2, null, `Torneio: 🥈 2º lugar — ${tNome}`, { torneioId, posicao: 2 });
+      if (ranking[2] && premio3 > 0) await logAtividade(ranking[2].odId, 'premio_torneio', premio3, null, `Torneio: 🥉 3º lugar — ${tNome}`, { torneioId, posicao: 3 });
+    } catch(logErr) { console.error('⚠️ Log torneio:', logErr.message); }
+
     console.log(`🏆 Torneio ${torneioId} finalizado! Prêmios: ${premio1}/${premio2}/${premio3}`);
     return { success: true, resultado: resultado };
 
@@ -1600,6 +1735,12 @@ exports.creditarIndicacao = functions.https.onCall(async (data, context) => {
 
     await batch.commit();
 
+    // 📋 Log
+    const saldoIndicador = indicadorData.creditos || 0;
+    await logAtividade(indicadorId, 'indicacao', 2, saldoIndicador,
+      `Indicação: bônus por indicar ${novoUserDoc.data().usuarioUnico || 'novo usuário'}`,
+      { novoUserId });
+
     console.log(`✅ Indicador ${indicadorId} creditado com 2 créditos por indicar ${novoUserId}`);
     return { success: true };
 
@@ -1637,6 +1778,10 @@ exports.creditarCompra = functions.https.onCall(async (data, context) => {
 
     const totalCreditos = (creditos || 0) + (bonus || 0);
 
+    // Ler saldo atual para log
+    const userDocAtual = await db.collection('usuarios').doc(userId).get();
+    const saldoAnterior = userDocAtual.data()?.creditos || 0;
+
     const batch = db.batch();
 
     // Creditar usuário
@@ -1671,6 +1816,11 @@ exports.creditarCompra = functions.https.onCall(async (data, context) => {
     });
 
     await batch.commit();
+
+    // 📋 Log
+    await logAtividade(userId, 'compra', totalCreditos, saldoAnterior,
+      `Compra MP: ${creditos} cr${bonus > 0 ? ` + ${bonus} bônus` : ''} (client-side)`,
+      { paymentId: String(paymentId), pacoteId, creditosBase: creditos, bonus: bonus || 0, origem: 'client' });
 
     console.log(`✅ Compra processada: ${userId} recebeu ${totalCreditos} créditos (pagamento ${paymentId})`);
     return { success: true, totalCreditos: totalCreditos };
@@ -1726,6 +1876,10 @@ exports.completarMissao = functions.https.onCall(async (data, context) => {
       return { success: true, jaCreditada: true };
     }
 
+    // Ler saldo atual para log
+    const userDocMissao = await db.collection('usuarios').doc(userId).get();
+    const saldoAntesMissao = userDocMissao.data()?.creditos || 0;
+
     const batch = db.batch();
 
     // Creditar usuário
@@ -1747,6 +1901,11 @@ exports.completarMissao = functions.https.onCall(async (data, context) => {
     });
 
     await batch.commit();
+
+    // 📋 Log
+    await logAtividade(userId, 'missao', creditosRecompensa, saldoAntesMissao,
+      `Missão: ${missaoData.titulo || missaoId}`,
+      { missaoId, recompensa: creditosRecompensa });
 
     console.log(`✅ Missão ${missaoId} creditada para ${userId}: +${creditosRecompensa} créditos`);
     return { success: true, creditos: creditosRecompensa };
