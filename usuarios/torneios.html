@@ -750,9 +750,9 @@
     function carregarEstatisticas() {
       const torneioStats = currentUserData?.torneios || {};
       
-      document.getElementById('totalParticipacoes').textContent = torneioStats.participacoes || 0;
+      document.getElementById('totalParticipacoes').textContent = torneioStats.participacoes || torneioStats.totalTorneios || 0;
       document.getElementById('totalVitorias').textContent = torneioStats.vitorias || 0;
-      document.getElementById('totalPremios').textContent = torneioStats.premios || 0;
+      document.getElementById('totalPremios').textContent = torneioStats.creditosGanhos || torneioStats.premios || 0;
     }
 
     // ===================================
@@ -860,6 +860,19 @@
         // Verificar se já passou da hora de início
         const jaComecou = torneio.dataInicio && agora >= torneio.dataInicio;
         const podeEntrar = inscrito && (torneio.status === 'andamento' || jaComecou);
+        
+        // Verificar se inscrições já fecharam
+        const inscricoesFecharam = torneio.inscricoesFecham && agora >= torneio.inscricoesFecham;
+        const naoAbriuAinda = torneio.inscricoesAbrem && agora < torneio.inscricoesAbrem;
+        const podeInscrever = !inscrito && !inscricoesFecharam && !naoAbriuAinda && !jaComecou;
+        
+        // Countdown ao vivo (quanto falta pra começar)
+        let countdownHTML = '';
+        if (!jaComecou && torneio.dataInicio && inscrito) {
+          countdownHTML = `<div class="torneio-countdown" data-inicio="${torneio.dataInicio.getTime()}" style="text-align:center; padding:8px; background:rgba(255,181,71,0.1); border-radius:10px; margin-bottom:10px; font-size:0.85em; color:#ffb547;">
+            ⏱️ Começa em <span class="countdown-value">calculando...</span>
+          </div>`;
+        }
 
         return `
           <div class="torneio-card ${torneio.destaque ? 'destaque' : ''}">
@@ -873,9 +886,11 @@
             <div class="torneio-body">
               <div class="torneio-nome">${torneio.nome}</div>
               
+              ${countdownHTML}
+              
               <div class="torneio-info">
                 <div class="info-item">
-                  <div class="info-value">${torneio.inscritos}/${torneio.vagas}</div>
+                  <div class="info-value">${torneio.inscritos}/${torneio.vagas >= 9999 ? '∞' : torneio.vagas}</div>
                   <div class="info-label">Inscritos</div>
                 </div>
                 <div class="info-item">
@@ -903,9 +918,9 @@
                 <button class="btn-inscrever btn-inscrito" onclick="verTorneio('${torneio.id}')">
                   ✅ Inscrito - Ver Detalhes
                 </button>
-              ` : torneio.status === 'andamento' || jaComecou ? `
+              ` : !podeInscrever ? `
                 <button class="btn-inscrever" disabled style="opacity: 0.5;">
-                  ⏳ Torneio já começou
+                  ${naoAbriuAinda ? '🔒 Inscrições em breve' : inscricoesFecharam ? '🔒 Inscrições encerradas' : '⏳ Torneio já começou'}
                 </button>
               ` : `
                 <button class="btn-inscrever" onclick="inscrever('${torneio.id}')">
@@ -916,6 +931,9 @@
           </div>
         `;
       }).join('');
+      
+      // Iniciar countdown ao vivo
+      iniciarCountdowns();
     }
 
     // ===================================
@@ -950,21 +968,34 @@
         const podeEntrar = emAndamento || jaComecou;
         
         let statusTexto = '⏳ Aguardando início';
+        let countdownData = '';
         if (emAndamento) {
           statusTexto = '🟢 Em andamento';
         } else if (jaComecou) {
           statusTexto = '🚀 Pronto para começar!';
+        } else if (torneio.dataInicio) {
+          const diff = torneio.dataInicio - agora;
+          const h = Math.floor(diff / 3600000);
+          const m = Math.floor((diff % 3600000) / 60000);
+          if (h > 24) {
+            statusTexto = `⏳ Começa em ${Math.floor(h/24)}d ${h%24}h`;
+          } else if (h > 0) {
+            statusTexto = `⏳ Começa em ${h}h ${m}min`;
+          } else {
+            statusTexto = `⏳ Começa em ${m}min`;
+          }
         }
 
         return `
-          <div class="meu-torneio" onclick="${podeEntrar ? `entrarArena('${torneio.id}')` : `verTorneio('${torneio.id}')`}" style="${podeEntrar ? 'border: 2px solid #10b981; background: rgba(16, 185, 129, 0.1);' : ''}">
+          <div class="meu-torneio" onclick="${podeEntrar ? `entrarArena('${torneio.id}')` : `verTorneio('${torneio.id}')`}" style="${podeEntrar ? 'border: 2px solid #10b981; background: rgba(16, 185, 129, 0.1); cursor:pointer;' : 'cursor:pointer;'}">
             <div class="meu-torneio-icon">${icone}</div>
             <div class="meu-torneio-info">
               <div class="meu-torneio-nome">${torneio.nome}</div>
               <div class="meu-torneio-status">${statusTexto}</div>
+              ${torneio.premio > 0 ? `<div style="font-size:0.75em; color:#ffb547; margin-top:2px;">🏆 ${torneio.premio} 💎</div>` : ''}
             </div>
             ${podeEntrar ? `
-              <div style="color: #10b981; font-weight: 700;">ENTRAR →</div>
+              <div style="color: #10b981; font-weight: 700; font-size: 0.9em;">ENTRAR →</div>
             ` : `
               <div style="color: #ffb547;">→</div>
             `}
@@ -1096,15 +1127,82 @@
     }
 
     // ===================================
+    // ⏱️ COUNTDOWN AO VIVO NOS CARDS
+    // ===================================
+    let countdownInterval = null;
+    
+    function iniciarCountdowns() {
+      if (countdownInterval) clearInterval(countdownInterval);
+      
+      countdownInterval = setInterval(() => {
+        const countdowns = document.querySelectorAll('.torneio-countdown');
+        const agora = Date.now();
+        let alguemZerou = false;
+        
+        countdowns.forEach(el => {
+          const inicio = parseInt(el.dataset.inicio);
+          const diff = inicio - agora;
+          const span = el.querySelector('.countdown-value');
+          
+          if (diff <= 0) {
+            span.textContent = '🚀 AGORA!';
+            el.style.background = 'rgba(16,185,129,0.15)';
+            el.style.color = '#10b981';
+            alguemZerou = true;
+          } else {
+            const h = Math.floor(diff / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            
+            if (h > 0) {
+              span.textContent = `${h}h ${m}min ${s}s`;
+            } else if (m > 0) {
+              span.textContent = `${m}min ${s}s`;
+            } else {
+              span.textContent = `${s}s`;
+              el.style.color = '#ff4757';
+            }
+          }
+        });
+        
+        // Se algum countdown zerou, recarregar para mostrar botão ENTRAR
+        if (alguemZerou) {
+          setTimeout(() => carregarTorneios(), 2000);
+        }
+      }, 1000);
+    }
+    
+    // ===================================
+    // 🔄 AUTO-REFRESH A CADA 30s
+    // ===================================
+    setInterval(() => {
+      if (currentUserId) {
+        carregarTorneios();
+      }
+    }, 30000);
+
+    // ===================================
     // ✅ INSCREVER
     // ===================================
     async function inscrever(torneioId) {
       const torneio = torneios.find(t => t.id === torneioId);
       if (!torneio) return;
+      
+      const agora = new Date();
+      
+      // Validar datas de inscrição
+      if (torneio.inscricoesFecham && agora >= torneio.inscricoesFecham) {
+        showToast('❌ Inscrições encerradas!');
+        return;
+      }
+      if (torneio.inscricoesAbrem && agora < torneio.inscricoesAbrem) {
+        showToast('❌ Inscrições ainda não abriram!');
+        return;
+      }
 
       const creditos = currentUserData?.creditos || 0;
       if (torneio.entrada > 0 && creditos < torneio.entrada) {
-        showToast('❌ Créditos insuficientes!');
+        showToast('❌ Créditos insuficientes! Você tem ' + creditos + ' 💎');
         return;
       }
 
@@ -1112,6 +1210,17 @@
         showToast('❌ Torneio cheio!');
         return;
       }
+      
+      // Confirmação se tem taxa
+      if (torneio.entrada > 0) {
+        if (!confirm(`Inscrever-se por ${torneio.entrada} créditos?\nVocê tem ${creditos} 💎`)) return;
+      }
+      
+      // Loading state no botão
+      const btn = event.target;
+      const btnOriginal = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Inscrevendo...';
 
       try {
         // ✅ SEGURO: Cloud Function debita entrada e atualiza torneio
@@ -1139,6 +1248,17 @@
         await db.collection('usuarios').doc(currentUserId).update({
           'torneios.participacoes': firebase.firestore.FieldValue.increment(1)
         });
+        
+        // Registrar no extrato se teve taxa
+        if (torneio.entrada > 0) {
+          await db.collection('usuarios').doc(currentUserId)
+            .collection('extrato').doc().set({
+              tipo: 'saida',
+              valor: torneio.entrada,
+              descricao: `⚔️ Inscrição: ${torneio.nome}`,
+              data: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
 
         // 6. Atualizar local
         torneio.participantes.push(currentUserId);
@@ -1150,7 +1270,9 @@
 
       } catch (error) {
         console.error("Erro ao inscrever:", error);
-        showToast('❌ Erro ao inscrever: ' + error.message);
+        showToast('❌ Erro ao inscrever: ' + (error.message || 'Tente novamente'));
+        btn.disabled = false;
+        btn.innerHTML = btnOriginal;
       }
     }
 
