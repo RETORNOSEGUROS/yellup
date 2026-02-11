@@ -2169,3 +2169,178 @@ exports.limparNotificacoes = functions.pubsub
       return null;
     }
   });
+
+// =============================================
+// 🔒 RESPONDER PERGUNTA (SERVER-SIDE VALIDATION)
+// =============================================
+// O client NUNCA recebe a resposta correta antes de responder.
+// Valida tudo server-side: resposta, créditos, pontos, streak.
+exports.responderPergunta = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Usuário não autenticado");
+  }
+
+  const uid = context.auth.uid;
+  const { jogoId, perguntaId, resposta, tempoResposta } = data;
+
+  if (!jogoId || !perguntaId || !resposta) {
+    throw new functions.https.HttpsError("invalid-argument", "Dados incompletos");
+  }
+
+  const tempoRespostaSegundos = Math.min(Math.max(parseFloat(tempoResposta) || 10, 0), 15);
+
+  try {
+    // 1. Buscar pergunta (server-side - seguro)
+    const perguntaDoc = await db.collection("perguntas").doc(perguntaId).get();
+    if (!perguntaDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Pergunta não encontrada");
+    }
+
+    const pergunta = perguntaDoc.data();
+    const correta = (pergunta.correta || "").toLowerCase();
+    const respostaUser = (resposta || "").toLowerCase();
+    const pontuacaoBase = pergunta.pontuacao || pergunta.pontos || 10;
+
+    // 2. Buscar dados do jogo
+    const jogoDoc = await db.collection("jogos").doc(jogoId).get();
+    if (!jogoDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Jogo não encontrado");
+    }
+
+    const jogo = jogoDoc.data();
+
+    // 3. Verificar se o jogo está ao vivo
+    const agora = new Date();
+    const inicio = jogo.dataInicio?.toDate?.() || new Date(jogo.dataInicio || 0);
+    const fim = jogo.dataFim?.toDate?.() || null;
+
+    if (agora < inicio) {
+      throw new functions.https.HttpsError("failed-precondition", "Jogo ainda não começou");
+    }
+    if (fim && agora > fim) {
+      throw new functions.https.HttpsError("failed-precondition", "Jogo já encerrado");
+    }
+
+    // 4. Buscar dados do usuário
+    const userDoc = await db.collection("usuarios").doc(uid).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+    const timeTorcida = userData.torcidas?.[jogoId];
+
+    if (!timeTorcida) {
+      throw new functions.https.HttpsError("failed-precondition", "Usuário não está torcendo neste jogo");
+    }
+
+    // 5. Verificar se já respondeu esta pergunta (anti-replay)
+    const perguntasRespondidas = userData[`perguntasRespondidas_${timeTorcida}`] || [];
+    if (perguntasRespondidas.includes(perguntaId)) {
+      throw new functions.https.HttpsError("already-exists", "Pergunta já respondida");
+    }
+
+    // 6. Verificar créditos
+    const jogadasPorJogo = userData.jogadasGratisPorJogo || {};
+    const jogadasUsadas = jogadasPorJogo[jogoId] || 0;
+    const temGratis = jogadasUsadas < 5;
+    const creditosTotal = userData.creditos || 0;
+
+    if (!temGratis && creditosTotal <= 0) {
+      throw new functions.https.HttpsError("resource-exhausted", "Sem créditos");
+    }
+
+    // 7. Verificar resposta (TIMEOUT = sempre errado)
+    const acertou = respostaUser === correta;
+
+    // 8. Calcular streak e multiplicador SERVER-SIDE
+    const participanteRef = db.collection("jogos").doc(jogoId).collection("participantes").doc(uid);
+    const participanteDoc = await participanteRef.get();
+    const participante = participanteDoc.exists ? participanteDoc.data() : {};
+
+    let streakAtual = participante.streakAtual || 0;
+    let maxStreakVal = participante.maxStreak || 0;
+
+    if (acertou) {
+      streakAtual += 1;
+      if (streakAtual > maxStreakVal) maxStreakVal = streakAtual;
+    } else {
+      streakAtual = 0;
+    }
+
+    // Multiplicador baseado no streak
+    let multiplicador = 1;
+    if (streakAtual >= 10) multiplicador = 3;
+    else if (streakAtual >= 5) multiplicador = 2;
+    else if (streakAtual >= 3) multiplicador = 1.5;
+
+    const pontosFinais = acertou ? Math.round(pontuacaoBase * multiplicador) : 0;
+
+    // 9. Atualizar tudo em batch (atômico)
+    const batch = db.batch();
+    const userRef = db.collection("usuarios").doc(uid);
+
+    const userUpdates = {
+      [`perguntasRespondidas_${timeTorcida}`]: admin.firestore.FieldValue.arrayUnion(perguntaId)
+    };
+
+    // Descontar crédito ou jogada grátis
+    if (temGratis) {
+      userUpdates[`jogadasGratisPorJogo.${jogoId}`] = admin.firestore.FieldValue.increment(1);
+    } else {
+      userUpdates.creditos = admin.firestore.FieldValue.increment(-1);
+      // Pool do jogo
+      batch.update(db.collection("jogos").doc(jogoId), {
+        poolCreditos: admin.firestore.FieldValue.increment(1)
+      });
+    }
+
+    // Pontos e XP se acertou
+    if (acertou) {
+      userUpdates[`pontuacoes.${jogoId}`] = admin.firestore.FieldValue.increment(pontosFinais);
+      userUpdates.xp = admin.firestore.FieldValue.increment(pontosFinais);
+      userUpdates[`tempoRespostas.${jogoId}.soma`] = admin.firestore.FieldValue.increment(tempoRespostaSegundos);
+      userUpdates[`tempoRespostas.${jogoId}.quantidade`] = admin.firestore.FieldValue.increment(1);
+    }
+
+    batch.update(userRef, userUpdates);
+
+    // Atualizar participante
+    const acertos = (participante.acertos || 0) + (acertou ? 1 : 0);
+    const erros = (participante.erros || 0) + (acertou ? 0 : 1);
+
+    batch.set(participanteRef, {
+      odontId: uid,
+      odontNome: userData.nome || userData.apelido || "Anônimo",
+      timeId: timeTorcida,
+      pontos: (participante.pontos || 0) + pontosFinais,
+      acertos,
+      erros,
+      streakAtual,
+      maxStreak: maxStreakVal,
+      tempoSoma: (participante.tempoSoma || 0) + (acertou ? tempoRespostaSegundos : 0),
+      tempoQuantidade: (participante.tempoQuantidade || 0) + (acertou ? 1 : 0),
+      tempoMedio: acertou
+        ? ((participante.tempoSoma || 0) + tempoRespostaSegundos) / ((participante.tempoQuantidade || 0) + 1)
+        : participante.tempoMedio || 0,
+      ultimaResposta: admin.firestore.Timestamp.now()
+    }, { merge: true });
+
+    await batch.commit();
+
+    // 10. Retornar resultado (resposta correta só é revelada DEPOIS de registrar)
+    return {
+      acertou,
+      respostaCorreta: pergunta.correta,
+      respostaTexto: pergunta.alternativas?.[pergunta.correta] || "",
+      pontosGanhos: pontosFinais,
+      pontuacaoBase,
+      multiplicador,
+      streak: streakAtual,
+      maxStreak: maxStreakVal,
+      jogadasGratisRestantes: temGratis ? Math.max(0, 4 - jogadasUsadas) : 0,
+      creditosRestantes: temGratis ? creditosTotal : Math.max(0, creditosTotal - 1)
+    };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error("Erro responderPergunta:", error);
+    throw new functions.https.HttpsError("internal", "Erro interno ao processar resposta");
+  }
+});
