@@ -2568,6 +2568,9 @@
           <strong id="paidCredits">0</strong>
         </div>
       </div>
+      <div id="perguntasRestantes" style="text-align:center;font-size:.7em;color:#a4b0be;margin-top:4px;margin-bottom:-4px;display:none">
+        📚 <span id="perguntasRestantesNum">0</span> perguntas restantes
+      </div>
 
       <!-- 🔥 STREAK E GAMIFICAÇÃO -->
       <div class="streak-container" id="streakContainer">
@@ -2746,6 +2749,7 @@
     let timeForaData = null;         // Dados do time visitante
     let currentQuestion = null;
     let perguntasRespondidas = [];
+    let perguntasSessao = new Set(); // ✅ NOVO: perguntas vistas NESTA sessão (nunca reseta)
     let todasPerguntasRespondidas = false;
     let questionTimer = null;        // Timer da pergunta
     let questionTimeLeft = 10;       // 10 segundos por pergunta
@@ -3279,6 +3283,8 @@
         // ✅ GLOBAL: Carregar perguntas já respondidas DESTE TIME (não do jogo)
         // Assim a pessoa nunca mais vê a mesma pergunta, mesmo em jogos diferentes
         perguntasRespondidas = user[`perguntasRespondidas_${timeTorcida}`] || [];
+        // Adicionar ao set de sessão também
+        perguntasRespondidas.forEach(id => perguntasSessao.add(id));
         console.log("📝 Perguntas já respondidas deste time (GLOBAL):", perguntasRespondidas.length);
 
         // ✅ NOVO: Carregar acertos/erros e conquistas do jogo atual
@@ -3576,42 +3582,99 @@
           return;
         }
 
-        // Filtrar perguntas não respondidas
+        // Filtrar perguntas não respondidas (global + sessão)
         const perguntasDisponiveis = [];
+        const perguntasTodasIds = [];
         perguntasSnap.forEach(doc => {
-          if (!perguntasRespondidas.includes(doc.id)) {
+          perguntasTodasIds.push(doc.id);
+          // Excluir se está no array global OU no set de sessão
+          if (!perguntasRespondidas.includes(doc.id) && !perguntasSessao.has(doc.id)) {
             perguntasDisponiveis.push({ id: doc.id, ...doc.data() });
           }
         });
 
-        console.log("📝 Perguntas disponíveis (não respondidas):", perguntasDisponiveis.length);
+        console.log(`📝 Perguntas: ${perguntasSnap.size} total | ${perguntasRespondidas.length} respondidas (global) | ${perguntasSessao.size} sessão | ${perguntasDisponiveis.length} disponíveis`);
 
-        // Se acabaram as perguntas, reinicia automaticamente
+        // Se acabaram as perguntas disponíveis
         if (perguntasDisponiveis.length === 0) {
-          console.log("🔄 Todas perguntas respondidas! Reiniciando...");
           
-          // Limpar array de perguntas respondidas deste time
+          // Verificar se tem perguntas que não foram vistas NESTA sessão
+          // (pode haver perguntas no global que não foram vistas agora)
+          const apenasGlobal = [];
+          perguntasSnap.forEach(doc => {
+            if (!perguntasSessao.has(doc.id)) {
+              apenasGlobal.push({ id: doc.id, ...doc.data() });
+            }
+          });
+
+          if (apenasGlobal.length > 0) {
+            // Tem perguntas que o user respondeu em jogos anteriores mas NÃO nesta sessão
+            // Resetar o global e oferecer essas
+            console.log(`🔄 Resetando global - ${apenasGlobal.length} perguntas de jogos anteriores disponíveis`);
+            
+            await db.collection("usuarios").doc(uid).update({
+              [`perguntasRespondidas_${timeTorcida}`]: [...perguntasSessao] // manter só as desta sessão
+            });
+            perguntasRespondidas = [...perguntasSessao];
+            
+            // Usar as perguntas que não foram vistas nesta sessão
+            const perguntaAleatoria = apenasGlobal[Math.floor(Math.random() * apenasGlobal.length)];
+            currentQuestion = perguntaAleatoria;
+            console.log("📝 Pergunta selecionada (reciclada):", currentQuestion.pergunta);
+            displayQuestion();
+            return;
+          }
+          
+          // TODAS as perguntas foram vistas nesta sessão - ciclo completo
+          console.log("🔄 Todas as perguntas respondidas nesta sessão! Reiniciando ciclo...");
+          
+          // Limpar array global no Firestore
           await db.collection("usuarios").doc(uid).update({
             [`perguntasRespondidas_${timeTorcida}`]: []
           });
-          
-          // Limpar array local também
           perguntasRespondidas = [];
+          // NÃO limpar perguntasSessao - mantemos pra evitar repetição imediata
           
-          // Mostrar toast informativo
-          showToast("🔄 Perguntas reiniciadas! Você já respondeu todas uma vez.");
+          // Pegar a pergunta que foi respondida há MAIS tempo na sessão
+          // (a primeira da sessão, que está mais "distante" na memória do user)
+          const sessaoArray = [...perguntasSessao];
+          const maisAntigaId = sessaoArray[0]; // primeira respondida na sessão
           
-          // Agora todas as perguntas estão disponíveis novamente
+          // Limpar sessão agora que vamos reciclar
+          perguntasSessao.clear();
+          
+          let perguntaMaisAntiga = null;
           perguntasSnap.forEach(doc => {
-            perguntasDisponiveis.push({ id: doc.id, ...doc.data() });
+            if (doc.id === maisAntigaId) {
+              perguntaMaisAntiga = { id: doc.id, ...doc.data() };
+            }
           });
           
-          console.log("✅ Perguntas disponíveis após reinício:", perguntasDisponiveis.length);
+          if (!perguntaMaisAntiga) {
+            // Fallback: qualquer uma
+            const docs = [];
+            perguntasSnap.forEach(doc => docs.push({ id: doc.id, ...doc.data() }));
+            perguntaMaisAntiga = docs[Math.floor(Math.random() * docs.length)];
+          }
+          
+          showToast(`🔄 Ciclo completo! ${perguntasTodasIds.length} perguntas respondidas. Reiniciando...`);
+          currentQuestion = perguntaMaisAntiga;
+          console.log("📝 Pergunta selecionada (novo ciclo):", currentQuestion.pergunta);
+          displayQuestion();
+          return;
         }
 
         // Escolher pergunta aleatória
         const perguntaAleatoria = perguntasDisponiveis[Math.floor(Math.random() * perguntasDisponiveis.length)];
         currentQuestion = perguntaAleatoria;
+
+        // Atualizar contador visual
+        const restDiv = document.getElementById('perguntasRestantes');
+        const restNum = document.getElementById('perguntasRestantesNum');
+        if (restDiv && restNum) {
+          restNum.textContent = perguntasDisponiveis.length - 1; // -1 porque esta acabou de ser escolhida
+          restDiv.style.display = 'block';
+        }
 
         console.log("📝 Pergunta selecionada:", currentQuestion.pergunta);
 
@@ -3761,8 +3824,9 @@
         // 🔥 GAMIFICAÇÃO - Resetar streak no timeout
         atualizarStreak(false);
 
-        // Adicionar pergunta ao histórico
+        // Adicionar pergunta ao histórico (global + sessão)
         perguntasRespondidas.push(currentQuestion.id);
+        perguntasSessao.add(currentQuestion.id);
 
         // ✅ CORREÇÃO: Descontar jogada grátis POR JOGO
         const userDoc = await db.collection("usuarios").doc(uid).get();
@@ -3872,8 +3936,9 @@
           resultMessage.textContent = `❌ Errado! A resposta correta era: ${alternativas[correct]}`;
         }
 
-        // Adicionar pergunta ao histórico
+        // Adicionar pergunta ao histórico (global + sessão)
         perguntasRespondidas.push(currentQuestion.id);
+        perguntasSessao.add(currentQuestion.id);
 
         // ✅ CORREÇÃO: Verificar e descontar créditos POR JOGO
         const userDoc = await db.collection("usuarios").doc(uid).get();
