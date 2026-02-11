@@ -652,6 +652,10 @@
           <span>🏆</span>
           <span id="arenaPrize">0</span>
         </div>
+        
+        <button onclick="sairArena()" style="padding:6px 14px; background:rgba(255,71,87,0.2); border:1px solid rgba(255,71,87,0.4); border-radius:8px; color:#ff6b81; font-family:'Poppins',sans-serif; font-size:0.75em; cursor:pointer;">
+          Sair ✕
+        </button>
       </div>
     </div>
 
@@ -800,9 +804,13 @@
     let mainTimerInterval = null;
     let questionTimerInterval = null;
     let questionTimeLeft = 10;
+    let questionTimeTotal = 10; // configurável pelo torneio
     
     // Listener do ranking
     let rankingUnsubscribe = null;
+    
+    // Guard contra finalização dupla
+    let finalizando = false;
 
     // ===================================
     // 🚀 INICIALIZAÇÃO
@@ -1026,6 +1034,10 @@
         atualizarVidas();
       }
       
+      // Timer da pergunta configurável (padrão 10s)
+      questionTimeTotal = torneioData.config?.tempoPergunta || 10;
+      questionTimeLeft = questionTimeTotal;
+      
       // Participantes
       document.getElementById('participantsCount').textContent = 
         `${torneioData.totalInscritos || torneioData.inscritos?.length || 0} participantes`;
@@ -1117,6 +1129,21 @@
           });
           renderizarRanking(ranking);
         });
+      
+      // Listener do status do torneio (admin pode finalizar a qualquer momento)
+      db.collection('torneios').doc(torneioId).onSnapshot(doc => {
+        if (!doc.exists) return;
+        const data = doc.data();
+        if (data.status === 'finalizado' && !finalizando) {
+          finalizando = true;
+          clearInterval(mainTimerInterval);
+          clearInterval(questionTimerInterval);
+          showToast('🏆 Torneio finalizado pelo administrador!');
+          setTimeout(() => {
+            window.location.href = `resultado-torneio.html?id=${torneioId}`;
+          }, 2000);
+        }
+      });
     }
 
     // ===================================
@@ -1173,41 +1200,94 @@
         // Buscar perguntas do tema do torneio
         const tema = torneioData.tema;
         
+        // Gerar ID aleatório para offset (aleatoriedade real no Firestore)
+        const randomId = db.collection('_').doc().id;
+        
         if (tema?.tipo === 'time' && tema.id) {
-          const snapshotTime = await db.collection('perguntas')
+          // Buscar com offset aleatório (metade >= randomId, metade < randomId)
+          const snap1 = await db.collection('perguntas')
             .where('timeId', '==', tema.id)
-            .limit(50)
+            .where(firebase.firestore.FieldPath.documentId(), '>=', randomId)
+            .limit(30)
             .get();
           
-          snapshotTime.forEach(doc => {
+          snap1.forEach(doc => {
             if (!gameState.perguntasRespondidas.includes(doc.id)) {
               perguntas.push({ id: doc.id, ...doc.data() });
             }
           });
+          
+          // Se poucos resultados, buscar do outro lado
+          if (perguntas.length < 5) {
+            const snap2 = await db.collection('perguntas')
+              .where('timeId', '==', tema.id)
+              .where(firebase.firestore.FieldPath.documentId(), '<', randomId)
+              .limit(30)
+              .get();
+            
+            snap2.forEach(doc => {
+              if (!gameState.perguntasRespondidas.includes(doc.id) && 
+                  !perguntas.find(p => p.id === doc.id)) {
+                perguntas.push({ id: doc.id, ...doc.data() });
+              }
+            });
+          }
+          
         } else if (tema?.tipo === 'campeonato' && tema.id) {
-          const snapshotCamp = await db.collection('perguntas')
+          const snap1 = await db.collection('perguntas')
             .where('campeonatoId', '==', tema.id)
-            .limit(50)
+            .where(firebase.firestore.FieldPath.documentId(), '>=', randomId)
+            .limit(30)
             .get();
           
-          snapshotCamp.forEach(doc => {
+          snap1.forEach(doc => {
             if (!gameState.perguntasRespondidas.includes(doc.id)) {
               perguntas.push({ id: doc.id, ...doc.data() });
             }
           });
+          
+          if (perguntas.length < 5) {
+            const snap2 = await db.collection('perguntas')
+              .where('campeonatoId', '==', tema.id)
+              .where(firebase.firestore.FieldPath.documentId(), '<', randomId)
+              .limit(30)
+              .get();
+            
+            snap2.forEach(doc => {
+              if (!gameState.perguntasRespondidas.includes(doc.id) &&
+                  !perguntas.find(p => p.id === doc.id)) {
+                perguntas.push({ id: doc.id, ...doc.data() });
+              }
+            });
+          }
         }
         
-        // Se não encontrou, busca gerais
+        // Se não encontrou do tema, busca gerais com offset aleatório
         if (perguntas.length === 0) {
-          const snapshotGeral = await db.collection('perguntas')
-            .limit(100)
+          const snap1 = await db.collection('perguntas')
+            .where(firebase.firestore.FieldPath.documentId(), '>=', randomId)
+            .limit(50)
             .get();
           
-          snapshotGeral.forEach(doc => {
+          snap1.forEach(doc => {
             if (!gameState.perguntasRespondidas.includes(doc.id)) {
               perguntas.push({ id: doc.id, ...doc.data() });
             }
           });
+          
+          if (perguntas.length < 10) {
+            const snap2 = await db.collection('perguntas')
+              .where(firebase.firestore.FieldPath.documentId(), '<', randomId)
+              .limit(50)
+              .get();
+            
+            snap2.forEach(doc => {
+              if (!gameState.perguntasRespondidas.includes(doc.id) &&
+                  !perguntas.find(p => p.id === doc.id)) {
+                perguntas.push({ id: doc.id, ...doc.data() });
+              }
+            });
+          }
         }
         
         if (perguntas.length === 0) {
@@ -1216,8 +1296,14 @@
           return;
         }
         
-        // Selecionar aleatória
-        const pergunta = perguntas[Math.floor(Math.random() * perguntas.length)];
+        // Fisher-Yates shuffle para aleatoriedade real
+        for (let i = perguntas.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [perguntas[i], perguntas[j]] = [perguntas[j], perguntas[i]];
+        }
+        
+        // Pegar a primeira do pool embaralhado
+        const pergunta = perguntas[0];
         gameState.perguntaAtual = pergunta;
         gameState.totalPerguntas++;
         
@@ -1303,7 +1389,7 @@
     // ⏱️ TIMER DA PERGUNTA
     // ===================================
     function iniciarTimerPergunta() {
-      questionTimeLeft = 10;
+      questionTimeLeft = questionTimeTotal;
       atualizarTimerPergunta();
       
       questionTimerInterval = setInterval(() => {
@@ -1377,7 +1463,10 @@
         gameState.streak++;
         gameState.maxStreak = Math.max(gameState.maxStreak, gameState.streak);
         
-        showToast(`✅ +${pontosGanhos} pontos! (Streak: ${gameState.streak})`);
+        let detalhes = `✅ +${pontosGanhos} pts`;
+        if (bonusStreak > 0) detalhes += ` (🔥${gameState.streak})`;
+        if (bonusTempo > 5) detalhes += ` (⚡rápido!)`;
+        showToast(detalhes);
         
       } else {
         // Errou ou tempo esgotado
@@ -1429,7 +1518,7 @@
             perguntaId: pergunta.id,
             resposta: letra,
             correta: acertou,
-            tempoResposta: 10 - questionTimeLeft,
+            tempoResposta: questionTimeTotal - questionTimeLeft,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
           });
           
@@ -1440,7 +1529,7 @@
       // Atualizar UI
       atualizarMeuStatus();
       
-      // Próxima pergunta após 1.5s
+      // Próxima pergunta automaticamente após 1.5s
       setTimeout(() => {
         if (!gameState.eliminado) {
           document.getElementById('questionState').style.display = 'none';
@@ -1449,6 +1538,9 @@
           const btn = document.getElementById('btnStart');
           btn.disabled = false;
           btn.textContent = '▶️ Próxima Pergunta';
+          
+          // Auto-carregar próxima pergunta
+          carregarPergunta();
         }
       }, 1500);
     }
@@ -1479,6 +1571,9 @@
     // 🏁 FINALIZAR TORNEIO (AUTOMÁTICO)
     // ===================================
     async function finalizarTorneio() {
+      if (finalizando) return; // Guard contra dupla finalização
+      finalizando = true;
+      
       console.log("🏁 Iniciando finalização do torneio...");
       
       // Parar listeners e timers
@@ -1547,7 +1642,7 @@
         console.log("💰 Prize Pool:", prizePool, "| Prêmios:", premio1, premio2, premio3);
         
         // Resultado final
-        const resultado = {
+        let resultado = {
           primeiro: ranking[0] ? { odId: ranking[0].odId, odNome: ranking[0].odNome, pontos: ranking[0].pontos, premio: premio1 } : null,
           segundo: ranking[1] ? { odId: ranking[1].odId, odNome: ranking[1].odNome, pontos: ranking[1].pontos, premio: premio2 } : null,
           terceiro: ranking[2] ? { odId: ranking[2].odId, odNome: ranking[2].odNome, pontos: ranking[2].pontos, premio: premio3 } : null,
@@ -1563,12 +1658,90 @@
         
         console.log("📝 Resultado calculado:", resultado);
         
-        // ✅ SEGURO: Cloud Function distribui prêmios e finaliza
-        const finalizarTorneioFn = functions.httpsCallable('finalizarTorneio');
-        const resultadoFn = await finalizarTorneioFn({ torneioId: torneioId });
-        
-        if (resultadoFn.data.resultado) {
-          resultado = resultadoFn.data.resultado;
+        // ✅ Tentar Cloud Function primeiro, fallback client-side
+        let finalizadoPorFn = false;
+        try {
+          const finalizarTorneioFn = functions.httpsCallable('finalizarTorneio');
+          const resultadoFn = await finalizarTorneioFn({ torneioId: torneioId });
+          if (resultadoFn.data?.resultado) {
+            resultado = resultadoFn.data.resultado;
+          }
+          finalizadoPorFn = true;
+          console.log("✅ Finalizado via Cloud Function");
+        } catch (fnError) {
+          console.warn("⚠️ Cloud Function falhou, finalizando client-side:", fnError.message);
+          
+          // Fallback: finalizar diretamente (mesmo lógica do admin)
+          try {
+            // Distribuir prêmios
+            const medals = ['🥇', '🥈', '🥉'];
+            const premiosList = [premio1, premio2, premio3];
+            const statsKeys = ['vitorias', 'top3', 'top3'];
+            
+            for (let i = 0; i < 3 && i < ranking.length; i++) {
+              if (premiosList[i] > 0) {
+                const uid = ranking[i].odId;
+                const stats = { 
+                  creditos: firebase.firestore.FieldValue.increment(premiosList[i]),
+                  'torneios.creditosGanhos': firebase.firestore.FieldValue.increment(premiosList[i]),
+                  'torneios.totalTorneios': firebase.firestore.FieldValue.increment(1)
+                };
+                stats[`torneios.${statsKeys[i]}`] = firebase.firestore.FieldValue.increment(1);
+                
+                await db.collection('usuarios').doc(uid).update(stats);
+                await db.collection('transacoes').add({
+                  usuarioId: uid, tipo: 'credito', valor: premiosList[i],
+                  descricao: `${medals[i]} ${i+1}º lugar no torneio ${torneioAtual.nome} (+${premiosList[i]} créditos)`,
+                  torneioId: torneioId, data: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                await db.collection('usuarios').doc(uid).collection('extrato').add({
+                  tipo: 'entrada', valor: premiosList[i],
+                  descricao: `${medals[i]} ${i+1}º lugar: ${torneioAtual.nome}`,
+                  data: firebase.firestore.FieldValue.serverTimestamp()
+                });
+              }
+            }
+            
+            // Demais participantes
+            for (let i = 3; i < ranking.length; i++) {
+              try {
+                await db.collection('usuarios').doc(ranking[i].odId).update({
+                  'torneios.totalTorneios': firebase.firestore.FieldValue.increment(1)
+                });
+              } catch (e) {}
+            }
+            
+            // Marcar torneio como finalizado
+            await db.collection('torneios').doc(torneioId).update({
+              status: 'finalizado',
+              resultado: resultado,
+              dataFinalizacao: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            finalizadoPorFn = true; // mark as done
+            console.log("✅ Finalizado via fallback client-side");
+            
+            // Notificar top 3
+            try {
+              const medals = ['🥇', '🥈', '🥉'];
+              const premios = [premio1, premio2, premio3];
+              for (let i = 0; i < 3 && i < ranking.length; i++) {
+                if (premios[i] > 0) {
+                  await db.collection('notificacoes').add({
+                    para: ranking[i].odId,
+                    tipo: 'torneio_resultado',
+                    titulo: `${medals[i]} ${i+1}º lugar no torneio!`,
+                    mensagem: `Você ficou em ${i+1}º no "${torneioAtual.nome}" e ganhou ${premios[i]} créditos!`,
+                    link: `resultado-torneio.html?id=${torneioId}`,
+                    lida: false,
+                    data: firebase.firestore.FieldValue.serverTimestamp()
+                  });
+                }
+              }
+            } catch (ne) { console.warn('Notif:', ne); }
+          } catch (fallbackErr) {
+            console.error("❌ Fallback também falhou:", fallbackErr);
+          }
         }
         
         showToast(`🏆 ${ranking[0]?.odNome || 'Torneio'} venceu!`);
@@ -1598,6 +1771,19 @@
       toast.textContent = message;
       toast.classList.add('show');
       setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // ===================================
+    // 🚪 SAIR DA ARENA
+    // ===================================
+    function sairArena() {
+      if (gameState.totalPerguntas > 0) {
+        if (!confirm('Sair da arena? Seus pontos já foram salvos, você pode voltar depois.')) return;
+      }
+      if (rankingUnsubscribe) rankingUnsubscribe();
+      clearInterval(mainTimerInterval);
+      clearInterval(questionTimerInterval);
+      window.location.href = 'torneios.html';
     }
 
     // ===================================
