@@ -785,14 +785,44 @@
 
         await batch.commit();
 
-        // Missão
+        // Missão - funciona mesmo se abrir baú antes de visitar missões
         try {
           const missaoRef = db.collection('usuarios').doc(currentUser.uid).collection('missoes').doc('abrir_bau');
           const missaoDoc = await missaoRef.get();
-          if (missaoDoc.exists && !missaoDoc.data().concluido) {
-            await missaoRef.update({ atual: 1, concluido: true });
+          const hojeDate = new Date(); hojeDate.setHours(0,0,0,0);
+          let precisaAtualizar = false;
+
+          if (!missaoDoc.exists) {
+            precisaAtualizar = true; // doc não existe ainda
+          } else {
+            const md = missaoDoc.data();
+            const dataM = md.data && md.data.toDate ? md.data.toDate() : null;
+            if (!dataM || dataM < hojeDate) {
+              precisaAtualizar = true; // doc é de ontem ou anterior
+            } else if (!md.concluido) {
+              precisaAtualizar = true; // doc é de hoje mas não concluído
+            }
+            // se já concluído hoje, não precisa
           }
-        } catch (me) { console.warn('Missão:', me); }
+
+          if (precisaAtualizar) {
+            await missaoRef.set({
+              id: 'abrir_bau',
+              titulo: 'Abra o Baú Diário',
+              descricao: 'Vá no Baú Diário e abra para tentar ganhar créditos',
+              total: 1,
+              icone: '🎁',
+              tipo: 'diaria',
+              recompensa_creditos: 1,
+              recompensa_xp: 5,
+              atual: 1,
+              concluido: true,
+              creditada: false,
+              data: firebase.firestore.Timestamp.now()
+            });
+            console.log('✅ Missão abrir_bau completada');
+          }
+        } catch (me) { console.warn('Missão update:', me); }
 
         // Update local
         bauData.streak = novoStreak;
