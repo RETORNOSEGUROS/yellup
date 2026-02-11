@@ -3513,13 +3513,10 @@
         const jogoDoc = await db.collection("jogos").doc(jogoId).get();
         const jogoAtual = jogoDoc.data();
         
-        // Recalcular status baseado nos dados atuais
-        // ✅ CORRIGIDO: Usar dataInicio e dataFim (não dataHora e fimJogo)
         const agora = new Date();
         const inicio = jogoAtual.dataInicio?.toDate?.() || (jogoAtual.dataInicio ? new Date(jogoAtual.dataInicio) : null);
         const fimJogo = jogoAtual.dataFim?.toDate?.() || (jogoAtual.dataFim ? new Date(jogoAtual.dataFim) : null);
         
-        // Se não tem data de início válida, tentar dataHora como fallback
         const inicioValido = inicio && !isNaN(inicio.getTime()) ? inicio : 
                            (jogoAtual.dataHora?.toDate?.() || (jogoAtual.dataHora ? new Date(jogoAtual.dataHora) : new Date()));
         
@@ -3530,10 +3527,8 @@
           statusAtual = 'ao_vivo';
         }
         
-        // Atualizar variável global
         jogoStatus = statusAtual;
         
-        // ✅ Verificar se o jogo está ao vivo
         if (jogoStatus !== 'ao_vivo') {
           if (jogoStatus === 'agendado') {
             const diffMin = Math.ceil((inicioValido - agora) / 60000);
@@ -3541,9 +3536,8 @@
             alert(`⏳ O jogo ainda não começou!\n\nComeça em ${minutos} minutos.\nAguarde o horário de início.`);
           } else if (jogoStatus === 'finalizado') {
             alert("🏁 Este jogo já foi finalizado!\n\nVeja o ranking final e aguarde a próxima partida.");
-            // Atualizar interface para estado finalizado
             atualizarBotaoBaseadoNoStatus();
-            await loadRanking(); // Recarregar ranking para mostrar resultado
+            await loadRanking();
           }
           atualizarBotaoBaseadoNoStatus();
           return;
@@ -3552,7 +3546,7 @@
         btnAnswer.disabled = true;
         btnAnswer.textContent = "🔍 Buscando pergunta...";
 
-        // ✅ CORREÇÃO: Verificar créditos POR JOGO
+        // ✅ Verificar créditos POR JOGO
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const userData = userDoc.data() || {};
         const jogadasPorJogo = userData.jogadasGratisPorJogo || {};
@@ -3566,7 +3560,7 @@
           return;
         }
 
-        // ✅ CORREÇÃO: Buscar perguntas pelo TIME que está torcendo (não pelo jogo)
+        // ✅ Buscar perguntas pelo TIME
         console.log("🔍 Buscando perguntas para o time:", timeTorcida);
         
         const perguntasSnap = await db.collection("perguntas")
@@ -3587,79 +3581,81 @@
         const perguntasTodasIds = [];
         perguntasSnap.forEach(doc => {
           perguntasTodasIds.push(doc.id);
-          // Excluir se está no array global OU no set de sessão
           if (!perguntasRespondidas.includes(doc.id) && !perguntasSessao.has(doc.id)) {
-            perguntasDisponiveis.push({ id: doc.id, ...doc.data() });
+            // ✅ SEGURANÇA: NÃO incluir campo "correta" no objeto enviado ao client
+            const dados = doc.data();
+            perguntasDisponiveis.push({
+              id: doc.id,
+              pergunta: dados.pergunta,
+              alternativas: dados.alternativas,
+              pontuacao: dados.pontuacao || dados.pontos || 10,
+              timeId: dados.timeId
+              // ❌ NÃO incluir: correta, resposta, answer
+            });
           }
         });
 
-        console.log(`📝 Perguntas: ${perguntasSnap.size} total | ${perguntasRespondidas.length} respondidas (global) | ${perguntasSessao.size} sessão | ${perguntasDisponiveis.length} disponíveis`);
+        console.log(`📝 Perguntas: ${perguntasSnap.size} total | ${perguntasRespondidas.length} respondidas | ${perguntasSessao.size} sessão | ${perguntasDisponiveis.length} disponíveis`);
 
         // Se acabaram as perguntas disponíveis
         if (perguntasDisponiveis.length === 0) {
           
-          // Verificar se tem perguntas que não foram vistas NESTA sessão
-          // (pode haver perguntas no global que não foram vistas agora)
           const apenasGlobal = [];
           perguntasSnap.forEach(doc => {
             if (!perguntasSessao.has(doc.id)) {
-              apenasGlobal.push({ id: doc.id, ...doc.data() });
+              const dados = doc.data();
+              apenasGlobal.push({
+                id: doc.id, pergunta: dados.pergunta, alternativas: dados.alternativas,
+                pontuacao: dados.pontuacao || dados.pontos || 10, timeId: dados.timeId
+              });
             }
           });
 
           if (apenasGlobal.length > 0) {
-            // Tem perguntas que o user respondeu em jogos anteriores mas NÃO nesta sessão
-            // Resetar o global e oferecer essas
-            console.log(`🔄 Resetando global - ${apenasGlobal.length} perguntas de jogos anteriores disponíveis`);
-            
+            console.log(`🔄 Resetando global - ${apenasGlobal.length} perguntas recicladas`);
             await db.collection("usuarios").doc(uid).update({
-              [`perguntasRespondidas_${timeTorcida}`]: [...perguntasSessao] // manter só as desta sessão
+              [`perguntasRespondidas_${timeTorcida}`]: [...perguntasSessao]
             });
             perguntasRespondidas = [...perguntasSessao];
             
-            // Usar as perguntas que não foram vistas nesta sessão
             const perguntaAleatoria = apenasGlobal[Math.floor(Math.random() * apenasGlobal.length)];
             currentQuestion = perguntaAleatoria;
-            console.log("📝 Pergunta selecionada (reciclada):", currentQuestion.pergunta);
             displayQuestion();
             return;
           }
           
-          // TODAS as perguntas foram vistas nesta sessão - ciclo completo
-          console.log("🔄 Todas as perguntas respondidas nesta sessão! Reiniciando ciclo...");
-          
-          // Limpar array global no Firestore
+          console.log("🔄 Ciclo completo! Reiniciando...");
           await db.collection("usuarios").doc(uid).update({
             [`perguntasRespondidas_${timeTorcida}`]: []
           });
           perguntasRespondidas = [];
-          // NÃO limpar perguntasSessao - mantemos pra evitar repetição imediata
           
-          // Pegar a pergunta que foi respondida há MAIS tempo na sessão
-          // (a primeira da sessão, que está mais "distante" na memória do user)
           const sessaoArray = [...perguntasSessao];
-          const maisAntigaId = sessaoArray[0]; // primeira respondida na sessão
-          
-          // Limpar sessão agora que vamos reciclar
+          const maisAntigaId = sessaoArray[0];
           perguntasSessao.clear();
           
           let perguntaMaisAntiga = null;
           perguntasSnap.forEach(doc => {
             if (doc.id === maisAntigaId) {
-              perguntaMaisAntiga = { id: doc.id, ...doc.data() };
+              const dados = doc.data();
+              perguntaMaisAntiga = {
+                id: doc.id, pergunta: dados.pergunta, alternativas: dados.alternativas,
+                pontuacao: dados.pontuacao || dados.pontos || 10, timeId: dados.timeId
+              };
             }
           });
           
           if (!perguntaMaisAntiga) {
-            // Fallback: qualquer uma
             const docs = [];
-            perguntasSnap.forEach(doc => docs.push({ id: doc.id, ...doc.data() }));
+            perguntasSnap.forEach(doc => {
+              const d = doc.data();
+              docs.push({ id: doc.id, pergunta: d.pergunta, alternativas: d.alternativas, pontuacao: d.pontuacao || d.pontos || 10, timeId: d.timeId });
+            });
             perguntaMaisAntiga = docs[Math.floor(Math.random() * docs.length)];
           }
           
-          showToast(`🔄 Ciclo completo! ${perguntasTodasIds.length} perguntas respondidas. Reiniciando...`);
+          showToast(`🔄 Ciclo completo! ${perguntasTodasIds.length} perguntas respondidas.`);
           currentQuestion = perguntaMaisAntiga;
-          console.log("📝 Pergunta selecionada (novo ciclo):", currentQuestion.pergunta);
           displayQuestion();
           return;
         }
@@ -3672,7 +3668,7 @@
         const restDiv = document.getElementById('perguntasRestantes');
         const restNum = document.getElementById('perguntasRestantesNum');
         if (restDiv && restNum) {
-          restNum.textContent = perguntasDisponiveis.length - 1; // -1 porque esta acabou de ser escolhida
+          restNum.textContent = perguntasDisponiveis.length - 1;
           restDiv.style.display = 'block';
         }
 
@@ -3801,10 +3797,25 @@
         const options = document.querySelectorAll(".option-btn");
         options.forEach(opt => opt.disabled = true);
 
-        // Mostrar resposta correta
-        const correct = currentQuestion.correta;
+        const resultMessage = document.getElementById("resultMessage");
+        resultMessage.style.display = "block";
+        resultMessage.className = "result-message timeout";
+        resultMessage.textContent = "⏰ Tempo esgotado! Verificando...";
+
+        // ✅ SEGURANÇA: Enviar timeout ao servidor (resposta "__TIMEOUT__" = sempre errado)
+        const responderFn = functions.httpsCallable('responderPergunta');
+        const resultado = await responderFn({
+          jogoId: jogoId,
+          perguntaId: currentQuestion.id,
+          resposta: "__TIMEOUT__",
+          tempoResposta: 10
+        });
+
+        const r = resultado.data;
+        const correct = r.respostaCorreta;
         const alternativas = currentQuestion.alternativas || {};
-        
+
+        // Mostrar resposta correta visualmente
         options.forEach((opt) => {
           const textoOpcao = opt.textContent;
           for (let letra in alternativas) {
@@ -3815,44 +3826,15 @@
           }
         });
 
-        // Mostrar mensagem de timeout
-        const resultMessage = document.getElementById("resultMessage");
-        resultMessage.style.display = "block";
-        resultMessage.className = "result-message timeout";
-        resultMessage.textContent = `⏰ Tempo esgotado! A resposta correta era: ${alternativas[correct]}`;
+        resultMessage.textContent = `⏰ Tempo esgotado! A resposta correta era: ${r.respostaTexto || alternativas[correct] || correct}`;
 
-        // 🔥 GAMIFICAÇÃO - Resetar streak no timeout
-        atualizarStreak(false);
+        // Atualizar streak local
+        streak = 0;
+        atualizarStreakDisplay();
 
-        // Adicionar pergunta ao histórico (global + sessão)
+        // Registrar no tracking local
         perguntasRespondidas.push(currentQuestion.id);
         perguntasSessao.add(currentQuestion.id);
-
-        // ✅ CORREÇÃO: Descontar jogada grátis POR JOGO
-        const userDoc = await db.collection("usuarios").doc(uid).get();
-        const userData = userDoc.data() || {};
-        const jogadasPorJogo = userData.jogadasGratisPorJogo || {};
-        const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
-        const temGratis = jogadasUsadasNesteJogo < 5;
-
-        const updates = {
-          // ✅ GLOBAL: Salvar perguntas por TIME (não por jogo)
-          [`perguntasRespondidas_${timeTorcida}`]: firebase.firestore.FieldValue.arrayUnion(currentQuestion.id)
-        };
-
-        // ✅ TIMEOUT NÃO DESCONTA CRÉDITOS - apenas registra jogada grátis se ainda tiver
-        if (temGratis) {
-          updates[`jogadasGratisPorJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
-          console.log(`✅ Timeout em jogada grátis (${jogadasUsadasNesteJogo + 1}/5) - sem desconto`);
-        } else {
-          // ✅ NÃO DESCONTA CRÉDITO - protege usuário de bugs/conexão lenta
-          console.log(`⏰ Timeout - crédito NÃO descontado (proteção ao usuário)`);
-        }
-
-        await db.collection("usuarios").doc(uid).update(updates);
-
-        // ✅ SALVAR NA SUBCOLEÇÃO DE PARTICIPANTES (timeout = erro, sem crédito pago)
-        await atualizarParticipante(false, 0, 10, false);
 
         await updateFreePlays();
 
@@ -3866,6 +3848,13 @@
 
       } catch (error) {
         console.error("❌ Erro no timeout:", error);
+        // Fallback: fechar modal sem atualizar
+        setTimeout(() => {
+          currentQuestion = null;
+          document.getElementById("btnAnswer").disabled = false;
+          document.getElementById("btnAnswer").textContent = "🎯 Responder Pergunta";
+          document.getElementById("questionModalOverlay").classList.remove("active");
+        }, 2000);
       }
     }
 
@@ -3883,13 +3872,27 @@
         const options = document.querySelectorAll(".option-btn");
         options.forEach(opt => opt.disabled = true);
 
-        const correct = currentQuestion.correta;
-        const pontos = currentQuestion.pontuacao || currentQuestion.pontos || 10;
-        
-        // Comparar ignorando maiúsculas/minúsculas
-        const acertou = selectedLetter.toLowerCase() === correct.toLowerCase();
+        // ✅ SEGURANÇA: Enviar resposta ao SERVER para validação
+        const resultMessage = document.getElementById("resultMessage");
+        resultMessage.style.display = "block";
+        resultMessage.className = "result-message";
+        resultMessage.textContent = "⏳ Verificando resposta...";
 
-        console.log("📝 Resposta:", selectedLetter, "| Correta:", correct, "| Acertou:", acertou);
+        const responderFn = functions.httpsCallable('responderPergunta');
+        const resultado = await responderFn({
+          jogoId: jogoId,
+          perguntaId: currentQuestion.id,
+          resposta: selectedLetter,
+          tempoResposta: tempoResposta
+        });
+
+        const r = resultado.data;
+        const acertou = r.acertou;
+        const correct = r.respostaCorreta;
+        const pontosFinais = r.pontosGanhos;
+        const serverMultiplicador = r.multiplicador || 1;
+
+        console.log("📝 Resposta:", selectedLetter, "| Correta:", correct, "| Acertou:", acertou, "| Pontos:", pontosFinais);
 
         // Marcar resposta visualmente
         const alternativas = currentQuestion.alternativas || {};
@@ -3913,90 +3916,27 @@
         });
 
         // Mostrar resultado
-        const resultMessage = document.getElementById("resultMessage");
-        resultMessage.style.display = "block";
         resultMessage.className = `result-message ${acertou ? "success" : "error"}`;
         
-        // 🔥 GAMIFICAÇÃO - Atualizar streak ANTES de calcular pontos
-        atualizarStreak(acertou);
+        // Atualizar streak local (server já salvou)
+        streak = r.streak || 0;
+        maxStreak = r.maxStreak || maxStreak;
+        multiplicador = serverMultiplicador;
+        atualizarStreakDisplay();
         
-        // Calcular pontos com multiplicador
-        const pontosBase = currentQuestion.pontuacao || currentQuestion.pontos || 10;
-        const pontosFinais = acertou ? Math.round(pontosBase * multiplicador) : 0;
-        
-        if (acertou && multiplicador > 1) {
-          resultMessage.innerHTML = `🎉 Correto! +${pontosFinais} pontos <span style="color: #a78bfa;">(x${multiplicador} bônus!)</span>`;
-          // ✅ Mostrar animação de XP flutuante
+        if (acertou && serverMultiplicador > 1) {
+          resultMessage.innerHTML = `🎉 Correto! +${pontosFinais} pontos <span style="color: #a78bfa;">(x${serverMultiplicador} bônus!)</span>`;
           mostrarXPFlutuante(pontosFinais, true);
         } else if (acertou) {
           resultMessage.textContent = `🎉 Correto! +${pontosFinais} pontos`;
-          // ✅ Mostrar animação de XP flutuante
           mostrarXPFlutuante(pontosFinais, false);
         } else {
-          resultMessage.textContent = `❌ Errado! A resposta correta era: ${alternativas[correct]}`;
+          resultMessage.textContent = `❌ Errado! A resposta correta era: ${r.respostaTexto || alternativas[correct] || correct}`;
         }
 
-        // Adicionar pergunta ao histórico (global + sessão)
+        // Registrar no tracking local (global + sessão)
         perguntasRespondidas.push(currentQuestion.id);
         perguntasSessao.add(currentQuestion.id);
-
-        // ✅ CORREÇÃO: Verificar e descontar créditos POR JOGO
-        const userDoc = await db.collection("usuarios").doc(uid).get();
-        const userData = userDoc.data() || {};
-        const jogadasPorJogo = userData.jogadasGratisPorJogo || {};
-        const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
-        const temGratis = jogadasUsadasNesteJogo < 5;
-
-        const updates = {
-          // ✅ GLOBAL: Salvar perguntas por TIME (não por jogo)
-          [`perguntasRespondidas_${timeTorcida}`]: firebase.firestore.FieldValue.arrayUnion(currentQuestion.id)
-        };
-
-        if (temGratis) {
-          updates[`jogadasGratisPorJogo.${jogoId}`] = firebase.firestore.FieldValue.increment(1);
-          console.log(`✅ Usando jogada grátis (${jogadasUsadasNesteJogo + 1}/5) neste jogo`);
-        } else {
-          // ✅ SISTEMA SIMPLIFICADO - Todo crédito é igual
-          const creditosTotal = userData.creditos || 0;
-          
-          if (creditosTotal > 0) {
-            // Desconta 1 crédito do usuário
-            updates.creditos = firebase.firestore.FieldValue.increment(-1);
-            
-            // ✅ ENTRA NO POOL DO JOGO (para premiação) - não bloqueia se falhar
-            try {
-              await db.collection("jogos").doc(jogoId).update({
-                poolCreditos: firebase.firestore.FieldValue.increment(1)
-              });
-              console.log(`💎 Descontando 1 crédito (${creditosTotal - 1} restantes) → Entra no pool!`);
-            } catch (poolError) {
-              console.error("⚠️ Erro ao atualizar pool (não crítico):", poolError);
-              // Continua mesmo se falhar - o importante é descontar do usuário
-            }
-          } else {
-            // Sem créditos - não deveria chegar aqui, mas por segurança
-            console.error("❌ Tentou responder sem créditos!");
-            alert("❌ Você não tem créditos disponíveis!");
-            return;
-          }
-        }
-
-        // Adicionar pontos se acertou (COM MULTIPLICADOR)
-        if (acertou) {
-          updates[`pontuacoes.${jogoId}`] = firebase.firestore.FieldValue.increment(pontosFinais);
-          updates.xp = firebase.firestore.FieldValue.increment(pontosFinais);
-          updates.maxStreak = Math.max(userData.maxStreak || 0, maxStreak);
-          
-          // ✅ NOVO: Salvar tempo de resposta para desempate (só acertos)
-          // Acumular soma dos tempos e quantidade para calcular média depois
-          updates[`tempoRespostas.${jogoId}.soma`] = firebase.firestore.FieldValue.increment(tempoResposta);
-          updates[`tempoRespostas.${jogoId}.quantidade`] = firebase.firestore.FieldValue.increment(1);
-        }
-
-        await db.collection("usuarios").doc(uid).update(updates);
-
-        // ✅ SALVAR NA SUBCOLEÇÃO DE PARTICIPANTES (para premiação automática)
-        await atualizarParticipante(acertou, pontosFinais, tempoResposta);
 
         // ✅ Atualizar missão "responder 3 perguntas"
         MissoesHelper.registrar(uid, 'responder_3');
@@ -4006,7 +3946,7 @@
         await updateStats();
         await loadRanking();
 
-        // 💰 Verificar se deve mostrar patrocinador (a cada 5 respostas)
+        // 💰 Verificar patrocinador
         verificarPatrocinador();
 
         // ✅ FECHAR MODAL após 3 segundos
@@ -4019,7 +3959,11 @@
 
       } catch (error) {
         console.error("❌ Erro ao processar resposta:", error);
-        alert("Erro ao salvar resposta. Tente novamente!");
+        const msg = error?.message || error?.details || "Erro ao salvar resposta. Tente novamente!";
+        alert(msg);
+        document.getElementById("btnAnswer").disabled = false;
+        document.getElementById("btnAnswer").textContent = "🎯 Responder Pergunta";
+        document.getElementById("questionModalOverlay").classList.remove("active");
       }
     }
 
@@ -5032,7 +4976,11 @@
         multiplicador = 1;
       }
 
-      // Atualizar UI
+      atualizarStreakDisplay();
+    }
+
+    // ✅ Atualiza apenas o visual do streak (sem recalcular - usado quando server envia valores)
+    function atualizarStreakDisplay() {
       const streakBadge = document.getElementById('streakBadge');
       const streakCount = document.getElementById('streakCount');
       const multiplierBadge = document.getElementById('multiplierBadge');
