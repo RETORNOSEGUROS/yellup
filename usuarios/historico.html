@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Histórico de Jogos - Yellup</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0a0e13">
+  <link rel="icon" type="image/x-icon" href="/icons/favicon.ico">
+  <link rel="apple-touch-icon" href="/icons/apple-icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0a0e13; --bg-card: #131920; --bg-elevated: #1a2230;
+      --accent-primary: #ff9f43; --accent-secondary: #ffc048;
+      --accent-glow: rgba(255,159,67,0.25);
+      --live-red: #ff4757; --win-green: #2ed573;
+      --text-primary: #f1f2f6; --text-secondary: #a4b0be;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{font-family:'Poppins',sans-serif;background:var(--bg-dark);color:var(--text-primary);min-height:100vh;padding-bottom:100px}
+
+    .header{background:rgba(10,14,19,.95);backdrop-filter:blur(20px);padding:12px 16px;position:sticky;top:0;z-index:100;border-bottom:1px solid rgba(255,159,67,.1)}
+    .header-content{max-width:1400px;margin:0 auto;display:flex;justify-content:space-between;align-items:center}
+    .logo img{height:36px;filter:drop-shadow(0 2px 8px rgba(255,181,71,.3))}
+    .btn-back{padding:8px 16px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#e7eef7;cursor:pointer;font-family:'Poppins',sans-serif;font-size:.85em;text-decoration:none;display:flex;align-items:center;gap:6px;transition:all .3s}
+    .btn-back:hover{background:rgba(255,255,255,.2)}
+
+    .container{max-width:700px;margin:0 auto;padding:20px 16px}
+
+    .page-header{text-align:center;margin-bottom:20px}
+    .page-header h1{font-size:1.4em;font-weight:800;margin-bottom:4px}
+    .page-header p{color:var(--text-secondary);font-size:.82em}
+
+    /* STATS BAR */
+    .stats-bar{display:flex;gap:10px;margin-bottom:16px;overflow-x:auto;padding-bottom:4px}
+    .stat-item{flex:1;min-width:80px;text-align:center;padding:12px 8px;background:var(--bg-card);border:1px solid rgba(255,255,255,.05);border-radius:12px}
+    .stat-value{font-size:1.3em;font-weight:800;color:var(--accent-secondary)}
+    .stat-value.green{color:var(--win-green)}
+    .stat-value.purple{color:#a78bfa}
+    .stat-label{font-size:.65em;color:var(--text-secondary);margin-top:2px}
+
+    /* FILTERS */
+    .filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;align-items:center}
+    .filter-group{display:flex;align-items:center;gap:6px}
+    .filter-label{font-size:.72em;color:var(--text-secondary);white-space:nowrap}
+    .filter-input{padding:8px 12px;background:var(--bg-card);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--text-primary);font-family:'Poppins',sans-serif;font-size:.8em;outline:none}
+    .filter-input:focus{border-color:var(--accent-primary)}
+    .filter-btn{padding:8px 14px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.05);border-radius:10px;color:var(--text-secondary);font-family:'Poppins',sans-serif;font-size:.78em;cursor:pointer;transition:all .2s;white-space:nowrap}
+    .filter-btn.active{background:rgba(139,92,246,.2);border-color:rgba(139,92,246,.5);color:#a78bfa;font-weight:600}
+    .filter-btn:hover{border-color:rgba(255,255,255,.3)}
+
+    /* GAMES GRID - vertical */
+    .games-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+
+    /* GAME CARD - same as painel */
+    .game-card{background:var(--bg-card);border:1px solid rgba(255,255,255,.06);border-radius:16px;overflow:hidden;transition:all .3s}
+    .game-card:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(0,0,0,.4);border-color:rgba(255,159,67,.25)}
+    .game-card-header{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(0,0,0,.3);border-bottom:1px solid rgba(255,255,255,.05)}
+    .game-league{font-size:.7em;color:var(--text-secondary);font-weight:500;display:flex;align-items:center;gap:6px}
+    .game-status{padding:4px 10px;border-radius:20px;font-size:.65em;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+    .status-finished{background:rgba(255,255,255,.1);color:var(--text-secondary)}
+    .game-card-body{padding:16px}
+    .game-matchup{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+    .game-team{display:flex;flex-direction:column;align-items:center;text-align:center;flex:1;gap:8px}
+    .game-team-jersey{width:44px;height:52px;filter:drop-shadow(0 4px 8px rgba(0,0,0,.3))}
+    .game-team-name{font-size:.8em;font-weight:600;color:var(--text-primary);max-width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .game-center-info{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 10px;min-width:70px}
+    .game-datetime-box{text-align:center}
+    .game-datetime-box .game-date{font-size:1em;font-weight:700;color:var(--text-secondary)}
+    .game-datetime-box .game-hour{font-size:.85em;color:var(--text-secondary);font-weight:600}
+    .torcida-section{padding:0 16px 12px}
+    .torcida-label{font-size:.65em;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;text-align:center}
+    .pontos-section{margin-top:4px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.08)}
+    .pontos-section .torcida-label{color:var(--accent-secondary)}
+    .torcida-visual{display:flex;align-items:center;gap:8px}
+    .torcida-side{display:flex;align-items:center;gap:6px;flex:1}
+    .torcida-side.left{justify-content:flex-end}
+    .torcida-side.right{justify-content:flex-start}
+    .torcida-percent{font-size:.85em;font-weight:700;min-width:36px}
+    .torcida-side.left .torcida-percent{text-align:right}
+    .torcida-side.right .torcida-percent{text-align:left}
+    .torcida-bar-container{flex:1;height:8px;background:rgba(0,0,0,.3);border-radius:4px;overflow:hidden;display:flex}
+    .torcida-bar-fill{height:100%;transition:width .5s ease;position:relative}
+    .torcida-bar-fill.left{border-radius:4px 0 0 4px}
+    .torcida-bar-fill.right{border-radius:0 4px 4px 0}
+    .torcida-bar-fill.winning{box-shadow:0 0 10px currentColor}
+    .creditos-disputa{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;margin:0 16px 12px;background:linear-gradient(135deg,rgba(255,159,67,.12),rgba(255,192,72,.06));border:1px solid rgba(255,159,67,.25);border-radius:10px}
+    .creditos-icon{font-size:1.1em}
+    .creditos-valor{font-size:1.2em;font-weight:800;color:var(--accent-secondary)}
+    .creditos-label{font-size:.75em;color:var(--text-secondary)}
+    .creditos-disputa.high-value{background:linear-gradient(135deg,rgba(255,159,67,.2),rgba(255,192,72,.1));border-color:rgba(255,159,67,.4)}
+    .user-cheered{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;margin:0 16px 12px;background:linear-gradient(135deg,rgba(46,213,115,.15),rgba(46,213,115,.05));border:1px solid rgba(46,213,115,.3);border-radius:10px;font-size:.75em;font-weight:600;color:var(--win-green)}
+    .game-card-action{padding:12px 16px;border-top:1px solid rgba(255,255,255,.05)}
+    .btn-game{width:100%;padding:12px;border-radius:10px;border:none;font-family:'Poppins',sans-serif;font-weight:700;font-size:.85em;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
+    .btn-game:active{transform:scale(.97)}
+    .btn-game.primary{background:linear-gradient(135deg,var(--accent-primary) 0%,#ff8c42 100%);color:var(--bg-dark);box-shadow:0 4px 15px var(--accent-glow)}
+    .btn-game.secondary{background:rgba(255,255,255,.08);color:var(--text-primary);border:1px solid rgba(255,255,255,.1)}
+
+    .empty-state{text-align:center;padding:60px 20px;color:var(--text-secondary)}
+    .empty-icon{font-size:3em;margin-bottom:12px}
+    .loading-spinner{display:inline-block;width:40px;height:40px;border:3px solid rgba(255,159,67,.2);border-top-color:var(--accent-primary);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:rgba(14,20,27,.98);backdrop-filter:blur(20px);padding:10px 20px;border-top:1px solid rgba(255,255,255,.1);z-index:99}
+    .nav-content{max-width:600px;margin:0 auto;display:flex;justify-content:space-around}
+    .nav-item{display:flex;flex-direction:column;align-items:center;gap:5px;color:#a9b5c6;text-decoration:none;font-size:.75em;transition:all .3s;padding:5px 10px}
+    .nav-item:hover,.nav-item.active{color:#ffb547}
+    .nav-icon{font-size:1.5em}
+
+    @media(max-width:400px){
+      .stats-bar{gap:6px}
+      .stat-item{padding:10px 6px}
+      .stat-value{font-size:1.1em}
+      .games-grid{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-content">
+      <div class="logo">
+        <img src="/icons/logo-branca-amarela.png" alt="Yellup" onerror="this.outerHTML='<span style=\'font-size:1.4em;font-weight:800;color:#ffb547\'>YELLUP</span>'">
+      </div>
+      <a href="painel.html" class="btn-back">← Voltar</a>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <div class="page-header">
+      <h1>📋 Histórico de Jogos</h1>
+      <p>Todos os jogos encerrados</p>
+    </div>
+
+    <!-- STATS -->
+    <div class="stats-bar">
+      <div class="stat-item">
+        <div class="stat-value purple" id="statTotal">0</div>
+        <div class="stat-label">Total</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value green" id="statParticipou">0</div>
+        <div class="stat-label">Participou</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="statCreditos">0</div>
+        <div class="stat-label">💎 Disputados</div>
+      </div>
+    </div>
+
+    <!-- FILTERS -->
+    <div class="filters">
+      <div class="filter-group">
+        <label class="filter-label">De:</label>
+        <input type="date" class="filter-input" id="filterDe">
+      </div>
+      <div class="filter-group">
+        <label class="filter-label">Até:</label>
+        <input type="date" class="filter-input" id="filterAte">
+      </div>
+      <button class="filter-btn" id="btnParticipei" onclick="toggleParticipei()">🎮 Só meus jogos</button>
+      <button class="filter-btn" id="btnLimpar" onclick="limparFiltros()">✕ Limpar</button>
+    </div>
+
+    <!-- GAMES -->
+    <div class="games-grid" id="gamesGrid">
+      <div class="empty-state">
+        <div class="loading-spinner"></div>
+        <p>Carregando histórico...</p>
+      </div>
+    </div>
+
+  </div>
+
+  <nav class="bottom-nav">
+    <div class="nav-content">
+      <a href="painel.html" class="nav-item"><span class="nav-icon">🏠</span>Início</a>
+      <a href="ranking-geral.html" class="nav-item"><span class="nav-icon">🏆</span>Ranking</a>
+      <a href="indicacoes.html" class="nav-item"><span class="nav-icon">🔗</span>Indicar</a>
+      <a href="editar-perfil.html" class="nav-item"><span class="nav-icon">👤</span>Perfil</a>
+    </div>
+  </nav>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="js/bandeiras-utils.js"></script>
+
+  <script>
+    var firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8",
+      measurementId: "G-SYZ16X31KQ"
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    let currentUserId = null;
+    let currentUserData = {};
+    let todosJogos = []; // all finished games
+    let filtroParticipei = false;
+
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => console.error(e));
+
+    auth.onAuthStateChanged(async user => {
+      if (!user) { window.location.href = 'index.html'; return; }
+      currentUserId = user.uid;
+
+      try {
+        const userDoc = await db.collection('usuarios').doc(currentUserId).get();
+        currentUserData = userDoc.exists ? userDoc.data() : {};
+      } catch(e) { console.error(e); }
+
+      await carregarJogos();
+    });
+
+    async function carregarJogos() {
+      try {
+        const snap = await db.collection('jogos').get();
+        const agora = new Date();
+
+        todosJogos = [];
+
+        snap.forEach(doc => {
+          const jogo = { id: doc.id, ...doc.data() };
+          const status = jogo.status || '';
+
+          // Determine finished: explicit status or time-based
+          let isFinished = false;
+          if (['encerrado','finalizado','finished'].includes(status.toLowerCase())) {
+            isFinished = true;
+          } else if (jogo.dataFim) {
+            const fim = jogo.dataFim.toDate ? jogo.dataFim.toDate() : new Date(jogo.dataFim);
+            if (fim < agora) isFinished = true;
+          } else if (jogo.dataInicio) {
+            const inicio = jogo.dataInicio.toDate ? jogo.dataInicio.toDate() : new Date(jogo.dataInicio);
+            const duracao = (jogo.duracaoMinutos || 120) * 60 * 1000;
+            if ((inicio.getTime() + duracao) < agora.getTime()) isFinished = true;
+          }
+
+          if (isFinished) {
+            jogo._inicio = jogo.dataInicio?.toDate ? jogo.dataInicio.toDate().getTime() : new Date(jogo.dataInicio || 0).getTime();
+            jogo._fim = jogo.dataFim?.toDate ? jogo.dataFim.toDate().getTime() : (jogo._inicio + ((jogo.duracaoMinutos||120)*60*1000));
+            todosJogos.push(jogo);
+          }
+        });
+
+        // Sort newest first
+        todosJogos.sort((a, b) => (b._fim || b._inicio) - (a._fim || a._inicio));
+
+        console.log(`📋 Total encerrados: ${todosJogos.length}`);
+        aplicarFiltros();
+
+      } catch (e) {
+        console.error('Erro:', e);
+        document.getElementById('gamesGrid').innerHTML = '<div class="empty-state"><div class="empty-icon">❌</div><p>Erro ao carregar</p></div>';
+      }
+    }
+
+    function aplicarFiltros() {
+      const de = document.getElementById('filterDe').value;
+      const ate = document.getElementById('filterAte').value;
+      const torcidas = currentUserData.torcidas || {};
+
+      let filtrados = [...todosJogos];
+
+      // Date filters
+      if (de) {
+        const deMs = new Date(de).getTime();
+        filtrados = filtrados.filter(j => (j._inicio || j._fim) >= deMs);
+      }
+      if (ate) {
+        const ateMs = new Date(ate + 'T23:59:59').getTime();
+        filtrados = filtrados.filter(j => (j._inicio || j._fim) <= ateMs);
+      }
+
+      // Participation filter
+      if (filtroParticipei) {
+        filtrados = filtrados.filter(j => torcidas[j.id]);
+      }
+
+      renderJogos(filtrados);
+    }
+
+    async function renderJogos(jogos) {
+      const grid = document.getElementById('gamesGrid');
+      const torcidas = currentUserData.torcidas || {};
+
+      // Stats
+      const participou = todosJogos.filter(j => torcidas[j.id]).length;
+      let totalCreditos = 0;
+      todosJogos.forEach(j => { totalCreditos += (j.creditosIniciais || 0) + (j.poolCreditos || j.poolCreditosPagos || 0); });
+
+      document.getElementById('statTotal').textContent = todosJogos.length;
+      document.getElementById('statParticipou').textContent = participou;
+      document.getElementById('statCreditos').textContent = totalCreditos;
+
+      if (jogos.length === 0) {
+        grid.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>Nenhum jogo encontrado</p></div>';
+        return;
+      }
+
+      // Process games with team data
+      const processados = await Promise.all(jogos.map(async jogo => {
+        let timeCasaData = { nome: 'Time A', primaria: '#28a745', secundaria: '#fff', terciaria: '#28a745' };
+        let timeForaData = { nome: 'Time B', primaria: '#dc3545', secundaria: '#fff', terciaria: '#dc3545' };
+
+        try {
+          if (jogo.timeCasaId) {
+            const d = await db.collection('times').doc(jogo.timeCasaId).get();
+            if (d.exists) timeCasaData = d.data();
+          }
+          if (jogo.timeForaId) {
+            const d = await db.collection('times').doc(jogo.timeForaId).get();
+            if (d.exists) timeForaData = d.data();
+          }
+        } catch(e) {}
+
+        const torcidaEscolhida = torcidas[jogo.id];
+        let nomeTimeTorcido = null;
+        if (torcidaEscolhida === jogo.timeCasaId) nomeTimeTorcido = timeCasaData.nome;
+        else if (torcidaEscolhida === jogo.timeForaId) nomeTimeTorcido = timeForaData.nome;
+
+        // Pontos
+        let pontosCasa = 0, pontosFora = 0;
+        try {
+          const ps = await db.collection('jogos').doc(jogo.id).collection('participantes').get();
+          ps.forEach(d => {
+            const p = d.data();
+            if (p.timeId === jogo.timeCasaId) pontosCasa += (p.pontos || 0);
+            else if (p.timeId === jogo.timeForaId) pontosFora += (p.pontos || 0);
+          });
+        } catch(e) {}
+
+        return { ...jogo, timeCasaData, timeForaData, torcidaEscolhida, nomeTimeTorcido, pontosCasa, pontosFora };
+      }));
+
+      grid.innerHTML = processados.map(jogo => {
+        const dataInicio = jogo.dataInicio?.toDate ? jogo.dataInicio.toDate() : new Date(jogo.dataInicio || 0);
+
+        const torcidaCasa = jogo.torcidaCasaCount || 0;
+        const torcidaFora = jogo.torcidaForaCount || 0;
+        const totalTorcida = torcidaCasa + torcidaFora || 1;
+        const percCasa = Math.round((torcidaCasa / totalTorcida) * 100);
+        const percFora = 100 - percCasa;
+
+        const totalPontos = (jogo.pontosCasa + jogo.pontosFora) || 1;
+        const percPontosCasa = Math.round((jogo.pontosCasa / totalPontos) * 100);
+        const percPontosFora = 100 - percPontosCasa;
+
+        const casaWinning = percCasa > percFora;
+        const foraWinning = percFora > percCasa;
+        const casaPontosWinning = percPontosCasa > percPontosFora;
+        const foraPontosWinning = percPontosFora > percPontosCasa;
+
+        const creditosAdmin = jogo.creditosIniciais || 0;
+        const poolCreditos = jogo.poolCreditos || jogo.poolCreditosPagos || 0;
+        const creditosEmDisputa = creditosAdmin + poolCreditos;
+        const creditosDisplay = creditosEmDisputa > 0 ? creditosEmDisputa : '--';
+
+        let userCheeredBadge = '';
+        if (jogo.nomeTimeTorcido) {
+          userCheeredBadge = `<div class="user-cheered"><span>✅</span><span>Torcendo: ${jogo.nomeTimeTorcido}</span></div>`;
+        }
+
+        let actionButton = '';
+        if (jogo.torcidaEscolhida) {
+          actionButton = `<button class="btn-game primary" onclick="window.location.href='painel-jogo.html?jogoId=${jogo.id}'">📊 Ver Resultado</button>`;
+        } else {
+          actionButton = `<button class="btn-game secondary" disabled style="opacity:.5">Não participou</button>`;
+        }
+
+        const jerseyCasa = typeof gerarCamisetaSVG === 'function'
+          ? gerarCamisetaSVG(jogo.timeCasaData.primaria, jogo.timeCasaData.secundaria, jogo.timeCasaData.terciaria).replace('viewBox="0 0 100 120"', 'viewBox="0 0 100 120" class="game-team-jersey"')
+          : `<div class="game-team-jersey" style="width:44px;height:52px;background:${jogo.timeCasaData.primaria};border-radius:8px"></div>`;
+
+        const jerseyFora = typeof gerarCamisetaSVG === 'function'
+          ? gerarCamisetaSVG(jogo.timeForaData.primaria, jogo.timeForaData.secundaria, jogo.timeForaData.terciaria).replace('viewBox="0 0 100 120"', 'viewBox="0 0 100 120" class="game-team-jersey"')
+          : `<div class="game-team-jersey" style="width:44px;height:52px;background:${jogo.timeForaData.primaria};border-radius:8px"></div>`;
+
+        return `
+          <div class="game-card">
+            <div class="game-card-header">
+              <div class="game-league"><span>${jogo.competicao || 'Partida'}</span></div>
+              <span class="game-status status-finished">ENCERRADO</span>
+            </div>
+            <div class="game-card-body">
+              <div class="game-matchup">
+                <div class="game-team">${jerseyCasa}<span class="game-team-name">${jogo.timeCasaData.nome}</span></div>
+                <div class="game-center-info">
+                  <div class="game-datetime-box">
+                    <div class="game-date">${dataInicio.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</div>
+                    <div class="game-hour">${dataInicio.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
+                  </div>
+                </div>
+                <div class="game-team">${jerseyFora}<span class="game-team-name">${jogo.timeForaData.nome}</span></div>
+              </div>
+            </div>
+            <div class="torcida-section">
+              <div class="torcida-label">Torcida na plataforma</div>
+              <div class="torcida-visual">
+                <div class="torcida-side left"><span class="torcida-percent" style="color:${jogo.timeCasaData.primaria}">${percCasa}%</span></div>
+                <div class="torcida-bar-container">
+                  <div class="torcida-bar-fill left ${casaWinning?'winning':''}" style="width:${percCasa}%;background:${jogo.timeCasaData.primaria};color:${jogo.timeCasaData.primaria}"></div>
+                  <div class="torcida-bar-fill right ${foraWinning?'winning':''}" style="width:${percFora}%;background:${jogo.timeForaData.primaria};color:${jogo.timeForaData.primaria}"></div>
+                </div>
+                <div class="torcida-side right"><span class="torcida-percent" style="color:${jogo.timeForaData.primaria}">${percFora}%</span></div>
+              </div>
+            </div>
+            <div class="torcida-section pontos-section">
+              <div class="torcida-label">⭐ Pontos no quiz</div>
+              <div class="torcida-visual">
+                <div class="torcida-side left"><span class="torcida-percent" style="color:${jogo.timeCasaData.primaria}">${percPontosCasa}%</span></div>
+                <div class="torcida-bar-container">
+                  <div class="torcida-bar-fill left ${casaPontosWinning?'winning':''}" style="width:${percPontosCasa}%;background:${jogo.timeCasaData.primaria};color:${jogo.timeCasaData.primaria}"></div>
+                  <div class="torcida-bar-fill right ${foraPontosWinning?'winning':''}" style="width:${percPontosFora}%;background:${jogo.timeForaData.primaria};color:${jogo.timeForaData.primaria}"></div>
+                </div>
+                <div class="torcida-side right"><span class="torcida-percent" style="color:${jogo.timeForaData.primaria}">${percPontosFora}%</span></div>
+              </div>
+            </div>
+            <div class="creditos-disputa ${creditosEmDisputa>=50?'high-value':''}">
+              <span class="creditos-icon">💎</span>
+              <span class="creditos-valor">${creditosDisplay}</span>
+              <span class="creditos-label">foram disputados</span>
+            </div>
+            ${userCheeredBadge}
+            <div class="game-card-action">${actionButton}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Filters
+    function toggleParticipei() {
+      filtroParticipei = !filtroParticipei;
+      document.getElementById('btnParticipei').classList.toggle('active', filtroParticipei);
+      aplicarFiltros();
+    }
+
+    function limparFiltros() {
+      document.getElementById('filterDe').value = '';
+      document.getElementById('filterAte').value = '';
+      filtroParticipei = false;
+      document.getElementById('btnParticipei').classList.remove('active');
+      aplicarFiltros();
+    }
+
+    document.getElementById('filterDe').addEventListener('change', aplicarFiltros);
+    document.getElementById('filterAte').addEventListener('change', aplicarFiltros);
+
+    console.log("✅ Histórico de Jogos v1.0");
+  </script>
+</body>
+</html>
