@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Yellup | Suporte</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0E141B;
+      --bg2: #151D28;
+      --bg3: #1A2332;
+      --card: #1E2A3A;
+      --border: rgba(255,255,255,.06);
+      --gold: #FFB547;
+      --gold2: #FF8C42;
+      --green: #0D9668;
+      --red: #FF4757;
+      --blue: #3B82F6;
+      --text: #F1F1F1;
+      --muted: #8B95A5;
+      --user-bubble: linear-gradient(135deg, #D4941E 0%, #FF8C42 100%);
+      --admin-bubble: #1E2A3A;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+
+    /* ===== HEADER ===== */
+    .header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex; align-items: center; gap: 12px;
+      backdrop-filter: blur(20px);
+    }
+    .btn-back {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: rgba(255,255,255,.06); border: none;
+      color: var(--text); font-size: 1.1em; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .2s;
+    }
+    .btn-back:hover { background: rgba(255,255,255,.12); }
+    .header-info { flex: 1; }
+    .header-title { font-size: .95em; font-weight: 700; }
+    .header-sub { font-size: .7em; color: var(--muted); }
+    .header-status { display: flex; align-items: center; gap: 5px; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+
+    /* ===== VIEWS ===== */
+    .view { display: none; flex-direction: column; height: calc(100vh - 60px); height: calc(100dvh - 60px); }
+    .view.active { display: flex; }
+
+    /* ===== TICKETS LIST ===== */
+    .tickets-view { padding: 0; }
+    .tickets-header { padding: 20px 16px 10px; }
+    .tickets-header h2 { font-size: 1.1em; font-weight: 700; }
+    .tickets-header p { font-size: .78em; color: var(--muted); margin-top: 2px; }
+    .new-ticket-btn {
+      margin: 10px 16px 16px;
+      padding: 14px 20px;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      border: none; border-radius: 14px;
+      color: var(--bg); font-family: inherit;
+      font-size: .9em; font-weight: 700;
+      cursor: pointer; transition: all .2s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .new-ticket-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 25px rgba(255,181,71,.3); }
+
+    .tickets-list { flex: 1; overflow-y: auto; padding: 0 16px 100px; }
+    .ticket-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: all .2s;
+      position: relative;
+    }
+    .ticket-card:hover { background: var(--bg3); transform: translateY(-1px); }
+    .ticket-card:active { transform: scale(.98); }
+    .ticket-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .ticket-cat { font-size: .72em; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+    .ticket-cat.aberto { background: rgba(59,130,246,.15); color: var(--blue); }
+    .ticket-cat.em_andamento { background: rgba(255,181,71,.15); color: var(--gold); }
+    .ticket-cat.resolvido { background: rgba(13,150,104,.15); color: var(--green); }
+    .ticket-cat.fechado { background: rgba(255,255,255,.06); color: var(--muted); }
+    .ticket-date { font-size: .68em; color: var(--muted); }
+    .ticket-subject { font-size: .85em; font-weight: 600; margin-bottom: 3px; }
+    .ticket-preview { font-size: .75em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ticket-unread {
+      position: absolute; top: 14px; right: 16px;
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--gold); display: none;
+    }
+    .ticket-unread.show { display: block; }
+    .empty-tickets {
+      text-align: center; padding: 60px 20px;
+      color: var(--muted); font-size: .85em;
+    }
+    .empty-tickets span { font-size: 2.5em; display: block; margin-bottom: 12px; }
+
+    /* ===== TOPIC TREE (New Ticket) ===== */
+    .tree-view { padding: 0; }
+    .tree-scroll { flex: 1; overflow-y: auto; padding: 16px 16px 100px; }
+    .tree-step { display: none; animation: fadeUp .3s ease; }
+    .tree-step.active { display: block; }
+    .tree-title { font-size: .9em; font-weight: 700; margin-bottom: 4px; }
+    .tree-sub { font-size: .75em; color: var(--muted); margin-bottom: 16px; }
+
+    .topic-btn {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 12px;
+      transition: all .2s;
+      text-align: left;
+      color: var(--text);
+      font-family: inherit;
+    }
+    .topic-btn:hover { background: var(--bg3); border-color: rgba(255,181,71,.2); }
+    .topic-btn:active { transform: scale(.98); }
+    .topic-icon {
+      width: 42px; height: 42px; border-radius: 12px;
+      background: rgba(255,255,255,.04);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2em; flex-shrink: 0;
+    }
+    .topic-text { flex: 1; }
+    .topic-text strong { display: block; font-size: .85em; font-weight: 600; }
+    .topic-text span { font-size: .72em; color: var(--muted); }
+    .topic-arrow { color: var(--muted); font-size: .8em; }
+
+    /* Description input */
+    .desc-area {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: .85em;
+      resize: none;
+      min-height: 120px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .desc-area:focus { border-color: var(--gold); }
+    .desc-area::placeholder { color: var(--muted); }
+    .char-count { font-size: .68em; color: var(--muted); text-align: right; margin-top: 4px; }
+    .path-display {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .path-tag {
+      font-size: .68em; font-weight: 600;
+      padding: 4px 10px; border-radius: 20px;
+      background: rgba(255,181,71,.1); color: var(--gold);
+    }
+    .path-sep { color: var(--muted); font-size: .7em; }
+    .send-ticket-btn {
+      width: 100%; margin-top: 14px;
+      padding: 14px;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      border: none; border-radius: 14px;
+      color: var(--bg); font-family: inherit;
+      font-size: .9em; font-weight: 700;
+      cursor: pointer; transition: all .2s;
+    }
+    .send-ticket-btn:hover { box-shadow: 0 8px 25px rgba(255,181,71,.3); }
+    .send-ticket-btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+
+    /* ===== CHAT VIEW ===== */
+    .chat-view { }
+    .chat-messages {
+      flex: 1; overflow-y: auto;
+      padding: 16px 16px 10px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .msg-group-date {
+      text-align: center; margin: 12px 0 8px;
+      font-size: .65em; color: var(--muted);
+      font-weight: 600;
+    }
+    .msg {
+      max-width: 82%;
+      padding: 10px 14px;
+      border-radius: 16px;
+      font-size: .82em;
+      line-height: 1.45;
+      position: relative;
+      animation: fadeUp .25s ease;
+    }
+    .msg.user {
+      background: var(--user-bubble);
+      color: var(--bg);
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.admin {
+      background: var(--admin-bubble);
+      border: 1px solid var(--border);
+      color: var(--text);
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+    }
+    .msg-sender {
+      font-size: .7em; font-weight: 700;
+      margin-bottom: 2px; opacity: .8;
+    }
+    .msg.admin .msg-sender { color: var(--gold); }
+    .msg-time {
+      font-size: .6em; opacity: .6;
+      text-align: right; margin-top: 3px;
+    }
+    .msg-system {
+      align-self: center;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: .72em;
+      padding: 6px 16px;
+      border-radius: 20px;
+      text-align: center;
+    }
+
+    /* Status banner */
+    .chat-status-banner {
+      text-align: center; padding: 8px;
+      font-size: .72em; font-weight: 600;
+    }
+    .chat-status-banner.resolvido { background: rgba(13,150,104,.1); color: var(--green); }
+    .chat-status-banner.fechado { background: rgba(255,255,255,.04); color: var(--muted); }
+
+    /* Chat input */
+    .chat-input-area {
+      padding: 10px 16px; padding-bottom: max(10px, env(safe-area-inset-bottom));
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      display: flex; align-items: flex-end; gap: 8px;
+    }
+    .chat-input {
+      flex: 1;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 10px 16px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: .85em;
+      outline: none;
+      max-height: 100px;
+      resize: none;
+      line-height: 1.4;
+    }
+    .chat-input::placeholder { color: var(--muted); }
+    .chat-input:focus { border-color: rgba(255,181,71,.3); }
+    .chat-send-btn {
+      width: 42px; height: 42px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .2s; flex-shrink: 0;
+    }
+    .chat-send-btn:hover { transform: scale(1.05); }
+    .chat-send-btn:disabled { opacity: .3; cursor: not-allowed; transform: none; }
+    .chat-send-btn svg { width: 18px; height: 18px; fill: var(--bg); }
+    .chat-closed-msg {
+      text-align: center; padding: 14px;
+      font-size: .78em; color: var(--muted);
+    }
+
+    /* ===== TOAST ===== */
+    .toast {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px);
+      background: var(--card); color: var(--text);
+      padding: 12px 24px; border-radius: 12px;
+      font-size: .82em; font-weight: 500;
+      border: 1px solid var(--border);
+      z-index: 9999; transition: transform .3s ease;
+      white-space: nowrap;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ===== LOADING ===== */
+    .spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin .7s linear infinite; margin: 40px auto; }
+    .loading-view { display: flex; align-items: center; justify-content: center; flex: 1; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Mobile tweaks */
+    @media (max-width: 400px) {
+      .msg { max-width: 88%; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ====== HEADER ====== -->
+  <div class="header">
+    <button class="btn-back" id="btnBack" onclick="goBack()">←</button>
+    <div class="header-info">
+      <div class="header-title" id="headerTitle">Suporte Yellup</div>
+      <div class="header-sub header-status" id="headerSub">
+        <span class="status-dot"></span> Online — Respondemos em até 24h
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== VIEW: TICKETS LIST ====== -->
+  <div class="view active" id="viewTickets">
+    <div class="tickets-header">
+      <h2>💬 Suas conversas</h2>
+      <p>Acompanhe seus chamados e converse com a equipe</p>
+    </div>
+    <button class="new-ticket-btn" onclick="showNewTicket()">
+      ✉️ Novo chamado
+    </button>
+    <div class="tickets-list" id="ticketsList">
+      <div class="loading-view"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- ====== VIEW: NEW TICKET (Topic Tree) ====== -->
+  <div class="view" id="viewNewTicket">
+    <div class="tree-scroll">
+
+      <!-- Step 1: Category -->
+      <div class="tree-step active" id="step1">
+        <div class="tree-title">Qual o assunto?</div>
+        <div class="tree-sub">Selecione a categoria do seu problema</div>
+      </div>
+
+      <!-- Step 2: Subcategory (dynamic) -->
+      <div class="tree-step" id="step2">
+        <div class="tree-title" id="step2Title">Mais detalhes</div>
+        <div class="tree-sub">Escolha o que melhor descreve</div>
+      </div>
+
+      <!-- Step 3: Description -->
+      <div class="tree-step" id="step3">
+        <div class="tree-title">Descreva o problema</div>
+        <div class="tree-sub">Quanto mais detalhes, mais rápido resolvemos</div>
+        <div class="path-display" id="pathDisplay"></div>
+        <textarea class="desc-area" id="descArea" placeholder="Ex: Quando tento entrar no torneio aparece uma tela branca e não carrega nada. Já tentei recarregar a página..." maxlength="1000" oninput="updateCharCount()"></textarea>
+        <div class="char-count"><span id="charCount">0</span>/1000</div>
+        <button class="send-ticket-btn" id="sendTicketBtn" onclick="createTicket()" disabled>Enviar chamado →</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ====== VIEW: CHAT ====== -->
+  <div class="view" id="viewChat">
+    <div id="chatStatusBanner"></div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="loading-view"><div class="spinner"></div></div>
+    </div>
+    <div id="chatInputContainer">
+      <div class="chat-input-area">
+        <textarea class="chat-input" id="chatInput" placeholder="Digite sua mensagem..." rows="1" onkeydown="handleChatKey(event)" oninput="autoGrow(this)"></textarea>
+        <button class="chat-send-btn" id="chatSendBtn" onclick="sendMessage()">
+          <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- ====== FIREBASE ====== -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+      authDomain: "painel-yellup.firebaseapp.com",
+      projectId: "painel-yellup",
+      storageBucket: "painel-yellup.appspot.com",
+      messagingSenderId: "608347210297",
+      appId: "1:608347210297:web:75092713724e617c7203e8"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    // ============================================================
+    // STATE
+    // ============================================================
+    let currentUser = null;
+    let userData = null;
+    let currentView = 'tickets'; // tickets | newTicket | chat
+    let selectedCategory = null;
+    let selectedSub = null;
+    let currentTicketId = null;
+    let chatUnsubscribe = null;
+    let ticketsUnsubscribe = null;
+
+    // ============================================================
+    // TOPIC TREE DATA
+    // ============================================================
+    const TOPICS = [
+      {
+        id: 'conta',
+        icon: '👤',
+        label: 'Minha Conta',
+        desc: 'Login, cadastro, perfil, senha',
+        subs: [
+          { id: 'login', icon: '🔐', label: 'Não consigo fazer login', desc: 'Senha incorreta, conta bloqueada' },
+          { id: 'cadastro', icon: '📝', label: 'Problema no cadastro', desc: 'Erro ao criar conta, e-mail já usado' },
+          { id: 'perfil', icon: '🖼️', label: 'Editar perfil / foto', desc: 'Não salva, foto não carrega' },
+          { id: 'senha', icon: '🔑', label: 'Trocar ou recuperar senha', desc: 'Esqueci a senha, e-mail não chega' },
+          { id: 'excluir', icon: '🗑️', label: 'Excluir minha conta', desc: 'Quero apagar meus dados' },
+        ]
+      },
+      {
+        id: 'creditos',
+        icon: '💰',
+        label: 'Créditos e Pagamentos',
+        desc: 'Compras, saldo, reembolso',
+        subs: [
+          { id: 'compra_erro', icon: '❌', label: 'Comprei mas não recebi', desc: 'Pagamento aprovado, créditos não caíram' },
+          { id: 'reembolso', icon: '💸', label: 'Quero reembolso', desc: 'Arrependimento em 7 dias, créditos não usados' },
+          { id: 'saldo', icon: '📊', label: 'Saldo errado', desc: 'Créditos sumiram ou valor incorreto' },
+          { id: 'pagamento', icon: '💳', label: 'Problema no pagamento', desc: 'PIX, cartão ou boleto não funciona' },
+        ]
+      },
+      {
+        id: 'jogos',
+        icon: '⚽',
+        label: 'Jogos e Quiz',
+        desc: 'Perguntas, pontuação, jogos ao vivo',
+        subs: [
+          { id: 'pergunta_errada', icon: '❓', label: 'Pergunta com erro', desc: 'Resposta incorreta ou ambígua' },
+          { id: 'pontuacao', icon: '📈', label: 'Pontuação incorreta', desc: 'XP ou créditos não foram creditados' },
+          { id: 'jogo_bug', icon: '🐛', label: 'Bug durante o jogo', desc: 'Travou, não carregou, tela branca' },
+          { id: 'ao_vivo', icon: '🔴', label: 'Jogo ao vivo com problema', desc: 'Não aparece, não conecta' },
+        ]
+      },
+      {
+        id: 'torneios',
+        icon: '🏆',
+        label: 'Torneios',
+        desc: 'Inscrição, resultado, premiação',
+        subs: [
+          { id: 'inscricao', icon: '📋', label: 'Não consigo me inscrever', desc: 'Erro na inscrição, vaga cheia' },
+          { id: 'resultado', icon: '🏅', label: 'Resultado incorreto', desc: 'Posição ou premiação errada' },
+          { id: 'torneio_bug', icon: '🐛', label: 'Bug no torneio', desc: 'Arena travou, não carrega fases' },
+          { id: 'premios', icon: '🎁', label: 'Não recebi premiação', desc: 'Torneio acabou e créditos não vieram' },
+        ]
+      },
+      {
+        id: 'pvp',
+        icon: '⚔️',
+        label: 'PvP / Penâlti',
+        desc: 'Desafios, matchmaking, resultado',
+        subs: [
+          { id: 'pvp_bug', icon: '🐛', label: 'Bug na partida', desc: 'Travou, desconectou, não achou adversário' },
+          { id: 'pvp_resultado', icon: '📊', label: 'Resultado errado', desc: 'Ganhei mas perdi créditos' },
+          { id: 'pvp_trapaça', icon: '🚫', label: 'Denunciar jogador', desc: 'Suspeita de trapaça ou bot' },
+        ]
+      },
+      {
+        id: 'bolsa',
+        icon: '📈',
+        label: 'Bolsa de Times',
+        desc: 'Cotas, compra, venda, valores',
+        subs: [
+          { id: 'bolsa_bug', icon: '🐛', label: 'Bug na bolsa', desc: 'Não carrega, valores errados' },
+          { id: 'bolsa_cota', icon: '📉', label: 'Problema com cota', desc: 'Comprei e não apareceu, venda não funcionou' },
+        ]
+      },
+      {
+        id: 'outro',
+        icon: '💬',
+        label: 'Outro assunto',
+        desc: 'Sugestão, elogio, dúvida geral',
+        subs: [
+          { id: 'sugestao', icon: '💡', label: 'Tenho uma sugestão', desc: 'Ideia para melhorar a plataforma' },
+          { id: 'elogio', icon: '⭐', label: 'Quero elogiar', desc: 'Feedback positivo' },
+          { id: 'duvida', icon: '🤔', label: 'Dúvida geral', desc: 'Pergunta sobre a plataforma' },
+          { id: 'outro_problema', icon: '⚠️', label: 'Outro problema', desc: 'Nenhuma das categorias acima' },
+        ]
+      }
+    ];
+
+    // ============================================================
+    // AUTH
+    // ============================================================
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        window.location.href = 'index.html';
+        return;
+      }
+      currentUser = user;
+      try {
+        const doc = await db.collection('usuarios').doc(user.uid).get();
+        userData = doc.exists ? doc.data() : {};
+      } catch (e) {
+        userData = {};
+      }
+      renderTopics();
+      loadTickets();
+    });
+
+    // ============================================================
+    // NAVIGATION
+    // ============================================================
+    function switchView(view) {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      currentView = view;
+      if (view === 'tickets') {
+        document.getElementById('viewTickets').classList.add('active');
+        document.getElementById('headerTitle').textContent = 'Suporte Yellup';
+        document.getElementById('headerSub').innerHTML = '<span class="status-dot"></span> Online — Respondemos em até 24h';
+        document.getElementById('btnBack').onclick = () => window.history.back();
+      } else if (view === 'newTicket') {
+        document.getElementById('viewNewTicket').classList.add('active');
+        document.getElementById('headerTitle').textContent = 'Novo chamado';
+        document.getElementById('headerSub').textContent = 'Passo 1 de 3';
+        document.getElementById('btnBack').onclick = goBackTree;
+      } else if (view === 'chat') {
+        document.getElementById('viewChat').classList.add('active');
+        document.getElementById('btnBack').onclick = () => {
+          if (chatUnsubscribe) { chatUnsubscribe(); chatUnsubscribe = null; }
+          currentTicketId = null;
+          switchView('tickets');
+        };
+      }
+    }
+
+    function goBack() {
+      if (currentView === 'chat') {
+        if (chatUnsubscribe) { chatUnsubscribe(); chatUnsubscribe = null; }
+        currentTicketId = null;
+        switchView('tickets');
+      } else if (currentView === 'newTicket') {
+        goBackTree();
+      } else {
+        window.history.back();
+      }
+    }
+
+    // ============================================================
+    // TICKETS LIST
+    // ============================================================
+    function loadTickets() {
+      if (ticketsUnsubscribe) ticketsUnsubscribe();
+
+      ticketsUnsubscribe = db.collection('suporte_tickets')
+        .where('userId', '==', currentUser.uid)
+        .orderBy('atualizadoEm', 'desc')
+        .onSnapshot(snap => {
+          const container = document.getElementById('ticketsList');
+
+          if (snap.empty) {
+            container.innerHTML = `
+              <div class="empty-tickets">
+                <span>💬</span>
+                Nenhum chamado ainda.<br>Toque em "Novo chamado" se precisar de ajuda.
+              </div>`;
+            return;
+          }
+
+          container.innerHTML = snap.docs.map(d => {
+            const t = d.data();
+            const statusLabels = { aberto: '🔵 Aberto', em_andamento: '🟡 Em andamento', resolvido: '✅ Resolvido', fechado: '⚫ Fechado' };
+            const statusLabel = statusLabels[t.status] || statusLabels.aberto;
+            const data = t.criadoEm?.toDate ? timeAgo(t.criadoEm.toDate()) : '';
+            const preview = t.ultimaMensagem || t.descricao || '';
+            const catObj = TOPICS.find(c => c.id === t.categoria);
+            const hasUnread = t.adminRespondeu && !t.lidoPeloUsuario;
+
+            return `<div class="ticket-card" onclick="openChat('${d.id}')">
+              <div class="ticket-unread ${hasUnread ? 'show' : ''}"></div>
+              <div class="ticket-top">
+                <span class="ticket-cat ${t.status}">${statusLabel}</span>
+                <span class="ticket-date">${data}</span>
+              </div>
+              <div class="ticket-subject">${catObj ? catObj.icon : '💬'} ${t.assunto || 'Chamado'}</div>
+              <div class="ticket-preview">${preview}</div>
+            </div>`;
+          }).join('');
+        }, err => {
+          console.error('Tickets err:', err);
+          document.getElementById('ticketsList').innerHTML = '<div class="empty-tickets"><span>⚠️</span>Erro ao carregar chamados</div>';
+        });
+    }
+
+    // ============================================================
+    // NEW TICKET — TOPIC TREE
+    // ============================================================
+    let treeStep = 1;
+
+    function renderTopics() {
+      const container = document.getElementById('step1');
+      container.innerHTML = `
+        <div class="tree-title">Qual o assunto?</div>
+        <div class="tree-sub">Selecione a categoria do seu problema</div>
+        ${TOPICS.map(t => `
+          <button class="topic-btn" onclick="selectCategory('${t.id}')">
+            <div class="topic-icon">${t.icon}</div>
+            <div class="topic-text">
+              <strong>${t.label}</strong>
+              <span>${t.desc}</span>
+            </div>
+            <div class="topic-arrow">›</div>
+          </button>
+        `).join('')}
+      `;
+    }
+
+    function showNewTicket() {
+      treeStep = 1;
+      selectedCategory = null;
+      selectedSub = null;
+      document.querySelectorAll('.tree-step').forEach(s => s.classList.remove('active'));
+      document.getElementById('step1').classList.add('active');
+      document.getElementById('descArea').value = '';
+      updateCharCount();
+      switchView('newTicket');
+    }
+
+    function selectCategory(catId) {
+      selectedCategory = TOPICS.find(t => t.id === catId);
+      treeStep = 2;
+
+      const container = document.getElementById('step2');
+      document.getElementById('step2Title').textContent = selectedCategory.label;
+      container.innerHTML = `
+        <div class="tree-title">${selectedCategory.icon} ${selectedCategory.label}</div>
+        <div class="tree-sub">Escolha o que melhor descreve seu caso</div>
+        ${selectedCategory.subs.map(s => `
+          <button class="topic-btn" onclick="selectSub('${s.id}')">
+            <div class="topic-icon">${s.icon}</div>
+            <div class="topic-text">
+              <strong>${s.label}</strong>
+              <span>${s.desc}</span>
+            </div>
+            <div class="topic-arrow">›</div>
+          </button>
+        `).join('')}
+      `;
+
+      document.querySelectorAll('.tree-step').forEach(s => s.classList.remove('active'));
+      container.classList.add('active');
+      document.getElementById('headerSub').textContent = 'Passo 2 de 3';
+    }
+
+    function selectSub(subId) {
+      selectedSub = selectedCategory.subs.find(s => s.id === subId);
+      treeStep = 3;
+
+      // Build path display
+      document.getElementById('pathDisplay').innerHTML = `
+        <span class="path-tag">${selectedCategory.icon} ${selectedCategory.label}</span>
+        <span class="path-sep">›</span>
+        <span class="path-tag">${selectedSub.icon} ${selectedSub.label}</span>
+      `;
+
+      document.querySelectorAll('.tree-step').forEach(s => s.classList.remove('active'));
+      document.getElementById('step3').classList.add('active');
+      document.getElementById('headerSub').textContent = 'Passo 3 de 3';
+      document.getElementById('descArea').focus();
+    }
+
+    function goBackTree() {
+      if (treeStep === 3) {
+        treeStep = 2;
+        document.querySelectorAll('.tree-step').forEach(s => s.classList.remove('active'));
+        document.getElementById('step2').classList.add('active');
+        document.getElementById('headerSub').textContent = 'Passo 2 de 3';
+      } else if (treeStep === 2) {
+        treeStep = 1;
+        selectedCategory = null;
+        document.querySelectorAll('.tree-step').forEach(s => s.classList.remove('active'));
+        document.getElementById('step1').classList.add('active');
+        document.getElementById('headerSub').textContent = 'Passo 1 de 3';
+      } else {
+        switchView('tickets');
+      }
+    }
+
+    function updateCharCount() {
+      const val = document.getElementById('descArea').value;
+      document.getElementById('charCount').textContent = val.length;
+      document.getElementById('sendTicketBtn').disabled = val.trim().length < 10;
+    }
+
+    // ============================================================
+    // CREATE TICKET
+    // ============================================================
+    async function createTicket() {
+      const desc = document.getElementById('descArea').value.trim();
+      if (desc.length < 10) return;
+
+      const btn = document.getElementById('sendTicketBtn');
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+
+      try {
+        const assunto = selectedSub ? selectedSub.label : (selectedCategory ? selectedCategory.label : 'Outro');
+        const now = firebase.firestore.FieldValue.serverTimestamp();
+
+        const ticketRef = await db.collection('suporte_tickets').add({
+          userId: currentUser.uid,
+          userName: userData?.usuarioUnico || userData?.nome || 'Usuário',
+          userFoto: userData?.fotoPerfil || null,
+          userEmail: currentUser.email || null,
+          categoria: selectedCategory ? selectedCategory.id : 'outro',
+          categoriaLabel: selectedCategory ? selectedCategory.label : 'Outro',
+          subcategoria: selectedSub ? selectedSub.id : 'geral',
+          subcategoriaLabel: selectedSub ? selectedSub.label : 'Geral',
+          assunto,
+          descricao: desc,
+          status: 'aberto',
+          adminRespondeu: false,
+          lidoPeloUsuario: true,
+          criadoEm: now,
+          atualizadoEm: now,
+          ultimaMensagem: desc.substring(0, 100)
+        });
+
+        // First message = user description
+        await db.collection('suporte_tickets').doc(ticketRef.id).collection('mensagens').add({
+          remetente: 'usuario',
+          nome: userData?.usuarioUnico || userData?.nome || 'Usuário',
+          texto: desc,
+          data: now,
+          lido: false
+        });
+
+        // System message
+        await db.collection('suporte_tickets').doc(ticketRef.id).collection('mensagens').add({
+          remetente: 'sistema',
+          texto: `Chamado #${ticketRef.id.substring(0,6).toUpperCase()} criado. Nossa equipe vai responder em breve!`,
+          data: now,
+          lido: true
+        });
+
+        showToast('✅ Chamado criado com sucesso!');
+        openChat(ticketRef.id);
+
+      } catch (e) {
+        console.error('Erro ao criar ticket:', e);
+        showToast('❌ Erro ao criar chamado. Tente novamente.');
+        btn.disabled = false;
+        btn.textContent = 'Enviar chamado →';
+      }
+    }
+
+    // ============================================================
+    // CHAT
+    // ============================================================
+    async function openChat(ticketId) {
+      currentTicketId = ticketId;
+      switchView('chat');
+
+      // Load ticket info
+      const ticketDoc = await db.collection('suporte_tickets').doc(ticketId).get();
+      if (!ticketDoc.exists) {
+        showToast('❌ Chamado não encontrado');
+        switchView('tickets');
+        return;
+      }
+
+      const ticket = ticketDoc.data();
+      document.getElementById('headerTitle').textContent = `${ticket.assunto || 'Chamado'}`;
+      document.getElementById('headerSub').textContent = `#${ticketId.substring(0,6).toUpperCase()} · ${statusText(ticket.status)}`;
+
+      // Status banner
+      const banner = document.getElementById('chatStatusBanner');
+      if (ticket.status === 'resolvido') {
+        banner.className = 'chat-status-banner resolvido';
+        banner.innerHTML = '✅ Este chamado foi marcado como resolvido. Ainda pode responder se precisar.';
+      } else if (ticket.status === 'fechado') {
+        banner.className = 'chat-status-banner fechado';
+        banner.innerHTML = '⚫ Este chamado foi fechado.';
+      } else {
+        banner.className = '';
+        banner.innerHTML = '';
+      }
+
+      // Show/hide input
+      const inputContainer = document.getElementById('chatInputContainer');
+      if (ticket.status === 'fechado') {
+        inputContainer.innerHTML = '<div class="chat-closed-msg">Este chamado foi encerrado e não aceita novas mensagens.</div>';
+      } else {
+        inputContainer.innerHTML = `
+          <div class="chat-input-area">
+            <textarea class="chat-input" id="chatInput" placeholder="Digite sua mensagem..." rows="1" onkeydown="handleChatKey(event)" oninput="autoGrow(this)"></textarea>
+            <button class="chat-send-btn" id="chatSendBtn" onclick="sendMessage()">
+              <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </div>`;
+      }
+
+      // Mark as read
+      if (ticket.adminRespondeu && !ticket.lidoPeloUsuario) {
+        await db.collection('suporte_tickets').doc(ticketId).update({ lidoPeloUsuario: true });
+      }
+
+      // Subscribe to messages
+      const messagesDiv = document.getElementById('chatMessages');
+      messagesDiv.innerHTML = '<div class="loading-view"><div class="spinner"></div></div>';
+
+      if (chatUnsubscribe) chatUnsubscribe();
+
+      chatUnsubscribe = db.collection('suporte_tickets').doc(ticketId)
+        .collection('mensagens')
+        .orderBy('data', 'asc')
+        .onSnapshot(snap => {
+          if (snap.empty) {
+            messagesDiv.innerHTML = '<div class="msg-system">Nenhuma mensagem ainda</div>';
+            return;
+          }
+
+          let lastDate = '';
+          messagesDiv.innerHTML = snap.docs.map(d => {
+            const m = d.data();
+            const date = m.data?.toDate ? m.data.toDate() : new Date();
+            const dateStr = formatDate(date);
+            const timeStr = formatTime(date);
+
+            let dateHeader = '';
+            if (dateStr !== lastDate) {
+              lastDate = dateStr;
+              dateHeader = `<div class="msg-group-date">${dateStr}</div>`;
+            }
+
+            if (m.remetente === 'sistema') {
+              return `${dateHeader}<div class="msg-system">${m.texto}</div>`;
+            }
+
+            const isUser = m.remetente === 'usuario';
+            const senderName = isUser ? '' : `<div class="msg-sender">🟡 Equipe Yellup</div>`;
+
+            return `${dateHeader}<div class="msg ${isUser ? 'user' : 'admin'}">
+              ${senderName}
+              <div>${escapeHTML(m.texto)}</div>
+              <div class="msg-time">${timeStr}</div>
+            </div>`;
+          }).join('');
+
+          // Scroll to bottom
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('chatInput');
+      if (!input) return;
+      const text = input.value.trim();
+      if (!text || !currentTicketId) return;
+
+      input.value = '';
+      autoGrow(input);
+
+      try {
+        const now = firebase.firestore.FieldValue.serverTimestamp();
+
+        await db.collection('suporte_tickets').doc(currentTicketId)
+          .collection('mensagens').add({
+            remetente: 'usuario',
+            nome: userData?.usuarioUnico || userData?.nome || 'Usuário',
+            texto: text,
+            data: now,
+            lido: false
+          });
+
+        await db.collection('suporte_tickets').doc(currentTicketId).update({
+          atualizadoEm: now,
+          ultimaMensagem: text.substring(0, 100),
+          lidoPeloAdmin: false
+        });
+
+      } catch (e) {
+        console.error('Send err:', e);
+        showToast('❌ Erro ao enviar mensagem');
+      }
+    }
+
+    function handleChatKey(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    }
+
+    function autoGrow(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+    }
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    function statusText(s) {
+      const m = { aberto: 'Aberto', em_andamento: 'Em andamento', resolvido: 'Resolvido', fechado: 'Fechado' };
+      return m[s] || 'Aberto';
+    }
+
+    function formatDate(d) {
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      if (d.toDateString() === today.toDateString()) return 'Hoje';
+      if (d.toDateString() === yesterday.toDateString()) return 'Ontem';
+      return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+
+    function formatTime(d) {
+      return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function timeAgo(d) {
+      const diff = (Date.now() - d.getTime()) / 1000;
+      if (diff < 60) return 'agora';
+      if (diff < 3600) return `${Math.floor(diff/60)}min`;
+      if (diff < 86400) return `${Math.floor(diff/3600)}h`;
+      if (diff < 604800) return `${Math.floor(diff/86400)}d`;
+      return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>
