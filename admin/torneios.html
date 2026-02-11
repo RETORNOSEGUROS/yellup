@@ -662,10 +662,10 @@
           </div>
         </div>
 
-        <!-- Taxa e Duração -->
+        <!-- Taxa, Duração e Tempo por Pergunta -->
         <div class="form-group">
           <label class="form-label">Configurações</label>
-          <div class="form-row">
+          <div class="form-row" style="grid-template-columns: 1fr 1fr 1fr;">
             <div>
               <input type="number" class="form-input" id="torneioTaxa" placeholder="Taxa de inscrição" value="10">
               <p class="form-hint">Créditos de entrada</p>
@@ -673,6 +673,10 @@
             <div>
               <input type="number" class="form-input" id="torneioDuracao" placeholder="Duração" value="15">
               <p class="form-hint">Minutos por fase</p>
+            </div>
+            <div>
+              <input type="number" class="form-input" id="torneioTempoPergunta" placeholder="Seg/pergunta" value="10">
+              <p class="form-hint">Seg. por pergunta</p>
             </div>
           </div>
         </div>
@@ -1038,6 +1042,7 @@
       const maxParticipantes = parseInt(document.getElementById('torneioMax').value) || 0;
       const taxaInscricao = parseInt(document.getElementById('torneioTaxa').value) || 10;
       const duracaoFase = parseInt(document.getElementById('torneioDuracao').value) || 15;
+      const tempoPergunta = parseInt(document.getElementById('torneioTempoPergunta').value) || 10;
       const premio1 = parseInt(document.getElementById('premio1').value) || 50;
       const premio2 = parseInt(document.getElementById('premio2').value) || 30;
       const premio3 = parseInt(document.getElementById('premio3').value) || 20;
@@ -1104,6 +1109,7 @@
             minParticipantes,
             taxaInscricao,
             duracaoFase,
+            tempoPergunta,
             distribuicaoPremio: {
               primeiro: premio1,
               segundo: premio2,
@@ -1282,7 +1288,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; padding: 8px 0;">
               <span style="color: #a9b5c6;">⏱️ Duração:</span>
-              <span>${config.duracaoFase || 15} minutos</span>
+              <span>${config.duracaoFase || 15} minutos | ${config.tempoPergunta || 10}s/pergunta</span>
             </div>
           </div>
 
@@ -1394,11 +1400,13 @@
           });
           
           await db.collection('transacoes').add({
-            usuarioId: ranking[0].odId,
-            tipo: 'credito',
-            valor: premio1,
+            usuarioId: ranking[0].odId, tipo: 'credito', valor: premio1,
             descricao: `🥇 1º lugar no torneio ${torneioAtual.nome} (+${premio1} créditos)`,
-            torneioId: id,
+            torneioId: id, data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          await db.collection('usuarios').doc(ranking[0].odId).collection('extrato').add({
+            tipo: 'entrada', valor: premio1,
+            descricao: `🥇 1º lugar: ${torneioAtual.nome}`,
             data: firebase.firestore.FieldValue.serverTimestamp()
           });
           console.log("✅ Prêmio 1º lugar distribuído:", ranking[0].odNome, premio1);
@@ -1413,11 +1421,13 @@
           });
           
           await db.collection('transacoes').add({
-            usuarioId: ranking[1].odId,
-            tipo: 'credito',
-            valor: premio2,
+            usuarioId: ranking[1].odId, tipo: 'credito', valor: premio2,
             descricao: `🥈 2º lugar no torneio ${torneioAtual.nome} (+${premio2} créditos)`,
-            torneioId: id,
+            torneioId: id, data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          await db.collection('usuarios').doc(ranking[1].odId).collection('extrato').add({
+            tipo: 'entrada', valor: premio2,
+            descricao: `🥈 2º lugar: ${torneioAtual.nome}`,
             data: firebase.firestore.FieldValue.serverTimestamp()
           });
           console.log("✅ Prêmio 2º lugar distribuído:", ranking[1].odNome, premio2);
@@ -1432,11 +1442,13 @@
           });
           
           await db.collection('transacoes').add({
-            usuarioId: ranking[2].odId,
-            tipo: 'credito',
-            valor: premio3,
+            usuarioId: ranking[2].odId, tipo: 'credito', valor: premio3,
             descricao: `🥉 3º lugar no torneio ${torneioAtual.nome} (+${premio3} créditos)`,
-            torneioId: id,
+            torneioId: id, data: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          await db.collection('usuarios').doc(ranking[2].odId).collection('extrato').add({
+            tipo: 'entrada', valor: premio3,
+            descricao: `🥉 3º lugar: ${torneioAtual.nome}`,
             data: firebase.firestore.FieldValue.serverTimestamp()
           });
           console.log("✅ Prêmio 3º lugar distribuído:", ranking[2].odNome, premio3);
@@ -1450,6 +1462,25 @@
             });
           } catch (e) { console.error("Erro ao atualizar participante:", e); }
         }
+        
+        // Notificar top 3
+        try {
+          const medals = ['🥇', '🥈', '🥉'];
+          const premios = [premio1, premio2, premio3];
+          for (let i = 0; i < 3 && i < ranking.length; i++) {
+            if (premios[i] > 0) {
+              await db.collection('notificacoes').add({
+                para: ranking[i].odId,
+                tipo: 'torneio_resultado',
+                titulo: `${medals[i]} ${i+1}º lugar no torneio!`,
+                mensagem: `Você ficou em ${i+1}º no "${torneioAtual.nome}" e ganhou ${premios[i]} créditos!`,
+                link: `resultado-torneio.html?id=${id}`,
+                lida: false,
+                data: firebase.firestore.FieldValue.serverTimestamp()
+              });
+            }
+          }
+        } catch (ne) { console.warn('Notif:', ne); }
         
         // Marcar torneio como finalizado
         await db.collection('torneios').doc(id).update({
