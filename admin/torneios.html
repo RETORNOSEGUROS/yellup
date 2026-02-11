@@ -881,11 +881,21 @@
                 <button class="btn-action danger" onclick="excluirTorneio('${t.id}')">Excluir</button>
               ` : t.status === 'inscricoes_abertas' ? `
                 <button class="btn-action secondary" onclick="verDetalhes('${t.id}')">Ver</button>
+                <button class="btn-action primary" onclick="iniciarTorneio('${t.id}')">Iniciar</button>
                 <button class="btn-action danger" onclick="cancelarTorneio('${t.id}')">Cancelar</button>
               ` : t.status === 'em_andamento' ? `
                 <button class="btn-action primary" onclick="verAoVivo('${t.id}')">Ao Vivo</button>
-              ` : `
+                <button class="btn-action secondary" onclick="finalizarTorneio('${t.id}')">Finalizar</button>
+                <button class="btn-action danger" onclick="cancelarTorneio('${t.id}')">Cancelar</button>
+              ` : t.status === 'finalizado' ? `
                 <button class="btn-action secondary" onclick="verDetalhes('${t.id}')">Ver Resultado</button>
+                <button class="btn-action danger" onclick="excluirTorneio('${t.id}')">Excluir</button>
+              ` : t.status === 'cancelado' ? `
+                <button class="btn-action secondary" onclick="verDetalhes('${t.id}')">Ver</button>
+                <button class="btn-action danger" onclick="excluirTorneio('${t.id}')">Excluir</button>
+              ` : `
+                <button class="btn-action secondary" onclick="verDetalhes('${t.id}')">Ver</button>
+                <button class="btn-action danger" onclick="excluirTorneio('${t.id}')">Excluir</button>
               `}
             </div>
           </div>
@@ -1173,34 +1183,109 @@
     }
 
     async function cancelarTorneio(id) {
-      if (!confirm('Tem certeza que deseja cancelar este torneio? Os créditos serão devolvidos.')) {
-        return;
+      const torneio = todosTorneios.find(t => t.id === id);
+      if (!torneio) return;
+      
+      const temInscritos = (torneio.totalInscritos || torneio.inscritos?.length || 0) > 0;
+      const entrada = torneio.config?.taxaInscricao || torneio.entrada || 0;
+      
+      let msg = 'Tem certeza que deseja cancelar este torneio?';
+      if (temInscritos && entrada > 0) {
+        msg += `\n\n⚠️ ${torneio.inscritos?.length || 0} inscritos receberão devolução de ${entrada} créditos cada.`;
       }
       
+      if (!confirm(msg)) return;
+      
       try {
-        // TODO: Implementar devolução de créditos
+        showToast('⏳ Cancelando torneio...');
+        
+        // Devolver créditos para cada inscrito
+        if (temInscritos && entrada > 0 && torneio.inscritos) {
+          for (const uid of torneio.inscritos) {
+            try {
+              await db.collection('usuarios').doc(uid).update({
+                creditos: firebase.firestore.FieldValue.increment(entrada)
+              });
+              
+              // Registrar devolução no extrato
+              await db.collection('usuarios').doc(uid).collection('extrato').add({
+                tipo: 'entrada',
+                valor: entrada,
+                descricao: `🔄 Devolução: Torneio "${torneio.nome}" cancelado`,
+                data: firebase.firestore.FieldValue.serverTimestamp()
+              });
+              
+              // Transação global
+              await db.collection('transacoes').add({
+                usuarioId: uid,
+                tipo: 'credito',
+                valor: entrada,
+                descricao: `🔄 Devolução - Torneio ${torneio.nome} cancelado`,
+                torneioId: id,
+                data: firebase.firestore.FieldValue.serverTimestamp()
+              });
+              
+              // Notificar
+              await db.collection('notificacoes').add({
+                para: uid,
+                tipo: 'torneio_cancelado',
+                titulo: '🔄 Torneio cancelado',
+                mensagem: `O torneio "${torneio.nome}" foi cancelado. Seus ${entrada} créditos foram devolvidos.`,
+                lida: false,
+                data: firebase.firestore.FieldValue.serverTimestamp()
+              });
+            } catch (e) {
+              console.error('Erro ao devolver para', uid, e);
+            }
+          }
+        }
+        
         await db.collection('torneios').doc(id).update({
           status: 'cancelado',
+          motivoCancelamento: 'Cancelado pelo administrador',
           ultimaAtualizacao: firebase.firestore.FieldValue.serverTimestamp()
         });
-        showToast('✅ Torneio cancelado');
+        
+        showToast(`✅ Torneio cancelado${temInscritos && entrada > 0 ? ' - créditos devolvidos!' : '!'}`);
         carregarTorneios();
       } catch (error) {
-        showToast('❌ Erro ao cancelar');
+        console.error('Erro ao cancelar:', error);
+        showToast('❌ Erro ao cancelar: ' + error.message);
       }
     }
 
     async function excluirTorneio(id) {
-      if (!confirm('Tem certeza que deseja excluir este torneio?')) {
-        return;
+      const torneio = todosTorneios.find(t => t.id === id);
+      const temInscritos = torneio && (torneio.totalInscritos || torneio.inscritos?.length || 0) > 0;
+      
+      let msg = 'Tem certeza que deseja EXCLUIR este torneio permanentemente?';
+      if (temInscritos && torneio.status !== 'cancelado' && torneio.status !== 'finalizado') {
+        msg += '\n\n⚠️ Este torneio tem inscritos! Cancele primeiro para devolver os créditos.';
+        if (!confirm(msg)) return;
+      } else {
+        if (!confirm(msg)) return;
       }
       
       try {
+        showToast('⏳ Excluindo...');
+        
+        // Deletar subcollections primeiro
+        const subs = ['participacoes', 'respostas', 'fases'];
+        for (const sub of subs) {
+          try {
+            const snap = await db.collection('torneios').doc(id).collection(sub).limit(500).get();
+            const batch = db.batch();
+            snap.forEach(doc => batch.delete(doc.ref));
+            if (!snap.empty) await batch.commit();
+          } catch (e) {}
+        }
+        
         await db.collection('torneios').doc(id).delete();
-        showToast('✅ Torneio excluído');
+        showToast('✅ Torneio excluído permanentemente');
         carregarTorneios();
       } catch (error) {
-        showToast('❌ Erro ao excluir');
+        console.error('Erro ao excluir:', error);
+        showToast('❌ Erro ao excluir: ' + error.message);
       }
     }
 
