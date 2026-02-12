@@ -6019,11 +6019,15 @@
       const pacote = PACOTES_LOJA.find(p => p.id === pacoteId);
       if (!pacote) return;
 
+      // ✅ MOBILE FIX: Abrir janela ANTES do await (síncrono, aceito pelo browser)
+      const novaAba = window.open('about:blank', '_blank');
+
       // Verificar CPF
       try {
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const userData = userDoc.data() || {};
         if (!userData.cpf) {
+          if (novaAba) novaAba.close();
           showToast("⚠️ Cadastre seu CPF no perfil antes de comprar!");
           return;
         }
@@ -6031,7 +6035,6 @@
         console.error("Erro ao verificar CPF:", e);
       }
 
-      // Mostrar loading no pacote clicado
       showToast("⏳ Preparando pagamento...");
 
       try {
@@ -6052,38 +6055,44 @@
         const data = await response.json();
 
         if (data.success && data.initPoint) {
-          // Abrir Mercado Pago em nova aba (jogador não sai do jogo!)
-          window.open(data.initPoint, '_blank');
+          // ✅ Redirecionar a aba já aberta para o Mercado Pago
+          if (novaAba && !novaAba.closed) {
+            novaAba.location.href = data.initPoint;
+          } else {
+            // Fallback: redirecionar na mesma página
+            window.location.href = data.initPoint;
+            return;
+          }
           
           // Fechar mini loja
           document.getElementById('miniLojaOverlay')?.remove();
           
-          showToast("✅ Pagamento aberto! Volte após pagar para ver seus créditos.");
+          showToast("✅ Pagamento aberto! Volte após pagar.");
           
           // Checar créditos automaticamente a cada 10s por 5 minutos
           let checks = 0;
+          const saldoAntes = parseInt(document.getElementById('paidCredits')?.textContent || '0');
           const checkInterval = setInterval(async () => {
             checks++;
             if (checks > 30) { clearInterval(checkInterval); return; }
             try {
-              await updateFreePlays();
               const userDoc = await db.collection("usuarios").doc(uid).get();
               const creds = userDoc.data()?.creditos || 0;
-              const saldoEl = document.getElementById('paidCredits');
-              if (saldoEl && parseInt(saldoEl.textContent) < creds) {
-                // Créditos aumentaram - pagamento confirmado!
+              if (creds > saldoAntes) {
                 clearInterval(checkInterval);
                 showToast("🎉 Créditos recebidos! Continue jogando!");
-                updateFreePlays();
+                await updateFreePlays();
               }
             } catch (e) { /* silencioso */ }
           }, 10000);
           
         } else {
+          if (novaAba) novaAba.close();
           throw new Error(data.error || 'Erro ao criar pagamento');
         }
 
       } catch (error) {
+        if (novaAba && !novaAba.closed) novaAba.close();
         console.error("Erro ao comprar:", error);
         showToast("❌ Erro ao processar. Tente novamente.");
       }
