@@ -2980,16 +2980,15 @@
     <div class="answer-section">
       <div class="credits-display">
         <div class="credit-badge free">
-          <span>🎁 Jogadas Grátis:</span>
-          <strong id="freeCredits">5/5</strong>
+          <span>🎫 Passe:</span>
+          <strong id="freeCredits">Free</strong>
         </div>
-        <div class="credit-badge paid" onclick="abrirMiniLoja()">
+        <div class="credit-badge paid">
           <span>💎 Créditos:</span>
           <strong id="paidCredits">0</strong>
-          <span class="credit-add-btn">+</span>
         </div>
       </div>
-      <div class="drip-mini-timer" id="dripMiniTimer">🎁 Próximo crédito grátis em <span id="dripCountdown">--:--</span></div>
+      <div class="drip-mini-timer" id="dripMiniTimer" style="display:none;">⏳ Próxima pergunta em <span id="dripCountdown">--:--</span></div>
 
 
       <!-- 🔥 STREAK E GAMIFICAÇÃO -->
@@ -3732,38 +3731,43 @@
     }
 
     // ===================================
-    // 💎 ATUALIZAR JOGADAS GRÁTIS (POR JOGO!)
+    // 🎫 ATUALIZAR STATUS PASSE/LIMITES (V2)
     // ===================================
     async function updateFreePlays() {
       try {
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const user = userDoc.data() || {};
-        
-        // ✅ CORREÇÃO: Jogadas grátis POR JOGO, não global
-        const jogadasPorJogo = user.jogadasGratisPorJogo || {};
-        const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
-        const creditosPagos = user.creditos || 0;
-        
-        const gratisRestantes = Math.max(0, 5 - jogadasUsadasNesteJogo);
-        
-        document.getElementById("freeCredits").textContent = `${gratisRestantes}/5`;
-        document.getElementById("paidCredits").textContent = creditosPagos;
+        const creditos = user.creditos || 0;
+        const passe = user.passe || { tipo: 'free', ativo: false };
+        const limites = user.limitesDiarios || {};
+        const tipoPasse = (passe.ativo && passe.tipo !== 'free') ? passe.tipo : 'free';
+        const temPasse = tipoPasse !== 'free';
+
+        // Exibir status do passe
+        const passeMap = { free: 'Free (2/dia)', semanal: '🌟 Semanal', mensal: '💎 Mensal', anual: '👑 Anual' };
+        document.getElementById("freeCredits").textContent = passeMap[tipoPasse] || 'Free';
+        document.getElementById("paidCredits").textContent = creditos;
 
         const btnAnswer = document.getElementById("btnAnswer");
         const fabBtn = document.getElementById("fabBtn");
-        
-        if (gratisRestantes === 0 && creditosPagos <= 0) {
-          // Botão continua habilitado - mostra overlay ao clicar
-          btnAnswer.disabled = false;
-          btnAnswer.textContent = "💎 Comprar Créditos";
-          btnAnswer.style.background = "linear-gradient(135deg, #ff6b35, #ffaa32)";
-          if (fabBtn) {
-            fabBtn.disabled = false;
-            fabBtn.innerHTML = `<span class="fab-icon">💎</span><span class="fab-text">Comprar Créditos</span>`;
+
+        // Free users: verificar limite diário de partidas
+        if (!temPasse) {
+          const partidasHoje = limites.partidasHoje || 0;
+          if (partidasHoje >= 2) {
+            btnAnswer.disabled = false;
+            btnAnswer.textContent = "🎫 Limite atingido — Comprar Passe";
+            btnAnswer.style.background = "linear-gradient(135deg, #a855f7, #7c3aed)";
+            if (fabBtn) {
+              fabBtn.disabled = false;
+              fabBtn.innerHTML = `<span class="fab-icon">🎫</span><span class="fab-text">Comprar Passe</span>`;
+            }
+            return;
           }
-          // Mostrar mini timer de drip
-          iniciarDripTimer();
-        } else if (!currentQuestion) {
+        }
+
+        // Pode jogar normalmente
+        if (!currentQuestion) {
           btnAnswer.disabled = false;
           btnAnswer.textContent = "🎯 Responder Pergunta";
           btnAnswer.style.background = "linear-gradient(135deg, var(--accent), #ff8c42)";
@@ -3774,7 +3778,7 @@
         }
 
       } catch (error) {
-        console.error("❌ Erro ao atualizar jogadas:", error);
+        console.error("❌ Erro ao atualizar status:", error);
       }
     }
 
@@ -3932,9 +3936,9 @@
       try {
         const btnAnswer = document.getElementById("btnAnswer");
         
-        // ✅ Se botão está em modo "Comprar", abrir mini loja direto
-        if (btnAnswer.textContent.includes('Comprar')) {
-          abrirMiniLoja();
+        // ✅ Se botão está em modo "Comprar Passe", redirecionar
+        if (btnAnswer.textContent.includes('Passe') || btnAnswer.textContent.includes('Comprar')) {
+          window.location.href = 'loja-passes.html';
           return;
         }
         
@@ -3975,18 +3979,21 @@
         btnAnswer.disabled = true;
         btnAnswer.textContent = "🔍 Buscando pergunta...";
 
-        // ✅ Verificar créditos POR JOGO
+        // ✅ V2: Verificar limite de partidas (Free = 2/dia, Passe = ilimitado)
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const userData = userDoc.data() || {};
-        const jogadasPorJogo = userData.jogadasGratisPorJogo || {};
-        const jogadasUsadasNesteJogo = jogadasPorJogo[jogoId] || 0;
-        const creditosPagos = userData.creditos || 0;
+        const passe = userData.passe || { tipo: 'free', ativo: false };
+        const limites = userData.limitesDiarios || {};
+        const tipoPasse = (passe.ativo && passe.tipo !== 'free') ? passe.tipo : 'free';
 
-        if (jogadasUsadasNesteJogo >= 5 && creditosPagos <= 0) {
-          mostrarOverlaySemCreditos();
-          btnAnswer.disabled = false;
-          btnAnswer.textContent = "🎯 Responder Pergunta";
-          return;
+        if (tipoPasse === 'free') {
+          const partidasHoje = limites.partidasHoje || 0;
+          if (partidasHoje >= 2) {
+            mostrarOverlayLimiteAtingido();
+            btnAnswer.disabled = false;
+            btnAnswer.textContent = "🎯 Responder Pergunta";
+            return;
+          }
         }
 
         // ✅ Buscar perguntas pelo TIME
@@ -4224,7 +4231,7 @@
         resultMessage.textContent = "⏰ Tempo esgotado! Verificando...";
 
         // ✅ SEGURANÇA: Enviar timeout ao servidor (resposta "__TIMEOUT__" = sempre errado)
-        const responderFn = functions.httpsCallable('responderPergunta');
+        const responderFn = functions.httpsCallable('responderPerguntaV2');
         const resultado = await responderFn({
           jogoId: jogoId,
           perguntaId: currentQuestion.id,
@@ -4274,8 +4281,8 @@
       } catch (error) {
         console.error("❌ Erro no timeout:", error);
         const code = error?.code || '';
-        if (code === 'resource-exhausted' || (error?.message || '').includes('Sem créditos')) {
-          mostrarOverlaySemCreditos();
+        if (code === 'resource-exhausted' || (error?.message || '').includes('limite')) {
+          mostrarOverlayLimiteAtingido();
         }
         // Fallback: fechar modal sem atualizar
         setTimeout(() => {
@@ -4307,7 +4314,7 @@
         resultMessage.className = "result-message";
         resultMessage.textContent = "⏳ Verificando resposta...";
 
-        const responderFn = functions.httpsCallable('responderPergunta');
+        const responderFn = functions.httpsCallable('responderPerguntaV2');
         const resultado = await responderFn({
           jogoId: jogoId,
           perguntaId: currentQuestion.id,
@@ -4398,8 +4405,8 @@
       } catch (error) {
         console.error("❌ Erro ao processar resposta:", error);
         const code = error?.code || error?.details?.code || '';
-        if (code === 'resource-exhausted' || (error?.message || '').includes('Sem créditos')) {
-          mostrarOverlaySemCreditos();
+        if (code === 'resource-exhausted' || (error?.message || '').includes('limite')) {
+          mostrarOverlayLimiteAtingido();
         } else {
           const msg = error?.message || error?.details || "Erro ao salvar resposta. Tente novamente!";
           showToast("❌ " + msg);
@@ -5806,75 +5813,35 @@
     let dripTimerInterval = null;
     let proximoBonusTime = null;
 
-    function mostrarOverlaySemCreditos() {
-      // Remover overlay anterior se existir
+    function mostrarOverlayLimiteAtingido() {
       const existente = document.getElementById('semCreditosOverlay');
       if (existente) existente.remove();
-
-      // Calcular tempo até próximo bônus
-      const tempoRestante = calcularTempoProximoBonus();
-      const minutos = Math.floor(tempoRestante / 60);
-      const segundos = tempoRestante % 60;
-      const tempoTexto = tempoRestante > 0 
-        ? `${String(minutos).padStart(2,'0')}:${String(segundos).padStart(2,'0')}`
-        : '🎁 Disponível agora!';
 
       const overlay = document.createElement('div');
       overlay.className = 'sem-creditos-overlay';
       overlay.id = 'semCreditosOverlay';
       overlay.innerHTML = `
         <div class="sem-creditos-card">
-          <div class="sem-creditos-emoji">💎</div>
-          <div class="sem-creditos-titulo">Continue na Disputa!</div>
+          <div class="sem-creditos-emoji">🎫</div>
+          <div class="sem-creditos-titulo">Limite Diário Atingido!</div>
           <div class="sem-creditos-msg">
-            Seus créditos acabaram, mas a partida continua!<br>
-            Garanta mais créditos e dispute os prêmios.
+            Você usou suas 2 partidas gratuitas de hoje.<br>
+            Com um Passe, jogue <strong>ilimitado</strong> todos os dias!
           </div>
-          ${tempoRestante > 0 ? `
           <div class="sem-creditos-timer">
-            <div class="sem-creditos-timer-label">⏰ Próximo crédito grátis em</div>
-            <div class="sem-creditos-timer-valor" id="overlayDripCountdown">${tempoTexto}</div>
-            <div class="sem-creditos-timer-hint">Você ganha 1 crédito grátis a cada 10 minutos</div>
+            <div class="sem-creditos-timer-label">Planos a partir de</div>
+            <div class="sem-creditos-timer-valor" style="color: #a78bfa;">R$ 9,90/semana</div>
+            <div class="sem-creditos-timer-hint">Partidas e PvP ilimitados + Timer reduzido + Mais créditos</div>
           </div>
-          ` : `
-          <div class="sem-creditos-timer">
-            <div class="sem-creditos-timer-label">🎁 Crédito bônus disponível!</div>
-            <div class="sem-creditos-timer-valor">GRÁTIS</div>
-            <div class="sem-creditos-timer-hint">Clique em "Responder Pergunta" para usar</div>
-          </div>
-          `}
-          <button class="btn-comprar-creditos" onclick="document.getElementById('semCreditosOverlay').remove(); abrirMiniLoja();">
-            🛒 Comprar Créditos Agora
+          <button class="btn-comprar-creditos" onclick="window.location.href='loja-passes.html'">
+            🎫 Ver Passes
           </button>
           <button class="btn-fechar-overlay" onclick="document.getElementById('semCreditosOverlay').remove()">
             Voltar ao jogo
           </button>
         </div>
       `;
-
       document.body.appendChild(overlay);
-
-      // Atualizar countdown no overlay
-      if (tempoRestante > 0) {
-        const countdownEl = document.getElementById('overlayDripCountdown');
-        if (countdownEl) {
-          let restante = tempoRestante;
-          const intervalo = setInterval(() => {
-            restante--;
-            if (restante <= 0) {
-              clearInterval(intervalo);
-              countdownEl.textContent = '🎁 Disponível!';
-              countdownEl.style.color = '#ffaa32';
-              // Atualizar créditos
-              updateFreePlays();
-              return;
-            }
-            const m = Math.floor(restante / 60);
-            const s = restante % 60;
-            countdownEl.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-          }, 1000);
-        }
-      }
     }
 
     // ========== DRIP TIMER (mini timer no badge) ==========
