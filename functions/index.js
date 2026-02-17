@@ -76,6 +76,32 @@ const CONFIG_PARTIDA = {
   tempoMinimoResposta: 3
 };
 
+const CONFIG_TORNEIO = {
+  premioBase: 200,
+  premioPorInscrito: 10,
+  premioMax: 1000,
+  distribuicao: { primeiro: 50, segundo: 30, terceiro: 20 }
+};
+
+const CONFIG_MISSAO = {
+  multiplicador: { free: 1, diario: 1.5, mensal: 2 }
+};
+
+const CONFIG_ESCALACAO = {
+  tamanhoEscalacao: 11,
+  creditosPorJogoEscalacao: 15,
+  creditosTecnico: 25,
+  creditosBancoReservas: 5
+};
+
+const CONFIG_RATING = {
+  pesos: { quiz: 0.25, pvp: 0.20, torneios: 0.15, comunidade: 0.15, escalacao: 0.15, consistencia: 0.10 },
+  decayDiario: 0.995,
+  ratingMinimo: 50,
+  suavizacao: { novo: 0.3, anterior: 0.7 },
+  softReset: { fator: 0.6, base: 100 }
+};
+
 // Campos padrão para novos usuários (inicialização)
 const CAMPOS_PADRAO_USUARIO = {
   passe: {
@@ -3818,6 +3844,671 @@ exports.premiarJogoV2 = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', 'Erro ao processar premiação');
   }
 });
+
+
+// =====================================================
+// 🔄 FASE 4: ESCALAÇÃO — Top 11 mensal por time
+// Cron mensal + consulta
+// =====================================================
+
+/**
+ * CALCULAR ESCALAÇÃO MENSAL — Roda dia 1 de cada mês às 00:30 BRT
+ * Determina Top 11 jogadores de cada time no mês anterior
+ * 1º de cada time = Técnico
+ */
+exports.calcularEscalacaoMensal = functions.pubsub
+  .schedule('30 0 1 * *')
+  .timeZone('America/Sao_Paulo')
+  .onRun(async () => {
+    try {
+      const agora = new Date();
+      const mesAnterior = agora.getMonth() === 0 ? 11 : agora.getMonth() - 1;
+      const anoRef = agora.getMonth() === 0 ? agora.getFullYear() - 1 : agora.getFullYear();
+      const mesId = `${anoRef}-${String(mesAnterior + 1).padStart(2, '0')}`;
+
+      console.log(`⚽ Calculando Escalação do mês ${mesId}...`);
+
+      // Buscar todos os times
+      const timesSnap = await db.collection('times').get();
+      if (timesSnap.empty) { console.log('⚽ Nenhum time'); return null; }
+
+      // Para cada time, buscar jogadores com mais pontos no mês
+      let totalEscalados = 0;
+      let batchGlobal = db.batch();
+      let batchCount = 0;
+
+      for (const timeDoc of timesSnap.docs) {
+        const timeId = timeDoc.id;
+        const timeNome = timeDoc.data().nome || 'Time';
+
+        // Buscar participações de jogos deste time no mês anterior
+        // Aggregate: somar pontos por jogador em todos os jogos do mês
+        const jogosSnap = await db.collection('jogos')
+          .where('status', '==', 'finalizado')
+          .get();
+
+        // Filtrar jogos do mês anterior que envolvem este time
+        const jogosDoTime = [];
+        jogosSnap.forEach(doc => {
+          const j = doc.data();
+          const dataJogo = j.dataInicio?.toDate?.() || new Date(j.dataInicio || 0);
+          if (dataJogo.getMonth() === mesAnterior && dataJogo.getFullYear() === anoRef) {
+            if (j.timeCasaId === timeId || j.timeForaId === timeId) {
+              jogosDoTime.push(doc.id);
+            }
+          }
+        });
+
+        if (jogosDoTime.length === 0) continue;
+
+        // Somar pontos por jogador em todos os jogos do time
+        const pontosJogador = {}; // { odId: { pontos, nome, acertos, jogos } }
+
+        for (const jogoId of jogosDoTime) {
+          const partsSnap = await db.collection('jogos').doc(jogoId)
+            .collection('participantes').where('timeId', '==', timeId).get();
+
+          partsSnap.forEach(doc => {
+            const p = doc.data();
+            if (!p.odId) return;
+            if (!pontosJogador[p.odId]) {
+              pontosJogador[p.odId] = { pontos: 0, nome: p.nome || 'Anônimo', acertos: 0, jogos: 0 };
+            }
+            pontosJogador[p.odId].pontos += (p.pontos || 0);
+            pontosJogador[p.odId].acertos += (p.acertos || 0);
+            pontosJogador[p.odId].jogos += 1;
+          });
+        }
+
+        // Ordenar e pegar Top 20
+        const ranking = Object.entries(pontosJogador)
+          .map(([odId, data]) => ({ odId, ...data }))
+          .sort((a, b) => b.pontos - a.pontos)
+          .slice(0, 20);
+
+        if (ranking.length === 0) continue;
+
+        // Salvar escalação do mês
+        const escalacaoData = {
+          timeId, timeNome, mesId,
+          tecnico: ranking[0] ? { odId: ranking[0].odId, nome: ranking[0].nome, pontos: ranking[0].pontos } : null,
+          titulares: ranking.slice(0, CONFIG_ESCALACAO.tamanhoEscalacao).map((r, i) => ({
+            posicao: i + 1, odId: r.odId, nome: r.nome, pontos: r.pontos, jogos: r.jogos
+          })),
+          reservas: ranking.slice(CONFIG_ESCALACAO.tamanhoEscalacao, 20).map((r, i) => ({
+            posicao: CONFIG_ESCALACAO.tamanhoEscalacao + i + 1, odId: r.odId, nome: r.nome, pontos: r.pontos
+          })),
+          totalJogos: jogosDoTime.length,
+          processadoEm: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        batchGlobal.set(
+          db.collection('escalacao').doc(`${timeId}_${mesId}`),
+          escalacaoData
+        );
+        batchCount++;
+
+        // Atualizar campo escalação no documento do usuário
+        for (let i = 0; i < Math.min(ranking.length, 20); i++) {
+          const jogador = ranking[i];
+          const ehTitular = i < CONFIG_ESCALACAO.tamanhoEscalacao;
+          const ehTecnico = i === 0;
+
+          batchGlobal.update(db.collection('usuarios').doc(jogador.odId), {
+            [`escalacao.${mesId}`]: {
+              timeId, timeNome,
+              posicao: i + 1,
+              titular: ehTitular,
+              tecnico: ehTecnico,
+              pontos: jogador.pontos
+            }
+          });
+          batchCount++;
+          totalEscalados++;
+
+          if (batchCount >= 450) {
+            await batchGlobal.commit();
+            batchGlobal = db.batch();
+            batchCount = 0;
+          }
+        }
+      }
+
+      if (batchCount > 0) await batchGlobal.commit();
+
+      console.log(`⚽ Escalação ${mesId}: ${totalEscalados} jogadores escalados`);
+      return null;
+
+    } catch (error) {
+      console.error('❌ Erro calcularEscalacaoMensal:', error);
+      return null;
+    }
+  });
+
+
+/**
+ * CREDITAR ESCALAÇÃO — Quando um jogo é finalizado, credita
+ * jogadores que estão na Escalação do time que jogou
+ * Chamado automaticamente pelo premiarJogoV2 ou manualmente
+ */
+exports.creditarEscalacao = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login necessário');
+
+  const { jogoId } = data;
+  if (!jogoId) throw new functions.https.HttpsError('invalid-argument', 'jogoId obrigatório');
+
+  try {
+    const jogoDoc = await db.collection('jogos').doc(jogoId).get();
+    if (!jogoDoc.exists) throw new functions.https.HttpsError('not-found', 'Jogo não encontrado');
+    const jogo = jogoDoc.data();
+
+    const agora = new Date();
+    const mesAtual = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
+
+    const batch = db.batch();
+    let creditados = 0;
+
+    for (const timeId of [jogo.timeCasaId, jogo.timeForaId]) {
+      const escDoc = await db.collection('escalacao').doc(`${timeId}_${mesAtual}`).get();
+      if (!escDoc.exists) continue;
+
+      const esc = escDoc.data();
+
+      // Técnico (1º lugar)
+      if (esc.tecnico?.odId) {
+        batch.update(db.collection('usuarios').doc(esc.tecnico.odId), {
+          creditos: admin.firestore.FieldValue.increment(CONFIG_ESCALACAO.creditosTecnico)
+        });
+        creditados++;
+      }
+
+      // Titulares (2º-11º)
+      for (const t of (esc.titulares || []).slice(1)) {
+        if (t.odId) {
+          batch.update(db.collection('usuarios').doc(t.odId), {
+            creditos: admin.firestore.FieldValue.increment(CONFIG_ESCALACAO.creditosPorJogoEscalacao)
+          });
+          creditados++;
+        }
+      }
+
+      // Reservas (12º-20º)
+      for (const r of (esc.reservas || [])) {
+        if (r.odId) {
+          batch.update(db.collection('usuarios').doc(r.odId), {
+            creditos: admin.firestore.FieldValue.increment(CONFIG_ESCALACAO.creditosBancoReservas)
+          });
+          creditados++;
+        }
+      }
+    }
+
+    if (creditados > 0) await batch.commit();
+    console.log(`⚽ Escalação creditada: ${creditados} jogadores no jogo ${jogoId}`);
+    return { success: true, creditados };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro creditarEscalacao:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao creditar escalação');
+  }
+});
+
+
+// =====================================================
+// 🔄 FASE 5: TORNEIO v2 + MISSÃO v2
+// Sem taxa de entrada, prêmio do sistema, multiplicador de passe
+// =====================================================
+
+/**
+ * INSCREVER TORNEIO v2 — Sem taxa de entrada
+ */
+exports.inscreverTorneioV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login necessário');
+
+  const userId = context.auth.uid;
+  const { torneioId } = data;
+  if (!torneioId) throw new functions.https.HttpsError('invalid-argument', 'torneioId obrigatório');
+
+  try {
+    const torneioDoc = await db.collection('torneios').doc(torneioId).get();
+    if (!torneioDoc.exists) throw new functions.https.HttpsError('not-found', 'Torneio não encontrado');
+
+    const torneio = torneioDoc.data();
+
+    if ((torneio.inscritos || []).includes(userId)) {
+      throw new functions.https.HttpsError('already-exists', 'Já está inscrito');
+    }
+
+    if ((torneio.totalInscritos || 0) >= torneio.vagas && torneio.vagas < 9999) {
+      throw new functions.https.HttpsError('resource-exhausted', 'Torneio cheio');
+    }
+
+    // Verificar se torneio Premium exige passe
+    if (torneio.tipoPremium) {
+      const passe = await verificarPasse(userId);
+      if (!passe.temPasse) {
+        throw new functions.https.HttpsError('failed-precondition',
+          'Torneio Premium — requer Passe Diário ou Mensal');
+      }
+    }
+
+    // NÃO cobra taxa — inscrição gratuita
+    const batch = db.batch();
+
+    batch.update(db.collection('torneios').doc(torneioId), {
+      inscritos: admin.firestore.FieldValue.arrayUnion(userId),
+      totalInscritos: admin.firestore.FieldValue.increment(1),
+      modeloV2: true
+    });
+
+    // Stats
+    batch.update(db.collection('usuarios').doc(userId), {
+      'stats.totalTorneios': admin.firestore.FieldValue.increment(1)
+    });
+
+    await batch.commit();
+
+    console.log(`✅ ${userId} inscrito no torneio v2 ${torneioId} (grátis)`);
+    return { success: true, entrada: 0 };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro inscreverTorneioV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao inscrever no torneio');
+  }
+});
+
+/**
+ * FINALIZAR TORNEIO v2 — Prêmio do SISTEMA
+ */
+exports.finalizarTorneioV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login necessário');
+
+  const { torneioId } = data;
+  if (!torneioId) throw new functions.https.HttpsError('invalid-argument', 'torneioId obrigatório');
+
+  try {
+    const torneioDoc = await db.collection('torneios').doc(torneioId).get();
+    if (!torneioDoc.exists) throw new functions.https.HttpsError('not-found', 'Torneio não encontrado');
+    const torneio = torneioDoc.data();
+
+    if (torneio.status === 'finalizado' && torneio.resultado) {
+      return { success: true, jaFinalizado: true, resultado: torneio.resultado };
+    }
+
+    // Ranking
+    const partsSnap = await db.collection('torneios').doc(torneioId)
+      .collection('participacoes').orderBy('pontos', 'desc').get();
+
+    let ranking = [];
+    partsSnap.forEach(doc => ranking.push({ odId: doc.id, ...doc.data() }));
+
+    // Prêmio do SISTEMA
+    const numInscritos = ranking.length;
+    const premioTotal = Math.min(
+      CONFIG_TORNEIO.premioBase + (numInscritos * CONFIG_TORNEIO.premioPorInscrito),
+      CONFIG_TORNEIO.premioMax
+    );
+
+    const dist = torneio.config?.distribuicaoPremio || CONFIG_TORNEIO.distribuicao;
+    const premio1 = Math.floor(premioTotal * dist.primeiro / 100);
+    const premio2 = Math.floor(premioTotal * dist.segundo / 100);
+    const premio3 = Math.floor(premioTotal * dist.terceiro / 100);
+
+    const resultado = {
+      modeloV2: true, fontePremio: 'sistema', premioTotal,
+      primeiro: ranking[0] ? { odId: ranking[0].odId, odNome: ranking[0].odNome, pontos: ranking[0].pontos, premio: premio1 } : null,
+      segundo: ranking[1] ? { odId: ranking[1].odId, odNome: ranking[1].odNome, pontos: ranking[1].pontos, premio: premio2 } : null,
+      terceiro: ranking[2] ? { odId: ranking[2].odId, odNome: ranking[2].odNome, pontos: ranking[2].pontos, premio: premio3 } : null,
+      ranking: ranking.map((r, i) => ({
+        posicao: i + 1, odId: r.odId, odNome: r.odNome,
+        pontos: r.pontos || 0, acertos: r.acertos || 0
+      }))
+    };
+
+    const batch = db.batch();
+
+    // Premiar top 3
+    const premios = [
+      { pos: 0, premio: premio1, campo: 'torneios.vitorias' },
+      { pos: 1, premio: premio2, campo: 'torneios.top3' },
+      { pos: 2, premio: premio3, campo: 'torneios.top3' }
+    ];
+
+    for (const p of premios) {
+      if (ranking[p.pos] && p.premio > 0) {
+        batch.update(db.collection('usuarios').doc(ranking[p.pos].odId), {
+          creditos: admin.firestore.FieldValue.increment(p.premio),
+          [p.campo]: admin.firestore.FieldValue.increment(1),
+          'torneios.creditosGanhos': admin.firestore.FieldValue.increment(p.premio),
+          'torneios.totalTorneios': admin.firestore.FieldValue.increment(1)
+        });
+        const emoji = ['🥇', '🥈', '🥉'][p.pos];
+        const transRef = db.collection('transacoes').doc();
+        batch.set(transRef, {
+          usuarioId: ranking[p.pos].odId, tipo: 'credito', valor: p.premio,
+          descricao: `${emoji} ${p.pos + 1}º lugar — ${torneio.nome || 'Torneio'}`,
+          torneioId, modeloV2: true, fontePremio: 'sistema',
+          data: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    }
+
+    batch.update(db.collection('torneios').doc(torneioId), {
+      status: 'finalizado', resultado, modeloV2: true, fontePremio: 'sistema',
+      dataFinalizacao: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    // Logs
+    try {
+      const tNome = torneio.nome || 'Torneio';
+      if (ranking[0] && premio1 > 0) await logAtividade(ranking[0].odId, 'premio_torneio_v2', premio1, null, `Torneio v2: 🥇 1º — ${tNome}`, { torneioId, fontePremio: 'sistema' });
+      if (ranking[1] && premio2 > 0) await logAtividade(ranking[1].odId, 'premio_torneio_v2', premio2, null, `Torneio v2: 🥈 2º — ${tNome}`, { torneioId, fontePremio: 'sistema' });
+      if (ranking[2] && premio3 > 0) await logAtividade(ranking[2].odId, 'premio_torneio_v2', premio3, null, `Torneio v2: 🥉 3º — ${tNome}`, { torneioId, fontePremio: 'sistema' });
+    } catch(e) { /* log não bloqueia */ }
+
+    console.log(`🏆 Torneio v2 ${torneioId} finalizado! Sistema: ${premioTotal} cr (${premio1}/${premio2}/${premio3})`);
+    return { success: true, resultado };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro finalizarTorneioV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao finalizar torneio');
+  }
+});
+
+
+/**
+ * COMPLETAR MISSÃO v2 — Com multiplicador de Passe
+ * Free: 1x | Diário: 1.5x | Mensal: 2x
+ */
+exports.completarMissaoV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login necessário');
+
+  const userId = context.auth.uid;
+  const { missaoId } = data;
+  if (!missaoId) throw new functions.https.HttpsError('invalid-argument', 'missaoId obrigatório');
+
+  try {
+    const missaoRef = db.collection('usuarios').doc(userId).collection('missoes').doc(missaoId);
+    const missaoDoc = await missaoRef.get();
+    if (!missaoDoc.exists) throw new functions.https.HttpsError('not-found', 'Missão não encontrada');
+
+    const missao = missaoDoc.data();
+    if (!missao.concluido) throw new functions.https.HttpsError('failed-precondition', 'Missão não concluída');
+    if (missao.creditada) return { success: true, jaCreditada: true };
+
+    const creditosBase = missao.recompensa?.creditos || 0;
+    if (creditosBase <= 0) return { success: true, creditos: 0 };
+
+    // Multiplicador baseado no passe
+    const passe = await verificarPasse(userId);
+    const multiplicador = CONFIG_MISSAO.multiplicador[passe.tipo] || 1;
+    const creditosFinal = Math.round(creditosBase * multiplicador);
+
+    const userDoc = await db.collection('usuarios').doc(userId).get();
+    const saldoAntes = userDoc.data()?.creditos || 0;
+
+    const batch = db.batch();
+
+    batch.update(db.collection('usuarios').doc(userId), {
+      creditos: admin.firestore.FieldValue.increment(creditosFinal)
+    });
+    batch.update(missaoRef, { creditada: true, modeloV2: true, multiplicador });
+
+    const extratoRef = db.collection('usuarios').doc(userId).collection('extrato').doc();
+    batch.set(extratoRef, {
+      tipo: 'entrada', valor: creditosFinal,
+      descricao: `Missão: ${missao.titulo}${multiplicador > 1 ? ` (×${multiplicador} Passe)` : ''}`,
+      data: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    await logAtividade(userId, 'missao_v2', creditosFinal, saldoAntes,
+      `Missão v2: ${missao.titulo || missaoId} (×${multiplicador})`,
+      { missaoId, creditosBase, multiplicador, tipoPasse: passe.tipo });
+
+    console.log(`✅ Missão v2 ${missaoId}: ${userId} +${creditosFinal} cr (base ${creditosBase} × ${multiplicador})`);
+    return { success: true, creditos: creditosFinal, creditosBase, multiplicador, tipoPasse: passe.tipo };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro completarMissaoV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao completar missão');
+  }
+});
+
+
+// =====================================================
+// 🔄 FASE 6: RATING YELLUP — Cálculo diário
+// Fórmula master com 6 componentes, decay, smoothing
+// =====================================================
+
+/**
+ * CALCULAR RATING DIÁRIO — Cron às 00:00 BRT
+ * Recalcula rating de todos os usuários ativos
+ */
+exports.calcularRatingDiario = functions.pubsub
+  .schedule('0 0 * * *')
+  .timeZone('America/Sao_Paulo')
+  .onRun(async () => {
+    try {
+      const agora = new Date();
+      const hoje = agora.toISOString().split('T')[0];
+      const diasNoMes = new Date(agora.getFullYear(), agora.getMonth() + 1, 0).getDate();
+
+      console.log(`📊 Calculando Rating Yellup ${hoje}...`);
+
+      const usersSnap = await db.collection('usuarios').get();
+      if (usersSnap.empty) return null;
+
+      let batch = db.batch();
+      let batchCount = 0;
+      let processados = 0;
+
+      for (const doc of usersSnap.docs) {
+        const u = doc.data();
+        const uid = doc.id;
+        const stats = u.stats || {};
+        const ratingAnterior = u.rating || 0;
+
+        // Verificar se teve atividade hoje
+        const ultimoLogin = stats.ultimoLogin?.toDate?.() || new Date(0);
+        const ativoHoje = ultimoLogin.toDateString() === agora.toDateString();
+
+        let ratingNovo;
+
+        if (!ativoHoje) {
+          // DECAY: -0.5% por dia inativo
+          ratingNovo = Math.max(ratingAnterior * CONFIG_RATING.decayDiario, CONFIG_RATING.ratingMinimo);
+        } else {
+          // CALCULAR COMPONENTES
+
+          // Q — Quiz (25%)
+          const totalPerguntas = stats.totalPerguntas || 0;
+          const totalAcertos = stats.totalAcertos || 0;
+          const taxaAcerto = totalPerguntas > 0 ? totalAcertos / totalPerguntas : 0;
+          const streakMaxQuiz = stats.maxStreakQuiz || 0;
+          const Q = Math.min((taxaAcerto * 400) + (totalPerguntas * 2) + (streakMaxQuiz * 10), 1000);
+
+          // P — PvP (20%)
+          const pvpJogados = stats.totalPvpJogados || 0;
+          const pvpVitorias = stats.totalPvpVitorias || 0;
+          const winrate = pvpJogados > 0 ? pvpVitorias / pvpJogados : 0;
+          const rivaisUnicos = (stats.rivaisUnicos || []).length;
+          const P = Math.min((winrate * 500) + (pvpVitorias * 5) + (rivaisUnicos * 3), 1000);
+
+          // T — Torneios (15%)
+          const totalTorneios = stats.totalTorneios || 0;
+          const vitTorneios = u.torneios?.vitorias || 0;
+          const top3Torneios = u.torneios?.top3 || 0;
+          const T = Math.min((totalTorneios * 30) + (vitTorneios * 200) + (top3Torneios * 100), 1000);
+
+          // C — Comunidade (15%)
+          const msgsChat = Math.min(stats.totalMsgChat || 0, 100);
+          const C = Math.min(msgsChat * 2, 1000);
+
+          // E — Escalação (15%)
+          const mesAtual = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
+          const escAtual = u.escalacao?.[mesAtual];
+          let E = 0;
+          if (escAtual) {
+            if (escAtual.tecnico) E += 500;
+            else if (escAtual.titular) E += 300;
+            else E += 100;
+            E += (escAtual.pontos || 0) * 3;
+          }
+          E = Math.min(E, 1000);
+
+          // K — Consistência (10%)
+          const diasAtivos = stats.diasAtivos || 0;
+          const streakLogin = stats.streakLogin || 0;
+          const K = Math.min(((diasAtivos / diasNoMes) * 500) + (streakLogin * 15), 1000);
+
+          // FÓRMULA MASTER
+          const pesos = CONFIG_RATING.pesos;
+          const ratingCalculado = (Q * pesos.quiz) + (P * pesos.pvp) + (T * pesos.torneios) +
+            (C * pesos.comunidade) + (E * pesos.escalacao) + (K * pesos.consistencia);
+
+          // SMOOTHING: 30% novo + 70% anterior
+          ratingNovo = (ratingCalculado * CONFIG_RATING.suavizacao.novo) +
+            (ratingAnterior * CONFIG_RATING.suavizacao.anterior);
+
+          // Salvar componentes
+          batch.update(doc.ref, {
+            ratingComponents: {
+              quiz: Math.round(Q), pvp: Math.round(P), torneios: Math.round(T),
+              comunidade: Math.round(C), escalacao: Math.round(E), consistencia: Math.round(K)
+            }
+          });
+        }
+
+        ratingNovo = Math.round(Math.max(ratingNovo, 0));
+        const faixa = getFaixaRating(ratingNovo);
+        const variacao = ratingNovo - ratingAnterior;
+
+        // Atualizar streak de login
+        let streakLogin = stats.streakLogin || 0;
+        let diasAtivos = stats.diasAtivos || 0;
+        if (ativoHoje) {
+          const ontem = new Date(agora);
+          ontem.setDate(ontem.getDate() - 1);
+          const ativoOntem = ultimoLogin.toDateString() === ontem.toDateString() ||
+            ultimoLogin.toDateString() === agora.toDateString();
+          streakLogin = ativoOntem ? streakLogin + 1 : 1;
+          diasAtivos += 1;
+        } else {
+          streakLogin = 0;
+        }
+
+        batch.update(doc.ref, {
+          rating: ratingNovo,
+          ratingFaixa: faixa.nome,
+          ratingVariacao: variacao,
+          ratingHistory: admin.firestore.FieldValue.arrayUnion({ date: hoje, rating: ratingNovo }),
+          'stats.streakLogin': streakLogin,
+          'stats.diasAtivos': diasAtivos
+        });
+
+        // Atualizar ranking global
+        batch.set(db.collection('ratingRanking').doc(uid), {
+          nome: u.usuarioUnico || u.usuario || u.nome || 'Anônimo',
+          rating: ratingNovo,
+          faixa: faixa.nome,
+          variacao: variacao,
+          timeId: u.timeFavorito || '',
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        batchCount += 3; // 2-3 operations per user
+        processados++;
+
+        if (batchCount >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          batchCount = 0;
+        }
+      }
+
+      if (batchCount > 0) await batch.commit();
+
+      console.log(`📊 Rating calculado: ${processados} usuários processados`);
+      return null;
+
+    } catch (error) {
+      console.error('❌ Erro calcularRatingDiario:', error);
+      return null;
+    }
+  });
+
+
+/**
+ * RESET MENSAL DO RATING — Soft reset dia 1 de cada mês às 00:20 BRT
+ * Rating_novo = Rating_final × 0.6 + 100
+ */
+exports.resetMensalRating = functions.pubsub
+  .schedule('20 0 1 * *')
+  .timeZone('America/Sao_Paulo')
+  .onRun(async () => {
+    try {
+      const agora = new Date();
+      const mesAnterior = agora.getMonth() === 0 ? 11 : agora.getMonth() - 1;
+      const anoRef = agora.getMonth() === 0 ? agora.getFullYear() - 1 : agora.getFullYear();
+      const mesId = `${anoRef}-${String(mesAnterior + 1).padStart(2, '0')}`;
+
+      console.log(`🔄 Soft Reset Rating — snapshot ${mesId}...`);
+
+      const usersSnap = await db.collection('usuarios').get();
+      let batch = db.batch();
+      let count = 0;
+
+      for (const doc of usersSnap.docs) {
+        const u = doc.data();
+        const ratingFinal = u.rating || 0;
+
+        // Snapshot do mês anterior
+        batch.set(db.collection('ratingSnapshots').doc(mesId).collection('usuarios').doc(doc.id), {
+          ratingFinal,
+          faixa: u.ratingFaixa || 'Reserva',
+          components: u.ratingComponents || {},
+          snapshotEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Soft Reset
+        const ratingNovo = Math.round(ratingFinal * CONFIG_RATING.softReset.fator + CONFIG_RATING.softReset.base);
+        const faixa = getFaixaRating(ratingNovo);
+
+        batch.update(doc.ref, {
+          rating: ratingNovo,
+          ratingFaixa: faixa.nome,
+          ratingVariacao: ratingNovo - ratingFinal,
+          // Resetar stats mensais (manter acumulados)
+          'stats.diasAtivos': 0,
+          'stats.streakLogin': 0
+        });
+
+        count += 2;
+        if (count >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          count = 0;
+        }
+      }
+
+      if (count > 0) await batch.commit();
+
+      console.log(`🔄 Soft Reset: ${usersSnap.size} usuários. Snapshot salvo em ${mesId}`);
+      return null;
+
+    } catch (error) {
+      console.error('❌ Erro resetMensalRating:', error);
+      return null;
+    }
+  });
 
 
 // =====================================================
