@@ -48,14 +48,16 @@ function logAtividadeBatch(batch, userId, tipo, valor, saldoAnterior, descricao,
 
 // Configuração central — valores ajustáveis sem deploy
 const CONFIG_PASSES = {
-  diario: { preco: 2.90, duracaoDias: 1, nome: 'Passe Diário' },
-  mensal: { preco: 19.90, duracaoDias: 30, nome: 'Passe Mensal' }
+  semanal: { preco: 9.90, duracaoDias: 7, nome: 'Passe Semanal' },
+  mensal: { preco: 19.90, duracaoDias: 30, nome: 'Passe Mensal' },
+  anual: { preco: 199.90, duracaoDias: 365, nome: 'Passe Anual' }
 };
 
 const CONFIG_LIMITES = {
   free: { partidasPorDia: 2, pvpPorDia: 1, timerPerguntaSeg: 300, bauCreditos: 5, missoes: 3 },
-  diario: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 10, missoes: 5 },
-  mensal: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 15, missoes: 7 }
+  semanal: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 10, missoes: 5 },
+  mensal: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 15, missoes: 7 },
+  anual: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 15, missoes: 7 }
 };
 
 const CONFIG_PVP = {
@@ -84,7 +86,7 @@ const CONFIG_TORNEIO = {
 };
 
 const CONFIG_MISSAO = {
-  multiplicador: { free: 1, diario: 1.5, mensal: 2 }
+  multiplicador: { free: 1, semanal: 1.5, mensal: 2, anual: 2 }
 };
 
 const CONFIG_ESCALACAO = {
@@ -105,7 +107,7 @@ const CONFIG_RATING = {
 // Campos padrão para novos usuários (inicialização)
 const CAMPOS_PADRAO_USUARIO = {
   passe: {
-    tipo: 'free',           // 'free', 'diario', 'mensal'
+    tipo: 'free',           // 'free', 'semanal', 'mensal', 'anual'
     ativo: false,
     dataInicio: null,
     dataExpiracao: null,
@@ -255,7 +257,7 @@ function getFaixaRating(rating) {
 
 /**
  * ATIVAR PASSE — Chamada após confirmação de pagamento MP
- * Recebe: { paymentId, tipoPasse: 'diario'|'mensal' }
+ * Recebe: { paymentId, tipoPasse: 'semanal'|'mensal'|'anual' }
  */
 exports.ativarPasse = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -265,8 +267,8 @@ exports.ativarPasse = functions.https.onCall(async (data, context) => {
   const uid = context.auth.uid;
   const { paymentId, tipoPasse } = data;
 
-  if (!paymentId || !tipoPasse || !['diario', 'mensal'].includes(tipoPasse)) {
-    throw new functions.https.HttpsError('invalid-argument', 'paymentId e tipoPasse (diario/mensal) obrigatórios');
+  if (!paymentId || !tipoPasse || !['semanal', 'mensal', 'anual'].includes(tipoPasse)) {
+    throw new functions.https.HttpsError('invalid-argument', 'paymentId e tipoPasse (semanal/mensal/anual) obrigatórios');
   }
 
   try {
