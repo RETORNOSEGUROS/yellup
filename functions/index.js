@@ -55,9 +55,18 @@ const CONFIG_PASSES = {
 
 const CONFIG_LIMITES = {
   free: { partidasPorDia: 2, pvpPorDia: 1, timerPerguntaSeg: 300, bauCreditos: 5, missoes: 3 },
-  semanal: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 10, missoes: 5 },
-  mensal: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 15, missoes: 7 },
-  anual: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 15, missoes: 7 }
+  semanal: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 180, bauCreditos: 10, missoes: 5 },
+  mensal: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 180, bauCreditos: 15, missoes: 7 },
+  anual: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 180, bauCreditos: 15, missoes: 7 }
+};
+
+const CONFIG_QUIZ = {
+  perguntasIniciais: 5,       // 5 perguntas grátis ao entrar
+  perguntasPorCiclo: 2,       // +2 a cada ciclo
+  cooldownFree: 300,           // 5 minutos (seg) para free
+  cooldownPasse: 180,          // 3 minutos (seg) para quem tem passe
+  creditosPorSkip: 1,          // 1 crédito para adiantar
+  perguntasPorSkip: 2          // ganha 2 perguntas por skip
 };
 
 const CONFIG_PVP = {
@@ -3315,57 +3324,103 @@ exports.entrarPartidaV2 = functions.https.onCall(async (data, context) => {
     if (agora < inicio) throw new functions.https.HttpsError('failed-precondition', 'Jogo ainda não começou');
     if (fim && agora > fim) throw new functions.https.HttpsError('failed-precondition', 'Jogo já encerrado');
 
-    // 2. Verificar se já está participando deste jogo
-    const userDoc = await db.collection('usuarios').doc(uid).get();
-    const userData = userDoc.data() || {};
-    const jaParticipando = userData.torcidas?.[jogoId];
+    // 2. Buscar passe do usuário
+    const passe = await verificarPasse(uid);
+    const temPasse = passe.ativo && passe.tipo !== 'free';
+    const cooldown = temPasse ? CONFIG_QUIZ.cooldownPasse : CONFIG_QUIZ.cooldownFree;
 
-    if (jaParticipando) {
-      // Já entrou neste jogo — retorna status atual
-      const passe = await verificarPasse(uid);
+    // 3. Verificar se já está participando deste jogo
+    const participanteRef = db.collection('jogos').doc(jogoId).collection('participantes').doc(uid);
+    const participanteDoc = await participanteRef.get();
+
+    if (participanteDoc.exists && participanteDoc.data().entradaEm) {
+      // Já entrou — calcular estado atual do quiz
+      const p = participanteDoc.data();
+      const entradaEm = p.entradaEm.toDate();
+      const elapsed = (agora.getTime() - entradaEm.getTime()) / 1000;
+      const ciclosPassados = Math.floor(elapsed / cooldown);
+      const totalDisponivel = CONFIG_QUIZ.perguntasIniciais + (ciclosPassados * CONFIG_QUIZ.perguntasPorCiclo) + ((p.skipsUsados || 0) * CONFIG_QUIZ.perguntasPorSkip);
+      const respondidas = p.totalRespondidas || 0;
+      const disponivelAgora = Math.max(0, totalDisponivel - respondidas);
+      const proximoCicloEm = entradaEm.getTime() + ((ciclosPassados + 1) * cooldown * 1000);
+      const segParaProximo = Math.max(0, Math.ceil((proximoCicloEm - agora.getTime()) / 1000));
+
       return {
         success: true, jaEntrou: true,
-        timerSegundos: passe.config.timerPerguntaSeg,
-        tipoPasse: passe.tipo
+        tipoPasse: passe.tipo,
+        cooldownSegundos: cooldown,
+        perguntasDisponiveis: disponivelAgora,
+        totalRespondidas: respondidas,
+        totalDisponivel,
+        segParaProximoCiclo: segParaProximo,
+        skipsUsados: p.skipsUsados || 0
       };
     }
 
-    // 3. Verificar limite diário de partidas
+    // 4. Verificar limite diário de partidas (só para free)
+    const userDoc = await db.collection('usuarios').doc(uid).get();
+    const userData = userDoc.data() || {};
+
     const limite = await verificarLimiteDiario(uid, 'partida');
     if (!limite.permitido) {
       throw new functions.https.HttpsError('resource-exhausted',
         `Limite diário de partidas atingido (${limite.limite}/${limite.limite}). ${limite.tipoPasse === 'free' ? 'Adquira um Passe para jogar ilimitado!' : ''}`);
     }
 
-    // 4. Verificar se o time existe e pertence ao jogo
+    // 5. Verificar se o time pertence ao jogo
     if (timeId !== jogo.timeCasaId && timeId !== jogo.timeForaId) {
       throw new functions.https.HttpsError('invalid-argument', 'Time não pertence a este jogo');
     }
 
-    // 5. Registrar entrada
-    const passe = await verificarPasse(uid);
+    // 6. Registrar entrada + inicializar estado do quiz
+    const batch = db.batch();
+    const userRef = db.collection('usuarios').doc(uid);
 
-    await db.collection('usuarios').doc(uid).update({
+    batch.update(userRef, {
       [`torcidas.${jogoId}`]: timeId,
-      'limitesDiarios.ultimoReset': admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    // 6. Incrementar limite diário
-    await incrementarLimiteDiario(uid, 'partida');
-
-    // 7. Atualizar stats
-    await db.collection('usuarios').doc(uid).update({
-      'stats.diasAtivos': admin.firestore.FieldValue.increment(0), // será calculado no rating
       'stats.ultimoLogin': admin.firestore.FieldValue.serverTimestamp()
     });
+
+    // Estado inicial do participante com controle de cooldown
+    batch.set(participanteRef, {
+      odId: uid,
+      nome: userData.usuarioUnico || userData.usuario || userData.nome || 'Anônimo',
+      timeId: timeId,
+      timeNome: '', // será preenchido na resposta
+      pontos: 0,
+      acertos: 0,
+      erros: 0,
+      streakAtual: 0,
+      maxStreak: 0,
+      tempoSoma: 0,
+      tempoQuantidade: 0,
+      tempoMedio: 0,
+      // === CONTROLE DE COOLDOWN ===
+      entradaEm: admin.firestore.Timestamp.now(),  // momento de entrada (âncora do timer)
+      totalRespondidas: 0,                           // quantas já respondeu
+      skipsUsados: 0,                                // quantos créditos usou pra adiantar
+      tipoPasse: passe.tipo,                         // tipo de passe na entrada
+      modeloV2: true,
+      atualizadoEm: admin.firestore.Timestamp.now()
+    }, { merge: true });
+
+    await batch.commit();
+
+    // 7. Incrementar limite diário
+    await incrementarLimiteDiario(uid, 'partida');
 
     console.log(`⚽ ${uid} entrou no jogo ${jogoId} (time: ${timeId}, passe: ${passe.tipo})`);
 
     return {
       success: true,
       jaEntrou: false,
-      timerSegundos: passe.config.timerPerguntaSeg,
       tipoPasse: passe.tipo,
+      cooldownSegundos: cooldown,
+      perguntasDisponiveis: CONFIG_QUIZ.perguntasIniciais,  // 5 iniciais
+      totalRespondidas: 0,
+      totalDisponivel: CONFIG_QUIZ.perguntasIniciais,
+      segParaProximoCiclo: cooldown,  // primeiro ciclo em X segundos
+      skipsUsados: 0,
       partidasRestantes: limite.restante - 1
     };
 
@@ -3378,12 +3433,14 @@ exports.entrarPartidaV2 = functions.https.onCall(async (data, context) => {
 
 
 /**
- * RESPONDER PERGUNTA v2 — Sem custo de créditos, com timer server-side
- * Mudanças vs v1:
- * - NÃO cobra créditos para jogar
- * - NÃO adiciona créditos ao pool do jogo
- * - VERIFICA timer entre perguntas (server-side)
- * - RASTREIA stats para cálculo de rating
+ * RESPONDER PERGUNTA v2 — Sistema de cooldown por ciclo fixo
+ * 
+ * Mecânica:
+ * - 5 perguntas grátis ao entrar na partida
+ * - Depois, +2 a cada ciclo (5min free / 3min passe)
+ * - Timer é FIXO (baseado no relógio desde a entrada, não desde a última resposta)
+ * - Créditos podem ser usados para adiantar +2 extras (via adiantarPerguntasV2)
+ * - Responder NÃO custa créditos
  */
 exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -3400,7 +3457,7 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
   const tempoRespostaSegundos = Math.min(Math.max(parseFloat(tempoResposta) || 10, 0), 15);
 
   try {
-    // 1. Buscar pergunta (server-side - seguro)
+    // 1. Buscar pergunta
     const perguntaDoc = await db.collection('perguntas').doc(perguntaId).get();
     if (!perguntaDoc.exists) {
       throw new functions.https.HttpsError('not-found', 'Pergunta não encontrada');
@@ -3438,23 +3495,48 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('already-exists', 'Pergunta já respondida');
     }
 
-    // 6. TIMER SERVER-SIDE: verificar intervalo entre perguntas
+    // 6. COOLDOWN POR CICLO FIXO — calcular perguntas disponíveis
     const passe = await verificarPasse(uid);
-    const timerNecessario = passe.config.timerPerguntaSeg; // 300s free, 120s pass
+    const temPasse = passe.ativo && passe.tipo !== 'free';
+    const cooldown = temPasse ? CONFIG_QUIZ.cooldownPasse : CONFIG_QUIZ.cooldownFree;
 
     const participanteRef = db.collection('jogos').doc(jogoId).collection('participantes').doc(uid);
     const participanteDoc = await participanteRef.get();
-    const participante = participanteDoc.exists ? participanteDoc.data() : {};
 
-    const ultimaResposta = participante.ultimaRespostaEm?.toDate?.() || null;
-    if (ultimaResposta) {
-      const segundosDesdeUltima = (agora.getTime() - ultimaResposta.getTime()) / 1000;
-      // Tolerância de 5 segundos (latência de rede)
-      if (segundosDesdeUltima < (timerNecessario - 5)) {
-        const faltam = Math.ceil(timerNecessario - segundosDesdeUltima);
-        throw new functions.https.HttpsError('failed-precondition',
-          `Aguarde ${faltam}s para a próxima pergunta. ${passe.tipo === 'free' ? 'Com Passe o timer é de apenas 2min!' : ''}`);
-      }
+    if (!participanteDoc.exists || !participanteDoc.data().entradaEm) {
+      throw new functions.https.HttpsError('failed-precondition', 'Use entrarPartidaV2 primeiro');
+    }
+
+    const participante = participanteDoc.data();
+    const entradaEm = participante.entradaEm.toDate();
+    const elapsed = (agora.getTime() - entradaEm.getTime()) / 1000;
+    const ciclosPassados = Math.floor(elapsed / cooldown);
+    const skipsUsados = participante.skipsUsados || 0;
+    const totalRespondidas = participante.totalRespondidas || 0;
+
+    // Total de perguntas que o jogador tem direito ATÉ AGORA
+    const totalDisponivel = CONFIG_QUIZ.perguntasIniciais 
+      + (ciclosPassados * CONFIG_QUIZ.perguntasPorCiclo) 
+      + (skipsUsados * CONFIG_QUIZ.perguntasPorSkip);
+
+    if (totalRespondidas >= totalDisponivel) {
+      // Sem perguntas disponíveis — calcular quando libera
+      const proximoCicloEm = entradaEm.getTime() + ((ciclosPassados + 1) * cooldown * 1000);
+      const segParaProximo = Math.max(0, Math.ceil((proximoCicloEm - agora.getTime()) / 1000));
+      
+      throw new functions.https.HttpsError('resource-exhausted',
+        JSON.stringify({
+          tipo: 'cooldown',
+          segParaProximo,
+          cooldown,
+          totalRespondidas,
+          totalDisponivel,
+          tipoPasse: passe.tipo,
+          mensagem: temPasse
+            ? `Próximas 2 perguntas em ${segParaProximo}s. Use 1 crédito para adiantar!`
+            : `Próximas 2 perguntas em ${segParaProximo}s. Com Passe o ciclo é de apenas 3min!`
+        })
+      );
     }
 
     // 7. Anti-bot: resposta muito rápida
@@ -3483,19 +3565,15 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
 
     const pontosFinais = acertou ? Math.round(pontuacaoBase * multiplicador) : 0;
 
-    // 10. Atualizar tudo em batch (atômico)
+    // 10. Atualizar tudo em batch
     const batch = db.batch();
     const userRef = db.collection('usuarios').doc(uid);
 
     const userUpdates = {
       [`perguntasRespondidas_${timeTorcida}`]: admin.firestore.FieldValue.arrayUnion(perguntaId),
-      // Stats para rating
       'stats.totalPerguntas': admin.firestore.FieldValue.increment(1),
       'stats.ultimoLogin': admin.firestore.FieldValue.serverTimestamp()
     };
-
-    // NÃO cobra créditos — v2 é gratuito para jogar
-    // NÃO adiciona ao pool do jogo — prêmio vem do sistema
 
     if (acertou) {
       userUpdates[`pontuacoes.${jogoId}`] = admin.firestore.FieldValue.increment(pontosFinais);
@@ -3507,7 +3585,8 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
 
     batch.update(userRef, userUpdates);
 
-    // Atualizar participante (com timestamp da resposta para timer)
+    // Atualizar participante com contagem
+    const novoTotalRespondidas = totalRespondidas + 1;
     const acertos = (participante.acertos || 0) + (acertou ? 1 : 0);
     const erros = (participante.erros || 0) + (acertou ? 0 : 1);
 
@@ -3530,14 +3609,20 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
       tempoMedio: acertou
         ? ((participante.tempoSoma || 0) + tempoRespostaSegundos) / ((participante.tempoQuantidade || 0) + 1)
         : participante.tempoMedio || 0,
-      ultimaRespostaEm: admin.firestore.Timestamp.now(),  // ← TIMER: marca quando respondeu
+      // === CONTROLE DE COOLDOWN ===
+      totalRespondidas: novoTotalRespondidas,
+      // entradaEm e skipsUsados NÃO mudam aqui
       modeloV2: true,
       atualizadoEm: admin.firestore.Timestamp.now()
     }, { merge: true });
 
     await batch.commit();
 
-    // 11. Retornar resultado
+    // 11. Calcular estado pós-resposta
+    const perguntasRestantes = totalDisponivel - novoTotalRespondidas;
+    const proximoCicloEm = entradaEm.getTime() + ((ciclosPassados + 1) * cooldown * 1000);
+    const segParaProximo = Math.max(0, Math.ceil((proximoCicloEm - agora.getTime()) / 1000));
+
     return {
       acertou,
       respostaCorreta: pergunta.correta,
@@ -3547,7 +3632,12 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
       multiplicador,
       streak: streakAtual,
       maxStreak: maxStreakVal,
-      timerProximaPergunta: timerNecessario,
+      // === INFO COOLDOWN ===
+      perguntasRestantes,
+      totalRespondidas: novoTotalRespondidas,
+      totalDisponivel,
+      segParaProximoCiclo: perguntasRestantes > 0 ? null : segParaProximo,
+      cooldownSegundos: cooldown,
       tipoPasse: passe.tipo,
       modeloV2: true
     };
@@ -3556,6 +3646,109 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
     if (error instanceof functions.https.HttpsError) throw error;
     console.error('Erro responderPerguntaV2:', error);
     throw new functions.https.HttpsError('internal', 'Erro interno ao processar resposta');
+  }
+});
+
+
+/**
+ * ADIANTAR PERGUNTAS v2 — Gastar 1 crédito para liberar +2 perguntas extras
+ * 
+ * O crédito é um BÔNUS — não reseta o timer.
+ * Timer fixo continua rodando independente.
+ * Créditos são 100% ganhos na plataforma (nunca comprados).
+ */
+exports.adiantarPerguntasV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const uid = context.auth.uid;
+  const { jogoId } = data;
+
+  if (!jogoId) {
+    throw new functions.https.HttpsError('invalid-argument', 'jogoId obrigatório');
+  }
+
+  try {
+    // 1. Verificar se o jogo está ativo
+    const jogoDoc = await db.collection('jogos').doc(jogoId).get();
+    if (!jogoDoc.exists) throw new functions.https.HttpsError('not-found', 'Jogo não encontrado');
+    const jogo = jogoDoc.data();
+    const agora = new Date();
+    const fim = jogo.dataFim?.toDate?.() || null;
+    if (fim && agora > fim) throw new functions.https.HttpsError('failed-precondition', 'Jogo já encerrado');
+
+    // 2. Verificar se o usuário está participando
+    const participanteRef = db.collection('jogos').doc(jogoId).collection('participantes').doc(uid);
+    const participanteDoc = await participanteRef.get();
+
+    if (!participanteDoc.exists || !participanteDoc.data().entradaEm) {
+      throw new functions.https.HttpsError('failed-precondition', 'Você não está nesta partida');
+    }
+
+    // 3. Verificar créditos disponíveis
+    const userDoc = await db.collection('usuarios').doc(uid).get();
+    const userData = userDoc.data() || {};
+    const creditosDisponiveis = userData.creditos || 0;
+    const custoSkip = CONFIG_QUIZ.creditosPorSkip;
+
+    if (creditosDisponiveis < custoSkip) {
+      throw new functions.https.HttpsError('resource-exhausted',
+        `Créditos insuficientes. Você tem ${creditosDisponiveis}, precisa de ${custoSkip}.`);
+    }
+
+    // 4. Descontar crédito e incrementar skips
+    const participante = participanteDoc.data();
+    const novoSkips = (participante.skipsUsados || 0) + 1;
+
+    const batch = db.batch();
+    const userRef = db.collection('usuarios').doc(uid);
+
+    // Descontar crédito
+    batch.update(userRef, {
+      creditos: admin.firestore.FieldValue.increment(-custoSkip)
+    });
+
+    // Incrementar skips no participante
+    batch.update(participanteRef, {
+      skipsUsados: novoSkips,
+      atualizadoEm: admin.firestore.Timestamp.now()
+    });
+
+    await batch.commit();
+
+    // 5. Calcular novo estado
+    const passe = await verificarPasse(uid);
+    const temPasse = passe.ativo && passe.tipo !== 'free';
+    const cooldown = temPasse ? CONFIG_QUIZ.cooldownPasse : CONFIG_QUIZ.cooldownFree;
+    const entradaEm = participante.entradaEm.toDate();
+    const elapsed = (agora.getTime() - entradaEm.getTime()) / 1000;
+    const ciclosPassados = Math.floor(elapsed / cooldown);
+    const totalRespondidas = participante.totalRespondidas || 0;
+
+    const novoTotalDisponivel = CONFIG_QUIZ.perguntasIniciais
+      + (ciclosPassados * CONFIG_QUIZ.perguntasPorCiclo)
+      + (novoSkips * CONFIG_QUIZ.perguntasPorSkip);
+
+    const perguntasRestantes = novoTotalDisponivel - totalRespondidas;
+
+    console.log(`💰 ${uid} usou ${custoSkip} crédito(s) para adiantar +${CONFIG_QUIZ.perguntasPorSkip} perguntas no jogo ${jogoId}`);
+
+    return {
+      success: true,
+      creditoGasto: custoSkip,
+      creditosRestantes: creditosDisponiveis - custoSkip,
+      perguntasLiberadas: CONFIG_QUIZ.perguntasPorSkip,
+      perguntasRestantes,
+      totalDisponivel: novoTotalDisponivel,
+      totalRespondidas,
+      skipsUsados: novoSkips
+    };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro adiantarPerguntasV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao adiantar perguntas');
   }
 });
 
