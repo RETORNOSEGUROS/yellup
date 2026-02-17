@@ -65,6 +65,17 @@ const CONFIG_PVP = {
   premioSistemaPenalti: 30
 };
 
+const CONFIG_PARTIDA = {
+  // Prêmio do sistema por jogo (distribuído entre participantes)
+  premioBasePorJogo: 100,          // créditos base para distribuir no ranking
+  premioPorParticipante: 5,        // + 5 créditos por participante (escala com engajamento)
+  premioMaxPorJogo: 500,           // teto máximo por jogo
+  // Percentuais do ranking
+  percentuaisRanking: [30, 20, 15, 10, 7, 5, 4, 3, 3, 3],
+  // Anti-bot: tempo mínimo para responder (segundos)
+  tempoMinimoResposta: 3
+};
+
 // Campos padrão para novos usuários (inicialização)
 const CAMPOS_PADRAO_USUARIO = {
   passe: {
@@ -3238,6 +3249,573 @@ exports.finalizarEmbateV2 = functions.https.onCall(async (data, context) => {
     if (error instanceof functions.https.HttpsError) throw error;
     console.error('❌ Erro finalizarEmbateV2:', error);
     throw new functions.https.HttpsError('internal', 'Erro ao finalizar embate');
+  }
+});
+
+
+// =====================================================
+// 🔄 FASE 3: QUIZ/PARTIDAS v2
+// Timer-based, sem custo de crédito, prêmio do sistema
+// =====================================================
+
+/**
+ * ENTRAR NA PARTIDA v2 — Verifica limite diário + registra entrada
+ * Client chama ANTES de começar a responder perguntas de um jogo
+ */
+exports.entrarPartidaV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const uid = context.auth.uid;
+  const { jogoId, timeId } = data;
+
+  if (!jogoId || !timeId) {
+    throw new functions.https.HttpsError('invalid-argument', 'jogoId e timeId obrigatórios');
+  }
+
+  try {
+    // 1. Verificar se o jogo existe e está ativo
+    const jogoDoc = await db.collection('jogos').doc(jogoId).get();
+    if (!jogoDoc.exists) throw new functions.https.HttpsError('not-found', 'Jogo não encontrado');
+
+    const jogo = jogoDoc.data();
+    const agora = new Date();
+    const inicio = jogo.dataInicio?.toDate?.() || new Date(jogo.dataInicio || 0);
+    const fim = jogo.dataFim?.toDate?.() || null;
+
+    if (agora < inicio) throw new functions.https.HttpsError('failed-precondition', 'Jogo ainda não começou');
+    if (fim && agora > fim) throw new functions.https.HttpsError('failed-precondition', 'Jogo já encerrado');
+
+    // 2. Verificar se já está participando deste jogo
+    const userDoc = await db.collection('usuarios').doc(uid).get();
+    const userData = userDoc.data() || {};
+    const jaParticipando = userData.torcidas?.[jogoId];
+
+    if (jaParticipando) {
+      // Já entrou neste jogo — retorna status atual
+      const passe = await verificarPasse(uid);
+      return {
+        success: true, jaEntrou: true,
+        timerSegundos: passe.config.timerPerguntaSeg,
+        tipoPasse: passe.tipo
+      };
+    }
+
+    // 3. Verificar limite diário de partidas
+    const limite = await verificarLimiteDiario(uid, 'partida');
+    if (!limite.permitido) {
+      throw new functions.https.HttpsError('resource-exhausted',
+        `Limite diário de partidas atingido (${limite.limite}/${limite.limite}). ${limite.tipoPasse === 'free' ? 'Adquira um Passe para jogar ilimitado!' : ''}`);
+    }
+
+    // 4. Verificar se o time existe e pertence ao jogo
+    if (timeId !== jogo.timeCasaId && timeId !== jogo.timeForaId) {
+      throw new functions.https.HttpsError('invalid-argument', 'Time não pertence a este jogo');
+    }
+
+    // 5. Registrar entrada
+    const passe = await verificarPasse(uid);
+
+    await db.collection('usuarios').doc(uid).update({
+      [`torcidas.${jogoId}`]: timeId,
+      'limitesDiarios.ultimoReset': admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // 6. Incrementar limite diário
+    await incrementarLimiteDiario(uid, 'partida');
+
+    // 7. Atualizar stats
+    await db.collection('usuarios').doc(uid).update({
+      'stats.diasAtivos': admin.firestore.FieldValue.increment(0), // será calculado no rating
+      'stats.ultimoLogin': admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`⚽ ${uid} entrou no jogo ${jogoId} (time: ${timeId}, passe: ${passe.tipo})`);
+
+    return {
+      success: true,
+      jaEntrou: false,
+      timerSegundos: passe.config.timerPerguntaSeg,
+      tipoPasse: passe.tipo,
+      partidasRestantes: limite.restante - 1
+    };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro entrarPartidaV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao entrar na partida');
+  }
+});
+
+
+/**
+ * RESPONDER PERGUNTA v2 — Sem custo de créditos, com timer server-side
+ * Mudanças vs v1:
+ * - NÃO cobra créditos para jogar
+ * - NÃO adiciona créditos ao pool do jogo
+ * - VERIFICA timer entre perguntas (server-side)
+ * - RASTREIA stats para cálculo de rating
+ */
+exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado');
+  }
+
+  const uid = context.auth.uid;
+  const { jogoId, perguntaId, resposta, tempoResposta } = data;
+
+  if (!jogoId || !perguntaId || !resposta) {
+    throw new functions.https.HttpsError('invalid-argument', 'Dados incompletos');
+  }
+
+  const tempoRespostaSegundos = Math.min(Math.max(parseFloat(tempoResposta) || 10, 0), 15);
+
+  try {
+    // 1. Buscar pergunta (server-side - seguro)
+    const perguntaDoc = await db.collection('perguntas').doc(perguntaId).get();
+    if (!perguntaDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Pergunta não encontrada');
+    }
+
+    const pergunta = perguntaDoc.data();
+    const correta = (pergunta.correta || '').toLowerCase();
+    const respostaUser = (resposta || '').toLowerCase();
+    const pontuacaoBase = pergunta.pontuacao || pergunta.pontos || 10;
+
+    // 2. Buscar dados do jogo
+    const jogoDoc = await db.collection('jogos').doc(jogoId).get();
+    if (!jogoDoc.exists) throw new functions.https.HttpsError('not-found', 'Jogo não encontrado');
+    const jogo = jogoDoc.data();
+
+    // 3. Verificar se o jogo está ao vivo
+    const agora = new Date();
+    const inicio = jogo.dataInicio?.toDate?.() || new Date(jogo.dataInicio || 0);
+    const fim = jogo.dataFim?.toDate?.() || null;
+    if (agora < inicio) throw new functions.https.HttpsError('failed-precondition', 'Jogo ainda não começou');
+    if (fim && agora > fim) throw new functions.https.HttpsError('failed-precondition', 'Jogo já encerrado');
+
+    // 4. Buscar dados do usuário
+    const userDoc = await db.collection('usuarios').doc(uid).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+    const timeTorcida = userData.torcidas?.[jogoId];
+
+    if (!timeTorcida) {
+      throw new functions.https.HttpsError('failed-precondition', 'Use entrarPartidaV2 primeiro');
+    }
+
+    // 5. Anti-replay: já respondeu esta pergunta?
+    const perguntasRespondidas = userData[`perguntasRespondidas_${timeTorcida}`] || [];
+    if (perguntasRespondidas.includes(perguntaId)) {
+      throw new functions.https.HttpsError('already-exists', 'Pergunta já respondida');
+    }
+
+    // 6. TIMER SERVER-SIDE: verificar intervalo entre perguntas
+    const passe = await verificarPasse(uid);
+    const timerNecessario = passe.config.timerPerguntaSeg; // 300s free, 120s pass
+
+    const participanteRef = db.collection('jogos').doc(jogoId).collection('participantes').doc(uid);
+    const participanteDoc = await participanteRef.get();
+    const participante = participanteDoc.exists ? participanteDoc.data() : {};
+
+    const ultimaResposta = participante.ultimaRespostaEm?.toDate?.() || null;
+    if (ultimaResposta) {
+      const segundosDesdeUltima = (agora.getTime() - ultimaResposta.getTime()) / 1000;
+      // Tolerância de 5 segundos (latência de rede)
+      if (segundosDesdeUltima < (timerNecessario - 5)) {
+        const faltam = Math.ceil(timerNecessario - segundosDesdeUltima);
+        throw new functions.https.HttpsError('failed-precondition',
+          `Aguarde ${faltam}s para a próxima pergunta. ${passe.tipo === 'free' ? 'Com Passe o timer é de apenas 2min!' : ''}`);
+      }
+    }
+
+    // 7. Anti-bot: resposta muito rápida
+    if (tempoRespostaSegundos < CONFIG_PARTIDA.tempoMinimoResposta) {
+      throw new functions.https.HttpsError('failed-precondition', 'Resposta muito rápida');
+    }
+
+    // 8. Verificar resposta
+    const acertou = respostaUser === correta;
+
+    // 9. Calcular streak e multiplicador
+    let streakAtual = participante.streakAtual || 0;
+    let maxStreakVal = participante.maxStreak || 0;
+
+    if (acertou) {
+      streakAtual += 1;
+      if (streakAtual > maxStreakVal) maxStreakVal = streakAtual;
+    } else {
+      streakAtual = 0;
+    }
+
+    let multiplicador = 1;
+    if (streakAtual >= 10) multiplicador = 3;
+    else if (streakAtual >= 5) multiplicador = 2;
+    else if (streakAtual >= 3) multiplicador = 1.5;
+
+    const pontosFinais = acertou ? Math.round(pontuacaoBase * multiplicador) : 0;
+
+    // 10. Atualizar tudo em batch (atômico)
+    const batch = db.batch();
+    const userRef = db.collection('usuarios').doc(uid);
+
+    const userUpdates = {
+      [`perguntasRespondidas_${timeTorcida}`]: admin.firestore.FieldValue.arrayUnion(perguntaId),
+      // Stats para rating
+      'stats.totalPerguntas': admin.firestore.FieldValue.increment(1),
+      'stats.ultimoLogin': admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    // NÃO cobra créditos — v2 é gratuito para jogar
+    // NÃO adiciona ao pool do jogo — prêmio vem do sistema
+
+    if (acertou) {
+      userUpdates[`pontuacoes.${jogoId}`] = admin.firestore.FieldValue.increment(pontosFinais);
+      userUpdates.xp = admin.firestore.FieldValue.increment(pontosFinais);
+      userUpdates[`tempoRespostas.${jogoId}.soma`] = admin.firestore.FieldValue.increment(tempoRespostaSegundos);
+      userUpdates[`tempoRespostas.${jogoId}.quantidade`] = admin.firestore.FieldValue.increment(1);
+      userUpdates['stats.totalAcertos'] = admin.firestore.FieldValue.increment(1);
+    }
+
+    batch.update(userRef, userUpdates);
+
+    // Atualizar participante (com timestamp da resposta para timer)
+    const acertos = (participante.acertos || 0) + (acertou ? 1 : 0);
+    const erros = (participante.erros || 0) + (acertou ? 0 : 1);
+
+    let timeNome = participante.timeNome || 'Time';
+    try {
+      const timeDoc = await db.collection('times').doc(timeTorcida).get();
+      if (timeDoc.exists) timeNome = timeDoc.data().nome || 'Time';
+    } catch (e) { /* não crítico */ }
+
+    batch.set(participanteRef, {
+      odId: uid,
+      nome: userData.usuarioUnico || userData.usuario || userData.nome || 'Anônimo',
+      timeId: timeTorcida,
+      timeNome: timeNome,
+      pontos: (participante.pontos || 0) + pontosFinais,
+      acertos, erros,
+      streakAtual, maxStreak: maxStreakVal,
+      tempoSoma: (participante.tempoSoma || 0) + (acertou ? tempoRespostaSegundos : 0),
+      tempoQuantidade: (participante.tempoQuantidade || 0) + (acertou ? 1 : 0),
+      tempoMedio: acertou
+        ? ((participante.tempoSoma || 0) + tempoRespostaSegundos) / ((participante.tempoQuantidade || 0) + 1)
+        : participante.tempoMedio || 0,
+      ultimaRespostaEm: admin.firestore.Timestamp.now(),  // ← TIMER: marca quando respondeu
+      modeloV2: true,
+      atualizadoEm: admin.firestore.Timestamp.now()
+    }, { merge: true });
+
+    await batch.commit();
+
+    // 11. Retornar resultado
+    return {
+      acertou,
+      respostaCorreta: pergunta.correta,
+      respostaTexto: pergunta.alternativas?.[pergunta.correta] || '',
+      pontosGanhos: pontosFinais,
+      pontuacaoBase,
+      multiplicador,
+      streak: streakAtual,
+      maxStreak: maxStreakVal,
+      timerProximaPergunta: timerNecessario,
+      tipoPasse: passe.tipo,
+      modeloV2: true
+    };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('Erro responderPerguntaV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro interno ao processar resposta');
+  }
+});
+
+
+/**
+ * PREMIAR JOGO v2 — Prêmio do SISTEMA, sem pool dos jogadores
+ * Mudanças vs v1:
+ * - Pool NÃO vem dos créditos dos jogadores (zero contribuição)
+ * - Prêmio = base fixa + bônus por participantes (do sistema)
+ * - SEM cotistas (bolsa vira apenas índice visual)
+ * - SEM sortudos (premiação 100% mérito)
+ * - Mantém atualização do índice da bolsa (visual)
+ */
+exports.premiarJogoV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const { jogoId } = data;
+  if (!jogoId) throw new functions.https.HttpsError('invalid-argument', 'jogoId obrigatório');
+
+  try {
+    // 1. Ler dados do jogo
+    const jogoDoc = await db.collection('jogos').doc(jogoId).get();
+    if (!jogoDoc.exists) throw new functions.https.HttpsError('not-found', 'Jogo não encontrado');
+    const jogoData = jogoDoc.data();
+
+    if (jogoData.premiado && jogoData.premiacaoDetalhes) {
+      return { success: true, jaPremiado: true, detalhes: jogoData.premiacaoDetalhes };
+    }
+
+    const timeCasaId = jogoData.timeCasaId;
+    const timeForaId = jogoData.timeForaId;
+
+    // 2. Nomes dos times
+    let timeCasaNome = 'Time Casa';
+    let timeForaNome = 'Time Fora';
+    try {
+      const [cDoc, fDoc] = await Promise.all([
+        db.collection('times').doc(timeCasaId).get(),
+        db.collection('times').doc(timeForaId).get()
+      ]);
+      if (cDoc.exists) timeCasaNome = cDoc.data().nome || timeCasaNome;
+      if (fDoc.exists) timeForaNome = fDoc.data().nome || timeForaNome;
+    } catch (e) { /* não crítico */ }
+
+    // 3. Ler participantes
+    const participantesSnap = await db.collection('jogos').doc(jogoId)
+      .collection('participantes').get();
+
+    if (participantesSnap.empty) {
+      await db.collection('jogos').doc(jogoId).update({
+        premiado: true, modeloV2: true,
+        premiacaoDetalhes: { totalPremio: 0, semParticipantes: true, processadoEm: new Date().toISOString() }
+      });
+      return { success: true, semParticipantes: true };
+    }
+
+    const participantes = [];
+    const estatisticas = {
+      timeCasa: { pontos: 0, torcedores: [], nome: timeCasaNome },
+      timeFora: { pontos: 0, torcedores: [], nome: timeForaNome }
+    };
+
+    participantesSnap.forEach(doc => {
+      const p = doc.data();
+      const pontos = p.pontos || 0;
+      let tempoMedio = 10;
+      if (p.tempoQuantidade > 0) tempoMedio = p.tempoSoma / p.tempoQuantidade;
+
+      participantes.push({
+        odId: p.odId, nome: p.nome, pontos, tempoMedio,
+        timeId: p.timeId, timeNome: p.timeNome
+      });
+
+      if (p.timeId === timeCasaId) {
+        estatisticas.timeCasa.pontos += pontos;
+        estatisticas.timeCasa.torcedores.push({ odId: p.odId, nome: p.nome });
+      } else if (p.timeId === timeForaId) {
+        estatisticas.timeFora.pontos += pontos;
+        estatisticas.timeFora.torcedores.push({ odId: p.odId, nome: p.nome });
+      }
+    });
+
+    // Ordenar por pontos + tempo (desempate)
+    participantes.sort((a, b) => {
+      if (b.pontos !== a.pontos) return b.pontos - a.pontos;
+      return a.tempoMedio - b.tempoMedio;
+    });
+
+    // 4. CALCULAR PRÊMIO DO SISTEMA (não dos jogadores!)
+    const numParticipantes = participantes.length;
+    const premioCalculado = CONFIG_PARTIDA.premioBasePorJogo +
+      (numParticipantes * CONFIG_PARTIDA.premioPorParticipante);
+    const totalPremio = Math.min(premioCalculado, CONFIG_PARTIDA.premioMaxPorJogo);
+
+    // Função auxiliar
+    function arredondar(valor) {
+      if (valor <= 0) return 0;
+      return Math.max(1, Math.round(valor));
+    }
+
+    // 5. Distribuição 100% ranking (mérito puro)
+    const PERCENTUAIS = CONFIG_PARTIDA.percentuaisRanking;
+    const top100 = participantes.slice(0, 100);
+    const creditosPorPosicao = [];
+    let creditosDistribuidos = 0;
+
+    if (top100.length <= 10) {
+      const perc = PERCENTUAIS.slice(0, top100.length);
+      const somaPerc = perc.reduce((a, b) => a + b, 0);
+      for (let i = 0; i < top100.length; i++) {
+        const cr = arredondar(totalPremio * perc[i] / somaPerc);
+        creditosPorPosicao.push(cr);
+        creditosDistribuidos += cr;
+      }
+    } else {
+      const creditosTop10 = arredondar(totalPremio * 0.70);
+      const creditosRestante = totalPremio - creditosTop10;
+      for (let i = 0; i < 10; i++) {
+        const cr = arredondar(creditosTop10 * PERCENTUAIS[i] / 100);
+        creditosPorPosicao.push(cr);
+        creditosDistribuidos += cr;
+      }
+      const restantes = top100.length - 10;
+      for (let i = 10; i < top100.length; i++) {
+        const peso = Math.max(1, restantes - (i - 10));
+        const somaPesos = (restantes * (restantes + 1)) / 2;
+        const cr = arredondar(creditosRestante * peso / somaPesos);
+        creditosPorPosicao.push(cr);
+        creditosDistribuidos += cr;
+      }
+    }
+
+    // Ajustar diferença no 1º lugar
+    const diferenca = totalPremio - creditosDistribuidos;
+    if (diferenca !== 0 && creditosPorPosicao.length > 0) {
+      creditosPorPosicao[0] += diferenca;
+    }
+
+    // 6. Distribuir prêmios em batch
+    const premiosRanking = [];
+    let batch = db.batch();
+    let batchCount = 0;
+
+    for (let i = 0; i < top100.length; i++) {
+      const p = top100[i];
+      const creditos = creditosPorPosicao[i] || 0;
+
+      premiosRanking.push({
+        odId: p.odId, nome: p.nome, posicao: i + 1,
+        pontos: p.pontos, creditos
+      });
+
+      if (creditos > 0) {
+        batch.update(db.collection('usuarios').doc(p.odId), {
+          creditos: admin.firestore.FieldValue.increment(creditos)
+        });
+        batchCount++;
+
+        if (batchCount >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          batchCount = 0;
+        }
+      }
+    }
+
+    // 7. Salvar detalhes
+    const premiacaoDetalhes = {
+      modeloV2: true,
+      fontePremio: 'sistema',
+      totalPremio,
+      premioBase: CONFIG_PARTIDA.premioBasePorJogo,
+      bonusParticipantes: numParticipantes * CONFIG_PARTIDA.premioPorParticipante,
+      distribuicao: { ranking: { percentual: 100, total: totalPremio } },
+      ranking: premiosRanking,
+      estatisticas: {
+        timeCasa: { nome: timeCasaNome, pontos: estatisticas.timeCasa.pontos, torcedores: estatisticas.timeCasa.torcedores.length },
+        timeFora: { nome: timeForaNome, pontos: estatisticas.timeFora.pontos, torcedores: estatisticas.timeFora.torcedores.length }
+      },
+      processadoEm: new Date().toISOString(),
+      processadoPor: 'cloud_function_v2'
+    };
+
+    batch.update(db.collection('jogos').doc(jogoId), {
+      premiado: true, modeloV2: true, fontePremio: 'sistema',
+      premiacaoDetalhes
+    });
+
+    // 8. Atualizar índice da bolsa (visual — sem compra/venda)
+    try {
+      const CONFIG_BOLSA = {
+        porJogo: 0.25, porTorcedor: 0.05, porVitoriaTorcida: 0.5,
+        porVitoriaPontuacao: 0.9, porPonto: 0.005,
+        porDerrotaTorcida: 0.3, porDerrotaPontuacao: 0.5, maxVariacao: 12
+      };
+      const PRECO_INICIAL = 500;
+      const tc = estatisticas.timeCasa.torcedores.length;
+      const tf = estatisticas.timeFora.torcedores.length;
+      const pc = estatisticas.timeCasa.pontos;
+      const pf = estatisticas.timeFora.pontos;
+
+      let vc = CONFIG_BOLSA.porJogo + tc * CONFIG_BOLSA.porTorcedor + pc * CONFIG_BOLSA.porPonto;
+      let vf = CONFIG_BOLSA.porJogo + tf * CONFIG_BOLSA.porTorcedor + pf * CONFIG_BOLSA.porPonto;
+      if (tc > tf) { vc += CONFIG_BOLSA.porVitoriaTorcida; vf -= CONFIG_BOLSA.porDerrotaTorcida; }
+      else if (tf > tc) { vf += CONFIG_BOLSA.porVitoriaTorcida; vc -= CONFIG_BOLSA.porDerrotaTorcida; }
+      if (pc > pf) { vc += CONFIG_BOLSA.porVitoriaPontuacao; vf -= CONFIG_BOLSA.porDerrotaPontuacao; }
+      else if (pf > pc) { vf += CONFIG_BOLSA.porVitoriaPontuacao; vc -= CONFIG_BOLSA.porDerrotaPontuacao; }
+      vc = Math.max(-CONFIG_BOLSA.maxVariacao, Math.min(CONFIG_BOLSA.maxVariacao, vc));
+      vf = Math.max(-CONFIG_BOLSA.maxVariacao, Math.min(CONFIG_BOLSA.maxVariacao, vf));
+
+      const [mCDoc, mFDoc] = await Promise.all([
+        db.collection('bolsa_metricas_time').doc(timeCasaId).get(),
+        db.collection('bolsa_metricas_time').doc(timeForaId).get()
+      ]);
+      const mC = mCDoc.exists ? mCDoc.data() : { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0, totalJogos: 0, totalTorcedores: 0, mediaDividendos: 0 };
+      const mF = mFDoc.exists ? mFDoc.data() : { precoAlgoritmo: PRECO_INICIAL, variacaoDia: 0, totalJogos: 0, totalTorcedores: 0, mediaDividendos: 0 };
+
+      batch.set(db.collection('bolsa_metricas_time').doc(timeCasaId), {
+        timeId: timeCasaId, timeNome: timeCasaNome,
+        precoAlgoritmo: Math.round(mC.precoAlgoritmo * (1 + vc / 100) * 100) / 100,
+        precoMercado: Math.round(mC.precoAlgoritmo * (1 + vc / 100) * 100) / 100,
+        variacaoDia: Math.round(((mC.variacaoDia || 0) + vc) * 100) / 100,
+        totalJogos: (mC.totalJogos || 0) + 1,
+        totalTorcedores: (mC.totalTorcedores || 0) + tc,
+        ultimaAtualizacao: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      batch.set(db.collection('bolsa_metricas_time').doc(timeForaId), {
+        timeId: timeForaId, timeNome: timeForaNome,
+        precoAlgoritmo: Math.round(mF.precoAlgoritmo * (1 + vf / 100) * 100) / 100,
+        precoMercado: Math.round(mF.precoAlgoritmo * (1 + vf / 100) * 100) / 100,
+        variacaoDia: Math.round(((mF.variacaoDia || 0) + vf) * 100) / 100,
+        totalJogos: (mF.totalJogos || 0) + 1,
+        totalTorcedores: (mF.totalTorcedores || 0) + tf,
+        ultimaAtualizacao: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      console.log(`📈 Bolsa v2: ${timeCasaNome} ${vc >= 0?'+':''}${vc.toFixed(2)}% | ${timeForaNome} ${vf >= 0?'+':''}${vf.toFixed(2)}%`);
+    } catch (bolsaErr) {
+      console.error('⚠️ Erro bolsa v2:', bolsaErr.message);
+    }
+
+    // Commit
+    await batch.commit();
+
+    // 9. Notificações Top 10
+    try {
+      const jogoNome = `${timeCasaNome} vs ${timeForaNome}`;
+      const notifBatch = db.batch();
+      let nc = 0;
+
+      for (const p of premiosRanking.slice(0, 10)) {
+        if (p.creditos > 0) {
+          const emoji = p.posicao <= 3 ? ['🥇', '🥈', '🥉'][p.posicao - 1] : '🏆';
+          notifBatch.set(db.collection('notificacoes').doc(), {
+            para: p.odId, tipo: 'premiacao',
+            titulo: `${emoji} ${p.posicao}º lugar - ${jogoNome}`,
+            mensagem: `Você fez ${p.pontos} pts e ganhou +${p.creditos} créditos!`,
+            lida: false, data: admin.firestore.FieldValue.serverTimestamp()
+          });
+          nc++;
+        }
+      }
+      if (nc > 0) await notifBatch.commit();
+      console.log(`🔔 ${nc} notificações v2 criadas`);
+    } catch (nErr) { console.error('⚠️ Notif v2:', nErr.message); }
+
+    // 10. Logs
+    try {
+      const jogoDesc = `${timeCasaNome} vs ${timeForaNome}`;
+      for (const p of premiosRanking.slice(0, 20)) {
+        if (p.creditos > 0) {
+          await logAtividade(p.odId, 'jogo_ranking_v2', p.creditos, null,
+            `Jogo v2: ${p.posicao}º lugar — ${jogoDesc} (+${p.creditos} cr)`,
+            { jogoId, posicao: p.posicao, pontos: p.pontos, fontePremio: 'sistema' });
+        }
+      }
+    } catch (logErr) { console.error('⚠️ Log v2:', logErr.message); }
+
+    console.log(`🏆 Premiação v2 jogo ${jogoId}: ${totalPremio} cr sistema (${numParticipantes} participantes)`);
+    return { success: true, detalhes: premiacaoDetalhes };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro premiarJogoV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao processar premiação');
   }
 });
 
