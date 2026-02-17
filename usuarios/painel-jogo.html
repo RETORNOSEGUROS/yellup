@@ -2608,20 +2608,41 @@
       100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
     }
 
-    /* Mini timer no badge de créditos */
+    /* Cooldown timer entre ciclos de perguntas */
     .drip-mini-timer {
-      font-size: 0.65em;
-      color: #4caf50;
+      display: none;
       text-align: center;
-      margin-top: 2px;
-      font-variant-numeric: tabular-nums;
-      opacity: 0;
-      transition: opacity 0.3s;
+      padding: 8px 12px;
+      margin: 8px 0;
+      background: rgba(255, 159, 67, 0.15);
+      border-radius: 10px;
+      font-size: 0.85em;
+      color: var(--accent);
+      animation: pulse 2s infinite;
     }
 
     .drip-mini-timer.visible {
-      opacity: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
+
+    .btn-adiantar {
+      background: linear-gradient(135deg, #a78bfa, #7c3aed);
+      color: white;
+      border: none;
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 0.8em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .btn-adiantar:hover { transform: scale(1.05); }
+    .btn-adiantar:active { transform: scale(0.95); }
+    .btn-adiantar:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* Badge de créditos clicável */
     .credit-badge.paid {
@@ -2980,15 +3001,21 @@
     <div class="answer-section">
       <div class="credits-display">
         <div class="credit-badge free">
-          <span>🎫 Passe:</span>
-          <strong id="freeCredits">Free</strong>
+          <span>🎯 Disponíveis:</span>
+          <strong id="perguntasDisponiveis">5</strong>
         </div>
-        <div class="credit-badge paid">
+        <div class="credit-badge paid" id="creditsBadge">
           <span>💎 Créditos:</span>
           <strong id="paidCredits">0</strong>
         </div>
       </div>
-      <div class="drip-mini-timer" id="dripMiniTimer" style="display:none;">⏳ Próxima pergunta em <span id="dripCountdown">--:--</span></div>
+      <!-- Timer de cooldown entre ciclos -->
+      <div class="drip-mini-timer" id="cooldownTimer" style="display:none;">
+        <span id="cooldownTexto">⏳ +2 perguntas em <span id="cooldownContagem">--:--</span></span>
+        <button id="btnAdiantar" class="btn-adiantar" onclick="adiantarPerguntas()" style="display:none;">
+          💎 Adiantar (1 cr)
+        </button>
+      </div>
 
 
       <!-- 🔥 STREAK E GAMIFICAÇÃO -->
@@ -3186,6 +3213,18 @@
     let multiplicador = 1;           // Multiplicador de pontos
     let totalAcertos = 0;            // Total de acertos no jogo
     let totalErros = 0;              // Total de erros no jogo
+
+    // ⏳ COOLDOWN DO QUIZ
+    let cooldownState = {
+      entradaEm: null,               // Timestamp de quando entrou na partida
+      cooldownSeg: 300,              // Cooldown em segundos (300=free, 180=passe)
+      totalRespondidas: 0,           // Quantas já respondeu nesta partida
+      totalDisponivel: 5,            // Quantas pode responder até agora
+      skipsUsados: 0,                // Quantas vezes usou crédito para adiantar
+      tipoPasse: 'free',             // Tipo de passe
+      perguntasRestantes: 5          // Quantas pode responder AGORA
+    };
+    let cooldownInterval = null;     // Intervalo do timer visual
 
     // 🏅 CONQUISTAS DO JOGO
     const CONQUISTAS = {
@@ -3716,6 +3755,30 @@
           totalAcertos = participante.acertos || 0;
           totalErros = participante.erros || 0;
           console.log(`📊 Acertos/Erros carregados: ${totalAcertos}/${totalErros}`);
+
+          // ✅ COOLDOWN: Inicializar estado a partir do participante
+          if (participante.entradaEm) {
+            const passe = user.passe || { tipo: 'free', ativo: false };
+            const temPasse = passe.ativo && passe.tipo !== 'free';
+            const cooldown = temPasse ? 180 : 300; // 3min passe, 5min free
+            const entradaEm = participante.entradaEm.toDate().getTime();
+            const elapsed = (Date.now() - entradaEm) / 1000;
+            const ciclosPassados = Math.floor(elapsed / cooldown);
+            const skipsUsados = participante.skipsUsados || 0;
+            const totalRespondidas = participante.totalRespondidas || 0;
+            const totalDisponivel = 5 + (ciclosPassados * 2) + (skipsUsados * 2);
+
+            cooldownState = {
+              entradaEm: entradaEm,
+              cooldownSeg: cooldown,
+              totalRespondidas: totalRespondidas,
+              totalDisponivel: totalDisponivel,
+              skipsUsados: skipsUsados,
+              tipoPasse: temPasse ? passe.tipo : 'free',
+              perguntasRestantes: Math.max(0, totalDisponivel - totalRespondidas)
+            };
+            console.log(`⏳ Cooldown: ${cooldownState.perguntasRestantes} disponíveis, cooldown ${cooldown}s, ${totalRespondidas} respondidas`);
+          }
         }
         
         // Carregar conquistas já desbloqueadas neste jogo
@@ -3738,47 +3801,157 @@
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const user = userDoc.data() || {};
         const creditos = user.creditos || 0;
-        const passe = user.passe || { tipo: 'free', ativo: false };
-        const limites = user.limitesDiarios || {};
-        const tipoPasse = (passe.ativo && passe.tipo !== 'free') ? passe.tipo : 'free';
-        const temPasse = tipoPasse !== 'free';
 
-        // Exibir status do passe
-        const passeMap = { free: 'Free (2/dia)', semanal: '🌟 Semanal', mensal: '💎 Mensal', anual: '👑 Anual' };
-        document.getElementById("freeCredits").textContent = passeMap[tipoPasse] || 'Free';
         document.getElementById("paidCredits").textContent = creditos;
 
-        const btnAnswer = document.getElementById("btnAnswer");
-        const fabBtn = document.getElementById("fabBtn");
+        // Ler estado do participante para calcular cooldown
+        const participanteRef = db.collection("jogos").doc(jogoId).collection("participantes").doc(uid);
+        const participanteDoc = await participanteRef.get();
+        
+        if (participanteDoc.exists && participanteDoc.data().entradaEm) {
+          const p = participanteDoc.data();
+          const agora = Date.now();
+          const entradaEm = p.entradaEm.toDate().getTime();
+          const elapsed = (agora - entradaEm) / 1000;
+          const cooldown = cooldownState.cooldownSeg;
+          const ciclosPassados = Math.floor(elapsed / cooldown);
+          const skipsUsados = p.skipsUsados || 0;
+          const totalRespondidas = p.totalRespondidas || 0;
+          const totalDisponivel = 5 + (ciclosPassados * 2) + (skipsUsados * 2);
+          const perguntasRestantes = Math.max(0, totalDisponivel - totalRespondidas);
 
-        // Free users: verificar limite diário de partidas
-        if (!temPasse) {
-          const partidasHoje = limites.partidasHoje || 0;
-          if (partidasHoje >= 2) {
+          // Atualizar estado local
+          cooldownState.entradaEm = entradaEm;
+          cooldownState.totalRespondidas = totalRespondidas;
+          cooldownState.totalDisponivel = totalDisponivel;
+          cooldownState.skipsUsados = skipsUsados;
+          cooldownState.perguntasRestantes = perguntasRestantes;
+
+          // Atualizar badge de perguntas disponíveis
+          const el = document.getElementById("perguntasDisponiveis");
+          el.textContent = perguntasRestantes;
+          el.style.color = perguntasRestantes > 0 ? '#4caf50' : '#e74c3c';
+
+          // Mostrar/esconder timer de cooldown
+          atualizarCooldownTimer(entradaEm, cooldown, perguntasRestantes, creditos);
+
+          // Atualizar botão principal
+          const btnAnswer = document.getElementById("btnAnswer");
+          const fabBtn = document.getElementById("fabBtn");
+          
+          if (perguntasRestantes <= 0 && !currentQuestion) {
+            btnAnswer.disabled = true;
+            const proximoCicloEm = entradaEm + ((ciclosPassados + 1) * cooldown * 1000);
+            const segFaltam = Math.max(0, Math.ceil((proximoCicloEm - agora) / 1000));
+            const min = Math.floor(segFaltam / 60);
+            const seg = segFaltam % 60;
+            btnAnswer.textContent = `⏳ +2 perguntas em ${min}:${String(seg).padStart(2, '0')}`;
+            btnAnswer.style.background = "rgba(149, 165, 166, 0.5)";
+            if (fabBtn) {
+              fabBtn.disabled = true;
+              fabBtn.innerHTML = `<span class="fab-icon">⏳</span><span class="fab-text">${min}:${String(seg).padStart(2, '0')}</span>`;
+            }
+          } else if (!currentQuestion) {
             btnAnswer.disabled = false;
-            btnAnswer.textContent = "🎫 Limite atingido — Comprar Passe";
-            btnAnswer.style.background = "linear-gradient(135deg, #a855f7, #7c3aed)";
+            btnAnswer.textContent = `🎯 Responder Pergunta (${perguntasRestantes})`;
+            btnAnswer.style.background = "linear-gradient(135deg, var(--accent), #ff8c42)";
             if (fabBtn) {
               fabBtn.disabled = false;
-              fabBtn.innerHTML = `<span class="fab-icon">🎫</span><span class="fab-text">Comprar Passe</span>`;
+              fabBtn.innerHTML = `<span class="fab-icon">🎯</span><span class="fab-text">${perguntasRestantes} disponíveis</span>`;
             }
-            return;
           }
-        }
-
-        // Pode jogar normalmente
-        if (!currentQuestion) {
-          btnAnswer.disabled = false;
-          btnAnswer.textContent = "🎯 Responder Pergunta";
-          btnAnswer.style.background = "linear-gradient(135deg, var(--accent), #ff8c42)";
-          if (fabBtn) {
-            fabBtn.disabled = false;
-            fabBtn.innerHTML = `<span class="fab-icon">🎯</span><span class="fab-text">Próxima Pergunta!</span>`;
-          }
+        } else {
+          // Ainda não entrou na partida — mostrar estado inicial
+          document.getElementById("perguntasDisponiveis").textContent = '5';
         }
 
       } catch (error) {
         console.error("❌ Erro ao atualizar status:", error);
+      }
+    }
+
+    // Timer visual do cooldown
+    function atualizarCooldownTimer(entradaEm, cooldown, perguntasRestantes, creditos) {
+      const timerEl = document.getElementById("cooldownTimer");
+      const btnAdiantar = document.getElementById("btnAdiantar");
+      
+      if (perguntasRestantes > 0) {
+        // Tem perguntas — esconder timer
+        timerEl.classList.remove('visible');
+        timerEl.style.display = 'none';
+        if (cooldownInterval) { clearInterval(cooldownInterval); cooldownInterval = null; }
+        return;
+      }
+
+      // Sem perguntas — mostrar timer
+      timerEl.classList.add('visible');
+      timerEl.style.display = '';
+      
+      // Botão de adiantar
+      if (creditos >= 1) {
+        btnAdiantar.style.display = 'inline-block';
+        btnAdiantar.disabled = false;
+        btnAdiantar.textContent = '💎 Adiantar (1 cr)';
+      } else {
+        btnAdiantar.style.display = 'none';
+      }
+
+      // Atualizar contagem
+      if (cooldownInterval) clearInterval(cooldownInterval);
+      cooldownInterval = setInterval(() => {
+        const agora = Date.now();
+        const elapsed = (agora - entradaEm) / 1000;
+        const ciclosPassados = Math.floor(elapsed / cooldown);
+        const proximoCicloEm = entradaEm + ((ciclosPassados + 1) * cooldown * 1000);
+        const segFaltam = Math.max(0, Math.ceil((proximoCicloEm - agora) / 1000));
+
+        if (segFaltam <= 0) {
+          // Ciclo completou! Atualizar estado
+          clearInterval(cooldownInterval);
+          cooldownInterval = null;
+          updateFreePlays();
+          return;
+        }
+
+        const min = Math.floor(segFaltam / 60);
+        const seg = segFaltam % 60;
+        document.getElementById("cooldownContagem").textContent = `${min}:${String(seg).padStart(2, '0')}`;
+        
+        // Atualizar botão principal também
+        const btnAnswer = document.getElementById("btnAnswer");
+        if (btnAnswer && !currentQuestion) {
+          btnAnswer.textContent = `⏳ +2 perguntas em ${min}:${String(seg).padStart(2, '0')}`;
+        }
+      }, 1000);
+    }
+
+    // Função para adiantar perguntas gastando crédito
+    async function adiantarPerguntas() {
+      try {
+        const btnAdiantar = document.getElementById("btnAdiantar");
+        btnAdiantar.disabled = true;
+        btnAdiantar.textContent = '⏳ Adiantando...';
+
+        const adiantarFn = functions.httpsCallable('adiantarPerguntasV2');
+        const resultado = await adiantarFn({ jogoId: jogoId });
+        const r = resultado.data;
+
+        showToast(`🎯 +${r.perguntasLiberadas} perguntas liberadas! (${r.creditosRestantes} créditos restantes)`);
+
+        // Atualizar estado local
+        cooldownState.skipsUsados = r.skipsUsados;
+        cooldownState.totalDisponivel = r.totalDisponivel;
+        cooldownState.perguntasRestantes = r.perguntasRestantes;
+
+        // Atualizar UI
+        await updateFreePlays();
+
+      } catch (error) {
+        console.error("❌ Erro ao adiantar:", error);
+        const msg = error?.message || "Erro ao adiantar perguntas";
+        showToast("❌ " + msg);
+        document.getElementById("btnAdiantar").disabled = false;
+        document.getElementById("btnAdiantar").textContent = '💎 Adiantar (1 cr)';
       }
     }
 
@@ -3936,9 +4109,9 @@
       try {
         const btnAnswer = document.getElementById("btnAnswer");
         
-        // ✅ Se botão está em modo "Comprar Passe", redirecionar
-        if (btnAnswer.textContent.includes('Passe') || btnAnswer.textContent.includes('Comprar')) {
-          window.location.href = 'loja-passes.html';
+        // ✅ Se está em cooldown (sem perguntas), não buscar
+        if (cooldownState.perguntasRestantes <= 0 && cooldownState.totalRespondidas > 0) {
+          showToast("⏳ Aguarde o próximo ciclo de perguntas ou use créditos para adiantar!");
           return;
         }
         
@@ -3979,24 +4152,7 @@
         btnAnswer.disabled = true;
         btnAnswer.textContent = "🔍 Buscando pergunta...";
 
-        // ✅ V2: Verificar limite de partidas (Free = 2/dia, Passe = ilimitado)
-        const userDoc = await db.collection("usuarios").doc(uid).get();
-        const userData = userDoc.data() || {};
-        const passe = userData.passe || { tipo: 'free', ativo: false };
-        const limites = userData.limitesDiarios || {};
-        const tipoPasse = (passe.ativo && passe.tipo !== 'free') ? passe.tipo : 'free';
-
-        if (tipoPasse === 'free') {
-          const partidasHoje = limites.partidasHoje || 0;
-          if (partidasHoje >= 2) {
-            mostrarOverlayLimiteAtingido();
-            btnAnswer.disabled = false;
-            btnAnswer.textContent = "🎯 Responder Pergunta";
-            return;
-          }
-        }
-
-        // ✅ Buscar perguntas pelo TIME
+        // ✅ V2: Buscar perguntas pelo TIME (cooldown é validado server-side no responderPerguntaV2)
         console.log("🔍 Buscando perguntas para o time:", timeTorcida);
         
         const perguntasSnap = await db.collection("perguntas")
@@ -4243,9 +4399,12 @@
         const correct = r.respostaCorreta;
         const alternativas = currentQuestion.alternativas || {};
 
-        // 🎁 Detectar crédito bônus
-        if (r.bonusCreditoRecebido) mostrarBonusToast(1);
-        if (r.proximoBonusSegundos != null) atualizarProximoBonus(r.proximoBonusSegundos);
+        // ✅ Atualizar estado do cooldown
+        if (r.perguntasRestantes != null) {
+          cooldownState.perguntasRestantes = r.perguntasRestantes;
+          cooldownState.totalRespondidas = r.totalRespondidas;
+          cooldownState.totalDisponivel = r.totalDisponivel;
+        }
 
         // Mostrar resposta correta visualmente
         options.forEach((opt) => {
@@ -4271,18 +4430,23 @@
         await updateFreePlays();
 
         // ✅ FECHAR MODAL após 3 segundos
-        setTimeout(() => {
+        setTimeout(async () => {
           currentQuestion = null;
-          document.getElementById("btnAnswer").disabled = false;
-          document.getElementById("btnAnswer").textContent = "🎯 Responder Pergunta";
           document.getElementById("questionModalOverlay").classList.remove("active");
+          await updateFreePlays();
         }, 3000);
 
       } catch (error) {
         console.error("❌ Erro no timeout:", error);
         const code = error?.code || '';
-        if (code === 'resource-exhausted' || (error?.message || '').includes('limite')) {
-          mostrarOverlayLimiteAtingido();
+        if (code === 'resource-exhausted') {
+          try {
+            const info = JSON.parse(error?.message || '');
+            if (info.tipo === 'cooldown') {
+              cooldownState.perguntasRestantes = 0;
+              await updateFreePlays();
+            }
+          } catch(e) { mostrarOverlayLimiteAtingido(); }
         }
         // Fallback: fechar modal sem atualizar
         setTimeout(() => {
@@ -4328,13 +4492,12 @@
         const pontosFinais = r.pontosGanhos;
         const serverMultiplicador = r.multiplicador || 1;
 
-        // 🎁 Detectar se recebeu crédito bônus do drip
-        if (r.bonusCreditoRecebido) {
-          mostrarBonusToast(1);
-        }
-        // Atualizar timer do próximo bônus
-        if (r.proximoBonusSegundos != null) {
-          atualizarProximoBonus(r.proximoBonusSegundos);
+        // ✅ Atualizar estado do cooldown
+        if (r.perguntasRestantes != null) {
+          cooldownState.perguntasRestantes = r.perguntasRestantes;
+          cooldownState.totalRespondidas = r.totalRespondidas;
+          cooldownState.totalDisponivel = r.totalDisponivel;
+          cooldownState.cooldownSeg = r.cooldownSegundos || cooldownState.cooldownSeg;
         }
 
         console.log("📝 Resposta:", selectedLetter, "| Correta:", correct, "| Acertou:", acertou, "| Pontos:", pontosFinais);
@@ -4395,20 +4558,32 @@
         verificarPatrocinador();
 
         // ✅ FECHAR MODAL após 3 segundos
-        setTimeout(() => {
+        setTimeout(async () => {
           currentQuestion = null;
-          document.getElementById("btnAnswer").disabled = false;
-          document.getElementById("btnAnswer").textContent = "🎯 Responder Pergunta";
           document.getElementById("questionModalOverlay").classList.remove("active");
+          await updateFreePlays();
         }, 3000);
 
       } catch (error) {
         console.error("❌ Erro ao processar resposta:", error);
         const code = error?.code || error?.details?.code || '';
-        if (code === 'resource-exhausted' || (error?.message || '').includes('limite')) {
+        const msg = error?.message || error?.details || "";
+        
+        // Tentar parsear erro de cooldown
+        if (code === 'resource-exhausted') {
+          try {
+            const cooldownInfo = JSON.parse(msg);
+            if (cooldownInfo.tipo === 'cooldown') {
+              cooldownState.perguntasRestantes = 0;
+              showToast(`⏳ ${cooldownInfo.mensagem}`);
+              await updateFreePlays();
+              document.getElementById("btnAnswer").disabled = false;
+              document.getElementById("questionModalOverlay").classList.remove("active");
+              return;
+            }
+          } catch (e) { /* não é JSON, tratar como erro normal */ }
           mostrarOverlayLimiteAtingido();
         } else {
-          const msg = error?.message || error?.details || "Erro ao salvar resposta. Tente novamente!";
           showToast("❌ " + msg);
         }
         document.getElementById("btnAnswer").disabled = false;
@@ -5809,9 +5984,7 @@
       window.open(whatsappUrl, '_blank');
     }
 
-    // ========== OVERLAY SEM CRÉDITOS ==========
-    let dripTimerInterval = null;
-    let proximoBonusTime = null;
+    // ========== OVERLAY LIMITE DIÁRIO (para free sem partidas) ==========
 
     function mostrarOverlayLimiteAtingido() {
       const existente = document.getElementById('semCreditosOverlay');
@@ -5844,56 +6017,8 @@
       document.body.appendChild(overlay);
     }
 
-    // ========== DRIP TIMER (mini timer no badge) ==========
-    function iniciarDripTimer() {
-      const miniTimer = document.getElementById('dripMiniTimer');
-      if (!miniTimer) return;
-
-      miniTimer.classList.add('visible');
-
-      // Limpar interval anterior
-      if (dripTimerInterval) clearInterval(dripTimerInterval);
-
-      const atualizarMiniTimer = () => {
-        const tempoRestante = calcularTempoProximoBonus();
-        const el = document.getElementById('dripCountdown');
-        if (!el) return;
-
-        if (tempoRestante <= 0) {
-          el.textContent = 'AGORA!';
-          miniTimer.style.color = '#ffaa32';
-          return;
-        }
-
-        const m = Math.floor(tempoRestante / 60);
-        const s = tempoRestante % 60;
-        el.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-      };
-
-      atualizarMiniTimer();
-      dripTimerInterval = setInterval(atualizarMiniTimer, 1000);
-    }
-
-    function calcularTempoProximoBonus() {
-      // Calcula segundos até o próximo bônus grátis
-      if (!proximoBonusTime) {
-        // Estimar: o server controla, aqui é apenas visual
-        // Default: 10 minutos a partir de agora (se não souber o exato)
-        proximoBonusTime = Date.now() + (10 * 60 * 1000);
-      }
-      const diff = Math.max(0, Math.floor((proximoBonusTime - Date.now()) / 1000));
-      return diff;
-    }
-
-    // Atualizar o timer quando receber info do server
-    function atualizarProximoBonus(segundosRestantes) {
-      proximoBonusTime = Date.now() + (segundosRestantes * 1000);
-      const miniTimer = document.getElementById('dripMiniTimer');
-      if (miniTimer) {
-        miniTimer.classList.add('visible');
-        iniciarDripTimer();
-      }
-    }
+    // ========== DRIP TIMER (removido - substituído pelo sistema de cooldown) ==========
+    // O cooldown é gerenciado por updateFreePlays() e atualizarCooldownTimer()
 
     // ========== TOAST DE CRÉDITO BÔNUS ==========
     function mostrarBonusToast(creditosGanhos = 1) {
@@ -5902,8 +6027,6 @@
       toast.innerHTML = `🎁 +${creditosGanhos} Crédito Bônus!<small>Continue jogando e disputando prêmios!</small>`;
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 4500);
-      
-      // Atualizar display de créditos
       updateFreePlays();
     }
 
