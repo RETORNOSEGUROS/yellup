@@ -42,7 +42,509 @@ function logAtividadeBatch(batch, userId, tipo, valor, saldoAnterior, descricao,
 }
 
 // =====================================================
-// FUNÇÃO: EXECUTAR COMPRA NA BOLSA
+// 🔄 REESTRUTURAÇÃO YELLUP v2 — HELPERS DE FUNDAÇÃO
+// Fase 0: Estrutura de Passes, Limites e Rating
+// =====================================================
+
+// Configuração central — valores ajustáveis sem deploy
+const CONFIG_PASSES = {
+  diario: { preco: 2.90, duracaoDias: 1, nome: 'Passe Diário' },
+  mensal: { preco: 19.90, duracaoDias: 30, nome: 'Passe Mensal' }
+};
+
+const CONFIG_LIMITES = {
+  free: { partidasPorDia: 2, pvpPorDia: 1, timerPerguntaSeg: 300, bauCreditos: 5, missoes: 3 },
+  diario: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 10, missoes: 5 },
+  mensal: { partidasPorDia: 999, pvpPorDia: 999, timerPerguntaSeg: 120, bauCreditos: 15, missoes: 7 }
+};
+
+const CONFIG_PVP = {
+  taxaEntradaMin: 5,
+  taxaEntradaMax: 15,
+  premioSistemaEmbate: 40,
+  premioSistemaPenalti: 30
+};
+
+// Campos padrão para novos usuários (inicialização)
+const CAMPOS_PADRAO_USUARIO = {
+  passe: {
+    tipo: 'free',           // 'free', 'diario', 'mensal'
+    ativo: false,
+    dataInicio: null,
+    dataExpiracao: null,
+    historicoCompras: []
+  },
+  limitesDiarios: {
+    partidasHoje: 0,
+    pvpHoje: 0,
+    bauColetadoHoje: false,
+    ultimoReset: null
+  },
+  rating: 0,
+  ratingFaixa: 'Reserva',
+  ratingVariacao: 0,
+  ratingComponents: {
+    quiz: 0, pvp: 0, torneios: 0,
+    comunidade: 0, escalacao: 0, consistencia: 0
+  },
+  ratingHistory: [],
+  stats: {
+    diasAtivos: 0,
+    streakLogin: 0,
+    ultimoLogin: null,
+    totalPerguntas: 0,
+    totalAcertos: 0,
+    totalPvpJogados: 0,
+    totalPvpVitorias: 0,
+    totalTorneios: 0,
+    totalMsgChat: 0,
+    rivaisUnicos: []
+  }
+};
+
+/**
+ * HELPER: Verificar se usuário tem Passe ativo
+ * Retorna { temPasse, tipo, expirado, config }
+ */
+async function verificarPasse(uid) {
+  const userDoc = await db.collection('usuarios').doc(uid).get();
+  if (!userDoc.exists) return { temPasse: false, tipo: 'free', expirado: false, config: CONFIG_LIMITES.free };
+
+  const userData = userDoc.data();
+  const passe = userData.passe || { tipo: 'free', ativo: false };
+
+  // Free = sem passe
+  if (!passe.ativo || passe.tipo === 'free') {
+    return { temPasse: false, tipo: 'free', expirado: false, config: CONFIG_LIMITES.free };
+  }
+
+  // Verificar expiração
+  const agora = new Date();
+  const expiracao = passe.dataExpiracao?.toDate?.() || new Date(passe.dataExpiracao || 0);
+
+  if (agora > expiracao) {
+    // Passe expirou — desativar automaticamente
+    await db.collection('usuarios').doc(uid).update({
+      'passe.ativo': false,
+      'passe.tipo': 'free'
+    });
+    return { temPasse: false, tipo: 'free', expirado: true, config: CONFIG_LIMITES.free };
+  }
+
+  const config = CONFIG_LIMITES[passe.tipo] || CONFIG_LIMITES.free;
+  return { temPasse: true, tipo: passe.tipo, expirado: false, config };
+}
+
+/**
+ * HELPER: Verificar e controlar limite diário
+ * tipo: 'partida' ou 'pvp'
+ * Retorna { permitido, restante, limite, tipoPasse }
+ */
+async function verificarLimiteDiario(uid, tipo) {
+  const userDoc = await db.collection('usuarios').doc(uid).get();
+  if (!userDoc.exists) return { permitido: false, restante: 0, limite: 0, tipoPasse: 'free' };
+
+  const userData = userDoc.data();
+  const passe = userData.passe || { tipo: 'free', ativo: false };
+  const limites = userData.limitesDiarios || { partidasHoje: 0, pvpHoje: 0 };
+
+  // Verificar se precisa resetar (novo dia)
+  const agora = new Date();
+  const ultimoReset = limites.ultimoReset?.toDate?.() || new Date(0);
+  const mesmoDia = agora.toDateString() === ultimoReset.toDateString();
+
+  if (!mesmoDia) {
+    // Novo dia — resetar contadores
+    await db.collection('usuarios').doc(uid).update({
+      'limitesDiarios.partidasHoje': 0,
+      'limitesDiarios.pvpHoje': 0,
+      'limitesDiarios.bauColetadoHoje': false,
+      'limitesDiarios.ultimoReset': admin.firestore.FieldValue.serverTimestamp()
+    });
+    // Retornar com contadores zerados
+    const tipoPasse = (passe.ativo && passe.tipo !== 'free') ? passe.tipo : 'free';
+    const config = CONFIG_LIMITES[tipoPasse] || CONFIG_LIMITES.free;
+    const limite = tipo === 'partida' ? config.partidasPorDia : config.pvpPorDia;
+    return { permitido: true, restante: limite, limite, tipoPasse };
+  }
+
+  // Mesmo dia — verificar contadores
+  const tipoPasse = (passe.ativo && passe.tipo !== 'free') ? passe.tipo : 'free';
+  const config = CONFIG_LIMITES[tipoPasse] || CONFIG_LIMITES.free;
+
+  const usado = tipo === 'partida' ? (limites.partidasHoje || 0) : (limites.pvpHoje || 0);
+  const limite = tipo === 'partida' ? config.partidasPorDia : config.pvpPorDia;
+  const restante = Math.max(0, limite - usado);
+
+  return { permitido: restante > 0, restante, limite, tipoPasse };
+}
+
+/**
+ * HELPER: Incrementar contador diário
+ * tipo: 'partida' ou 'pvp'
+ */
+async function incrementarLimiteDiario(uid, tipo) {
+  const campo = tipo === 'partida' ? 'limitesDiarios.partidasHoje' : 'limitesDiarios.pvpHoje';
+  await db.collection('usuarios').doc(uid).update({
+    [campo]: admin.firestore.FieldValue.increment(1)
+  });
+}
+
+/**
+ * HELPER: Atualizar stats do usuário (para cálculo de rating)
+ */
+function atualizarStatsEmBatch(batch, uid, campo, valor = 1) {
+  batch.update(db.collection('usuarios').doc(uid), {
+    [`stats.${campo}`]: admin.firestore.FieldValue.increment(valor)
+  });
+}
+
+/**
+ * HELPER: Determinar faixa do rating
+ */
+function getFaixaRating(rating) {
+  if (rating >= 850) return { nome: 'Imortal', emoji: '🏆' };
+  if (rating >= 650) return { nome: 'Lenda', emoji: '🔴' };
+  if (rating >= 450) return { nome: 'Fenômeno', emoji: '🟠' };
+  if (rating >= 250) return { nome: 'Craque', emoji: '🟡' };
+  if (rating >= 100) return { nome: 'Titular', emoji: '🟢' };
+  return { nome: 'Reserva', emoji: '⚽' };
+}
+
+
+// =====================================================
+// 🎫 FASE 1: SISTEMA DE PASSES
+// =====================================================
+
+/**
+ * ATIVAR PASSE — Chamada após confirmação de pagamento MP
+ * Recebe: { paymentId, tipoPasse: 'diario'|'mensal' }
+ */
+exports.ativarPasse = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const uid = context.auth.uid;
+  const { paymentId, tipoPasse } = data;
+
+  if (!paymentId || !tipoPasse || !['diario', 'mensal'].includes(tipoPasse)) {
+    throw new functions.https.HttpsError('invalid-argument', 'paymentId e tipoPasse (diario/mensal) obrigatórios');
+  }
+
+  try {
+    // Verificar duplicidade
+    const pagDoc = await db.collection('pagamentos_passe').doc(String(paymentId)).get();
+    if (pagDoc.exists) {
+      console.log('⚠️ Passe já ativado para este pagamento:', paymentId);
+      return { success: true, jaProcessado: true };
+    }
+
+    const configPasse = CONFIG_PASSES[tipoPasse];
+    const agora = new Date();
+    const expiracao = new Date(agora);
+    expiracao.setDate(expiracao.getDate() + configPasse.duracaoDias);
+
+    // Ler dados atuais
+    const userDoc = await db.collection('usuarios').doc(uid).get();
+    const userData = userDoc.data() || {};
+    const passeAtual = userData.passe || {};
+
+    // Se já tem passe ativo, estender a data de expiração
+    let dataInicioFinal = agora;
+    let dataExpiracaoFinal = expiracao;
+
+    if (passeAtual.ativo && passeAtual.dataExpiracao) {
+      const expiracaoAtual = passeAtual.dataExpiracao.toDate?.() || new Date(passeAtual.dataExpiracao);
+      if (expiracaoAtual > agora) {
+        // Estender a partir da expiração atual
+        dataExpiracaoFinal = new Date(expiracaoAtual);
+        dataExpiracaoFinal.setDate(dataExpiracaoFinal.getDate() + configPasse.duracaoDias);
+      }
+    }
+
+    const batch = db.batch();
+    const userRef = db.collection('usuarios').doc(uid);
+
+    // Ativar passe
+    batch.update(userRef, {
+      'passe.tipo': tipoPasse,
+      'passe.ativo': true,
+      'passe.dataInicio': admin.firestore.Timestamp.fromDate(dataInicioFinal),
+      'passe.dataExpiracao': admin.firestore.Timestamp.fromDate(dataExpiracaoFinal),
+      'passe.historicoCompras': admin.firestore.FieldValue.arrayUnion({
+        tipo: tipoPasse,
+        paymentId: String(paymentId),
+        data: admin.firestore.Timestamp.fromDate(agora),
+        valor: configPasse.preco
+      })
+    });
+
+    // Registrar pagamento (anti-duplicidade)
+    const pagRef = db.collection('pagamentos_passe').doc(String(paymentId));
+    batch.set(pagRef, {
+      usuarioId: uid,
+      tipoPasse,
+      valor: configPasse.preco,
+      dataAtivacao: admin.firestore.Timestamp.fromDate(agora),
+      dataExpiracao: admin.firestore.Timestamp.fromDate(dataExpiracaoFinal),
+      status: 'ativo',
+      processadoEm: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Log
+    logAtividadeBatch(batch, uid, 'compra_passe', 0, null,
+      `Passe ${configPasse.nome} ativado até ${dataExpiracaoFinal.toLocaleDateString('pt-BR')}`,
+      { paymentId: String(paymentId), tipoPasse, valor: configPasse.preco });
+
+    await batch.commit();
+
+    // Notificação
+    await criarNotificacaoHelper(uid, 'passe',
+      `🎫 ${configPasse.nome} Ativado!`,
+      `Seu ${configPasse.nome} está ativo até ${dataExpiracaoFinal.toLocaleDateString('pt-BR')}. Aproveite partidas ilimitadas!`
+    );
+
+    console.log(`✅ Passe ${tipoPasse} ativado: ${uid} até ${dataExpiracaoFinal.toISOString()}`);
+
+    return {
+      success: true,
+      passe: {
+        tipo: tipoPasse,
+        nome: configPasse.nome,
+        ativo: true,
+        dataExpiracao: dataExpiracaoFinal.toISOString()
+      }
+    };
+
+  } catch (error) {
+    console.error('❌ Erro ao ativar passe:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Erro ao ativar passe');
+  }
+});
+
+/**
+ * VERIFICAR STATUS DO PASSE — Chamada pelo client ao abrir o app
+ * Retorna status completo + limites do dia
+ */
+exports.verificarStatusPasse = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const uid = context.auth.uid;
+
+  try {
+    const passe = await verificarPasse(uid);
+    const limitePartida = await verificarLimiteDiario(uid, 'partida');
+    const limitePvp = await verificarLimiteDiario(uid, 'pvp');
+
+    return {
+      success: true,
+      passe: {
+        temPasse: passe.temPasse,
+        tipo: passe.tipo,
+        expirado: passe.expirado
+      },
+      limites: {
+        partidas: { restante: limitePartida.restante, limite: limitePartida.limite },
+        pvp: { restante: limitePvp.restante, limite: limitePvp.limite },
+        timerPergunta: passe.config.timerPerguntaSeg,
+        bauCreditos: passe.config.bauCreditos,
+        missoes: passe.config.missoes
+      }
+    };
+
+  } catch (error) {
+    console.error('❌ Erro verificarStatusPasse:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao verificar passe');
+  }
+});
+
+
+// =====================================================
+// ⏰ CRON: RESET LIMITES DIÁRIOS (00:05 BRT)
+// Reseta contadores de todos os usuários ativos
+// =====================================================
+exports.resetLimitesDiarios = functions.pubsub
+  .schedule('5 0 * * *')
+  .timeZone('America/Sao_Paulo')
+  .onRun(async () => {
+    try {
+      // Buscar usuários que jogaram nas últimas 48h (otimização)
+      const doisDiasAtras = new Date();
+      doisDiasAtras.setDate(doisDiasAtras.getDate() - 2);
+
+      const snap = await db.collection('usuarios')
+        .where('limitesDiarios.ultimoReset', '>', admin.firestore.Timestamp.fromDate(doisDiasAtras))
+        .get();
+
+      if (snap.empty) {
+        console.log('⏰ Nenhum usuário ativo para resetar');
+        return null;
+      }
+
+      // Batch updates (máx 500 por batch)
+      let batch = db.batch();
+      let count = 0;
+
+      for (const doc of snap.docs) {
+        batch.update(doc.ref, {
+          'limitesDiarios.partidasHoje': 0,
+          'limitesDiarios.pvpHoje': 0,
+          'limitesDiarios.bauColetadoHoje': false,
+          'limitesDiarios.ultimoReset': admin.firestore.FieldValue.serverTimestamp()
+        });
+        count++;
+
+        if (count % 500 === 0) {
+          await batch.commit();
+          batch = db.batch();
+        }
+      }
+
+      if (count % 500 !== 0) {
+        await batch.commit();
+      }
+
+      console.log(`⏰ Limites diários resetados para ${count} usuários`);
+      return null;
+
+    } catch (error) {
+      console.error('❌ Erro resetLimitesDiarios:', error);
+      return null;
+    }
+  });
+
+
+// =====================================================
+// ⏰ CRON: VERIFICAR PASSES EXPIRADOS (01:00 BRT)
+// Desativa passes que venceram
+// =====================================================
+exports.verificarPassesExpirados = functions.pubsub
+  .schedule('0 1 * * *')
+  .timeZone('America/Sao_Paulo')
+  .onRun(async () => {
+    try {
+      const agora = admin.firestore.Timestamp.now();
+
+      const snap = await db.collection('usuarios')
+        .where('passe.ativo', '==', true)
+        .where('passe.dataExpiracao', '<', agora)
+        .get();
+
+      if (snap.empty) {
+        console.log('🎫 Nenhum passe expirado');
+        return null;
+      }
+
+      let batch = db.batch();
+      let count = 0;
+
+      for (const doc of snap.docs) {
+        batch.update(doc.ref, {
+          'passe.ativo': false,
+          'passe.tipo': 'free'
+        });
+        count++;
+
+        if (count % 500 === 0) {
+          await batch.commit();
+          batch = db.batch();
+        }
+      }
+
+      if (count % 500 !== 0) {
+        await batch.commit();
+      }
+
+      // Notificar usuários
+      for (const doc of snap.docs) {
+        try {
+          await criarNotificacaoHelper(doc.id, 'passe',
+            '⏰ Passe Expirado',
+            'Seu passe expirou. Renove para continuar com partidas ilimitadas!'
+          );
+        } catch (e) { /* não crítico */ }
+      }
+
+      console.log(`🎫 ${count} passes expirados desativados`);
+      return null;
+
+    } catch (error) {
+      console.error('❌ Erro verificarPassesExpirados:', error);
+      return null;
+    }
+  });
+
+
+// =====================================================
+// 🎁 COLETAR BAÚ DIÁRIO (v2 — com multiplicador de Passe)
+// =====================================================
+exports.coletarBauDiarioV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const uid = context.auth.uid;
+
+  try {
+    const userDoc = await db.collection('usuarios').doc(uid).get();
+    if (!userDoc.exists) throw new functions.https.HttpsError('not-found', 'Usuário não encontrado');
+
+    const userData = userDoc.data();
+    const limites = userData.limitesDiarios || {};
+
+    // Verificar se já coletou hoje
+    const agora = new Date();
+    const ultimoReset = limites.ultimoReset?.toDate?.() || new Date(0);
+    const mesmoDia = agora.toDateString() === ultimoReset.toDateString();
+
+    if (mesmoDia && limites.bauColetadoHoje) {
+      throw new functions.https.HttpsError('already-exists', 'Baú já coletado hoje');
+    }
+
+    // Determinar quantidade baseado no passe
+    const passe = await verificarPasse(uid);
+    const creditosBau = passe.config.bauCreditos;
+    const saldoAnterior = userData.creditos || 0;
+
+    const batch = db.batch();
+    const userRef = db.collection('usuarios').doc(uid);
+
+    batch.update(userRef, {
+      creditos: admin.firestore.FieldValue.increment(creditosBau),
+      'limitesDiarios.bauColetadoHoje': true,
+      'limitesDiarios.ultimoReset': admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    logAtividadeBatch(batch, uid, 'bau_diario', creditosBau, saldoAnterior,
+      `Baú diário: +${creditosBau} créditos (${passe.tipo})`,
+      { tipoPasse: passe.tipo });
+
+    await batch.commit();
+
+    console.log(`🎁 Baú coletado: ${uid} +${creditosBau} cr (${passe.tipo})`);
+
+    return {
+      success: true,
+      creditosRecebidos: creditosBau,
+      saldoNovo: saldoAnterior + creditosBau,
+      tipoPasse: passe.tipo
+    };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro coletarBauDiarioV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao coletar baú');
+  }
+});
+
+
+// =====================================================
+// [DEPRECATED] FUNÇÃO: EXECUTAR COMPRA NA BOLSA
+// ⚠️ Será removida na Fase 4 — manter para backward compatibility
 // O SISTEMA faz a transferência, não o usuário
 // =====================================================
 
@@ -1756,6 +2258,11 @@ exports.creditarIndicacao = functions.https.onCall(async (data, context) => {
 // Adiciona créditos após confirmação de pagamento
 // =====================================================
 
+// =====================================================
+// [DEPRECATED] FUNÇÃO: CREDITAR COMPRA DE CRÉDITOS
+// ⚠️ Será removida na Fase 1 — substituída por ativarPasse
+// Mantida para processar pagamentos pendentes
+// =====================================================
 exports.creditarCompra = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
@@ -2052,11 +2559,58 @@ exports.bemVindoNovoUsuario = functions.firestore
 
     console.log(`🎉 Novo usuário: ${nome} (${userId})`);
 
+    // ==========================================
+    // FASE 0: Inicializar campos da reestruturação v2
+    // ==========================================
+    try {
+      const camposNovos = {};
+
+      // Passe (Free por padrão)
+      if (!userData.passe) {
+        camposNovos.passe = CAMPOS_PADRAO_USUARIO.passe;
+      }
+
+      // Limites diários
+      if (!userData.limitesDiarios) {
+        camposNovos.limitesDiarios = {
+          ...CAMPOS_PADRAO_USUARIO.limitesDiarios,
+          ultimoReset: admin.firestore.FieldValue.serverTimestamp()
+        };
+      }
+
+      // Rating
+      if (userData.rating === undefined) {
+        camposNovos.rating = 0;
+        camposNovos.ratingFaixa = 'Reserva';
+        camposNovos.ratingVariacao = 0;
+        camposNovos.ratingComponents = CAMPOS_PADRAO_USUARIO.ratingComponents;
+        camposNovos.ratingHistory = [];
+      }
+
+      // Stats (para cálculo de rating)
+      if (!userData.stats) {
+        camposNovos.stats = CAMPOS_PADRAO_USUARIO.stats;
+      }
+
+      // Créditos iniciais de boas-vindas (50 créditos grátis)
+      if (userData.creditos === undefined) {
+        camposNovos.creditos = 50;
+      }
+
+      if (Object.keys(camposNovos).length > 0) {
+        await db.collection('usuarios').doc(userId).update(camposNovos);
+        console.log(`📦 Campos v2 inicializados para ${userId}:`, Object.keys(camposNovos));
+      }
+    } catch (e) {
+      console.error('⚠️ Erro ao inicializar campos v2:', e.message);
+      // Não bloqueia o fluxo
+    }
+
     await criarNotificacaoHelper(
       userId,
       "sistema",
       "🎉 Bem-vindo ao Yellup!",
-      `Olá ${nome}! Comece jogando e acumulando XP para subir de nível. Boa sorte! ⚽`
+      `Olá ${nome}! Você ganhou 50 créditos de boas-vindas. Comece jogando e acumulando XP! ⚽`
     );
 
     // Se tem código de indicação, notificar quem indicou
@@ -2350,5 +2904,422 @@ exports.responderPergunta = functions.https.onCall(async (data, context) => {
     if (error instanceof functions.https.HttpsError) throw error;
     console.error("Erro responderPergunta:", error);
     throw new functions.https.HttpsError("internal", "Erro interno ao processar resposta");
+  }
+});
+
+
+// =====================================================
+// 🔄 FASE 2: PvP v2 — EMBATES COM TAXA QUEIMADA + PRÊMIO DO SISTEMA
+// =====================================================
+
+/**
+ * CRIAR EMBATE v2 — Taxa de entrada é QUEIMADA (não vai pro pool)
+ * Prêmio vem do SISTEMA, não dos jogadores
+ */
+exports.criarEmbateV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const uid = context.auth.uid;
+  const { embateId, taxaEntrada } = data;
+
+  if (!embateId || !taxaEntrada || taxaEntrada < CONFIG_PVP.taxaEntradaMin || taxaEntrada > CONFIG_PVP.taxaEntradaMax) {
+    throw new functions.https.HttpsError('invalid-argument',
+      `Taxa de entrada deve ser entre ${CONFIG_PVP.taxaEntradaMin} e ${CONFIG_PVP.taxaEntradaMax} créditos`);
+  }
+
+  try {
+    // Verificar limite diário de PvP
+    const limite = await verificarLimiteDiario(uid, 'pvp');
+    if (!limite.permitido) {
+      throw new functions.https.HttpsError('resource-exhausted',
+        `Limite diário de PvP atingido (${limite.limite}/${limite.limite}). ${limite.tipoPasse === 'free' ? 'Adquira um Passe para jogar ilimitado!' : ''}`);
+    }
+
+    // Verificar embate
+    const embateDoc = await db.collection('embates').doc(embateId).get();
+    if (!embateDoc.exists) throw new functions.https.HttpsError('not-found', 'Embate não encontrado');
+
+    const embate = embateDoc.data();
+    if (embate.criadorId !== uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Você não é o criador deste embate');
+    }
+
+    // Anti-duplicidade
+    const transExistente = await db.collection('transacoes')
+      .where('usuarioId', '==', uid)
+      .where('embateId', '==', embateId)
+      .where('tipo', '==', 'debito')
+      .limit(1).get();
+    if (!transExistente.empty) return { success: true, mensagem: 'Créditos já debitados' };
+
+    // Verificar créditos
+    const userDoc = await db.collection('usuarios').doc(uid).get();
+    const creditos = userDoc.data()?.creditos || 0;
+    if (creditos < taxaEntrada) {
+      throw new functions.https.HttpsError('resource-exhausted',
+        `Créditos insuficientes. Precisa: ${taxaEntrada}, Tem: ${creditos}`);
+    }
+
+    const batch = db.batch();
+
+    // QUEIMAR taxa (não vai pro pool — vai pro nada)
+    batch.update(db.collection('usuarios').doc(uid), {
+      creditos: admin.firestore.FieldValue.increment(-taxaEntrada)
+    });
+
+    // Marcar embate como v2 (prêmio do sistema)
+    batch.update(db.collection('embates').doc(embateId), {
+      modeloV2: true,
+      taxaEntrada: taxaEntrada,
+      premioSistema: CONFIG_PVP.premioSistemaEmbate,
+      // NÃO tem prizePool — prêmio é fixo do sistema
+    });
+
+    // Transação
+    const transRef = db.collection('transacoes').doc();
+    batch.set(transRef, {
+      usuarioId: uid,
+      tipo: 'debito',
+      valor: taxaEntrada,
+      descricao: `Taxa de entrada: embate ${embate.codigo || embateId}`,
+      embateId, modeloV2: true,
+      data: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    // Incrementar limite diário
+    await incrementarLimiteDiario(uid, 'pvp');
+
+    // Log + Stats
+    await logAtividade(uid, 'debito_pvp_v2', -taxaEntrada, creditos,
+      `PvP v2: taxa entrada embate ${embate.codigo || embateId}`,
+      { embateId, taxaEntrada, modeloV2: true });
+
+    console.log(`✅ Embate v2 criado: ${uid} queimou ${taxaEntrada} cr (prêmio sistema: ${CONFIG_PVP.premioSistemaEmbate})`);
+
+    return {
+      success: true,
+      mensagem: `Taxa cobrada: ${taxaEntrada} créditos. Prêmio ao vencedor: ${CONFIG_PVP.premioSistemaEmbate} créditos!`,
+      premioSistema: CONFIG_PVP.premioSistemaEmbate
+    };
+
+  } catch (error) {
+    console.error('❌ Erro criarEmbateV2:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', 'Erro ao criar embate');
+  }
+});
+
+/**
+ * ACEITAR EMBATE v2 — Taxa queimada + verificação de limite
+ */
+exports.aceitarEmbateV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const uid = context.auth.uid;
+  const { embateId } = data;
+
+  if (!embateId) throw new functions.https.HttpsError('invalid-argument', 'embateId obrigatório');
+
+  try {
+    // Verificar limite
+    const limite = await verificarLimiteDiario(uid, 'pvp');
+    if (!limite.permitido) {
+      throw new functions.https.HttpsError('resource-exhausted',
+        `Limite diário de PvP atingido. ${limite.tipoPasse === 'free' ? 'Adquira um Passe para jogar ilimitado!' : ''}`);
+    }
+
+    const embateDoc = await db.collection('embates').doc(embateId).get();
+    if (!embateDoc.exists) throw new functions.https.HttpsError('not-found', 'Embate não encontrado');
+    const embate = embateDoc.data();
+
+    if (embate.status !== 'aguardando') {
+      throw new functions.https.HttpsError('failed-precondition', 'Embate não está aguardando');
+    }
+    if ((embate.participantes || []).includes(uid)) {
+      throw new functions.https.HttpsError('already-exists', 'Já está neste embate');
+    }
+
+    const taxaEntrada = embate.taxaEntrada || embate.aposta || CONFIG_PVP.taxaEntradaMin;
+
+    // Verificar créditos
+    const userDoc = await db.collection('usuarios').doc(uid).get();
+    const creditos = userDoc.data()?.creditos || 0;
+    if (creditos < taxaEntrada) {
+      throw new functions.https.HttpsError('resource-exhausted',
+        `Créditos insuficientes. Precisa: ${taxaEntrada}, Tem: ${creditos}`);
+    }
+
+    // Anti-duplicidade
+    const transExistente = await db.collection('transacoes')
+      .where('usuarioId', '==', uid).where('embateId', '==', embateId)
+      .where('tipo', '==', 'debito').limit(1).get();
+    if (!transExistente.empty) return { success: true, mensagem: 'Créditos já debitados' };
+
+    const batch = db.batch();
+
+    // QUEIMAR taxa
+    batch.update(db.collection('usuarios').doc(uid), {
+      creditos: admin.firestore.FieldValue.increment(-taxaEntrada)
+    });
+
+    // Atualizar embate (participantes, sem prizePool)
+    batch.update(db.collection('embates').doc(embateId), {
+      participantes: admin.firestore.FieldValue.arrayUnion(uid),
+      totalParticipantes: admin.firestore.FieldValue.increment(1)
+    });
+
+    // Transação
+    const transRef = db.collection('transacoes').doc();
+    batch.set(transRef, {
+      usuarioId: uid, tipo: 'debito', valor: taxaEntrada,
+      descricao: `Taxa de entrada: embate ${embate.codigo || embateId}`,
+      embateId, modeloV2: true,
+      data: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+    await incrementarLimiteDiario(uid, 'pvp');
+
+    await logAtividade(uid, 'debito_pvp_v2', -taxaEntrada, creditos,
+      `PvP v2: entrou no embate ${embate.codigo || embateId}`,
+      { embateId, taxaEntrada });
+
+    // Registrar rival único nas stats
+    try {
+      const oponente = embate.criadorId;
+      if (oponente && oponente !== uid) {
+        await db.collection('usuarios').doc(uid).update({
+          'stats.rivaisUnicos': admin.firestore.FieldValue.arrayUnion(oponente)
+        });
+      }
+    } catch (e) { /* não crítico */ }
+
+    console.log(`✅ Embate v2 aceito: ${uid} entrou (-${taxaEntrada} cr)`);
+    return { success: true, mensagem: `Entrada confirmada! -${taxaEntrada} créditos` };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro aceitarEmbateV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao aceitar embate');
+  }
+});
+
+/**
+ * FINALIZAR EMBATE v2 — Prêmio do SISTEMA, não do pool dos jogadores
+ */
+exports.finalizarEmbateV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login primeiro');
+  }
+
+  const { embateId } = data;
+  if (!embateId) throw new functions.https.HttpsError('invalid-argument', 'embateId obrigatório');
+
+  try {
+    const embateDoc = await db.collection('embates').doc(embateId).get();
+    if (!embateDoc.exists) throw new functions.https.HttpsError('not-found', 'Embate não encontrado');
+    const embate = embateDoc.data();
+
+    if (!['em_andamento', 'respondendo', 'finalizando'].includes(embate.status)) {
+      throw new functions.https.HttpsError('failed-precondition', 'Embate não pode ser finalizado');
+    }
+    if (embate.resultado && embate.status === 'finalizado') {
+      return { success: true, mensagem: 'Já finalizado', resultado: embate.resultado };
+    }
+
+    // Buscar participações
+    const participacoesSnap = await db.collection('embates').doc(embateId)
+      .collection('participacoes').get();
+
+    let ranking = [];
+    participacoesSnap.forEach(doc => {
+      ranking.push({ odId: doc.id, ...doc.data() });
+    });
+    ranking.sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
+
+    // PRÊMIO DO SISTEMA (não do pool!)
+    const premio = embate.premioSistema || CONFIG_PVP.premioSistemaEmbate;
+    let resultado = {};
+
+    const batch = db.batch();
+
+    if (ranking.length > 0) {
+      const maiorPontuacao = ranking[0].pontos || 0;
+      const vencedores = ranking.filter(r => (r.pontos || 0) === maiorPontuacao);
+      const empate = vencedores.length > 1;
+
+      resultado = {
+        vencedorId: empate ? null : vencedores[0].odId,
+        vencedorNome: empate ? null : (vencedores[0].odNome || ''),
+        pontuacaoVencedor: maiorPontuacao,
+        empate, modeloV2: true,
+        premioSistema: premio,
+        vencedoresEmpate: empate ? vencedores.map(v => v.odId) : null,
+        ranking: ranking.map((r, i) => ({
+          posicao: i + 1, odId: r.odId, odNome: r.odNome || '',
+          pontos: r.pontos || 0, acertos: r.acertos || 0, erros: r.erros || 0
+        }))
+      };
+
+      if (empate) {
+        const premioPorJogador = Math.floor(premio / vencedores.length);
+        for (const v of vencedores) {
+          batch.update(db.collection('usuarios').doc(v.odId), {
+            creditos: admin.firestore.FieldValue.increment(premioPorJogador),
+            'pvp.vitorias': admin.firestore.FieldValue.increment(1),
+            'pvp.creditosGanhos': admin.firestore.FieldValue.increment(premioPorJogador),
+            'pvp.totalEmbates': admin.firestore.FieldValue.increment(1),
+            'stats.totalPvpVitorias': admin.firestore.FieldValue.increment(1),
+            'stats.totalPvpJogados': admin.firestore.FieldValue.increment(1)
+          });
+          const transRef = db.collection('transacoes').doc();
+          batch.set(transRef, {
+            usuarioId: v.odId, tipo: 'credito', valor: premioPorJogador,
+            descricao: `🏆 Prêmio do sistema: embate ${embate.codigo || embateId}`,
+            embateId, modeloV2: true, fontePremio: 'sistema',
+            data: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
+        // Perdedores
+        for (const p of ranking.filter(r => (r.pontos || 0) < maiorPontuacao)) {
+          batch.update(db.collection('usuarios').doc(p.odId), {
+            'pvp.derrotas': admin.firestore.FieldValue.increment(1),
+            'pvp.totalEmbates': admin.firestore.FieldValue.increment(1),
+            'stats.totalPvpJogados': admin.firestore.FieldValue.increment(1)
+          });
+        }
+      } else {
+        const vencedor = vencedores[0];
+        batch.update(db.collection('usuarios').doc(vencedor.odId), {
+          creditos: admin.firestore.FieldValue.increment(premio),
+          'pvp.vitorias': admin.firestore.FieldValue.increment(1),
+          'pvp.creditosGanhos': admin.firestore.FieldValue.increment(premio),
+          'pvp.totalEmbates': admin.firestore.FieldValue.increment(1),
+          'stats.totalPvpVitorias': admin.firestore.FieldValue.increment(1),
+          'stats.totalPvpJogados': admin.firestore.FieldValue.increment(1)
+        });
+        const transRef = db.collection('transacoes').doc();
+        batch.set(transRef, {
+          usuarioId: vencedor.odId, tipo: 'credito', valor: premio,
+          descricao: `🏆 Prêmio do sistema: embate ${embate.codigo || embateId}`,
+          embateId, modeloV2: true, fontePremio: 'sistema',
+          data: admin.firestore.FieldValue.serverTimestamp()
+        });
+        // Perdedores
+        for (const p of ranking.slice(1)) {
+          batch.update(db.collection('usuarios').doc(p.odId), {
+            'pvp.derrotas': admin.firestore.FieldValue.increment(1),
+            'pvp.totalEmbates': admin.firestore.FieldValue.increment(1),
+            'stats.totalPvpJogados': admin.firestore.FieldValue.increment(1)
+          });
+        }
+      }
+    }
+
+    // Finalizar embate
+    batch.update(db.collection('embates').doc(embateId), {
+      status: 'finalizado', resultado,
+      modeloV2: true, fontePremio: 'sistema',
+      dataFinalizacao: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    console.log(`✅ Embate v2 ${embateId} finalizado. Prêmio sistema: ${premio} cr`);
+    return { success: true, resultado, premio, fontePremio: 'sistema' };
+
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('❌ Erro finalizarEmbateV2:', error);
+    throw new functions.https.HttpsError('internal', 'Erro ao finalizar embate');
+  }
+});
+
+
+// =====================================================
+// 🔧 MIGRAÇÃO: Adicionar campos v2 a usuários existentes
+// Executar UMA VEZ via admin dashboard ou manualmente
+// =====================================================
+exports.migrarUsuariosV2 = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Faça login');
+  }
+
+  // Verificar se é admin
+  const adminDoc = await db.collection('usuarios').doc(context.auth.uid).get();
+  if (!adminDoc.data()?.isAdmin) {
+    throw new functions.https.HttpsError('permission-denied', 'Apenas admin');
+  }
+
+  try {
+    const snap = await db.collection('usuarios').get();
+    let migrados = 0;
+    let jaOk = 0;
+
+    // Processar em batches de 500
+    let batch = db.batch();
+    let batchCount = 0;
+
+    for (const doc of snap.docs) {
+      const userData = doc.data();
+      const updates = {};
+
+      // Só adicionar campos que não existem
+      if (!userData.passe) {
+        updates.passe = CAMPOS_PADRAO_USUARIO.passe;
+      }
+      if (!userData.limitesDiarios) {
+        updates.limitesDiarios = {
+          partidasHoje: 0, pvpHoje: 0, bauColetadoHoje: false,
+          ultimoReset: admin.firestore.FieldValue.serverTimestamp()
+        };
+      }
+      if (userData.rating === undefined) {
+        updates.rating = 0;
+        updates.ratingFaixa = 'Reserva';
+        updates.ratingVariacao = 0;
+        updates.ratingComponents = CAMPOS_PADRAO_USUARIO.ratingComponents;
+        updates.ratingHistory = [];
+      }
+      if (!userData.stats) {
+        updates.stats = {
+          ...CAMPOS_PADRAO_USUARIO.stats,
+          // Migrar dados existentes se houver
+          totalPvpVitorias: userData.pvp?.vitorias || 0,
+          totalPvpJogados: userData.pvp?.totalEmbates || 0
+        };
+      }
+
+      if (Object.keys(updates).length > 0) {
+        batch.update(doc.ref, updates);
+        migrados++;
+        batchCount++;
+
+        if (batchCount >= 500) {
+          await batch.commit();
+          batch = db.batch();
+          batchCount = 0;
+        }
+      } else {
+        jaOk++;
+      }
+    }
+
+    if (batchCount > 0) {
+      await batch.commit();
+    }
+
+    console.log(`🔧 Migração v2: ${migrados} migrados, ${jaOk} já estavam ok`);
+    return { success: true, migrados, jaOk, total: snap.size };
+
+  } catch (error) {
+    console.error('❌ Erro migração:', error);
+    throw new functions.https.HttpsError('internal', 'Erro na migração');
   }
 });
