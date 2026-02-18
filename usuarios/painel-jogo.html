@@ -3750,7 +3750,44 @@
         const participanteDoc = await db.collection("jogos").doc(jogoId)
           .collection("participantes").doc(uid).get();
         
-        if (participanteDoc.exists) {
+        // ✅ V2: Garantir que participante tem entradaEm (cooldown)
+        // Usuários que entraram antes do v2 não têm esse campo
+        const precisaInicializar = !participanteDoc.exists || !participanteDoc.data()?.entradaEm;
+        
+        if (precisaInicializar) {
+          console.log("⚡ Inicializando participante via entrarPartidaV2...");
+          try {
+            const entrarFn = functions.httpsCallable('entrarPartidaV2');
+            const entradaResult = await entrarFn({ jogoId: jogoId, timeId: timeTorcida });
+            const er = entradaResult.data;
+            console.log(`✅ entrarPartidaV2: ${er.perguntasDisponiveis} disponíveis, cooldown ${er.cooldownSegundos}s`);
+            
+            cooldownState = {
+              entradaEm: Date.now(),
+              cooldownSeg: er.cooldownSegundos || 300,
+              totalRespondidas: er.totalRespondidas || 0,
+              totalDisponivel: er.totalDisponivel || 5,
+              skipsUsados: er.skipsUsados || 0,
+              tipoPasse: er.tipoPasse || 'free',
+              perguntasRestantes: er.perguntasDisponiveis || 5
+            };
+
+            // Carregar acertos/erros do participante recarregado
+            const pDocReload = await db.collection("jogos").doc(jogoId)
+              .collection("participantes").doc(uid).get();
+            if (pDocReload.exists) {
+              totalAcertos = pDocReload.data().acertos || 0;
+              totalErros = pDocReload.data().erros || 0;
+            }
+          } catch (entradaErr) {
+            console.error("❌ Erro ao inicializar participante:", entradaErr);
+            // Se for limite diário, mostrar overlay
+            if (entradaErr?.code === 'resource-exhausted') {
+              mostrarOverlayLimiteAtingido();
+              return;
+            }
+          }
+        } else if (participanteDoc.exists) {
           const participante = participanteDoc.data();
           totalAcertos = participante.acertos || 0;
           totalErros = participante.erros || 0;
