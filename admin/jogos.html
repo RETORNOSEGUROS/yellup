@@ -325,16 +325,6 @@
                         <label>🏆 Liga / Campeonato</label>
                         <select id="liga"><option value="">Selecione...</option></select>
                     </div>
-                    <div class="form-group">
-                        <label>💰 Créditos p/ Torcer</label>
-                        <input type="number" id="creditosEntrada" value="0" min="0">
-                        <div class="form-hint">0 = entrada grátis</div>
-                    </div>
-                    <div class="form-group">
-                        <label>🎁 Créditos Iniciais</label>
-                        <input type="number" id="creditosIniciais" value="0" min="0">
-                        <div class="form-hint">Pote de premiação</div>
-                    </div>
                 </div>
 
                 <!-- Sponsors -->
@@ -518,15 +508,12 @@
                 const pats = (j.patrocinadores||[]).length;
                 const jogadores = torcidaCountMap[j.id] || j.participantes || 0;
                 const creds = creditosPagosMap[j.id] || 0;
-                const entrada = j.creditosEntrada || 0;
 
                 const statusBadge = j.status === 'ao_vivo' ? '<span class="badge badge-live">🔴 Ao Vivo</span>'
                     : j.status === 'agendado' ? '<span class="badge badge-scheduled">📆 Agendado</span>'
                     : '<span class="badge badge-finished">✅ Finalizado</span>';
 
-                const entradaBadge = entrada > 0
-                    ? `<span class="badge badge-paid">💰 ${entrada}</span>`
-                    : '<span class="badge badge-free">🆓 Grátis</span>';
+                const entradaBadge = '<span class="badge badge-free">🆓 Grátis</span>';
 
                 return `<tr>
                     <td><div class="match-cell">
@@ -594,8 +581,6 @@
             document.getElementById('dataInicio').value = '';
             document.getElementById('dataFim').value = '';
             document.getElementById('liga').value = '';
-            document.getElementById('creditosEntrada').value = '0';
-            document.getElementById('creditosIniciais').value = '0';
             document.getElementById('patrocinadoresContainer').innerHTML = '';
             document.getElementById('modalOverlay').classList.add('active');
         }
@@ -613,8 +598,6 @@
             document.getElementById('timeVisitanteInput').value = tf ? tf.nome : '';
             document.getElementById('timeVisitante').value = j.timeForaId || '';
             document.getElementById('liga').value = j.liga || j.campeonato || '';
-            document.getElementById('creditosEntrada').value = j.creditosEntrada || 0;
-            document.getElementById('creditosIniciais').value = j.creditosIniciais || 0;
             if (j.dataInicio?.toDate) document.getElementById('dataInicio').value = fmtLocal(j.dataInicio.toDate());
             if (j.dataFim?.toDate) document.getElementById('dataFim').value = fmtLocal(j.dataFim.toDate());
             document.getElementById('patrocinadoresContainer').innerHTML = '';
@@ -672,8 +655,6 @@
                 timeCasaId: casaId, timeForaId: foraId,
                 status: calcularStatus(dataInicio, dataFim),
                 liga: document.getElementById('liga').value || 'Amistoso',
-                creditosEntrada: parseInt(document.getElementById('creditosEntrada').value) || 0,
-                creditosIniciais: parseInt(document.getElementById('creditosIniciais').value) || 0,
                 patrocinadores: coletarPatrocinadores(),
                 dataInicio, dataFim
             };
@@ -700,12 +681,29 @@
         }
 
         // ===== EXPORT =====
+        function calcularPremioTotal(numJogadores) {
+            const faixas = [
+                { min: 0, max: 9, top: [10, 7, 5], fx: [] },
+                { min: 10, max: 100, top: [18,16,14,12,10], fx: [{d:6,a:15,v:9},{d:16,a:25,v:7},{d:26,a:35,v:5},{d:36,a:45,v:4},{d:46,a:50,v:3}] },
+                { min: 101, max: 500, top: [30,25,22,20,18], fx: [{d:6,a:15,v:16},{d:16,a:25,v:14},{d:26,a:35,v:12},{d:36,a:45,v:10},{d:46,a:50,v:5}] },
+                { min: 501, max: Infinity, top: [50,45,40,35,30], fx: [{d:6,a:15,v:25},{d:16,a:25,v:20},{d:26,a:35,v:18},{d:36,a:45,v:15},{d:46,a:50,v:10}] }
+            ];
+            const f = faixas.find(x => numJogadores >= x.min && numJogadores <= x.max) || faixas[0];
+            const mp = Math.min(50, numJogadores);
+            let total = 0;
+            for (let i = 0; i < Math.min(mp, f.top.length); i++) total += f.top[i];
+            for (const fx of f.fx) { for (let p = fx.d; p <= fx.a && p <= mp; p++) total += fx.v; }
+            return total;
+        }
+
         function exportarCSV() {
-            let csv = 'Time Casa,Time Visitante,Início,Fim,Entrada,Patrocinadores,Jogadores,Créditos,Status\n';
+            let csv = 'Time Casa,Time Visitante,Início,Fim,Patrocinadores,Jogadores,Prêmio Sistema,Status\n';
             jogosFiltrados.forEach(j => {
                 const c = timesMap[j.timeCasaId]?.nome||'N/A', f = timesMap[j.timeForaId]?.nome||'N/A';
                 const di = j.dataInicio?.toDate?.()?.toLocaleString('pt-BR')||'', df = j.dataFim?.toDate?.()?.toLocaleString('pt-BR')||'';
-                csv += `"${c}","${f}","${di}","${df}",${j.creditosEntrada||0},${(j.patrocinadores||[]).length},${torcidaCountMap[j.id]||0},${creditosPagosMap[j.id]||0},"${j.status}"\n`;
+                const jog = torcidaCountMap[j.id]||0;
+                const premio = jog > 0 ? calcularPremioTotal(jog) : 0;
+                csv += `"${c}","${f}","${di}","${df}",${(j.patrocinadores||[]).length},${jog},${premio},"${j.status}"\n`;
             });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
