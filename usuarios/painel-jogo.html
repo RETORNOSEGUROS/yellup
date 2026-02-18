@@ -5138,19 +5138,27 @@
       return creditos;
     }
     
+    // Calcular total MÁXIMO da faixa (para mostrar "créditos em disputa")
+    function calcularTotalFaixa(totalParticipantes) {
+      const faixa = PREMIACAO_FAIXAS.find(f => totalParticipantes >= f.min && totalParticipantes <= f.max) || PREMIACAO_FAIXAS[0];
+      // Calcular total se TODOS os slots fossem preenchidos
+      let total = faixa.top.reduce((a, b) => a + b, 0);
+      for (const fx of faixa.faixas) {
+        for (let pos = fx.de; pos <= fx.ate; pos++) total += fx.valor;
+      }
+      return { total, premiados: faixa.top.length + faixa.faixas.reduce((s, f) => s + (f.ate - f.de + 1), 0) };
+    }
+    
     // Atualizar info de premiação na interface
     function atualizarInfoPremiacao(totalCreditos, totalParticipantes, creditosAdmin = 0) {
       const infoEl = document.getElementById("premiacaoInfo");
       if (!infoEl) return;
       
-      const creds = calcularCreditosEstimados(totalParticipantes);
-      const totalPremio = creds.reduce((a, b) => a + b, 0);
-      const premiados = creds.length;
-      
-      if (totalPremio > 0) {
+      if (totalParticipantes > 0) {
+        const { total, premiados } = calcularTotalFaixa(totalParticipantes);
         infoEl.innerHTML = `
           <div class="premiacao-ativa">
-            🏆 <strong>${totalPremio}</strong> créditos em jogo! <small style="color: #aaa;">(top ${premiados})</small>
+            🏆 <strong>${total}</strong> créditos em disputa! <small style="color: #aaa;">(top ${premiados})</small>
           </div>
         `;
       } else {
@@ -5384,23 +5392,24 @@
       if (!detalhes) return;
       
       // ✅ V2: 100% ranking por mérito, valores fixos
+      // Calcular total estimado da faixa se o backend retornou 0 (jogo antigo)
+      const totalReal = detalhes.totalPremio || detalhes.totalPool || detalhes.totalPago || 0;
+      const totalPremiados = detalhes.totalPremiados || (detalhes.ranking || []).length || 0;
+      
+      // Se não tem ranking do backend, tentar estimar do ranking da partida
+      let rankingList = (detalhes.ranking || []).filter(p => p.creditos > 0);
       
       // Criar modal de resultado
       const modal = document.createElement("div");
       modal.className = "premiacao-modal-overlay";
-      modal.innerHTML = `
-        <div class="premiacao-modal">
-          <h2>🏆 RESULTADO DA PREMIAÇÃO</h2>
-          
-          <div class="premiacao-total">
-            💰 Total em jogo: <strong>${detalhes.totalPremio || detalhes.totalPool || detalhes.totalPago || 0}</strong> créditos
-            <br><small>100% distribuído por ranking (mérito)</small>
-          </div>
-          
+      
+      let rankingHTML = '';
+      if (rankingList.length > 0) {
+        rankingHTML = `
           <div class="premiacao-secao">
-            <h3>🏅 Ranking (${detalhes.distribuicao?.ranking?.total || detalhes.totalPremio || 0} cr)</h3>
+            <h3>🏅 Ranking (${totalReal} cr)</h3>
             <ul class="premiacao-lista">
-              ${(detalhes.ranking || []).filter(p => p.creditos > 0).map(p => `
+              ${rankingList.map(p => `
                 <li>
                   <span>${p.posicao === 1 ? '🥇' : p.posicao === 2 ? '🥈' : p.posicao === 3 ? '🥉' : p.posicao + 'º'} ${p.nome}</span>
                   <span>+${p.creditos} 💎</span>
@@ -5408,6 +5417,26 @@
               `).join('')}
             </ul>
           </div>
+        `;
+      } else {
+        rankingHTML = `
+          <div class="premiacao-secao">
+            <h3>🏅 Ranking</h3>
+            <p style="text-align:center; opacity:0.6; padding: 10px;">Premiação ainda sendo processada ou jogo antigo (pré-v2)</p>
+          </div>
+        `;
+      }
+      
+      modal.innerHTML = `
+        <div class="premiacao-modal">
+          <h2>🏆 RESULTADO DA PREMIAÇÃO</h2>
+          
+          <div class="premiacao-total">
+            💰 Total distribuído: <strong>${totalReal}</strong> créditos
+            <br><small>100% distribuído por ranking (mérito)</small>
+          </div>
+          
+          ${rankingHTML}
           
           <button class="btn-fechar-premiacao" onclick="this.closest('.premiacao-modal-overlay').remove()">
             Fechar
