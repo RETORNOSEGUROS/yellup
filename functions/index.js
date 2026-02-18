@@ -77,13 +77,58 @@ const CONFIG_PVP = {
 };
 
 const CONFIG_PARTIDA = {
-  // Prêmio do sistema por jogo (distribuído entre participantes)
-  premioBasePorJogo: 100,          // créditos base para distribuir no ranking
-  premioPorParticipante: 5,        // + 5 créditos por participante (escala com engajamento)
-  premioMaxPorJogo: 500,           // teto máximo por jogo
-  // Percentuais do ranking
-  percentuaisRanking: [30, 20, 15, 10, 7, 5, 4, 3, 3, 3],
-  // Anti-bot: tempo mínimo para responder (segundos)
+  // Premiação fixa por faixa de jogadores
+  faixas: [
+    {
+      // Até 9 jogadores: só top 3
+      minJogadores: 0, maxJogadores: 9,
+      premios: { top5: [10, 7, 5], faixas: [] }
+    },
+    {
+      // 10-100 jogadores: top 50
+      minJogadores: 10, maxJogadores: 100,
+      premios: {
+        top5: [18, 16, 14, 12, 10],
+        faixas: [
+          { de: 6, ate: 15, valor: 9 },
+          { de: 16, ate: 25, valor: 7 },
+          { de: 26, ate: 35, valor: 5 },
+          { de: 36, ate: 45, valor: 4 },
+          { de: 46, ate: 50, valor: 3 }
+        ]
+      }
+    },
+    {
+      // 101-500 jogadores: top 50
+      minJogadores: 101, maxJogadores: 500,
+      premios: {
+        top5: [30, 25, 22, 20, 18],
+        faixas: [
+          { de: 6, ate: 15, valor: 16 },
+          { de: 16, ate: 25, valor: 14 },
+          { de: 26, ate: 35, valor: 12 },
+          { de: 36, ate: 45, valor: 10 },
+          { de: 46, ate: 50, valor: 5 }
+        ]
+      }
+    },
+    {
+      // 501+ jogadores: top 50
+      minJogadores: 501, maxJogadores: Infinity,
+      premios: {
+        top5: [50, 45, 40, 35, 30],
+        faixas: [
+          { de: 6, ate: 15, valor: 25 },
+          { de: 16, ate: 25, valor: 20 },
+          { de: 26, ate: 35, valor: 18 },
+          { de: 36, ate: 45, valor: 15 },
+          { de: 46, ate: 50, valor: 10 }
+        ]
+      }
+    }
+  ],
+  maxPremiados: 50,
+  // Anti-bot
   tempoMinimoResposta: 3
 };
 
@@ -3889,63 +3934,44 @@ exports.premiarJogoV2 = functions.https.onCall(async (data, context) => {
       return a.tempoMedio - b.tempoMedio;
     });
 
-    // 4. CALCULAR PRÊMIO DO SISTEMA (não dos jogadores!)
+    // 4. DETERMINAR FAIXA DE PREMIAÇÃO (valores fixos por posição)
     const numParticipantes = participantes.length;
-    const premioCalculado = CONFIG_PARTIDA.premioBasePorJogo +
-      (numParticipantes * CONFIG_PARTIDA.premioPorParticipante);
-    const totalPremio = Math.min(premioCalculado, CONFIG_PARTIDA.premioMaxPorJogo);
+    const faixaConfig = CONFIG_PARTIDA.faixas.find(
+      f => numParticipantes >= f.minJogadores && numParticipantes <= f.maxJogadores
+    ) || CONFIG_PARTIDA.faixas[0];
+    
+    const premiosConfig = faixaConfig.premios;
 
-    // Função auxiliar
-    function arredondar(valor) {
-      if (valor <= 0) return 0;
-      return Math.max(1, Math.round(valor));
-    }
-
-    // 5. Distribuição 100% ranking (mérito puro)
-    const PERCENTUAIS = CONFIG_PARTIDA.percentuaisRanking;
-    const top100 = participantes.slice(0, 100);
+    // 5. Montar créditos fixos por posição
+    const maxPremiados = Math.min(CONFIG_PARTIDA.maxPremiados, numParticipantes);
     const creditosPorPosicao = [];
-    let creditosDistribuidos = 0;
-
-    if (top100.length <= 10) {
-      const perc = PERCENTUAIS.slice(0, top100.length);
-      const somaPerc = perc.reduce((a, b) => a + b, 0);
-      for (let i = 0; i < top100.length; i++) {
-        const cr = arredondar(totalPremio * perc[i] / somaPerc);
-        creditosPorPosicao.push(cr);
-        creditosDistribuidos += cr;
-      }
-    } else {
-      const creditosTop10 = arredondar(totalPremio * 0.70);
-      const creditosRestante = totalPremio - creditosTop10;
-      for (let i = 0; i < 10; i++) {
-        const cr = arredondar(creditosTop10 * PERCENTUAIS[i] / 100);
-        creditosPorPosicao.push(cr);
-        creditosDistribuidos += cr;
-      }
-      const restantes = top100.length - 10;
-      for (let i = 10; i < top100.length; i++) {
-        const peso = Math.max(1, restantes - (i - 10));
-        const somaPesos = (restantes * (restantes + 1)) / 2;
-        const cr = arredondar(creditosRestante * peso / somaPesos);
-        creditosPorPosicao.push(cr);
-        creditosDistribuidos += cr;
+    let totalPremio = 0;
+    
+    // Top 5 (ou top 3 na faixa <10)
+    for (let i = 0; i < Math.min(maxPremiados, premiosConfig.top5.length); i++) {
+      creditosPorPosicao.push(premiosConfig.top5[i]);
+      totalPremio += premiosConfig.top5[i];
+    }
+    
+    // Faixas 6-50
+    for (const faixa of premiosConfig.faixas) {
+      for (let pos = faixa.de; pos <= faixa.ate && pos <= maxPremiados; pos++) {
+        creditosPorPosicao.push(faixa.valor);
+        totalPremio += faixa.valor;
       }
     }
 
-    // Ajustar diferença no 1º lugar
-    const diferenca = totalPremio - creditosDistribuidos;
-    if (diferenca !== 0 && creditosPorPosicao.length > 0) {
-      creditosPorPosicao[0] += diferenca;
-    }
+    const topN = participantes.slice(0, maxPremiados);
+
+    console.log(`🏆 Prêmio fixo: ${totalPremio} cr para ${topN.length} premiados (${numParticipantes} participantes, faixa ${faixaConfig.minJogadores}-${faixaConfig.maxJogadores})`);
 
     // 6. Distribuir prêmios em batch
     const premiosRanking = [];
     let batch = db.batch();
     let batchCount = 0;
 
-    for (let i = 0; i < top100.length; i++) {
-      const p = top100[i];
+    for (let i = 0; i < topN.length; i++) {
+      const p = topN[i];
       const creditos = creditosPorPosicao[i] || 0;
 
       premiosRanking.push({
@@ -3970,10 +3996,10 @@ exports.premiarJogoV2 = functions.https.onCall(async (data, context) => {
     // 7. Salvar detalhes
     const premiacaoDetalhes = {
       modeloV2: true,
-      fontePremio: 'sistema',
+      fontePremio: 'sistema_fixo',
       totalPremio,
-      premioBase: CONFIG_PARTIDA.premioBasePorJogo,
-      bonusParticipantes: numParticipantes * CONFIG_PARTIDA.premioPorParticipante,
+      faixaJogadores: `${faixaConfig.minJogadores}-${faixaConfig.maxJogadores === Infinity ? '∞' : faixaConfig.maxJogadores}`,
+      totalPremiados: creditosPorPosicao.length,
       distribuicao: { ranking: { percentual: 100, total: totalPremio } },
       ranking: premiosRanking,
       estatisticas: {
