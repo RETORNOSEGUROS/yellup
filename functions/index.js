@@ -129,7 +129,7 @@ const CONFIG_PARTIDA = {
   ],
   maxPremiados: 50,
   // Anti-bot
-  tempoMinimoResposta: 3
+  tempoMinimoResposta: 2
 };
 
 const CONFIG_TORNEIO = {
