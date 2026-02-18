@@ -3571,10 +3571,27 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
     const cooldown = temPasse ? CONFIG_QUIZ.cooldownPasse : CONFIG_QUIZ.cooldownFree;
 
     const participanteRef = db.collection('jogos').doc(jogoId).collection('participantes').doc(uid);
-    const participanteDoc = await participanteRef.get();
+    let participanteDoc = await participanteRef.get();
 
+    // Auto-criar participante se não existe (nunca bloquear o usuário)
     if (!participanteDoc.exists) {
-      throw new functions.https.HttpsError('failed-precondition', 'Use entrarPartidaV2 primeiro');
+      console.log(`🔄 Auto-criando participante ${uid} no responderPerguntaV2`);
+      const userDoc = await db.collection('usuarios').doc(uid).get();
+      const uData = userDoc.exists ? userDoc.data() : {};
+      await participanteRef.set({
+        odId: uid,
+        nome: uData.usuarioUnico || uData.usuario || uData.nome || 'Anônimo',
+        timeId: timeTorcida,
+        timeNome: '',
+        pontos: 0, acertos: 0, erros: 0,
+        streakAtual: 0, maxStreak: 0,
+        tempoSoma: 0, tempoQuantidade: 0, tempoMedio: 0,
+        entradaEm: admin.firestore.Timestamp.now(),
+        totalRespondidas: 0, skipsUsados: 0,
+        tipoPasse: passe.tipo, modeloV2: true,
+        atualizadoEm: admin.firestore.Timestamp.now()
+      }, { merge: true });
+      participanteDoc = await participanteRef.get();
     }
 
     // Auto-migração: participante existe mas sem entradaEm (pré-v2)
