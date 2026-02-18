@@ -3334,7 +3334,7 @@ exports.entrarPartidaV2 = functions.https.onCall(async (data, context) => {
     const participanteDoc = await participanteRef.get();
 
     if (participanteDoc.exists && participanteDoc.data().entradaEm) {
-      // Já entrou — calcular estado atual do quiz
+      // Já entrou COM cooldown v2 — calcular estado atual do quiz
       const p = participanteDoc.data();
       const entradaEm = p.entradaEm.toDate();
       const elapsed = (agora.getTime() - entradaEm.getTime()) / 1000;
@@ -3354,6 +3354,31 @@ exports.entrarPartidaV2 = functions.https.onCall(async (data, context) => {
         totalDisponivel,
         segParaProximoCiclo: segParaProximo,
         skipsUsados: p.skipsUsados || 0
+      };
+    }
+
+    // 3b. MIGRAÇÃO: participante existe (jogou antes do v2) mas SEM entradaEm
+    // Apenas adicionar campos de cooldown, SEM incrementar limite diário
+    if (participanteDoc.exists && !participanteDoc.data().entradaEm) {
+      console.log(`🔄 Migrando participante ${uid} para v2 (adicionando entradaEm)`);
+      await participanteRef.update({
+        entradaEm: admin.firestore.Timestamp.now(),
+        totalRespondidas: 0,
+        skipsUsados: 0,
+        tipoPasse: passe.tipo,
+        modeloV2: true,
+        atualizadoEm: admin.firestore.Timestamp.now()
+      });
+
+      return {
+        success: true, jaEntrou: true,
+        tipoPasse: passe.tipo,
+        cooldownSegundos: cooldown,
+        perguntasDisponiveis: CONFIG_QUIZ.perguntasIniciais,
+        totalRespondidas: 0,
+        totalDisponivel: CONFIG_QUIZ.perguntasIniciais,
+        segParaProximoCiclo: cooldown,
+        skipsUsados: 0
       };
     }
 
@@ -3503,11 +3528,25 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
     const participanteRef = db.collection('jogos').doc(jogoId).collection('participantes').doc(uid);
     const participanteDoc = await participanteRef.get();
 
-    if (!participanteDoc.exists || !participanteDoc.data().entradaEm) {
+    if (!participanteDoc.exists) {
       throw new functions.https.HttpsError('failed-precondition', 'Use entrarPartidaV2 primeiro');
     }
 
-    const participante = participanteDoc.data();
+    // Auto-migração: participante existe mas sem entradaEm (pré-v2)
+    if (!participanteDoc.data().entradaEm) {
+      console.log(`🔄 Auto-migrando participante ${uid} no responderPerguntaV2`);
+      await participanteRef.update({
+        entradaEm: admin.firestore.Timestamp.now(),
+        totalRespondidas: 0,
+        skipsUsados: 0,
+        modeloV2: true
+      });
+      // Recarregar
+      const reloaded = await participanteRef.get();
+      var participante = reloaded.data();
+    } else {
+      var participante = participanteDoc.data();
+    }
     const entradaEm = participante.entradaEm.toDate();
     const elapsed = (agora.getTime() - entradaEm.getTime()) / 1000;
     const ciclosPassados = Math.floor(elapsed / cooldown);
@@ -3682,8 +3721,18 @@ exports.adiantarPerguntasV2 = functions.https.onCall(async (data, context) => {
     const participanteRef = db.collection('jogos').doc(jogoId).collection('participantes').doc(uid);
     const participanteDoc = await participanteRef.get();
 
-    if (!participanteDoc.exists || !participanteDoc.data().entradaEm) {
+    if (!participanteDoc.exists) {
       throw new functions.https.HttpsError('failed-precondition', 'Você não está nesta partida');
+    }
+
+    // Auto-migração se necessário
+    if (!participanteDoc.data().entradaEm) {
+      await participanteRef.update({
+        entradaEm: admin.firestore.Timestamp.now(),
+        totalRespondidas: 0,
+        skipsUsados: 0,
+        modeloV2: true
+      });
     }
 
     // 3. Verificar créditos disponíveis
@@ -3697,8 +3746,9 @@ exports.adiantarPerguntasV2 = functions.https.onCall(async (data, context) => {
         `Créditos insuficientes. Você tem ${creditosDisponiveis}, precisa de ${custoSkip}.`);
     }
 
-    // 4. Descontar crédito e incrementar skips
-    const participante = participanteDoc.data();
+    // 4. Descontar crédito e incrementar skips (recarregar doc caso tenha sido migrado)
+    const pDocFresh = await participanteRef.get();
+    const participante = pDocFresh.data();
     const novoSkips = (participante.skipsUsados || 0) + 1;
 
     const batch = db.batch();
