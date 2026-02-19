@@ -28,23 +28,45 @@ export default async function handler(req, res) {
     const { pacoteId, creditos, bonus, preco, userId, userEmail, userName } = req.body;
 
     // Validação
-    if (!pacoteId || !preco || !userId || !creditos) {
+    if (!pacoteId || !preco || !userId) {
       return res.status(400).json({ error: 'Dados incompletos' });
     }
 
     const precoNum = parseFloat(preco);
-    const creditosNum = parseInt(creditos);
+    const creditosNum = parseInt(creditos) || 0;
+    const isPasse = String(pacoteId).startsWith('passe_');
     
     if (isNaN(precoNum) || precoNum <= 0 || precoNum > 10000) {
       return res.status(400).json({ error: 'Valor de preço inválido' });
     }
     
-    if (isNaN(creditosNum) || creditosNum <= 0 || creditosNum > 100000) {
+    // Créditos só são obrigatórios para compra de créditos (não passes)
+    if (!isPasse && (isNaN(creditosNum) || creditosNum <= 0 || creditosNum > 100000)) {
       return res.status(400).json({ error: 'Quantidade de créditos inválida' });
     }
 
     // External reference (máx 256 caracteres)
-    const externalRef = `${pacoteId}_${creditos}_${bonus || 0}_${userId}_${Date.now()}`;
+    const externalRef = `${pacoteId}_${creditosNum}_${bonus || 0}_${userId}_${Date.now()}`;
+
+    // Detectar domínio base (usa o host da requisição)
+    const host = req.headers.host || 'yellup.vercel.app';
+    const baseUrl = `https://${host}`;
+
+    // Página de retorno: loja-passes ou loja-creditos
+    const returnPage = isPasse ? 'loja-passes.html' : 'loja-creditos.html';
+
+    // Título dinâmico
+    const tituloPasse = {
+      'passe_semanal': 'Yellup - Passe Semanal (7 dias)',
+      'passe_mensal': 'Yellup - Passe Mensal (30 dias)',
+      'passe_anual': 'Yellup - Passe Anual (365 dias)'
+    };
+    const titulo = isPasse
+      ? (tituloPasse[pacoteId] || `Yellup - ${pacoteId}`)
+      : `Yellup - ${creditosNum} Créditos`;
+    const descricao = isPasse
+      ? `Passe de acesso ilimitado Yellup`
+      : `Pacote de ${creditosNum} créditos para jogar no Yellup`;
 
     // Detectar domínio base (usa o host da requisição)
     const host = req.headers.host || 'yellup.vercel.app';
@@ -55,8 +77,8 @@ export default async function handler(req, res) {
       items: [
         {
           id: `pacote_${pacoteId}`,
-          title: `Yellup - ${creditos} Créditos`,
-          description: `Pacote de ${creditos} créditos para jogar no Yellup`,
+          title: titulo,
+          description: descricao,
           quantity: 1,
           currency_id: 'BRL',
           unit_price: precoNum
@@ -73,9 +95,9 @@ export default async function handler(req, res) {
         installments: 12
       },
       back_urls: {
-        success: `${baseUrl}/usuarios/loja-creditos.html?status=success&ref=${externalRef}`,
-        failure: `${baseUrl}/usuarios/loja-creditos.html?status=failure&ref=${externalRef}`,
-        pending: `${baseUrl}/usuarios/loja-creditos.html?status=pending&ref=${externalRef}`
+        success: `${baseUrl}/usuarios/${returnPage}?status=success&ref=${externalRef}`,
+        failure: `${baseUrl}/usuarios/${returnPage}?status=failure&ref=${externalRef}`,
+        pending: `${baseUrl}/usuarios/${returnPage}?status=pending&ref=${externalRef}`
       },
       auto_return: 'approved',
       notification_url: `${baseUrl}/api/webhook-mp`,
