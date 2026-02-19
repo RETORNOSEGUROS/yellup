@@ -458,13 +458,12 @@
 
     // ==================== FAIXAS ====================
     const FAIXAS = [
-      { nome: 'Imortal',   icon: '👑', min: 950, max: 1000, color: '#dc2626' },
-      { nome: 'Fenômeno',  icon: '🔥', min: 850, max: 949,  color: '#ea580c' },
-      { nome: 'Lenda',     icon: '⭐', min: 700, max: 849,  color: '#eab308' },
-      { nome: 'Ídolo',     icon: '💎', min: 550, max: 699,  color: '#8b5cf6' },
-      { nome: 'Craque',    icon: '🎯', min: 400, max: 549,  color: '#3b82f6' },
-      { nome: 'Titular',   icon: '🟢', min: 200, max: 399,  color: '#10b981' },
-      { nome: 'Amador',    icon: '⚽', min: 0,   max: 199,  color: '#6b7280' },
+      { nome: 'Imortal',   icon: '🏆', min: 850, max: 1000, color: '#dc2626' },
+      { nome: 'Lenda',     icon: '🔴', min: 650, max: 849,  color: '#ea580c' },
+      { nome: 'Fenômeno',  icon: '🟠', min: 450, max: 649,  color: '#eab308' },
+      { nome: 'Craque',    icon: '🟡', min: 250, max: 449,  color: '#3b82f6' },
+      { nome: 'Titular',   icon: '🟢', min: 100, max: 249,  color: '#10b981' },
+      { nome: 'Reserva',   icon: '⚽', min: 0,   max: 99,   color: '#6b7280' },
     ];
 
     const COMPONENTES = [
@@ -496,42 +495,48 @@
     // ==================== CARREGAR RATING ====================
     async function carregarRating() {
       try {
-        // 1. Buscar dados do usuário
+        // 1. Buscar dados do usuário (rating já está nos campos)
         const userDoc = await db.collection('usuarios').doc(currentUser.uid).get();
-        currentUserData = userDoc.exists ? userDoc.data() : {};
+        if (!userDoc.exists) { showToast('Usuário não encontrado'); return; }
+        currentUserData = userDoc.data();
 
-        // 2. Buscar rating
-        const ratingDoc = await db.collection('ratings').doc(currentUser.uid).get();
+        const ratingData = {
+          ratingFinal: currentUserData.rating || 0,
+          faixa: currentUserData.ratingFaixa || 'Reserva',
+          componentes: currentUserData.ratingComponents || { quiz: 0, pvp: 0, torneios: 0, comunidade: 0, escalacao: 0, consistencia: 0 },
+          historico: currentUserData.ratingHistory || [],
+          variacao: currentUserData.ratingVariacao || 0,
+          diasInativo: 0,
+          ultimoCalculo: null
+        };
 
-        let ratingData;
-        if (ratingDoc.exists) {
-          ratingData = ratingDoc.data();
-        } else {
-          // Rating não calculado ainda — mostrar vazio
-          ratingData = {
-            ratingFinal: 0,
-            componentes: { quiz: 0, pvp: 0, torneios: 0, comunidade: 0, escalacao: 0, consistencia: 0 },
-            historico: [],
-            rankingPosicao: null,
-            ultimoCalculo: null,
-            diasInativo: 0
-          };
+        // Calcular dias inativo
+        const stats = currentUserData.stats || {};
+        const ultimoLogin = stats.ultimoLogin?.toDate?.() || null;
+        if (ultimoLogin) {
+          ratingData.diasInativo = Math.floor((new Date() - ultimoLogin) / (1000 * 60 * 60 * 24));
         }
 
-        // 3. Buscar posição no ranking
-        let posicao = ratingData.rankingPosicao || null;
+        // 2. Buscar posição no ranking via ratingRanking collection
+        let posicao = null;
         let totalJogadores = 0;
-        if (!posicao) {
-          // Calcular posição buscando quantos têm rating maior
-          const superiores = await db.collection('ratings')
-            .where('ratingFinal', '>', ratingData.ratingFinal || 0)
+        try {
+          const rankDoc = await db.collection('ratingRanking').doc(currentUser.uid).get();
+          if (rankDoc.exists) {
+            ratingData.ultimoCalculo = rankDoc.data().atualizadoEm || null;
+          }
+          // Contar superiores para posição
+          const superiores = await db.collection('ratingRanking')
+            .where('rating', '>', ratingData.ratingFinal)
             .get();
           posicao = superiores.size + 1;
-          const todos = await db.collection('ratings').get();
+          const todos = await db.collection('ratingRanking').get();
           totalJogadores = todos.size;
+        } catch (e) {
+          console.log('Ranking ainda não calculado:', e.message);
         }
 
-        // 4. Renderizar
+        // 3. Renderizar
         renderizarRating(ratingData, posicao, totalJogadores);
 
         document.getElementById('loadingOverlay').style.display = 'none';
@@ -539,8 +544,6 @@
 
       } catch (error) {
         console.error('Erro ao carregar rating:', error);
-        showToast('❌ Erro ao carregar rating');
-        // Show anyway with empty data
         document.getElementById('loadingOverlay').innerHTML = `
           <div style="text-align:center;color:var(--text-secondary);">
             <div style="font-size:3em;margin-bottom:15px;">📊</div>
@@ -579,6 +582,14 @@
       if (data.ultimoCalculo) {
         const d = data.ultimoCalculo.toDate ? data.ultimoCalculo.toDate() : new Date(data.ultimoCalculo);
         document.getElementById('lastUpdate').textContent = d.toLocaleDateString('pt-BR');
+      }
+
+      // Variação
+      const variacao = data.variacao || 0;
+      if (variacao !== 0) {
+        const varEl = document.createElement('span');
+        varEl.innerHTML = `${variacao > 0 ? '📈' : '📉'} Hoje: <strong style="color:${variacao > 0 ? 'var(--success)' : 'var(--danger)'}">${variacao > 0 ? '+' : ''}${variacao}</strong>`;
+        document.querySelector('.rating-meta').appendChild(varEl);
       }
 
       // Decay
@@ -755,6 +766,7 @@
       }
 
       const values = historico.map(h => h.rating || h);
+      const labels = historico.map(h => h.date || '');
       const minVal = Math.max(0, Math.min(...values) - 50);
       const maxVal = Math.min(1000, Math.max(...values) + 50);
       const range = maxVal - minVal || 1;
