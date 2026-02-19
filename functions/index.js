@@ -71,8 +71,8 @@ const CONFIG_QUIZ = {
 
 const CONFIG_PVP = {
   taxaEntrada: 2,            // FIXO: 2 créditos por pessoa (queimados)
-  premioMultiplicador: 4,    // 4 créditos por participante
-  premioSistemaPenalti: 30   // Penaltis (ajustar depois)
+  premioMultiplicador: 4,    // Embates: 4 créditos por participante
+  premioSistemaPenalti: 6    // Penaltis: 6 créditos ao vencedor (3× participantes)
 };
 
 const CONFIG_PARTIDA = {
