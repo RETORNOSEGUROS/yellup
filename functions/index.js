@@ -70,10 +70,9 @@ const CONFIG_QUIZ = {
 };
 
 const CONFIG_PVP = {
-  taxaEntradaMin: 5,
-  taxaEntradaMax: 15,
-  premioSistemaEmbate: 40,
-  premioSistemaPenalti: 30
+  taxaEntrada: 2,            // FIXO: 2 créditos por pessoa (queimados)
+  premioMultiplicador: 4,    // 4 créditos por participante
+  premioSistemaPenalti: 30   // Penaltis (ajustar depois)
 };
 
 const CONFIG_PARTIDA = {
@@ -1223,7 +1222,8 @@ exports.cancelarEmbate = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('failed-precondition', 'Embate já está finalizado ou cancelado');
     }
 
-    const aposta = embate.aposta;
+    // Compatível com v1 (aposta) e v2 (taxaEntrada fixa)
+    const reembolso = embate.taxaEntrada || embate.aposta || CONFIG_PVP.taxaEntrada;
     const participantes = embate.participantes || [];
 
     const batch = db.batch();
@@ -1231,7 +1231,7 @@ exports.cancelarEmbate = functions.https.onCall(async (data, context) => {
     // Devolver créditos a todos os participantes
     for (const odId of participantes) {
       batch.update(db.collection('usuarios').doc(odId), {
-        creditos: admin.firestore.FieldValue.increment(aposta)
+        creditos: admin.firestore.FieldValue.increment(reembolso)
       });
 
       // Registrar transação de reembolso
@@ -1239,7 +1239,7 @@ exports.cancelarEmbate = functions.https.onCall(async (data, context) => {
       batch.set(transRef, {
         usuarioId: odId,
         tipo: 'credito',
-        valor: aposta,
+        valor: reembolso,
         descricao: `🔄 Reembolso - Embate ${embate.codigo || embateId} cancelado`,
         embateId: embateId,
         data: admin.firestore.FieldValue.serverTimestamp()
@@ -1257,9 +1257,9 @@ exports.cancelarEmbate = functions.https.onCall(async (data, context) => {
     // 📋 Log reembolsos
     try {
       for (const odId of participantes) {
-        await logAtividade(odId, 'reembolso_pvp', aposta, null,
+        await logAtividade(odId, 'reembolso_pvp', reembolso, null,
           `PvP: reembolso — embate ${embate.codigo || embateId} cancelado`,
-          { embateId, aposta });
+          { embateId, reembolso });
       }
     } catch(logErr) { console.error('⚠️ Log cancelamento:', logErr.message); }
 
@@ -3015,12 +3015,13 @@ exports.criarEmbateV2 = functions.https.onCall(async (data, context) => {
   }
 
   const uid = context.auth.uid;
-  const { embateId, taxaEntrada } = data;
+  const { embateId } = data;
 
-  if (!embateId || !taxaEntrada || taxaEntrada < CONFIG_PVP.taxaEntradaMin || taxaEntrada > CONFIG_PVP.taxaEntradaMax) {
-    throw new functions.https.HttpsError('invalid-argument',
-      `Taxa de entrada deve ser entre ${CONFIG_PVP.taxaEntradaMin} e ${CONFIG_PVP.taxaEntradaMax} créditos`);
+  if (!embateId) {
+    throw new functions.https.HttpsError('invalid-argument', 'embateId obrigatório');
   }
+
+  const taxaEntrada = CONFIG_PVP.taxaEntrada; // FIXO: 2 créditos
 
   try {
     // Verificar limite diário de PvP
@@ -3062,12 +3063,12 @@ exports.criarEmbateV2 = functions.https.onCall(async (data, context) => {
       creditos: admin.firestore.FieldValue.increment(-taxaEntrada)
     });
 
-    // Marcar embate como v2 (prêmio do sistema)
+    // Marcar embate como v2 (prêmio dinâmico do sistema)
     batch.update(db.collection('embates').doc(embateId), {
       modeloV2: true,
       taxaEntrada: taxaEntrada,
-      premioSistema: CONFIG_PVP.premioSistemaEmbate,
-      // NÃO tem prizePool — prêmio é fixo do sistema
+      premioMultiplicador: CONFIG_PVP.premioMultiplicador,
+      // NÃO tem prizePool — prêmio = multiplicador × participantes
     });
 
     // Transação
@@ -3086,17 +3087,18 @@ exports.criarEmbateV2 = functions.https.onCall(async (data, context) => {
     // Incrementar limite diário
     await incrementarLimiteDiario(uid, 'pvp');
 
-    // Log + Stats
+    // Log
     await logAtividade(uid, 'debito_pvp_v2', -taxaEntrada, creditos,
       `PvP v2: taxa entrada embate ${embate.codigo || embateId}`,
       { embateId, taxaEntrada, modeloV2: true });
 
-    console.log(`✅ Embate v2 criado: ${uid} queimou ${taxaEntrada} cr (prêmio sistema: ${CONFIG_PVP.premioSistemaEmbate})`);
+    console.log(`✅ Embate v2 criado: ${uid} queimou ${taxaEntrada} cr (prêmio: ${CONFIG_PVP.premioMultiplicador}×participantes)`);
 
     return {
       success: true,
-      mensagem: `Taxa cobrada: ${taxaEntrada} créditos. Prêmio ao vencedor: ${CONFIG_PVP.premioSistemaEmbate} créditos!`,
-      premioSistema: CONFIG_PVP.premioSistemaEmbate
+      mensagem: `Taxa cobrada: ${taxaEntrada} créditos. Prêmio: ${CONFIG_PVP.premioMultiplicador} créditos por participante!`,
+      taxaEntrada,
+      premioMultiplicador: CONFIG_PVP.premioMultiplicador
     };
 
   } catch (error) {
@@ -3138,7 +3140,7 @@ exports.aceitarEmbateV2 = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('already-exists', 'Já está neste embate');
     }
 
-    const taxaEntrada = embate.taxaEntrada || embate.aposta || CONFIG_PVP.taxaEntradaMin;
+    const taxaEntrada = CONFIG_PVP.taxaEntrada; // FIXO: 2 créditos
 
     // Verificar créditos
     const userDoc = await db.collection('usuarios').doc(uid).get();
@@ -3156,7 +3158,7 @@ exports.aceitarEmbateV2 = functions.https.onCall(async (data, context) => {
 
     const batch = db.batch();
 
-    // QUEIMAR taxa
+    // QUEIMAR taxa (créditos somem da economia)
     batch.update(db.collection('usuarios').doc(uid), {
       creditos: admin.firestore.FieldValue.increment(-taxaEntrada)
     });
@@ -3194,7 +3196,7 @@ exports.aceitarEmbateV2 = functions.https.onCall(async (data, context) => {
     } catch (e) { /* não crítico */ }
 
     console.log(`✅ Embate v2 aceito: ${uid} entrou (-${taxaEntrada} cr)`);
-    return { success: true, mensagem: `Entrada confirmada! -${taxaEntrada} créditos` };
+    return { success: true, mensagem: `Entrada confirmada! -${taxaEntrada} créditos`, taxaEntrada };
 
   } catch (error) {
     if (error instanceof functions.https.HttpsError) throw error;
@@ -3204,7 +3206,7 @@ exports.aceitarEmbateV2 = functions.https.onCall(async (data, context) => {
 });
 
 /**
- * FINALIZAR EMBATE v2 — Prêmio do SISTEMA, não do pool dos jogadores
+ * FINALIZAR EMBATE v2 — Prêmio do SISTEMA = 4 créditos × nº participantes
  */
 exports.finalizarEmbateV2 = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -3236,10 +3238,12 @@ exports.finalizarEmbateV2 = functions.https.onCall(async (data, context) => {
     });
     ranking.sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
 
-    // PRÊMIO DO SISTEMA (não do pool!)
-    const premio = embate.premioSistema || CONFIG_PVP.premioSistemaEmbate;
-    let resultado = {};
+    // PRÊMIO DINÂMICO DO SISTEMA: 4 créditos × número de participantes
+    const multiplicador = embate.premioMultiplicador || CONFIG_PVP.premioMultiplicador;
+    const numParticipantes = ranking.length || (embate.totalParticipantes || 1);
+    const premio = multiplicador * numParticipantes;
 
+    let resultado = {};
     const batch = db.batch();
 
     if (ranking.length > 0) {
@@ -3252,7 +3256,9 @@ exports.finalizarEmbateV2 = functions.https.onCall(async (data, context) => {
         vencedorNome: empate ? null : (vencedores[0].odNome || ''),
         pontuacaoVencedor: maiorPontuacao,
         empate, modeloV2: true,
-        premioSistema: premio,
+        premioTotal: premio,
+        premioMultiplicador: multiplicador,
+        numParticipantes,
         vencedoresEmpate: empate ? vencedores.map(v => v.odId) : null,
         ranking: ranking.map((r, i) => ({
           posicao: i + 1, odId: r.odId, odNome: r.odNome || '',
@@ -3274,7 +3280,7 @@ exports.finalizarEmbateV2 = functions.https.onCall(async (data, context) => {
           const transRef = db.collection('transacoes').doc();
           batch.set(transRef, {
             usuarioId: v.odId, tipo: 'credito', valor: premioPorJogador,
-            descricao: `🏆 Prêmio do sistema: embate ${embate.codigo || embateId}`,
+            descricao: `🏆 Prêmio Yellup: embate ${embate.codigo || embateId} (+${premioPorJogador} cr)`,
             embateId, modeloV2: true, fontePremio: 'sistema',
             data: admin.firestore.FieldValue.serverTimestamp()
           });
@@ -3300,7 +3306,7 @@ exports.finalizarEmbateV2 = functions.https.onCall(async (data, context) => {
         const transRef = db.collection('transacoes').doc();
         batch.set(transRef, {
           usuarioId: vencedor.odId, tipo: 'credito', valor: premio,
-          descricao: `🏆 Prêmio do sistema: embate ${embate.codigo || embateId}`,
+          descricao: `🏆 Prêmio Yellup: embate ${embate.codigo || embateId} (+${premio} cr)`,
           embateId, modeloV2: true, fontePremio: 'sistema',
           data: admin.firestore.FieldValue.serverTimestamp()
         });
@@ -3319,13 +3325,14 @@ exports.finalizarEmbateV2 = functions.https.onCall(async (data, context) => {
     batch.update(db.collection('embates').doc(embateId), {
       status: 'finalizado', resultado,
       modeloV2: true, fontePremio: 'sistema',
+      premioTotal: premio,
       dataFinalizacao: admin.firestore.FieldValue.serverTimestamp()
     });
 
     await batch.commit();
 
-    console.log(`✅ Embate v2 ${embateId} finalizado. Prêmio sistema: ${premio} cr`);
-    return { success: true, resultado, premio, fontePremio: 'sistema' };
+    console.log(`✅ Embate v2 ${embateId} finalizado. ${numParticipantes} participantes × ${multiplicador} = ${premio} cr`);
+    return { success: true, resultado, premio, numParticipantes, fontePremio: 'sistema' };
 
   } catch (error) {
     if (error instanceof functions.https.HttpsError) throw error;
