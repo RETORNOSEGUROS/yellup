@@ -499,7 +499,6 @@
       const passe = PASSES[tipo];
       if (!passe) return;
 
-      // Validação CPF (mesmo padrão da loja de créditos)
       if (!currentUserData?.cpf) {
         showToast('⚠️ Cadastre seu CPF no perfil primeiro!');
         return;
@@ -507,7 +506,7 @@
 
       showLoading(true);
       try {
-        const externalRef = `passe_${tipo}_${currentUserId}_${Date.now()}`;
+        // Mesmo formato que loja-creditos (que funciona)
         const response = await fetch('/api/criar-pagamento', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -518,16 +517,16 @@
             preco: passe.preco,
             userId: currentUserId,
             userEmail: auth.currentUser?.email || '',
-            userName: currentUserData?.nome || currentUserData?.usuarioUnico || 'Anônimo',
-            titulo: passe.nome,
-            descricao: `${passe.nome} — ${passe.duracao} de acesso ilimitado`,
-            externalReference: externalRef
+            userName: currentUserData?.nome || currentUserData?.usuarioUnico || 'Anônimo'
           })
         });
         const data = await response.json();
+        console.log('📡 Resposta criar-pagamento:', data);
         if (data.success && data.initPoint) {
+          // Salvar tipo do passe para usar no retorno
+          localStorage.setItem('yellup_passe_tipo', tipo);
           window.location.href = data.initPoint;
-        } else { throw new Error(data.error || 'Dados incompletos'); }
+        } else { throw new Error(data.error || 'Erro ao criar pagamento'); }
       } catch (e) {
         console.error('Erro:', e); showLoading(false);
         showToast('❌ Erro ao processar. Tente novamente.');
@@ -552,12 +551,19 @@
 
     async function ativarPassePagamento(paymentId, externalRef) {
       try {
-        let tipoPasse = 'semanal';
+        let tipoPasse = 'semanal'; // default
+        // Tentar extrair do externalRef (formato: passe_semanal_userId_timestamp)
         if (externalRef) {
           const parts = externalRef.split('_');
           if (parts.length >= 2 && ['semanal', 'mensal', 'anual'].includes(parts[1])) {
             tipoPasse = parts[1];
           }
+        }
+        // Fallback: localStorage (salvo antes do redirect)
+        const savedTipo = localStorage.getItem('yellup_passe_tipo');
+        if (savedTipo && ['semanal', 'mensal', 'anual'].includes(savedTipo)) {
+          tipoPasse = savedTipo;
+          localStorage.removeItem('yellup_passe_tipo');
         }
         const ativarPasseFn = functions.httpsCallable('ativarPasse');
         const res = await ativarPasseFn({ paymentId: paymentId || 'pix_' + Date.now(), tipoPasse });
