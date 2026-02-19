@@ -87,16 +87,36 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Referência inválida' });
     }
 
-    const pacoteId = parts[0];
-    const creditosNum = parseInt(parts[1]) || 0;
-    const bonusNum = parseInt(parts[2]) || 0;
-    // userId pode conter underscores, timestamp é o último elemento
-    const timestamp = parts[parts.length - 1];
-    const userId = parts.slice(3, parts.length - 1).join('_');
+    // Detectar se é compra de passe ou créditos
+    // Passe: passe_semanal_0_0_userId_timestamp
+    // Créditos: pacoteId_creditos_bonus_userId_timestamp
+    const isPasse = parts[0] === 'passe';
+    let pacoteId, creditosNum, bonusNum, userId;
+
+    if (isPasse) {
+      pacoteId = `${parts[0]}_${parts[1]}`; // passe_semanal / passe_mensal / passe_anual
+      creditosNum = parseInt(parts[2]) || 0;
+      bonusNum = parseInt(parts[3]) || 0;
+      const timestamp = parts[parts.length - 1];
+      userId = parts.slice(4, parts.length - 1).join('_');
+    } else {
+      pacoteId = parts[0];
+      creditosNum = parseInt(parts[1]) || 0;
+      bonusNum = parseInt(parts[2]) || 0;
+      const timestamp = parts[parts.length - 1];
+      userId = parts.slice(3, parts.length - 1).join('_');
+    }
+
     const totalCreditos = creditosNum + bonusNum;
 
-    if (!userId || totalCreditos <= 0) {
-      console.error('❌ Dados inválidos - userId:', userId, 'creditos:', totalCreditos);
+    if (!userId) {
+      console.error('❌ userId não encontrado na referência:', externalRef);
+      return res.status(400).json({ error: 'Dados inválidos na referência' });
+    }
+
+    // Para créditos, totalCreditos deve ser > 0
+    if (!isPasse && totalCreditos <= 0) {
+      console.error('❌ Créditos inválidos - userId:', userId, 'creditos:', totalCreditos);
       return res.status(400).json({ error: 'Dados inválidos na referência' });
     }
 
@@ -109,69 +129,142 @@ export default async function handler(req, res) {
 
     const saldoAnterior = userDoc.data()?.creditos || 0;
 
-    // 5. Creditar via batch atômico
+    // 5. Processar via batch atômico
     const batch = dbAdmin.batch();
 
-    // Creditar usuário
-    batch.update(dbAdmin.collection('usuarios').doc(userId), {
-      creditos: admin.firestore.FieldValue.increment(totalCreditos),
-      creditosPagos: admin.firestore.FieldValue.increment(creditosNum),
-      creditosBonus: admin.firestore.FieldValue.increment(bonusNum)
-    });
+    if (isPasse) {
+      // ========== ATIVAR PASSE ==========
+      const tipoPasse = pacoteId.replace('passe_', ''); // semanal, mensal, anual
+      const duracaoDias = { semanal: 7, mensal: 30, anual: 365 }[tipoPasse] || 30;
+      const agora = new Date();
+      const expiracao = new Date(agora.getTime() + (duracaoDias * 24 * 60 * 60 * 1000));
 
-    // Registrar pagamento (evita duplicidade futura)
-    batch.set(dbAdmin.collection('pagamentos_mp').doc(String(paymentId)), {
-      usuarioId: userId,
-      creditos: creditosNum,
-      bonus: bonusNum,
-      totalCreditos: totalCreditos,
-      valorPago: payment.transaction_amount,
-      pacoteId: pacoteId,
-      status: 'aprovado',
-      externalReference: externalRef,
-      metodo: payment.payment_method_id || 'desconhecido',
-      origem: 'webhook',
-      processadoEm: admin.firestore.FieldValue.serverTimestamp()
-    });
+      batch.update(dbAdmin.collection('usuarios').doc(userId), {
+        'passe.tipo': tipoPasse,
+        'passe.ativo': true,
+        'passe.dataInicio': admin.firestore.FieldValue.serverTimestamp(),
+        'passe.dataExpiracao': admin.firestore.Timestamp.fromDate(expiracao),
+        'passe.historicoCompras': admin.firestore.FieldValue.arrayUnion({
+          tipo: tipoPasse,
+          paymentId: String(paymentId),
+          valor: payment.transaction_amount,
+          data: agora.toISOString()
+        })
+      });
 
-    // Registrar transação
-    batch.set(dbAdmin.collection('transacoes').doc(), {
-      usuarioId: userId,
-      tipo: 'credito',
-      valor: totalCreditos,
-      descricao: `Compra de ${creditosNum} créditos${bonusNum > 0 ? ` + ${bonusNum} bônus` : ''} (webhook)`,
-      paymentId: String(paymentId),
-      data: admin.firestore.FieldValue.serverTimestamp()
-    });
+      // Registrar pagamento do passe
+      batch.set(dbAdmin.collection('pagamentos_passe').doc(String(paymentId)), {
+        usuarioId: userId,
+        tipoPasse: tipoPasse,
+        valor: payment.transaction_amount,
+        status: 'aprovado',
+        externalReference: externalRef,
+        metodo: payment.payment_method_id || 'desconhecido',
+        origem: 'webhook',
+        dataAtivacao: admin.firestore.FieldValue.serverTimestamp(),
+        dataExpiracao: admin.firestore.Timestamp.fromDate(expiracao)
+      });
 
-    // 6. Log de atividade (extrato)
-    batch.set(dbAdmin.collection('logs_atividade').doc(), {
-      userId: userId,
-      tipo: 'compra',
-      valor: totalCreditos,
-      saldoAnterior: saldoAnterior,
-      saldoPosterior: saldoAnterior + totalCreditos,
-      descricao: `Compra MP: ${creditosNum} cr${bonusNum > 0 ? ` + ${bonusNum} bônus` : ''} — R$ ${payment.transaction_amount}`,
-      metadata: {
-        paymentId: String(paymentId),
-        pacoteId,
-        creditosBase: creditosNum,
-        bonus: bonusNum,
+      // Anti-duplicidade
+      batch.set(dbAdmin.collection('pagamentos_mp').doc(String(paymentId)), {
+        usuarioId: userId,
+        tipo: 'passe',
+        tipoPasse: tipoPasse,
         valorPago: payment.transaction_amount,
-        metodo: payment.payment_method_id,
-        origem: 'webhook'
-      },
-      criadoEm: admin.firestore.FieldValue.serverTimestamp()
-    });
+        pacoteId: pacoteId,
+        status: 'aprovado',
+        externalReference: externalRef,
+        metodo: payment.payment_method_id || 'desconhecido',
+        origem: 'webhook',
+        processadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
 
-    await batch.commit();
+      // Log de atividade
+      batch.set(dbAdmin.collection('logs_atividade').doc(), {
+        userId: userId,
+        tipo: 'passe',
+        valor: 0,
+        saldoAnterior: saldoAnterior,
+        saldoPosterior: saldoAnterior,
+        descricao: `Passe ${tipoPasse} ativado via MP — R$ ${payment.transaction_amount}`,
+        metadata: {
+          paymentId: String(paymentId),
+          pacoteId,
+          tipoPasse,
+          duracaoDias,
+          valorPago: payment.transaction_amount,
+          metodo: payment.payment_method_id,
+          origem: 'webhook'
+        },
+        criadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
 
-    console.log(`✅ Webhook processou: ${userId} +${totalCreditos} cr (saldo ${saldoAnterior} → ${saldoAnterior + totalCreditos}) | PaymentID: ${paymentId}`);
+      await batch.commit();
+      console.log(`✅ Webhook PASSE: ${userId} ativou ${tipoPasse} (${duracaoDias} dias) | PaymentID: ${paymentId}`);
+
+    } else {
+      // ========== CREDITAR CRÉDITOS ==========
+      // Creditar usuário
+      batch.update(dbAdmin.collection('usuarios').doc(userId), {
+        creditos: admin.firestore.FieldValue.increment(totalCreditos),
+        creditosPagos: admin.firestore.FieldValue.increment(creditosNum),
+        creditosBonus: admin.firestore.FieldValue.increment(bonusNum)
+      });
+
+      // Registrar pagamento (evita duplicidade futura)
+      batch.set(dbAdmin.collection('pagamentos_mp').doc(String(paymentId)), {
+        usuarioId: userId,
+        creditos: creditosNum,
+        bonus: bonusNum,
+        totalCreditos: totalCreditos,
+        valorPago: payment.transaction_amount,
+        pacoteId: pacoteId,
+        status: 'aprovado',
+        externalReference: externalRef,
+        metodo: payment.payment_method_id || 'desconhecido',
+        origem: 'webhook',
+        processadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // Registrar transação
+      batch.set(dbAdmin.collection('transacoes').doc(), {
+        usuarioId: userId,
+        tipo: 'credito',
+        valor: totalCreditos,
+        descricao: `Compra de ${creditosNum} créditos${bonusNum > 0 ? ` + ${bonusNum} bônus` : ''} (webhook)`,
+        paymentId: String(paymentId),
+        data: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // Log de atividade (extrato)
+      batch.set(dbAdmin.collection('logs_atividade').doc(), {
+        userId: userId,
+        tipo: 'compra',
+        valor: totalCreditos,
+        saldoAnterior: saldoAnterior,
+        saldoPosterior: saldoAnterior + totalCreditos,
+        descricao: `Compra MP: ${creditosNum} cr${bonusNum > 0 ? ` + ${bonusNum} bônus` : ''} — R$ ${payment.transaction_amount}`,
+        metadata: {
+          paymentId: String(paymentId),
+          pacoteId,
+          creditosBase: creditosNum,
+          bonus: bonusNum,
+          valorPago: payment.transaction_amount,
+          metodo: payment.payment_method_id,
+          origem: 'webhook'
+        },
+        criadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      await batch.commit();
+      console.log(`✅ Webhook CRÉDITOS: ${userId} +${totalCreditos} cr (saldo ${saldoAnterior} → ${saldoAnterior + totalCreditos}) | PaymentID: ${paymentId}`);
+    }
 
     return res.status(200).json({
       success: true,
-      message: 'Pagamento processado via webhook',
+      message: isPasse ? 'Passe ativado via webhook' : 'Pagamento processado via webhook',
       userId,
+      tipo: isPasse ? 'passe' : 'creditos',
       creditos: totalCreditos
     });
 
