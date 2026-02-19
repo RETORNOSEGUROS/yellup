@@ -3159,7 +3159,8 @@
     let timeForaData = null;         // Dados do time visitante
     let currentQuestion = null;
     let perguntasRespondidas = [];
-    let perguntasSessao = new Set(); // ✅ NOVO: perguntas vistas NESTA sessão (nunca reseta)
+    let perguntasSessao = new Set(); // perguntas vistas NESTA sessão (nunca reseta)
+    let perguntasCache = null;       // ✅ CACHE: perguntas carregadas do Firestore (evita re-fetch)
     let todasPerguntasRespondidas = false;
     let questionTimer = null;        // Timer da pergunta
     let questionTimeLeft = 10;       // 10 segundos por pergunta
@@ -4116,33 +4117,12 @@
           return;
         }
         
-        // ✅ VERIFICAR STATUS DO JOGO NO FIREBASE (em tempo real)
-        const jogoDoc = await db.collection("jogos").doc(jogoId).get();
-        const jogoAtual = jogoDoc.data();
-        
-        const agora = new Date();
-        const inicio = jogoAtual.dataInicio?.toDate?.() || (jogoAtual.dataInicio ? new Date(jogoAtual.dataInicio) : null);
-        const fimJogo = jogoAtual.dataFim?.toDate?.() || (jogoAtual.dataFim ? new Date(jogoAtual.dataFim) : null);
-        
-        const inicioValido = inicio && !isNaN(inicio.getTime()) ? inicio : 
-                           (jogoAtual.dataHora?.toDate?.() || (jogoAtual.dataHora ? new Date(jogoAtual.dataHora) : new Date()));
-        
-        let statusAtual = 'agendado';
-        if (fimJogo && agora >= fimJogo) {
-          statusAtual = 'finalizado';
-        } else if (agora >= inicioValido) {
-          statusAtual = 'ao_vivo';
-        }
-        
-        jogoStatus = statusAtual;
-        
+        // ✅ VERIFICAR STATUS DO JOGO (da memória, sem re-ler Firestore)
         if (jogoStatus !== 'ao_vivo') {
           if (jogoStatus === 'agendado') {
-            const diffMin = Math.ceil((inicioValido - agora) / 60000);
-            const minutos = isNaN(diffMin) ? '?' : diffMin;
-            alert(`⏳ O jogo ainda não começou!\n\nComeça em ${minutos} minutos.\nAguarde o horário de início.`);
+            alert("⏳ O jogo ainda não começou!");
           } else if (jogoStatus === 'finalizado') {
-            alert("🏁 Este jogo já foi finalizado!\n\nVeja o ranking final e aguarde a próxima partida.");
+            alert("🏁 Este jogo já foi finalizado!");
             atualizarBotaoBaseadoNoStatus();
             await loadRanking();
           }
@@ -4153,59 +4133,50 @@
         btnAnswer.disabled = true;
         btnAnswer.textContent = "🔍 Buscando pergunta...";
 
-        // ✅ V2: Buscar perguntas pelo TIME (cooldown é validado server-side no responderPerguntaV2)
-        console.log("🔍 Buscando perguntas para o time:", timeTorcida);
-        
-        const perguntasSnap = await db.collection("perguntas")
-          .where("timeId", "==", timeTorcida)
-          .get();
+        // ✅ CACHE: só busca perguntas do Firestore na PRIMEIRA vez
+        if (!perguntasCache) {
+          console.log("🔍 Buscando perguntas para o time:", timeTorcida);
+          const perguntasSnap = await db.collection("perguntas")
+            .where("timeId", "==", timeTorcida)
+            .get();
 
-        console.log("📚 Perguntas encontradas:", perguntasSnap.size);
+          console.log("📚 Perguntas encontradas:", perguntasSnap.size);
 
-        if (perguntasSnap.empty) {
-          alert("Nenhuma pergunta disponível para este time!\n\nO administrador precisa cadastrar perguntas.");
-          btnAnswer.disabled = false;
-          btnAnswer.textContent = "🎯 Responder Pergunta";
-          return;
-        }
+          if (perguntasSnap.empty) {
+            alert("Nenhuma pergunta disponível para este time!\n\nO administrador precisa cadastrar perguntas.");
+            btnAnswer.disabled = false;
+            btnAnswer.textContent = "🎯 Responder Pergunta";
+            return;
+          }
 
-        // Filtrar perguntas não respondidas (global + sessão)
-        const perguntasDisponiveis = [];
-        const perguntasTodasIds = [];
-        perguntasSnap.forEach(doc => {
-          perguntasTodasIds.push(doc.id);
-          if (!perguntasRespondidas.includes(doc.id) && !perguntasSessao.has(doc.id)) {
-            // ✅ SEGURANÇA: NÃO incluir campo "correta" no objeto enviado ao client
+          perguntasCache = [];
+          perguntasSnap.forEach(doc => {
             const dados = doc.data();
-            perguntasDisponiveis.push({
+            perguntasCache.push({
               id: doc.id,
               pergunta: dados.pergunta,
               alternativas: dados.alternativas,
               pontuacao: dados.pontuacao || dados.pontos || 10,
               timeId: dados.timeId
-              // ❌ NÃO incluir: correta, resposta, answer
             });
-          }
-        });
+          });
+          console.log(`✅ Cache: ${perguntasCache.length} perguntas carregadas`);
+        }
 
-        console.log(`📝 Perguntas: ${perguntasSnap.size} total | ${perguntasRespondidas.length} respondidas | ${perguntasSessao.size} sessão | ${perguntasDisponiveis.length} disponíveis`);
+        // Filtrar: remover perguntas já respondidas (global) E da sessão atual
+        const perguntasDisponiveis = perguntasCache.filter(p => 
+          !perguntasRespondidas.includes(p.id) && !perguntasSessao.has(p.id)
+        );
+
+        console.log(`📝 Perguntas: ${perguntasCache.length} total | ${perguntasRespondidas.length} respondidas | ${perguntasSessao.size} sessão | ${perguntasDisponiveis.length} disponíveis`);
 
         // Se acabaram as perguntas disponíveis
         if (perguntasDisponiveis.length === 0) {
-          
-          const apenasGlobal = [];
-          perguntasSnap.forEach(doc => {
-            if (!perguntasSessao.has(doc.id)) {
-              const dados = doc.data();
-              apenasGlobal.push({
-                id: doc.id, pergunta: dados.pergunta, alternativas: dados.alternativas,
-                pontuacao: dados.pontuacao || dados.pontos || 10, timeId: dados.timeId
-              });
-            }
-          });
+          // Tentar perguntas não vistas NESTA SESSÃO (mas respondidas em jogos anteriores)
+          const apenasGlobal = perguntasCache.filter(p => !perguntasSessao.has(p.id));
 
           if (apenasGlobal.length > 0) {
-            console.log(`🔄 Resetando global - ${apenasGlobal.length} perguntas recicladas`);
+            console.log(`🔄 Reciclando ${apenasGlobal.length} perguntas de jogos anteriores`);
             await db.collection("usuarios").doc(uid).update({
               [`perguntasRespondidas_${timeTorcida}`]: [...perguntasSessao]
             });
@@ -4213,42 +4184,24 @@
             
             const perguntaAleatoria = apenasGlobal[Math.floor(Math.random() * apenasGlobal.length)];
             currentQuestion = perguntaAleatoria;
+            console.log("📝 Pergunta selecionada:", currentQuestion.pergunta);
             displayQuestion();
             return;
           }
           
-          console.log("🔄 Ciclo completo! Reiniciando...");
+          // Ciclo completo: TODAS vistas nesta sessão — resetar tudo
+          console.log("🔄 Ciclo completo! Reiniciando perguntas...");
           await db.collection("usuarios").doc(uid).update({
             [`perguntasRespondidas_${timeTorcida}`]: []
           });
           perguntasRespondidas = [];
-          
-          const sessaoArray = [...perguntasSessao];
-          const maisAntigaId = sessaoArray[0];
           perguntasSessao.clear();
           
-          let perguntaMaisAntiga = null;
-          perguntasSnap.forEach(doc => {
-            if (doc.id === maisAntigaId) {
-              const dados = doc.data();
-              perguntaMaisAntiga = {
-                id: doc.id, pergunta: dados.pergunta, alternativas: dados.alternativas,
-                pontuacao: dados.pontuacao || dados.pontos || 10, timeId: dados.timeId
-              };
-            }
-          });
+          showToast(`🔄 Ciclo completo! ${perguntasCache.length} perguntas respondidas.`);
           
-          if (!perguntaMaisAntiga) {
-            const docs = [];
-            perguntasSnap.forEach(doc => {
-              const d = doc.data();
-              docs.push({ id: doc.id, pergunta: d.pergunta, alternativas: d.alternativas, pontuacao: d.pontuacao || d.pontos || 10, timeId: d.timeId });
-            });
-            perguntaMaisAntiga = docs[Math.floor(Math.random() * docs.length)];
-          }
-          
-          showToast(`🔄 Ciclo completo! ${perguntasTodasIds.length} perguntas respondidas.`);
-          currentQuestion = perguntaMaisAntiga;
+          const perguntaAleatoria = perguntasCache[Math.floor(Math.random() * perguntasCache.length)];
+          currentQuestion = perguntaAleatoria;
+          console.log("📝 Pergunta selecionada (ciclo novo):", currentQuestion.pergunta);
           displayQuestion();
           return;
         }
