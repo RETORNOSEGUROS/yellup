@@ -1232,8 +1232,9 @@
 
       cotasSnap.forEach(doc => {
         const data = doc.data();
-        minhasCotas[data.timeId] = { id: doc.id, ...data };
-        totalCotas += data.quantidade;
+        const qtdCapped = Math.min(data.quantidade, COTAS_POR_TIME);
+        minhasCotas[data.timeId] = { id: doc.id, ...data, quantidade: qtdCapped };
+        totalCotas += qtdCapped;
       });
 
       document.getElementById('minhasCotas').textContent = totalCotas.toLocaleString('pt-BR');
@@ -1249,11 +1250,26 @@
         cotasSnap.forEach(doc => {
           const data = doc.data();
           if (data.quantidade > 0) {
+            // Cap: máximo COTAS_POR_TIME por time (migração do sistema antigo)
+            const qtdCapped = Math.min(data.quantidade, COTAS_POR_TIME);
             if (!todasCotas[data.timeId]) todasCotas[data.timeId] = [];
-            todasCotas[data.timeId].push({ docId: doc.id, ...data });
+            todasCotas[data.timeId].push({ docId: doc.id, ...data, quantidade: qtdCapped });
             totalSocios.add(data.userId);
           }
         });
+        
+        // Garantir que nenhum time ultrapasse COTAS_POR_TIME no total
+        Object.keys(todasCotas).forEach(timeId => {
+          let total = todasCotas[timeId].reduce((s, c) => s + c.quantidade, 0);
+          if (total > COTAS_POR_TIME) {
+            // Reduzir proporcionalmente
+            const fator = COTAS_POR_TIME / total;
+            todasCotas[timeId].forEach(c => {
+              c.quantidade = Math.max(1, Math.floor(c.quantidade * fator));
+            });
+          }
+        });
+        
         document.getElementById('totalSocios').textContent = totalSocios.size;
       } catch(e) {
         console.error('Erro carregarTodasCotas:', e);
@@ -2427,8 +2443,132 @@
 
       await batch.commit();
 
-      logAdmin(`  📈 ${timeCasa?.nome}: ${variacaoCasa >= 0 ? '+' : ''}${variacaoCasa.toFixed(2)}% → ${novoPrecoAlgoCasa.toFixed(2)} cr | Div: ${novaMediaDivCasa.toFixed(3)} cr`, variacaoCasa >= 0 ? 'success' : 'warn');
-      logAdmin(`  📈 ${timeFora?.nome}: ${variacaoFora >= 0 ? '+' : ''}${variacaoFora.toFixed(2)}% → ${novoPrecoAlgoFora.toFixed(2)} cr | Div: ${novaMediaDivFora.toFixed(3)} cr`, variacaoFora >= 0 ? 'success' : 'warn');
+      logAdmin(`  📈 ${timeCasa?.nome}: ${variacaoCasa >= 0 ? '+' : ''}${variacaoCasa.toFixed(2)}% → ${novoPrecoAlgoCasa.toFixed(2)} cr`, variacaoCasa >= 0 ? 'success' : 'warn');
+      logAdmin(`  📈 ${timeFora?.nome}: ${variacaoFora >= 0 ? '+' : ''}${variacaoFora.toFixed(2)}% → ${novoPrecoAlgoFora.toFixed(2)} cr`, variacaoFora >= 0 ? 'success' : 'warn');
+
+      // ==================== DISTRIBUIR CRÉDITOS PARA SÓCIOS-TORCEDORES ====================
+      try {
+        // Calcular bônus por participação para cada time (1-3 cr)
+        // +1cr: time jogou (sempre)
+        // +1cr: time fez mais pontos
+        // +1cr: time teve mais torcedores
+        let bonusCasa = 1; // sempre ganha 1cr por ter jogado
+        let bonusFora = 1;
+
+        if (pontosCasa > pontosFora) bonusCasa++;
+        else if (pontosFora > pontosCasa) bonusFora++;
+
+        if (torcidaCasa > torcidaFora) bonusCasa++;
+        else if (torcidaFora > torcidaCasa) bonusFora++;
+
+        logAdmin(`  🏆 Bônus sócios: ${timeCasa?.nome} = ${bonusCasa}cr/part | ${timeFora?.nome} = ${bonusFora}cr/part`, 'info');
+
+        // Buscar sócios de ambos os times
+        const [cotasCasaSnap, cotasForaSnap] = await Promise.all([
+          db.collection('bolsa_cotas').where('timeId', '==', timeCasaId).get(),
+          db.collection('bolsa_cotas').where('timeId', '==', timeForaId).get()
+        ]);
+
+        // Agrupar: { userId: { quantidade, timeId, bonus } }
+        const sociosParaPremiar = {};
+
+        cotasCasaSnap.forEach(doc => {
+          const d = doc.data();
+          if (d.quantidade > 0) {
+            const qtd = Math.min(d.quantidade, COTAS_POR_TIME);
+            if (!sociosParaPremiar[d.userId]) sociosParaPremiar[d.userId] = [];
+            sociosParaPremiar[d.userId].push({
+              timeId: timeCasaId,
+              timeNome: timeCasa?.nome || '',
+              quantidade: qtd,
+              bonusPorPart: bonusCasa,
+              totalCreditos: qtd * bonusCasa
+            });
+          }
+        });
+
+        cotasForaSnap.forEach(doc => {
+          const d = doc.data();
+          if (d.quantidade > 0) {
+            const qtd = Math.min(d.quantidade, COTAS_POR_TIME);
+            if (!sociosParaPremiar[d.userId]) sociosParaPremiar[d.userId] = [];
+            sociosParaPremiar[d.userId].push({
+              timeId: timeForaId,
+              timeNome: timeFora?.nome || '',
+              quantidade: qtd,
+              bonusPorPart: bonusFora,
+              totalCreditos: qtd * bonusFora
+            });
+          }
+        });
+
+        const userIds = Object.keys(sociosParaPremiar);
+        if (userIds.length === 0) {
+          logAdmin(`  ℹ️ Nenhum sócio-torcedor para premiar neste jogo`, 'info');
+        } else {
+          // Premiar em batches de 200 (cada user = ~2 ops: update creditos + extrato)
+          let totalCreditosDistribuidos = 0;
+          let totalSociosPremiados = 0;
+
+          for (let i = 0; i < userIds.length; i += 200) {
+            const chunk = userIds.slice(i, i + 200);
+            const premioBatch = db.batch();
+
+            for (const userId of chunk) {
+              const premios = sociosParaPremiar[userId];
+              const totalUser = premios.reduce((s, p) => s + p.totalCreditos, 0);
+
+              if (totalUser <= 0) continue;
+
+              // Creditar
+              premioBatch.update(db.collection('usuarios').doc(userId), {
+                creditos: firebase.firestore.FieldValue.increment(totalUser)
+              });
+
+              // Extrato
+              const descricaoPartes = premios.map(p => 
+                `${p.timeNome}: ${p.quantidade}×${p.bonusPorPart}cr`
+              ).join(' | ');
+
+              const extratoRef = db.collection('usuarios').doc(userId).collection('extrato').doc();
+              premioBatch.set(extratoRef, {
+                tipo: 'entrada',
+                valor: totalUser,
+                descricao: `⚽ Sócio-torcedor: ${descricaoPartes} (${timeCasa?.nome} vs ${timeFora?.nome})`,
+                jogoId: jogo.id,
+                data: firebase.firestore.FieldValue.serverTimestamp()
+              });
+
+              totalCreditosDistribuidos += totalUser;
+              totalSociosPremiados++;
+            }
+
+            await premioBatch.commit();
+          }
+
+          // Salvar registro da distribuição
+          await db.collection('distribuicao_socios_jogo').doc(jogo.id).set({
+            jogoId: jogo.id,
+            timeCasaId, timeForaId,
+            timeCasaNome: timeCasa?.nome || '',
+            timeForaNome: timeFora?.nome || '',
+            bonusCasa, bonusFora,
+            totalSociosPremiados,
+            totalCreditosDistribuidos,
+            detalhes: {
+              pontosCasa, pontosFora,
+              torcidaCasa, torcidaFora
+            },
+            processadoEm: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          logAdmin(`  💰 ${totalSociosPremiados} sócios premiados = ${totalCreditosDistribuidos} cr distribuídos!`, 'success');
+        }
+
+      } catch (distError) {
+        logAdmin(`  ⚠️ Erro na distribuição de sócios (índice atualizado normalmente): ${distError.message}`, 'error');
+        console.error('Erro distribuição sócios:', distError);
+      }
     }
 
     // Resetar variação diária (rodar uma vez por dia)
