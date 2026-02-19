@@ -718,78 +718,26 @@
           return;
         }
         
-        // Buscar participações
-        const participacoesSnap = await db.collection('embates').doc(embate.id)
-          .collection('participacoes').get();
-        
-        let ranking = [];
-        participacoesSnap.forEach(doc => {
-          ranking.push({ odId: doc.id, ...doc.data() });
-        });
-        
-        // Ordenar por pontos
-        ranking.sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
-        
-        // Calcular resultado
-        let resultado = {};
-        const premio = embateAtualizado.prizePool || (embateAtualizado.aposta * ranking.length) || 0;
-        
-        if (ranking.length > 0) {
-          const maiorPontuacao = ranking[0].pontos || 0;
-          const vencedores = ranking.filter(r => (r.pontos || 0) === maiorPontuacao);
-          const empate = vencedores.length > 1;
+        // ✅ SEGURO: Cloud Function V2 calcula ranking, distribui prêmio do SISTEMA e finaliza
+        try {
+          const finalizarFn = functions.httpsCallable('finalizarEmbateV2');
+          const resultado = await finalizarFn({ embateId: embate.id });
           
-          resultado = {
-            vencedorId: empate ? null : vencedores[0].odId,
-            vencedorNome: empate ? null : vencedores[0].odNome,
-            pontuacaoVencedor: maiorPontuacao,
-            empate: empate,
-            vencedoresEmpate: empate ? vencedores.map(v => v.odId) : null,
-            ranking: ranking.map((r, i) => ({
-              posicao: i + 1,
-              odId: r.odId,
-              odNome: r.odNome,
-              pontos: r.pontos || 0,
-              acertos: r.acertos || 0,
-              erros: r.erros || 0
-            }))
-          };
-          
-          // Verificar se EU sou um dos vencedores e preciso receber créditos
-          const euVenci = vencedores.some(v => v.odId === currentUserId);
-          const euParticipei = ranking.some(r => r.odId === currentUserId);
-          
-          if (euParticipei) {
-            // Verificar se já recebemos os créditos deste embate
-            const transacaoExistente = await db.collection('transacoes')
-              .where('usuarioId', '==', currentUserId)
-              .where('embateId', '==', embate.id)
-              .where('tipo', '==', 'credito')
-              .limit(1)
-              .get();
+          if (resultado.data.resultado) {
+            const r = resultado.data.resultado;
+            const euVenci = r.empate 
+              ? (r.vencedoresEmpate || []).includes(currentUserId)
+              : r.vencedorId === currentUserId;
             
-            if (transacaoExistente.empty) {
-              // ✅ SEGURO: Cloud Function coleta prêmio ou registra derrota
-              const coletarPremioFn = functions.httpsCallable('coletarPremioEmbate');
-              const resultadoColeta = await coletarPremioFn({ embateId: embate.id });
-              
-              if (resultadoColeta.data.venceu) {
-                showToast(`🏆 Você ganhou +${resultadoColeta.data.premio} créditos!`);
-              }
+            if (euVenci) {
+              const meuPremio = r.empate 
+                ? Math.floor(resultado.data.premio / (r.vencedoresEmpate || []).length)
+                : resultado.data.premio;
+              showToast(`🏆 Você ganhou +${meuPremio} créditos!`);
             }
           }
-        }
-        
-        // Tentar atualizar embate como finalizado (pode falhar se não for o criador, tudo bem)
-        try {
-          await db.collection('embates').doc(embate.id).update({
-            status: 'finalizado',
-            resultado: resultado,
-            dataFinalizacao: firebase.firestore.FieldValue.serverTimestamp()
-          });
-          console.log("Embate finalizado:", embate.id);
-        } catch (e) {
-          console.log("Não foi possível atualizar status do embate (permissão), mas créditos do usuário foram processados");
+        } catch (fnErr) {
+          console.log("Erro ao finalizar via Cloud Function (pode já estar finalizado):", fnErr.message);
         }
         
         // Atualizar créditos no header
@@ -943,7 +891,7 @@
         acoes = `
           <div class="convite-actions">
             <button class="btn-action primary" onclick="event.stopPropagation(); aceitarConvite('${embate.id}')">
-              ✅ Aceitar (${embate.aposta} 💎)
+              ✅ Aceitar (2 💎)
             </button>
             <button class="btn-action danger" onclick="event.stopPropagation(); recusarConvite('${embate.id}')">
               ❌ Recusar
@@ -978,8 +926,8 @@
           </div>
 
           <div class="embate-meta">
-            <span class="embate-meta-item">💎 ${embate.aposta} créditos</span>
-            <span class="embate-meta-item">🏆 ${embate.prizePool || embate.aposta} prize</span>
+            <span class="embate-meta-item">🎟️ Taxa: 2 💎</span>
+            <span class="embate-meta-item">🏆 Prêmio: ${(embate.premioMultiplicador || 4) * (embate.totalParticipantes || (embate.participantes || []).length || 2)} 💎</span>
             <span class="embate-meta-item">⏱️ ${embate.duracao || 10} min</span>
           </div>
 
@@ -1010,9 +958,9 @@
         const embate = convites.find(e => e.id === embateId);
         if (!embate) return;
 
-        // Verificar créditos
-        if ((currentUserData?.creditos || 0) < embate.aposta) {
-          showToast('❌ Créditos insuficientes');
+        // Verificar créditos (taxa fixa: 2)
+        if ((currentUserData?.creditos || 0) < 2) {
+          showToast('❌ Créditos insuficientes (precisa de 2 💎)');
           return;
         }
 
@@ -1029,8 +977,8 @@
           convidados: convidadosAtualizados
         });
 
-        // ✅ SEGURO: Cloud Function debita créditos e atualiza participantes
-        const aceitarEmbateFn = functions.httpsCallable('aceitarEmbate');
+        // ✅ SEGURO: Cloud Function V2 queima taxa e atualiza participantes
+        const aceitarEmbateFn = functions.httpsCallable('aceitarEmbateV2');
         await aceitarEmbateFn({ embateId: embateId });
 
         // Criar participação
