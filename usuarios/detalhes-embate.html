@@ -691,9 +691,9 @@
       <!-- Info Grid -->
       <div class="info-grid">
         <div class="info-item">
-          <div class="info-icon">💎</div>
-          <div class="info-value" id="infoAposta">0</div>
-          <div class="info-label">Aposta</div>
+          <div class="info-icon">🎟️</div>
+          <div class="info-value" id="infoAposta">2</div>
+          <div class="info-label">Taxa</div>
         </div>
         <div class="info-item">
           <div class="info-icon">⏱️</div>
@@ -712,10 +712,10 @@
         </div>
       </div>
 
-      <!-- Prize Pool -->
+      <!-- Prêmio do Sistema -->
       <div class="prize-pool-card">
         <div class="prize-icon">🏆</div>
-        <div class="prize-label">Prize Pool</div>
+        <div class="prize-label">Prêmio Yellup</div>
         <div class="prize-value"><span id="prizePool">0</span> 💎</div>
       </div>
 
@@ -910,7 +910,7 @@
       modeBadge.className = `mode-badge ${modo.classe}`;
       
       // Info Grid
-      document.getElementById('infoAposta').textContent = embateData.aposta || 0;
+      document.getElementById('infoAposta').textContent = embateData.taxaEntrada || 2;
       document.getElementById('infoDuracao').textContent = embateData.duracao || 10;
       
       if (embateData.dataInicio) {
@@ -925,8 +925,10 @@
       
       document.getElementById('infoParticipantes').textContent = embateData.totalParticipantes || 1;
       
-      // Prize Pool
-      document.getElementById('prizePool').textContent = embateData.prizePool || embateData.aposta;
+      // Prêmio dinâmico: 4 créditos × nº participantes
+      const numPart = embateData.totalParticipantes || (embateData.participantes || []).length || 1;
+      const multiplicador = embateData.premioMultiplicador || 4;
+      document.getElementById('prizePool').textContent = multiplicador * numPart;
       
       // Criador
       document.getElementById('criadorAvatar').textContent = 
@@ -1095,53 +1097,9 @@
           return;
         }
         
-        // Buscar participações para calcular vencedor
-        const participacoesSnap = await db.collection('embates').doc(embateId)
-          .collection('participacoes').get();
-        
-        let ranking = [];
-        participacoesSnap.forEach(doc => {
-          ranking.push({ odId: doc.id, ...doc.data() });
-        });
-        
-        // Ordenar por pontos (maior primeiro)
-        ranking.sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
-        
-        // Usar dados atualizados do banco
-        const embateAtualizado = embateDoc.data();
-        
-        // Determinar vencedor
-        let resultado = {};
-        const premio = embateAtualizado.prizePool || embateAtualizado.aposta * 2;
-        
-        if (ranking.length > 0) {
-          const maiorPontuacao = ranking[0].pontos || 0;
-          const vencedores = ranking.filter(r => (r.pontos || 0) === maiorPontuacao);
-          const empate = vencedores.length > 1;
-          
-          resultado = {
-            vencedorId: empate ? null : vencedores[0].odId,
-            vencedorNome: empate ? null : vencedores[0].odNome,
-            pontuacaoVencedor: maiorPontuacao,
-            empate: empate,
-            vencedoresEmpate: empate ? vencedores.map(v => v.odId) : null,
-            ranking: ranking.map((r, i) => ({
-              posicao: i + 1,
-              odId: r.odId,
-              odNome: r.odNome,
-              pontos: r.pontos || 0,
-              acertos: r.acertos || 0,
-              erros: r.erros || 0
-            }))
-          };
-          
-          // ✅ SEGURO: Cloud Function distribui prêmios e finaliza
-          const finalizarEmbateFn = functions.httpsCallable('finalizarEmbate');
-          const resultadoFn = await finalizarEmbateFn({ embateId: embateId });
-          if (resultadoFn.data.resultado) {
-            resultado = resultadoFn.data.resultado;
-          }
-        }
+        // ✅ SEGURO: Cloud Function V2 calcula ranking, distribui prêmio do SISTEMA e finaliza
+        const finalizarEmbateFn = functions.httpsCallable('finalizarEmbateV2');
+        const resultadoFn = await finalizarEmbateFn({ embateId: embateId });
         
         showToast('🏁 Embate finalizado!');
         
@@ -1191,7 +1149,7 @@
         if (meuConvite.status === 'pendente') {
           icon.textContent = '📩';
           title.textContent = 'Você foi convidado!';
-          info.textContent = `Aceite para participar. Serão debitados ${embateData.aposta} créditos.`;
+          info.textContent = `Aceite para participar. Taxa de entrada: 2 créditos.`;
         } else if (meuConvite.status === 'recusado') {
           icon.textContent = '❌';
           title.textContent = 'Você recusou este convite';
@@ -1306,12 +1264,12 @@
       const meuConvite = embateData.convidados?.find(c => c.odId === currentUserId);
       
       if (meuConvite && meuConvite.status === 'pendente') {
-        // Verificar créditos
-        const temCreditos = (currentUserData?.creditos || 0) >= embateData.aposta;
+        // Verificar créditos (taxa fixa: 2)
+        const temCreditos = (currentUserData?.creditos || 0) >= 2;
         
         if (!temCreditos) {
           creditosBox.style.display = 'flex';
-          document.getElementById('creditosNecessarios').textContent = embateData.aposta;
+          document.getElementById('creditosNecessarios').textContent = 2;
         }
         
         container.innerHTML = `
@@ -1319,7 +1277,7 @@
             ❌ Recusar
           </button>
           <button class="btn-action primary" onclick="aceitarConvite()" ${!temCreditos ? 'disabled' : ''}>
-            ✅ Aceitar (${embateData.aposta} 💎)
+            ✅ Aceitar (2 💎)
           </button>
         `;
         return;
@@ -1351,14 +1309,14 @@
       btn.textContent = '⏳ Processando...';
       
       try {
-        // Verificar créditos novamente
+        // Verificar créditos novamente (taxa fixa: 2)
         const userDoc = await db.collection('usuarios').doc(currentUserId).get();
         const creditos = userDoc.data().creditos || 0;
         
-        if (creditos < embateData.aposta) {
-          showToast('❌ Créditos insuficientes');
+        if (creditos < 2) {
+          showToast('❌ Créditos insuficientes (precisa de 2 💎)');
           btn.disabled = false;
-          btn.textContent = `✅ Aceitar (${embateData.aposta} 💎)`;
+          btn.textContent = `✅ Aceitar (2 💎)`;
           return;
         }
         
@@ -1375,8 +1333,8 @@
           convidados: convitesAtualizados
         });
         
-        // ✅ SEGURO: Cloud Function debita créditos e atualiza participantes
-        const aceitarEmbateFn = functions.httpsCallable('aceitarEmbate');
+        // ✅ SEGURO: Cloud Function V2 queima taxa e atualiza participantes
+        const aceitarEmbateFn = functions.httpsCallable('aceitarEmbateV2');
         await aceitarEmbateFn({ embateId: embateId });
         
         showToast('✅ Convite aceito! Você está no embate!');
@@ -1388,7 +1346,7 @@
         console.error("Erro ao aceitar convite:", error);
         showToast('❌ Erro ao aceitar convite');
         btn.disabled = false;
-        btn.textContent = `✅ Aceitar (${embateData.aposta} 💎)`;
+        btn.textContent = `✅ Aceitar (2 💎)`;
       }
     }
 
@@ -1425,7 +1383,7 @@
     // 🚫 CANCELAR EMBATE
     // ===================================
     async function cancelarEmbate() {
-      if (!confirm('Tem certeza que deseja cancelar este embate?\nOs créditos serão devolvidos a todos os participantes.')) {
+      if (!confirm('Tem certeza que deseja cancelar este embate?\nA taxa de entrada (2 💎) será devolvida a todos os participantes.')) {
         return;
       }
       
