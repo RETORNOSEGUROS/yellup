@@ -1019,10 +1019,7 @@
         renderTracker();
         renderRound();
         // Re-apply team colors AFTER renderRound (which calls resetPlayers)
-        try {
-          var cobr = getCobrador(matchData.rodadaAtual || 1);
-          applyTeamColors(cobr, matchData.rodadaAtual || 1);
-        } catch(e) { console.warn('Re-apply colors:', e); }
+        safeApplyTeamColors();
 
         // Then handle timer (wrapped in try-catch so it never blocks the game)
         try {
@@ -1216,46 +1213,45 @@
       var kickerTeam = matchData[kickerRole] ? matchData[kickerRole].time : null;
       var keeperTeam = matchData[keeperRole] ? matchData[keeperRole].time : null;
 
-      console.log('👕 applyTeamColors - cobrador:', cobrador, 'kickerTeam:', kickerTeam ? kickerTeam.primaria : 'null', 'keeperTeam:', keeperTeam ? keeperTeam.primaria : 'null');
+      console.log('👕 applyTeamColors - cobrador:', cobrador);
+      console.log('👕 kickerRole:', kickerRole, 'team:', kickerTeam ? JSON.stringify({p:kickerTeam.primaria,s:kickerTeam.secundaria,t:kickerTeam.terciaria}) : 'NO TEAM');
+      console.log('👕 keeperRole:', keeperRole, 'team:', keeperTeam ? JSON.stringify({p:keeperTeam.primaria,s:keeperTeam.secundaria,t:keeperTeam.terciaria}) : 'NO TEAM');
 
-      // Kicker jersey — use backgroundColor (not background gradient!)
-      var kBody = document.getElementById('kBody');
-      var kArmL = document.getElementById('kArmL');
-      var kArmR = document.getElementById('kArmR');
-      var kShorts = document.getElementById('kShorts');
-      if (kickerTeam && kickerTeam.primaria) {
-        var kColor = kickerTeam.primaria;
-        var kColor3 = kickerTeam.terciaria || kickerTeam.primaria;
-        kBody.style.cssText = 'background:' + kColor + ' !important';
-        kArmL.style.cssText = 'background:' + kColor + ' !important';
-        kArmR.style.cssText = 'background:' + kColor + ' !important';
-        kShorts.style.cssText = 'background:' + kColor3 + ' !important';
-        console.log('👕 Kicker set to:', kColor);
-      } else {
-        kBody.style.cssText = 'background:#2563eb';
-        kArmL.style.cssText = 'background:#2563eb';
-        kArmR.style.cssText = 'background:#2563eb';
-        kShorts.style.cssText = 'background:#1e3a5f';
-      }
+      // Kicker colors
+      var kc1 = (kickerTeam && kickerTeam.primaria) ? kickerTeam.primaria : '#2563eb';
+      var kc2 = (kickerTeam && kickerTeam.secundaria) ? kickerTeam.secundaria : '#fff';
+      var kc3 = (kickerTeam && kickerTeam.terciaria) ? kickerTeam.terciaria : '#1e3a5f';
 
-      // Goalkeeper jersey
-      var gkBody = document.getElementById('gkBody');
-      var gkArmL = document.getElementById('gkArmL');
-      var gkArmR = document.getElementById('gkArmR');
-      var gkCap = document.getElementById('gkCap');
-      if (keeperTeam && keeperTeam.primaria) {
-        var gColor = keeperTeam.primaria;
-        var gColor2 = keeperTeam.terciaria || keeperTeam.primaria;
-        gkBody.style.cssText = 'background:' + gColor + ' !important';
-        gkArmL.style.cssText = 'background:' + gColor + ' !important';
-        gkArmR.style.cssText = 'background:' + gColor + ' !important';
-        gkCap.style.cssText = 'background:' + gColor2 + ' !important';
-      } else {
-        gkBody.style.cssText = 'background:#22aa22';
-        gkArmL.style.cssText = 'background:#22aa22';
-        gkArmR.style.cssText = 'background:#22aa22';
-        gkCap.style.cssText = 'background:#22aa22';
+      // Goalkeeper colors
+      var gc1 = (keeperTeam && keeperTeam.primaria) ? keeperTeam.primaria : '#22aa22';
+      var gc2 = (keeperTeam && keeperTeam.secundaria) ? keeperTeam.secundaria : '#ffcc00';
+      var gc3 = (keeperTeam && keeperTeam.terciaria) ? keeperTeam.terciaria : '#22aa22';
+
+      // ★ INJECT CSS STYLE — most robust method, cannot be overridden ★
+      var styleEl = document.getElementById('teamColorCSS');
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'teamColorCSS';
+        document.head.appendChild(styleEl);
       }
+      styleEl.textContent = 
+        '#kBody, #kArmL, #kArmR { background: ' + kc1 + ' !important; }' +
+        '#kShorts { background: ' + kc3 + ' !important; }' +
+        '.kicker-wrap .k-sock { background: ' + kc2 + ' !important; }' +
+        '#gkBody, #gkArmL, #gkArmR { background: ' + gc1 + ' !important; }' +
+        '#gkCap { background: ' + gc3 + ' !important; }' +
+        '.gk-wrap .gk-shorts { background: ' + gc3 + ' !important; }' +
+        '.gk-wrap .gk-glove { background: ' + gc2 + ' !important; }';
+
+      console.log('👕 CSS injected! Kicker:', kc1, '/', kc3, 'Keeper:', gc1, '/', gc3);
+    }
+
+    // Safe wrapper with delayed re-apply
+    function safeApplyTeamColors() {
+      try {
+        var cobr = getCobrador(matchData.rodadaAtual || 1);
+        applyTeamColors(cobr, matchData.rodadaAtual || 1);
+      } catch(e) { console.warn('safeApplyTeamColors:', e); }
     }
 
     // ============================================================
@@ -1445,10 +1441,7 @@
           renderTracker();
           renderRound();
           // Re-apply team colors after renderRound resets
-          try {
-            var cobr = getCobrador(matchData.rodadaAtual || 1);
-            applyTeamColors(cobr, matchData.rodadaAtual || 1);
-          } catch(e) {}
+          safeApplyTeamColors();
         }
       }, 2500);
     }
