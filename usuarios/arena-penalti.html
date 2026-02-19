@@ -1077,24 +1077,24 @@
 
         var p1score = d.placar ? (d.placar.jogador1 || 0) : 0;
         var p2score = d.placar ? (d.placar.jogador2 || 0) : 0;
+        var reembolso = d.valorAposta || 2; // taxa paga
+        var premioSistema = d.premioSistema || 6; // prêmio do sistema
 
         if (p1score === p2score) {
-          // Tie → refund myself, store pending for opponent
-          var aposta = d.valorAposta || 0;
-          await db.collection('usuarios').doc(currentUser.uid).update({ creditos: firebase.firestore.FieldValue.increment(aposta) });
-          await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({ tipo: 'entrada', valor: aposta, descricao: 'Pênaltis: empate por tempo (reembolso)', data: firebase.firestore.FieldValue.serverTimestamp() });
+          // Empate → reembolso da taxa para ambos
+          await db.collection('usuarios').doc(currentUser.uid).update({ creditos: firebase.firestore.FieldValue.increment(reembolso) });
+          await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({ tipo: 'entrada', valor: reembolso, descricao: 'Pênaltis: empate por tempo (reembolso taxa)', data: firebase.firestore.FieldValue.serverTimestamp() });
           var outroUid = myRole === 'jogador1' ? d.jogador2.uid : d.jogador1.uid;
-          await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: 'empate_timeout', creditoPendente: { uid: outroUid, valor: aposta, tipo: 'reembolso' } });
+          await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: 'empate_timeout', creditoPendente: { uid: outroUid, valor: reembolso, tipo: 'reembolso' } });
         } else {
-          // Not tied → whoever is ahead wins
+          // Quem está na frente vence → prêmio do SISTEMA
           var vencedorUid = p1score > p2score ? d.jogador1.uid : d.jogador2.uid;
-          var premio = (d.valorAposta || 0) * 2;
           if (vencedorUid === currentUser.uid) {
-            await db.collection('usuarios').doc(currentUser.uid).update({ creditos: firebase.firestore.FieldValue.increment(premio) });
-            await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({ tipo: 'entrada', valor: premio, descricao: 'Pênaltis: vitória por tempo (+' + premio + ')', data: firebase.firestore.FieldValue.serverTimestamp() });
+            await db.collection('usuarios').doc(currentUser.uid).update({ creditos: firebase.firestore.FieldValue.increment(premioSistema) });
+            await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({ tipo: 'entrada', valor: premioSistema, descricao: 'Pênaltis: prêmio Yellup por tempo (+' + premioSistema + ')', data: firebase.firestore.FieldValue.serverTimestamp() });
             await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: vencedorUid, timeout: true });
           } else {
-            await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: vencedorUid, timeout: true, creditoPendente: { uid: vencedorUid, valor: premio, tipo: 'vitoria' } });
+            await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: vencedorUid, timeout: true, creditoPendente: { uid: vencedorUid, valor: premioSistema, tipo: 'vitoria' } });
           }
         }
       } catch (e) {
@@ -1104,7 +1104,7 @@
     }
 
     async function abandonarArena() {
-      if (!confirm('🏳️ Tem certeza? Você perderá seus créditos apostados.')) return;
+      if (!confirm('🏳️ Tem certeza? Você perderá sua taxa de entrada.')) return;
       if (isProcessing) return;
       isProcessing = true;
       try {
@@ -1113,11 +1113,11 @@
         var isP1 = myRole === 'jogador1';
         var vencedorUid = isP1 ? d.jogador2.uid : d.jogador1.uid;
         var perdedorUid = currentUser.uid;
-        var premio = (d.valorAposta || 0) * 2;
-        await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: vencedorUid, abandonou: perdedorUid, creditoPendente: { uid: vencedorUid, valor: premio, tipo: 'wo' } });
+        var premioSistema = d.premioSistema || 6;
+        await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: vencedorUid, abandonou: perdedorUid, creditoPendente: { uid: vencedorUid, valor: premioSistema, tipo: 'wo' } });
         var nomePerdedor = isP1 ? d.jogador1.nome : d.jogador2.nome;
         try {
-          await db.collection('notificacoes').add({ para: vencedorUid, tipo: 'penalti_resultado', titulo: '🏆 Vitória por W.O.!', mensagem: nomePerdedor + ' abandonou a partida! Você ganhou ' + d.valorAposta + ' créditos.', link: 'penaltis.html', lida: false, data: firebase.firestore.FieldValue.serverTimestamp() });
+          await db.collection('notificacoes').add({ para: vencedorUid, tipo: 'penalti_resultado', titulo: '🏆 Vitória por W.O.!', mensagem: nomePerdedor + ' abandonou! Prêmio Yellup: ' + premioSistema + ' créditos.', link: 'penaltis.html', lida: false, data: firebase.firestore.FieldValue.serverTimestamp() });
         } catch (ne) { console.warn('Notif:', ne); }
         showToast('🏳️ Partida abandonada');
       } catch (e) {
@@ -1147,8 +1147,8 @@
 
       var isSuddenDeath = rodada > 10;
       document.getElementById('roundInfo').textContent = isSuddenDeath
-        ? '⚡ Morte Súbita R' + (rodada - 10) + ' • 💰 ' + matchData.valorAposta
-        : 'Rodada ' + rodada + '/10 • 💰 ' + matchData.valorAposta;
+        ? '⚡ Morte Súbita R' + (rodada - 10) + ' • 🎟️ 2 💎'
+        : 'Rodada ' + rodada + '/10 • 🎟️ 2 💎';
 
       var cobrador = getCobrador(rodada);
       var p1R = document.getElementById('p1Role');
@@ -1578,9 +1578,9 @@
         update.vencedor = vencedor;
         update.stats = computeStats(rodadas);
 
-        // Pay winner: if I'm the winner credit myself, otherwise store pending
+        // Pay winner: system prize (not from opponent!)
         if (vencedor) {
-          var premio = matchData.valorAposta * 2;
+          var premio = matchData.premioSistema || 6;
           if (vencedor === currentUser.uid) {
             await db.collection('usuarios').doc(currentUser.uid).update({
               creditos: firebase.firestore.FieldValue.increment(premio)
@@ -1588,7 +1588,7 @@
             await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({
               tipo: 'entrada',
               valor: premio,
-              descricao: 'Pênaltis: vitória! (+' + premio + ' créditos)',
+              descricao: 'Pênaltis: prêmio Yellup! (+' + premio + ' créditos)',
               data: firebase.firestore.FieldValue.serverTimestamp()
             });
           } else {
@@ -1603,7 +1603,7 @@
               para: perdedor,
               tipo: 'penalti_resultado',
               titulo: '⚽ Resultado Pênaltis',
-              mensagem: 'Perdeu para ' + nomeVencedor + ' (' + placar.jogador1 + '×' + placar.jogador2 + '). -' + matchData.valorAposta + ' créditos',
+              mensagem: 'Perdeu para ' + nomeVencedor + ' (' + placar.jogador1 + '×' + placar.jogador2 + '). Taxa: -' + (matchData.valorAposta || 2) + ' créditos',
               lida: false,
               data: firebase.firestore.FieldValue.serverTimestamp()
             });
