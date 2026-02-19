@@ -498,6 +498,13 @@
     async function comprarPasse(tipo) {
       const passe = PASSES[tipo];
       if (!passe) return;
+
+      // Validação CPF (mesmo padrão da loja de créditos)
+      if (!currentUserData?.cpf) {
+        showToast('⚠️ Cadastre seu CPF no perfil primeiro!');
+        return;
+      }
+
       showLoading(true);
       try {
         const externalRef = `passe_${tipo}_${currentUserId}_${Date.now()}`;
@@ -505,10 +512,13 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            pacoteId: tipo, creditos: 0, bonus: 0, preco: passe.preco,
+            pacoteId: `passe_${tipo}`,
+            creditos: 0,
+            bonus: 0,
+            preco: passe.preco,
             userId: currentUserId,
             userEmail: auth.currentUser?.email || '',
-            userName: currentUserData?.nome || '',
+            userName: currentUserData?.nome || currentUserData?.usuarioUnico || 'Anônimo',
             titulo: passe.nome,
             descricao: `${passe.nome} — ${passe.duracao} de acesso ilimitado`,
             externalReference: externalRef
@@ -517,7 +527,7 @@
         const data = await response.json();
         if (data.success && data.initPoint) {
           window.location.href = data.initPoint;
-        } else { throw new Error(data.error || 'Erro'); }
+        } else { throw new Error(data.error || 'Dados incompletos'); }
       } catch (e) {
         console.error('Erro:', e); showLoading(false);
         showToast('❌ Erro ao processar. Tente novamente.');
@@ -567,8 +577,10 @@
         const resp = await fetch(`/api/verificar-pagamento?userId=${currentUserId}`);
         const data = await resp.json();
         if (data.approved && data.paymentId) {
-          const ja = await db.collection('pagamentos_passe').doc(String(data.paymentId)).get();
-          if (ja.exists) { showToast('✅ Todos já foram ativados!'); return; }
+          try {
+            const ja = await db.collection('pagamentos_passe').doc(String(data.paymentId)).get();
+            if (ja.exists) { showToast('✅ Todos já foram ativados!'); return; }
+          } catch (e) { /* permission issue, try to activate anyway */ }
           await ativarPassePagamento(data.paymentId, data.externalReference);
           await carregarHistorico();
         } else { showToast('⏳ Nenhum pagamento novo.'); }
@@ -577,9 +589,22 @@
 
     async function carregarHistorico() {
       try {
-        const snap = await db.collection('pagamentos_passe')
-          .where('usuarioId', '==', currentUserId).limit(20).get();
+        let snap;
         const container = document.getElementById('purchaseHistory');
+        try {
+          snap = await db.collection('pagamentos_passe')
+            .where('usuarioId', '==', currentUserId).limit(20).get();
+        } catch (permErr) {
+          // Fallback: tentar com uid
+          try {
+            snap = await db.collection('pagamentos_passe')
+              .where('uid', '==', currentUserId).limit(20).get();
+          } catch (e2) {
+            console.log('Histórico: sem permissão na collection pagamentos_passe');
+            container.innerHTML = '<p style="text-align:center;color:#a9b5c6;padding:20px;">Histórico indisponível</p>';
+            return;
+          }
+        }
         if (snap.empty) {
           container.innerHTML = '<p style="text-align:center;color:#a9b5c6;padding:20px;">Nenhum passe comprado ainda</p>';
           return;
