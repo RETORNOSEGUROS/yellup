@@ -401,13 +401,27 @@
       </div>
 
       <!-- RANKING -->
-      <div class="ranking-card animate-in delay-3" onclick="window.location.href='ranking.html'">
+      <div class="ranking-card animate-in delay-3">
         <div class="ranking-pos" id="rankPos">#-</div>
         <div class="ranking-info">
           <div class="ranking-label">Posição no Ranking Global</div>
           <div class="ranking-detail" id="rankDetail">Carregando...</div>
         </div>
-        <div class="ranking-arrow">›</div>
+      </div>
+
+      <!-- ADMIN: CALCULAR MANUAL -->
+      <div id="adminPanel" style="display:none; margin-bottom:20px;">
+        <div style="background:linear-gradient(135deg, rgba(239,68,68,0.1), rgba(245,158,11,0.1)); border:1px solid rgba(239,68,68,0.2); border-radius:18px; padding:18px 20px;">
+          <div style="font-size:0.85em;font-weight:700;color:var(--danger);margin-bottom:8px;">⚙️ Admin — Testar Rating</div>
+          <div style="font-size:0.75em;color:var(--text-secondary);margin-bottom:12px;">Executa o cálculo de rating para TODOS os usuários agora (mesmo efeito do cron diário)</div>
+          <button id="btnCalcular" onclick="calcularRatingManual()" style="
+            background:linear-gradient(135deg, var(--danger), var(--accent-dark));
+            border:none; color:#fff; padding:10px 20px; border-radius:10px;
+            font-family:inherit; font-weight:700; font-size:0.85em;
+            cursor:pointer; width:100%; transition:0.2s;
+          ">🎯 Calcular Rating Agora</button>
+          <div id="calcResultado" style="margin-top:10px;font-size:0.75em;color:var(--text-secondary);display:none;"></div>
+        </div>
       </div>
 
       <!-- HISTORY -->
@@ -442,6 +456,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
 
   <script>
     const firebaseConfig = {
@@ -455,6 +470,7 @@
     firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
     const db = firebase.firestore();
+    const functions = firebase.functions();
 
     // ==================== FAIXAS ====================
     const FAIXAS = [
@@ -519,27 +535,32 @@
           ratingData.diasInativo = Math.floor((new Date() - ultimoLogin) / (1000 * 60 * 60 * 24));
         }
 
-        // 2. Buscar posição no ranking via ratingRanking collection
+        // 2. Buscar posição no ranking via usuarios (mais seguro que ratingRanking)
         let posicao = null;
         let totalJogadores = 0;
         try {
-          const rankDoc = await db.collection('ratingRanking').doc(currentUser.uid).get();
-          if (rankDoc.exists) {
-            ratingData.ultimoCalculo = rankDoc.data().atualizadoEm || null;
+          if (ratingData.ratingFinal > 0) {
+            const superiores = await db.collection('usuarios')
+              .where('rating', '>', ratingData.ratingFinal)
+              .get();
+            posicao = superiores.size + 1;
           }
-          // Contar superiores para posição
-          const superiores = await db.collection('ratingRanking')
-            .where('rating', '>', ratingData.ratingFinal)
+          const todos = await db.collection('usuarios')
+            .where('rating', '>', 0)
             .get();
-          posicao = superiores.size + 1;
-          const todos = await db.collection('ratingRanking').get();
           totalJogadores = todos.size;
+          if (!posicao && ratingData.ratingFinal > 0) posicao = totalJogadores;
         } catch (e) {
-          console.log('Ranking ainda não calculado:', e.message);
+          console.log('Ranking query:', e.message);
         }
 
         // 3. Renderizar
         renderizarRating(ratingData, posicao, totalJogadores);
+
+        // 4. Se admin, mostrar botão de cálculo manual
+        if (currentUserData.isAdmin) {
+          document.getElementById('adminPanel').style.display = 'block';
+        }
 
         document.getElementById('loadingOverlay').style.display = 'none';
         document.getElementById('mainContent').style.display = 'block';
@@ -847,6 +868,40 @@
         `;
       });
       container.innerHTML = html;
+    }
+
+    // ==================== ADMIN: CALCULAR MANUAL ====================
+    async function calcularRatingManual() {
+      const btn = document.getElementById('btnCalcular');
+      const resultado = document.getElementById('calcResultado');
+      btn.disabled = true;
+      btn.textContent = '⏳ Calculando... (pode demorar)';
+      resultado.style.display = 'none';
+
+      try {
+        const calcular = functions.httpsCallable('calcularRatingManual');
+        const res = await calcular();
+        const data = res.data;
+
+        resultado.style.display = 'block';
+        let html = `✅ <strong>${data.processados}</strong> usuários processados!<br><br>`;
+        html += `<strong>🏆 Top 10:</strong><br>`;
+        (data.top10 || []).forEach((r, i) => {
+          html += `${i + 1}. ${r.nome} — <strong>${r.rating}</strong> (${r.faixa}) ${r.variacao > 0 ? '📈+' + r.variacao : r.variacao < 0 ? '📉' + r.variacao : '—'}<br>`;
+        });
+        resultado.innerHTML = html;
+
+        showToast('✅ Rating calculado! Recarregando...');
+        setTimeout(() => location.reload(), 2000);
+
+      } catch (e) {
+        console.error('Erro:', e);
+        resultado.style.display = 'block';
+        resultado.innerHTML = `❌ Erro: ${e.message}`;
+        showToast('❌ Erro ao calcular');
+      }
+      btn.disabled = false;
+      btn.textContent = '🎯 Calcular Rating Agora';
     }
 
     // ==================== UTILS ====================
