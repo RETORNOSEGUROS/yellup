@@ -1122,8 +1122,7 @@
     const functions = firebase.functions(); // Mantido para admin
 
     // ==================== CONSTANTES ====================
-    const DONO_INICIAL_ID = 'GfpBgfT9e8g5GaTQruvX6YcwtE23';
-    const COTAS_POR_TIME = 100;   // 100 participações por time
+    const COTAS_POR_TIME = 100;   // 100 participações por time (1% cada)
     const PRECO_INICIAL = 500.00; // Valor inicial do índice
 
     // Pesos de valorização/desvalorização
@@ -1590,7 +1589,7 @@
                 </div>
               </div>
               <div style="text-align: right;">
-                <div style="font-weight: 700;">${t.quantidade} participação${t.quantidade > 1 ? 'ões' : ''}</div>
+                <div style="font-weight: 700;">${t.quantidade} participaç${t.quantidade > 1 ? 'ões' : 'ão'}</div>
                 <div style="font-size: 0.85em; color: var(--accent);">${Math.round(t.valorTotal).toLocaleString('pt-BR')} cr</div>
               </div>
             </div>
@@ -1646,7 +1645,7 @@
       const indice = m.precoAlgoritmo || PRECO_INICIAL;
       const total = Math.round(qtd * indice);
 
-      document.getElementById('summaryQtdCompra').textContent = qtd + ' participação' + (qtd > 1 ? 'ões' : '');
+      document.getElementById('summaryQtdCompra').textContent = qtd + ' participaç' + (qtd > 1 ? 'ões' : 'ão');
       document.getElementById('summaryPrecoCompra').textContent = Math.round(indice).toLocaleString('pt-BR') + ' cr';
       document.getElementById('summaryTotalCompra').textContent = total.toLocaleString('pt-BR') + ' cr';
     }
@@ -1740,7 +1739,7 @@
 
         await batch.commit();
 
-        showToast(`✅ Parabéns! Você é sócio-torcedor do ${modalTimeAtual.nome}! (${qtd} participação${qtd > 1 ? 'ões' : ''})`);
+        showToast(`✅ Parabéns! Você é sócio-torcedor do ${modalTimeAtual.nome}! (${qtd} participaç${qtd > 1 ? 'ões' : 'ão'})`);
         fecharModal('modalComprar');
         await carregarDadosUsuario();
         await carregarMinhasCotas();
@@ -1816,7 +1815,7 @@
               ${avatarHtml}
               <div style="flex:1;min-width:0;">
                 <div style="font-weight:${isMe ? '700' : '500'};font-size:0.85em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${isMe ? 'color:var(--accent);' : ''}">${nome}${isMe ? ' (você)' : ''}</div>
-                <div style="font-size:0.7em;color:var(--text-secondary);">${socio.quantidade} participação${socio.quantidade > 1 ? 'ões' : ''}</div>
+                <div style="font-size:0.7em;color:var(--text-secondary);">${socio.quantidade} participaç${socio.quantidade > 1 ? 'ões' : 'ão'}</div>
               </div>
               <div style="text-align:right;">
                 <div style="font-weight:700;font-size:1.1em;color:var(--accent);">${pctSocio}%</div>
@@ -1933,7 +1932,7 @@
         const investidores = {};
         cotasSnap.forEach(doc => {
           const cota = doc.data();
-          if (cota.userId === DONO_INICIAL_ID) return;
+          if (!cota.quantidade || cota.quantidade <= 0) return;
           
           if (!investidores[cota.userId]) {
             investidores[cota.userId] = {
@@ -2102,44 +2101,38 @@
       renderizarTabelaMercado();
     }
 
-    async function inicializarCotasDono() {
-      if (!confirm('Isso vai criar 1000 cotas de cada time para o dono inicial. Continuar?')) return;
+    async function limparParticipacoes() {
+      if (!confirm('⚠️ Isso vai APAGAR TODAS as participações existentes (bolsa_cotas). Todas as 100 participações de cada time ficarão livres. Continuar?')) return;
       
-      logAdmin('Criando cotas do dono inicial...', 'info');
-      let criados = 0, erros = 0;
-
-      for (const time of allTimes) {
-        try {
-          // Verificar se já existe
-          const existente = await db.collection('bolsa_cotas')
-            .where('timeId', '==', time.id)
-            .where('userId', '==', DONO_INICIAL_ID)
-            .get();
-          
-          if (existente.empty) {
-            await db.collection('bolsa_cotas').add({
-              timeId: time.id,
-              timeNome: time.nome,
-              userId: DONO_INICIAL_ID,
-              usuarioNome: 'Dono Inicial',
-              quantidade: 1000,
-              precoMedioAquisicao: 500,
-              dataAquisicao: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            criados++;
-          } else {
-            // Atualizar para 1000
-            await existente.docs[0].ref.update({ quantidade: 1000 });
-            criados++;
+      logAdmin('Limpando todas as participações...', 'warn');
+      
+      try {
+        const snap = await db.collection('bolsa_cotas').get();
+        let count = 0;
+        const batchSize = 400;
+        let batch = db.batch();
+        
+        snap.forEach(doc => {
+          batch.delete(doc.ref);
+          count++;
+          if (count % batchSize === 0) {
+            batch.commit();
+            batch = db.batch();
           }
-        } catch (e) {
-          erros++;
-          logAdmin(`Erro em ${time.nome}: ${e.message}`, 'error');
-        }
+        });
+        
+        if (count % batchSize !== 0) await batch.commit();
+        
+        logAdmin(`✅ ${count} participações removidas. Todas livres para aquisição!`, 'success');
+        showToast(`✅ ${count} participações limpas! Mercado resetado.`);
+        
+        await carregarMinhasCotas();
+        await carregarTodasCotas();
+        calcularStats();
+        renderizarTabelaMercado();
+      } catch (e) {
+        logAdmin(`❌ Erro: ${e.message}`, 'error');
       }
-
-      logAdmin(`✅ Cotas criadas: ${criados} times, ${erros} erros`, criados === allTimes.length ? 'success' : 'warn');
-      showToast(`✅ Cotas do dono inicial criadas para ${criados} times!`);
     }
 
     async function limparColecao(colecao) {
@@ -2219,23 +2212,8 @@
         }
         logAdmin(`✅ Métricas criadas para ${allTimes.length} times`, 'success');
         
-        // 5. Recriar cotas do dono
-        logAdmin('Recriando cotas do dono inicial...', 'info');
-        for (const time of allTimes) {
-          await db.collection('bolsa_cotas').add({
-            timeId: time.id,
-            timeNome: time.nome,
-            userId: DONO_INICIAL_ID,
-            usuarioNome: 'Dono Inicial',
-            quantidade: 1000,
-            precoMedioAquisicao: 500,
-            dataAquisicao: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        }
-        logAdmin(`✅ Cotas criadas para ${allTimes.length} times`, 'success');
-        
-        logAdmin('🎉 RESET COMPLETO FINALIZADO!', 'success');
-        showToast('✅ Reset completo! Sistema reiniciado com preço 500 cr');
+        logAdmin('🎉 RESET COMPLETO! Todas as 100 participações de cada time estão livres.', 'success');
+        showToast('✅ Reset completo! Índice em 500 cr, participações livres');
         
         // Recarregar tudo
         await carregarMetricas();
@@ -2555,8 +2533,8 @@
           📊 Inicializar Métricas (500cr)
         </button>
         
-        <button onclick="inicializarCotasDono()" style="padding: 12px 20px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif;">
-          💼 Criar Cotas Dono Inicial
+        <button onclick="limparParticipacoes()" style="padding: 12px 20px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif;">
+          🧹 Limpar Participações
         </button>
         
         <button onclick="reprocessarTodosJogos()" style="padding: 12px 20px; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; border-radius: 10px; color: white; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif;">
