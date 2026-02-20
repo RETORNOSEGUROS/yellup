@@ -150,7 +150,16 @@ const CONFIG_ESCALACAO = {
 };
 
 const CONFIG_RATING = {
-  pesos: { quiz: 0.25, pvp: 0.20, torneios: 0.15, comunidade: 0.15, escalacao: 0.15, consistencia: 0.10 },
+  pesos: {
+    quiz: 0.20,         // 🧠 Quiz + XP
+    pvp: 0.15,          // ⚔️ PvP (Embates + Penaltis)
+    torneios: 0.10,     // 🏆 Torneios
+    torcida: 0.12,      // 📣 Torcida + Sócio-torcedor
+    comunidade: 0.10,   // 💬 Chat + Indicações
+    missoes: 0.08,      // 🎯 Missões completadas
+    consistencia: 0.15, // 📅 Dias ativos + Streak
+    explorador: 0.10    // 🌟 Superfã: usou tudo + perfil completo
+  },
   decayDiario: 0.995,
   ratingMinimo: 50,
   suavizacao: { novo: 0.3, anterior: 0.7 },
@@ -176,8 +185,8 @@ const CAMPOS_PADRAO_USUARIO = {
   ratingFaixa: 'Reserva',
   ratingVariacao: 0,
   ratingComponents: {
-    quiz: 0, pvp: 0, torneios: 0,
-    comunidade: 0, escalacao: 0, consistencia: 0
+    quiz: 0, pvp: 0, torneios: 0, torcida: 0,
+    comunidade: 0, missoes: 0, consistencia: 0, explorador: 0
   },
   ratingHistory: [],
   stats: {
@@ -186,10 +195,14 @@ const CAMPOS_PADRAO_USUARIO = {
     ultimoLogin: null,
     totalPerguntas: 0,
     totalAcertos: 0,
+    maxStreakQuiz: 0,
     totalPvpJogados: 0,
     totalPvpVitorias: 0,
     totalTorneios: 0,
     totalMsgChat: 0,
+    totalTorcidas: 0,
+    totalIndicacoes: 0,
+    totalMissoes: 0,
     rivaisUnicos: []
   }
 };
@@ -2312,6 +2325,7 @@ exports.creditarIndicacao = functions.https.onCall(async (data, context) => {
     batch.update(indicadorRef, {
       creditos: admin.firestore.FieldValue.increment(2),
       creditosBonus: admin.firestore.FieldValue.increment(2),
+      'stats.totalIndicacoes': admin.firestore.FieldValue.increment(1),
       [`indicados.${novoUserId}`]: {
         nome: novoUserDoc.data().usuarioUnico || novoUserDoc.data().nome || 'Novo Usuário',
         data: new Date().toISOString()
@@ -2485,7 +2499,8 @@ exports.completarMissao = functions.https.onCall(async (data, context) => {
     // Creditar usuário
     const userRef = db.collection('usuarios').doc(userId);
     batch.update(userRef, {
-      creditos: admin.firestore.FieldValue.increment(creditosRecompensa)
+      creditos: admin.firestore.FieldValue.increment(creditosRecompensa),
+      'stats.totalMissoes': admin.firestore.FieldValue.increment(1)
     });
 
     // Marcar missão como creditada
@@ -3455,6 +3470,7 @@ exports.entrarPartidaV2 = functions.https.onCall(async (data, context) => {
 
     batch.update(userRef, {
       [`torcidas.${jogoId}`]: timeId,
+      'stats.totalTorcidas': admin.firestore.FieldValue.increment(1),
       'stats.ultimoLogin': admin.firestore.FieldValue.serverTimestamp()
     });
 
@@ -3689,6 +3705,11 @@ exports.responderPerguntaV2 = functions.https.onCall(async (data, context) => {
       userUpdates[`tempoRespostas.${jogoId}.soma`] = admin.firestore.FieldValue.increment(tempoRespostaSegundos);
       userUpdates[`tempoRespostas.${jogoId}.quantidade`] = admin.firestore.FieldValue.increment(1);
       userUpdates['stats.totalAcertos'] = admin.firestore.FieldValue.increment(1);
+      // Rating: atualizar streak máximo global
+      const statsMaxStreak = userData.stats?.maxStreakQuiz || 0;
+      if (maxStreakVal > statsMaxStreak) {
+        userUpdates['stats.maxStreakQuiz'] = maxStreakVal;
+      }
     }
 
     batch.update(userRef, userUpdates);
@@ -4550,7 +4571,8 @@ exports.completarMissaoV2 = functions.https.onCall(async (data, context) => {
     const batch = db.batch();
 
     batch.update(db.collection('usuarios').doc(userId), {
-      creditos: admin.firestore.FieldValue.increment(creditosFinal)
+      creditos: admin.firestore.FieldValue.increment(creditosFinal),
+      'stats.totalMissoes': admin.firestore.FieldValue.increment(1)
     });
     batch.update(missaoRef, { creditada: true, modeloV2: true, multiplicador });
 
@@ -4611,73 +4633,144 @@ exports.calcularRatingDiario = functions.pubsub
         const stats = u.stats || {};
         const ratingAnterior = u.rating || 0;
 
-        // Verificar se teve atividade hoje
+        // Verificar se teve atividade recente (ontem ou hoje)
+        // O cron roda à meia-noite, então "ontem" é o dia que acabou de terminar
         const ultimoLogin = stats.ultimoLogin?.toDate?.() || new Date(0);
-        const ativoHoje = ultimoLogin.toDateString() === agora.toDateString();
+        const ontem = new Date(agora);
+        ontem.setDate(ontem.getDate() - 1);
+        const ativoRecente = ultimoLogin.toDateString() === agora.toDateString() ||
+                             ultimoLogin.toDateString() === ontem.toDateString();
+
+        // Calcular dias inativo
+        const diffMs = agora.getTime() - ultimoLogin.getTime();
+        const diasInativo = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
         let ratingNovo;
 
-        if (!ativoHoje) {
-          // DECAY: -0.5% por dia inativo
+        if (!ativoRecente && diasInativo > 2) {
+          // DECAY: -0.5% por dia inativo (só após 2 dias sem entrar)
           ratingNovo = Math.max(ratingAnterior * CONFIG_RATING.decayDiario, CONFIG_RATING.ratingMinimo);
         } else {
-          // CALCULAR COMPONENTES
+          // ==================== 8 COMPONENTES DO SUPERFÃ ====================
 
-          // Q — Quiz (25%)
+          // 🧠 Q — Quiz + XP (20%)
+          // Taxa de acerto, volume, streak máximo e XP total
           const totalPerguntas = stats.totalPerguntas || 0;
           const totalAcertos = stats.totalAcertos || 0;
           const taxaAcerto = totalPerguntas > 0 ? totalAcertos / totalPerguntas : 0;
           const streakMaxQuiz = stats.maxStreakQuiz || 0;
-          const Q = Math.min((taxaAcerto * 400) + (totalPerguntas * 2) + (streakMaxQuiz * 10), 1000);
+          const xpTotal = u.xp || 0;
+          const Q = Math.min(
+            (taxaAcerto * 300) +           // 0-300: qualidade
+            (Math.min(totalPerguntas, 200) * 1.5) + // 0-300: volume (max 200 perguntas)
+            (streakMaxQuiz * 10) +          // 0-150: streak (max 15)
+            (Math.min(xpTotal, 5000) * 0.05), // 0-250: XP (max 5000)
+            1000
+          );
 
-          // P — PvP (20%)
+          // ⚔️ P — PvP (15%)
+          // Winrate, vitórias, rivais diferentes enfrentados
           const pvpJogados = stats.totalPvpJogados || 0;
           const pvpVitorias = stats.totalPvpVitorias || 0;
           const winrate = pvpJogados > 0 ? pvpVitorias / pvpJogados : 0;
           const rivaisUnicos = (stats.rivaisUnicos || []).length;
-          const P = Math.min((winrate * 500) + (pvpVitorias * 5) + (rivaisUnicos * 3), 1000);
+          const P = Math.min(
+            (winrate * 400) +               // 0-400: qualidade
+            (Math.min(pvpVitorias, 50) * 6) + // 0-300: volume (max 50 vit)
+            (Math.min(rivaisUnicos, 30) * 10), // 0-300: diversidade (max 30 rivais)
+            1000
+          );
 
-          // T — Torneios (15%)
+          // 🏆 T — Torneios (10%)
           const totalTorneios = stats.totalTorneios || 0;
           const vitTorneios = u.torneios?.vitorias || 0;
           const top3Torneios = u.torneios?.top3 || 0;
-          const T = Math.min((totalTorneios * 30) + (vitTorneios * 200) + (top3Torneios * 100), 1000);
+          const T = Math.min(
+            (Math.min(totalTorneios, 20) * 25) + // 0-500: participação
+            (vitTorneios * 200) +                  // vitórias
+            (top3Torneios * 100),                  // pódios
+            1000
+          );
 
-          // C — Comunidade (15%)
-          const msgsChat = Math.min(stats.totalMsgChat || 0, 100);
-          const C = Math.min(msgsChat * 2, 1000);
+          // 📣 TO — Torcida + Sócio-torcedor (12%)
+          // Jogos que torceu + participações na bolsa
+          const totalTorcidas = stats.totalTorcidas || 0;
+          const torcObj = u.torcidas || {};
+          const torcContar = Math.max(totalTorcidas, Object.keys(torcObj).length);
+          // Sócio-torcedor: contar via indicados no campo (bolsa_cotas query seria caro aqui)
+          const bolsaParts = u.bolsaParticipacoes || 0; // se existir campo resumo
+          const TO = Math.min(
+            (Math.min(torcContar, 50) * 15) +    // 0-750: presença (max 50 jogos)
+            (Math.min(bolsaParts, 50) * 5),       // 0-250: sócio-torcedor
+            1000
+          );
 
-          // E — Escalação (15%)
-          const mesAtual = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
-          const escAtual = u.escalacao?.[mesAtual];
-          let E = 0;
-          if (escAtual) {
-            if (escAtual.tecnico) E += 500;
-            else if (escAtual.titular) E += 300;
-            else E += 100;
-            E += (escAtual.pontos || 0) * 3;
-          }
-          E = Math.min(E, 1000);
+          // 💬 CO — Comunidade: Chat + Indicações (10%)
+          const msgsChat = stats.totalMsgChat || 0;
+          const indicacoes = stats.totalIndicacoes || 0;
+          const CO = Math.min(
+            (Math.min(msgsChat, 200) * 3) +       // 0-600: chat (max 200 msgs)
+            (Math.min(indicacoes, 20) * 20),       // 0-400: indicações (max 20)
+            1000
+          );
 
-          // K — Consistência (10%)
+          // 🎯 M — Missões (8%)
+          const totalMissoes = stats.totalMissoes || 0;
+          const M = Math.min(
+            (Math.min(totalMissoes, 50) * 20),     // 0-1000: 50 missões = max
+            1000
+          );
+
+          // 📅 K — Consistência (15%)
+          // Dias ativos no mês + streak de login consecutivo
           const diasAtivos = stats.diasAtivos || 0;
           const streakLogin = stats.streakLogin || 0;
-          const K = Math.min(((diasAtivos / diasNoMes) * 500) + (streakLogin * 15), 1000);
+          const K = Math.min(
+            ((diasAtivos / diasNoMes) * 600) +    // 0-600: % do mês ativo
+            (Math.min(streakLogin, 30) * 13.3),   // 0-400: streak (max 30 dias)
+            1000
+          );
 
-          // FÓRMULA MASTER
+          // 🌟 EX — Explorador / Superfã (10%)
+          // Pontos por ter usado cada feature pelo menos 1x + perfil completo
+          let EX = 0;
+          if (totalPerguntas > 0) EX += 120;       // Jogou quiz
+          if (pvpJogados > 0) EX += 120;            // Jogou PvP
+          if (totalTorneios > 0) EX += 120;         // Participou de torneio
+          if (torcContar > 0) EX += 100;             // Torceu em jogo
+          if (msgsChat > 0) EX += 100;               // Mandou msg no chat
+          if (indicacoes > 0) EX += 100;              // Indicou alguém
+          if (totalMissoes > 0) EX += 80;             // Completou missão
+          if (bolsaParts > 0) EX += 80;               // Virou sócio-torcedor
+          // Perfil: foto + time + país
+          if (u.avatarUrl) EX += 60;
+          if (u.timeId || u.timeFavorito) EX += 40;
+          if (u.pais || u.nacionalidade) EX += 40;
+          if (u.passe?.ativo) EX += 40;               // Tem passe ativo
+          EX = Math.min(EX, 1000);
+
+          // ==================== FÓRMULA MASTER ====================
           const pesos = CONFIG_RATING.pesos;
-          const ratingCalculado = (Q * pesos.quiz) + (P * pesos.pvp) + (T * pesos.torneios) +
-            (C * pesos.comunidade) + (E * pesos.escalacao) + (K * pesos.consistencia);
+          const ratingCalculado =
+            (Q * pesos.quiz) +
+            (P * pesos.pvp) +
+            (T * pesos.torneios) +
+            (TO * pesos.torcida) +
+            (CO * pesos.comunidade) +
+            (M * pesos.missoes) +
+            (K * pesos.consistencia) +
+            (EX * pesos.explorador);
 
-          // SMOOTHING: 30% novo + 70% anterior
+          // SMOOTHING: 30% novo + 70% anterior (evita oscilações bruscas)
           ratingNovo = (ratingCalculado * CONFIG_RATING.suavizacao.novo) +
             (ratingAnterior * CONFIG_RATING.suavizacao.anterior);
 
-          // Salvar componentes
+          // Salvar componentes detalhados
           batch.update(doc.ref, {
             ratingComponents: {
               quiz: Math.round(Q), pvp: Math.round(P), torneios: Math.round(T),
-              comunidade: Math.round(C), escalacao: Math.round(E), consistencia: Math.round(K)
+              torcida: Math.round(TO), comunidade: Math.round(CO), missoes: Math.round(M),
+              consistencia: Math.round(K), explorador: Math.round(EX)
             }
           });
         }
@@ -4689,12 +4782,8 @@ exports.calcularRatingDiario = functions.pubsub
         // Atualizar streak de login
         let streakLogin = stats.streakLogin || 0;
         let diasAtivos = stats.diasAtivos || 0;
-        if (ativoHoje) {
-          const ontem = new Date(agora);
-          ontem.setDate(ontem.getDate() - 1);
-          const ativoOntem = ultimoLogin.toDateString() === ontem.toDateString() ||
-            ultimoLogin.toDateString() === agora.toDateString();
-          streakLogin = ativoOntem ? streakLogin + 1 : 1;
+        if (ativoRecente) {
+          streakLogin = diasInativo <= 1 ? streakLogin + 1 : 1;
           diasAtivos += 1;
         } else {
           streakLogin = 0;
@@ -4887,3 +4976,193 @@ exports.migrarUsuariosV2 = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', 'Erro na migração');
   }
 });
+
+
+// =====================================================
+// 🎯 RATING MANUAL — Callable para Admin recalcular
+// Mesma lógica do calcularRatingDiario, mas on-demand
+// =====================================================
+exports.calcularRatingManual = functions
+  .runWith({ timeoutSeconds: 540, memory: '512MB' })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Login necessário');
+    }
+
+    const adminDoc = await db.collection('usuarios').doc(context.auth.uid).get();
+    const isAdmin = adminDoc.data()?.isAdmin || context.auth.token?.email === 'admin@yellup.com';
+    if (!adminDoc.exists || !isAdmin) {
+      throw new functions.https.HttpsError('permission-denied', 'Apenas admins podem recalcular');
+    }
+
+    console.log('🎯 Cálculo MANUAL de Rating iniciado por:', context.auth.uid);
+
+    try {
+      const agora = new Date();
+      const hoje = agora.toISOString().split('T')[0];
+      const diasNoMes = new Date(agora.getFullYear(), agora.getMonth() + 1, 0).getDate();
+
+      const usersSnap = await db.collection('usuarios').get();
+      if (usersSnap.empty) return { success: true, processados: 0 };
+
+      let batch = db.batch();
+      let batchCount = 0;
+      let processados = 0;
+      const resultados = [];
+
+      for (const doc of usersSnap.docs) {
+        const u = doc.data();
+        const uid = doc.id;
+        const stats = u.stats || {};
+        const ratingAnterior = u.rating || 0;
+
+        const ultimoLogin = stats.ultimoLogin?.toDate?.() || new Date(0);
+        const ontem = new Date(agora);
+        ontem.setDate(ontem.getDate() - 1);
+        const ativoRecente = ultimoLogin.toDateString() === agora.toDateString() ||
+                             ultimoLogin.toDateString() === ontem.toDateString();
+        const diffMs = agora.getTime() - ultimoLogin.getTime();
+        const diasInativo = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+        let ratingNovo;
+        let componentes = {};
+
+        if (!ativoRecente && diasInativo > 2) {
+          ratingNovo = Math.max(ratingAnterior * CONFIG_RATING.decayDiario, CONFIG_RATING.ratingMinimo);
+          componentes = u.ratingComponents || {};
+        } else {
+          // ==================== 8 COMPONENTES DO SUPERFÃ ====================
+          const totalPerguntas = stats.totalPerguntas || 0;
+          const totalAcertos = stats.totalAcertos || 0;
+          const taxaAcerto = totalPerguntas > 0 ? totalAcertos / totalPerguntas : 0;
+          const streakMaxQuiz = stats.maxStreakQuiz || 0;
+          const xpTotal = u.xp || 0;
+          const Q = Math.min((taxaAcerto * 300) + (Math.min(totalPerguntas, 200) * 1.5) + (streakMaxQuiz * 10) + (Math.min(xpTotal, 5000) * 0.05), 1000);
+
+          const pvpJogados = stats.totalPvpJogados || 0;
+          const pvpVitorias = stats.totalPvpVitorias || 0;
+          const winrate = pvpJogados > 0 ? pvpVitorias / pvpJogados : 0;
+          const rivaisUnicos = (stats.rivaisUnicos || []).length;
+          const P = Math.min((winrate * 400) + (Math.min(pvpVitorias, 50) * 6) + (Math.min(rivaisUnicos, 30) * 10), 1000);
+
+          const totalTorneios = stats.totalTorneios || 0;
+          const vitTorneios = u.torneios?.vitorias || 0;
+          const top3Torneios = u.torneios?.top3 || 0;
+          const T = Math.min((Math.min(totalTorneios, 20) * 25) + (vitTorneios * 200) + (top3Torneios * 100), 1000);
+
+          const totalTorcidas = stats.totalTorcidas || 0;
+          const torcObj = u.torcidas || {};
+          const torcContar = Math.max(totalTorcidas, Object.keys(torcObj).length);
+          const bolsaParts = u.bolsaParticipacoes || 0;
+          const TO = Math.min((Math.min(torcContar, 50) * 15) + (Math.min(bolsaParts, 50) * 5), 1000);
+
+          const msgsChat = stats.totalMsgChat || 0;
+          const indicacoes = stats.totalIndicacoes || 0;
+          const CO = Math.min((Math.min(msgsChat, 200) * 3) + (Math.min(indicacoes, 20) * 20), 1000);
+
+          const totalMissoes = stats.totalMissoes || 0;
+          const M = Math.min(Math.min(totalMissoes, 50) * 20, 1000);
+
+          const diasAtivos = stats.diasAtivos || 0;
+          const streakLogin = stats.streakLogin || 0;
+          const K = Math.min(((diasAtivos / diasNoMes) * 600) + (Math.min(streakLogin, 30) * 13.3), 1000);
+
+          let EX = 0;
+          if (totalPerguntas > 0) EX += 120;
+          if (pvpJogados > 0) EX += 120;
+          if (totalTorneios > 0) EX += 120;
+          if (torcContar > 0) EX += 100;
+          if (msgsChat > 0) EX += 100;
+          if (indicacoes > 0) EX += 100;
+          if (totalMissoes > 0) EX += 80;
+          if (bolsaParts > 0) EX += 80;
+          if (u.avatarUrl) EX += 60;
+          if (u.timeId || u.timeFavorito) EX += 40;
+          if (u.pais || u.nacionalidade) EX += 40;
+          if (u.passe?.ativo) EX += 40;
+          EX = Math.min(EX, 1000);
+
+          const pesos = CONFIG_RATING.pesos;
+          const ratingCalculado = (Q * pesos.quiz) + (P * pesos.pvp) + (T * pesos.torneios) +
+            (TO * pesos.torcida) + (CO * pesos.comunidade) + (M * pesos.missoes) +
+            (K * pesos.consistencia) + (EX * pesos.explorador);
+
+          ratingNovo = (ratingCalculado * CONFIG_RATING.suavizacao.novo) +
+            (ratingAnterior * CONFIG_RATING.suavizacao.anterior);
+
+          componentes = {
+            quiz: Math.round(Q), pvp: Math.round(P), torneios: Math.round(T),
+            torcida: Math.round(TO), comunidade: Math.round(CO), missoes: Math.round(M),
+            consistencia: Math.round(K), explorador: Math.round(EX)
+          };
+
+          batch.update(doc.ref, { ratingComponents: componentes });
+        }
+
+        ratingNovo = Math.round(Math.max(ratingNovo, 0));
+        const faixa = getFaixaRating(ratingNovo);
+        const variacao = ratingNovo - ratingAnterior;
+
+        let streakLogin = stats.streakLogin || 0;
+        let diasAtivos = stats.diasAtivos || 0;
+        if (ativoRecente) {
+          streakLogin = diasInativo <= 1 ? streakLogin + 1 : 1;
+          diasAtivos += 1;
+        } else {
+          streakLogin = 0;
+        }
+
+        batch.update(doc.ref, {
+          rating: ratingNovo,
+          ratingFaixa: faixa.nome,
+          ratingVariacao: variacao,
+          ratingHistory: admin.firestore.FieldValue.arrayUnion({ date: hoje, rating: ratingNovo }),
+          'stats.streakLogin': streakLogin,
+          'stats.diasAtivos': diasAtivos
+        });
+
+        batch.set(db.collection('ratingRanking').doc(uid), {
+          nome: u.usuarioUnico || u.usuario || u.nome || 'Anônimo',
+          rating: ratingNovo,
+          faixa: faixa.nome,
+          variacao: variacao,
+          timeId: u.timeFavorito || '',
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        resultados.push({
+          userId: uid,
+          nome: u.usuarioUnico || u.usuario || 'Anônimo',
+          rating: ratingNovo,
+          faixa: faixa.nome,
+          variacao
+        });
+
+        batchCount += 3;
+        processados++;
+
+        if (batchCount >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          batchCount = 0;
+        }
+      }
+
+      if (batchCount > 0) await batch.commit();
+
+      // Ordenar por rating
+      resultados.sort((a, b) => b.rating - a.rating);
+
+      console.log(`🎯 Rating MANUAL calculado: ${processados} usuários`);
+
+      return {
+        success: true,
+        processados,
+        top10: resultados.slice(0, 10)
+      };
+
+    } catch (error) {
+      console.error('❌ Erro calcularRatingManual:', error);
+      throw new functions.https.HttpsError('internal', 'Erro ao calcular rating');
+    }
+  });
