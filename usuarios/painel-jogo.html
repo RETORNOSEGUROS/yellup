@@ -2975,7 +2975,7 @@
       </div>
       <!-- Timer de cooldown entre ciclos -->
       <div class="drip-mini-timer" id="cooldownTimer" style="display:none;">
-        <span id="cooldownTexto">⏳ +2 perguntas em <span id="cooldownContagem">--:--</span></span>
+        <span id="cooldownTexto">⏳ +<span id="cooldownQtd">2</span> perguntas em <span id="cooldownContagem">--:--</span></span>
         <button id="btnAdiantar" class="btn-adiantar" onclick="adiantarPerguntas()" style="display:none;">
           💎 Adiantar (1 cr)
         </button>
@@ -3182,7 +3182,7 @@
     // ⏳ COOLDOWN DO QUIZ
     let cooldownState = {
       entradaEm: null,               // Timestamp de quando entrou na partida
-      cooldownSeg: 300,              // Cooldown em segundos (300=free, 180=passe)
+      cooldownSeg: 300,              // Cooldown em segundos (300=free/5min, 180=passe/3min)
       totalRespondidas: 0,           // Quantas já respondeu nesta partida
       totalDisponivel: 5,            // Quantas pode responder até agora
       skipsUsados: 0,                // Quantas vezes usou crédito para adiantar
@@ -3686,7 +3686,27 @@
           avatarEl.textContent = displayName.charAt(0).toUpperCase();
         }
         
-        document.getElementById("userLevel").textContent = `Level ${user.level || 1}`;
+        // Mostrar tipo do passe em vez de Level
+        const passeUser = user.passe || {};
+        let passeLabel = '⚽ Free';
+        let passeCor = '#a9b5c6';
+        if (passeUser.ativo && passeUser.tipo && passeUser.tipo !== 'free') {
+          // Verificar se não expirou
+          let expirado = false;
+          if (passeUser.dataExpiracao) {
+            const dataExp = passeUser.dataExpiracao.toDate ? passeUser.dataExpiracao.toDate() : new Date(passeUser.dataExpiracao);
+            expirado = new Date() > dataExp;
+          }
+          if (!expirado) {
+            const passeLabels = { semanal: '🌟 Semanal', mensal: '💎 Mensal', anual: '👑 Anual' };
+            passeLabel = passeLabels[passeUser.tipo] || '🎫 ' + passeUser.tipo;
+            passeCor = '#10b981';
+          } else {
+            passeLabel = '⚠️ Expirado';
+            passeCor = '#ef4444';
+          }
+        }
+        document.getElementById("userLevel").innerHTML = `<span style="color:${passeCor}">${passeLabel}</span>`;
 
         // Verificar se tem time escolhido para este jogo
         timeTorcida = user.torcidas?.[jogoId];
@@ -3737,6 +3757,17 @@
               perguntasRestantes: er.perguntasDisponiveis || 5
             };
 
+            // ✅ Override local: garantir cooldown correto pelo passe do usuário
+            const passeLocal = user.passe || {};
+            let temPasseLocal = passeLocal.ativo && passeLocal.tipo && passeLocal.tipo !== 'free';
+            if (temPasseLocal && passeLocal.dataExpiracao) {
+              const dExp = passeLocal.dataExpiracao.toDate ? passeLocal.dataExpiracao.toDate() : new Date(passeLocal.dataExpiracao);
+              if (new Date() > dExp) temPasseLocal = false;
+            }
+            cooldownState.cooldownSeg = temPasseLocal ? 180 : 300;
+            cooldownState.tipoPasse = temPasseLocal ? passeLocal.tipo : 'free';
+            console.log(`🎫 Override local: passe=${cooldownState.tipoPasse}, cooldown=${cooldownState.cooldownSeg}s`);
+
             // Carregar acertos/erros do participante recarregado
             const pDocReload = await db.collection("jogos").doc(jogoId)
               .collection("participantes").doc(uid).get();
@@ -3761,14 +3792,21 @@
           // ✅ COOLDOWN: Inicializar estado a partir do participante
           if (participante.entradaEm) {
             const passe = user.passe || { tipo: 'free', ativo: false };
-            const temPasse = passe.ativo && passe.tipo !== 'free';
+            // Verificar passe com checagem de expiração
+            let temPasse = passe.ativo && passe.tipo && passe.tipo !== 'free';
+            if (temPasse && passe.dataExpiracao) {
+              const dataExp = passe.dataExpiracao.toDate ? passe.dataExpiracao.toDate() : new Date(passe.dataExpiracao);
+              if (new Date() > dataExp) temPasse = false; // Expirou
+            }
             const cooldown = temPasse ? 180 : 300; // 3min passe, 5min free
+            console.log(`🎫 Passe: ${temPasse ? passe.tipo : 'free'}, Cooldown: ${cooldown}s`);
             const entradaEm = participante.entradaEm.toDate().getTime();
             const elapsed = (Date.now() - entradaEm) / 1000;
             const ciclosPassados = Math.floor(elapsed / cooldown);
             const skipsUsados = participante.skipsUsados || 0;
             const totalRespondidas = participante.totalRespondidas || 0;
-            const totalDisponivel = 5 + (ciclosPassados * 2) + (skipsUsados * 2);
+            const perguntasPorCiclo = 2; // Sempre +2 por ciclo
+            const totalDisponivel = 5 + (ciclosPassados * perguntasPorCiclo) + (skipsUsados * 2);
 
             cooldownState = {
               entradaEm: entradaEm,
@@ -3819,7 +3857,8 @@
           const ciclosPassados = Math.floor(elapsed / cooldown);
           const skipsUsados = p.skipsUsados || 0;
           const totalRespondidas = p.totalRespondidas || 0;
-          const totalDisponivel = 5 + (ciclosPassados * 2) + (skipsUsados * 2);
+          const perguntasPorCiclo = 2;
+          const totalDisponivel = 5 + (ciclosPassados * perguntasPorCiclo) + (skipsUsados * 2);
           const perguntasRestantes = Math.max(0, totalDisponivel - totalRespondidas);
 
           // Atualizar estado local
@@ -3888,6 +3927,10 @@
       // Sem perguntas — mostrar timer
       timerEl.classList.add('visible');
       timerEl.style.display = '';
+      
+      // Atualizar quantidade dinâmica (+2 ou +3)
+      const qtdEl = document.getElementById("cooldownQtd");
+      
       
       // Botão de adiantar
       if (creditos >= 1) {
@@ -3969,10 +4012,16 @@
 
         showToast(`🎯 +${r.perguntasLiberadas} perguntas liberadas! (${r.creditosRestantes} créditos restantes)`);
 
-        // Atualizar estado local
+        // Atualizar estado local — só confiamos no skipsUsados (contador)
         cooldownState.skipsUsados = r.skipsUsados;
-        cooldownState.totalDisponivel = r.totalDisponivel;
-        cooldownState.perguntasRestantes = r.perguntasRestantes;
+        
+        // Recalcular disponíveis localmente
+        if (cooldownState.entradaEm) {
+          const elapsed = (Date.now() - cooldownState.entradaEm) / 1000;
+          const ciclos = Math.floor(elapsed / cooldownState.cooldownSeg);
+          cooldownState.totalDisponivel = 5 + (ciclos * 2) + (cooldownState.skipsUsados * 2);
+          cooldownState.perguntasRestantes = Math.max(0, cooldownState.totalDisponivel - cooldownState.totalRespondidas);
+        }
 
         // Atualizar UI
         await updateFreePlays();
@@ -4476,11 +4525,19 @@
         const serverMultiplicador = r.multiplicador || 1;
 
         // ✅ Atualizar estado do cooldown
-        if (r.perguntasRestantes != null) {
-          cooldownState.perguntasRestantes = r.perguntasRestantes;
+        // Só confiamos no totalRespondidas do server (é um contador simples)
+        // O resto recalculamos localmente com o cooldown correto do passe
+        if (r.totalRespondidas != null) {
           cooldownState.totalRespondidas = r.totalRespondidas;
-          cooldownState.totalDisponivel = r.totalDisponivel;
-          cooldownState.cooldownSeg = r.cooldownSegundos || cooldownState.cooldownSeg;
+          
+          // Recalcular disponíveis localmente
+          if (cooldownState.entradaEm) {
+            const elapsed = (Date.now() - cooldownState.entradaEm) / 1000;
+            const ciclos = Math.floor(elapsed / cooldownState.cooldownSeg);
+            cooldownState.totalDisponivel = 5 + (ciclos * 2) + (cooldownState.skipsUsados * 2);
+          }
+          cooldownState.perguntasRestantes = Math.max(0, cooldownState.totalDisponivel - cooldownState.totalRespondidas);
+          console.log(`⏳ Cooldown local: ${cooldownState.perguntasRestantes} restantes (${cooldownState.totalDisponivel} disp - ${cooldownState.totalRespondidas} resp, cooldown ${cooldownState.cooldownSeg}s)`);
         }
 
         console.log("📝 Resposta:", selectedLetter, "| Correta:", correct, "| Acertou:", acertou, "| Pontos:", pontosFinais);
