@@ -3499,6 +3499,60 @@
     }
 
     // ===================================
+    // 🏆 FAIXAS DE PREMIAÇÃO
+    // ===================================
+    const PREMIACAO_FAIXAS = [
+      { min: 0, max: 9, top: [10, 7, 5], faixas: [] },
+      {
+        min: 10, max: 100,
+        top: [18, 16, 14, 12, 10],
+        faixas: [
+          { de: 6, ate: 15, valor: 9 },
+          { de: 16, ate: 25, valor: 7 },
+          { de: 26, ate: 35, valor: 5 },
+          { de: 36, ate: 45, valor: 4 },
+          { de: 46, ate: 50, valor: 3 }
+        ]
+      },
+      {
+        min: 101, max: 500,
+        top: [30, 25, 22, 20, 18],
+        faixas: [
+          { de: 6, ate: 15, valor: 16 },
+          { de: 16, ate: 25, valor: 14 },
+          { de: 26, ate: 35, valor: 12 },
+          { de: 36, ate: 45, valor: 10 },
+          { de: 46, ate: 50, valor: 5 }
+        ]
+      },
+      {
+        min: 501, max: Infinity,
+        top: [50, 45, 40, 35, 30],
+        faixas: [
+          { de: 6, ate: 15, valor: 25 },
+          { de: 16, ate: 25, valor: 20 },
+          { de: 26, ate: 35, valor: 18 },
+          { de: 36, ate: 45, valor: 15 },
+          { de: 46, ate: 50, valor: 10 }
+        ]
+      }
+    ];
+
+    function calcularTotalFaixa(totalParticipantes) {
+      if (totalParticipantes <= 0) return { total: 0, premiados: 0, topPremios: [] };
+      const faixa = PREMIACAO_FAIXAS.find(f => totalParticipantes >= f.min && totalParticipantes <= f.max) || PREMIACAO_FAIXAS[0];
+      let total = faixa.top.reduce((a, b) => a + b, 0);
+      let premiados = faixa.top.length;
+      for (const fx of faixa.faixas) {
+        for (let pos = fx.de; pos <= fx.ate && pos <= totalParticipantes; pos++) {
+          total += fx.valor;
+          premiados++;
+        }
+      }
+      return { total, premiados, topPremios: faixa.top };
+    }
+
+    // ===================================
     // 📋 RENDERIZAR JOGOS
     // ===================================
     async function renderizarJogos(containerId, jogos, countId) {
@@ -3653,12 +3707,14 @@
           `;
         }
 
-        // Créditos em disputa (total apostado/colocado pelos participantes)
-        // Créditos em disputa = creditosIniciais (admin) + poolCreditos (usuários)
-        const creditosAdmin = jogo.creditosIniciais || 0;
-        const poolCreditos = jogo.poolCreditos || jogo.poolCreditosPagos || 0;
-        const creditosEmDisputa = creditosAdmin + poolCreditos;
-        const creditosDisplay = creditosEmDisputa > 0 ? creditosEmDisputa : '--';
+        // Créditos em disputa — baseado no número de participantes
+        const totalParticipantes = (jogo.torcidaCasaCount || 0) + (jogo.torcidaForaCount || 0);
+        // Se ainda sem participantes, usa faixa mínima (0-9: top 3 = 10+7+5 = 22)
+        const premiacaoInfo = totalParticipantes > 0
+          ? calcularTotalFaixa(totalParticipantes)
+          : calcularTotalFaixa(1);
+        const creditosEmDisputa = premiacaoInfo.total;
+        const creditosDisplay = creditosEmDisputa;
 
         // Badge de time escolhido
         let userCheeredBadge = '';
@@ -3773,7 +3829,7 @@
             <div class="creditos-disputa ${creditosEmDisputa >= 50 ? 'high-value' : ''}">
               <span class="creditos-icon">💎</span>
               <span class="creditos-valor">${creditosDisplay}</span>
-              <span class="creditos-label">${isFinished ? 'foram disputados' : 'em disputa'}</span>
+              <span class="creditos-label">${isFinished ? 'foram disputados' : 'em disputa'} (top ${premiacaoInfo.premiados || 3})</span>
             </div>
 
             <!-- Badge de torcida escolhida -->
