@@ -3453,13 +3453,15 @@
           return;
         }
 
-        // Já respondeu hoje?
-        const hoje = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
+        // Já respondeu hoje? (usa horário de Brasília, não UTC)
+        const agora = new Date();
+        const brasilOffset = -3 * 60; // UTC-3
+        const brasilTime = new Date(agora.getTime() + (brasilOffset - agora.getTimezoneOffset()) * 60000);
+        const hoje = brasilTime.toISOString().split('T')[0]; // "YYYY-MM-DD" em BRT
         const ultimoQuiz = currentUserData.ultimoQuizDiario || '';
 
         if (ultimoQuiz === hoje) {
           console.log("📋 Quiz diário: já respondeu hoje (" + hoje + ").");
-          // Marca sessão para não checar de novo
           sessionStorage.setItem('yellup_quiz_diario_exibido', 'true');
           return;
         }
@@ -3515,16 +3517,56 @@
           return;
         }
 
-        // Escolher uma pergunta aleatória
-        // Tentar evitar repetir a última pergunta respondida
-        const todasPerguntas = perguntasSnap.docs;
-        const ultimaPerguntaId = currentUserData.ultimaQuizDiarioPerguntaId || '';
-        
-        let perguntasFiltradas = todasPerguntas.filter(doc => doc.id !== ultimaPerguntaId);
-        if (perguntasFiltradas.length === 0) perguntasFiltradas = todasPerguntas;
+        // ==========================================
+        // COLETAR TODAS AS PERGUNTAS JÁ RESPONDIDAS
+        // (jogos, embates, PvP, ligas, quiz diário)
+        // ==========================================
+        const jaRespondidas = new Set();
 
-        const randomIndex = Math.floor(Math.random() * perguntasFiltradas.length);
-        const perguntaDoc = perguntasFiltradas[randomIndex];
+        // 1. perguntasRespondidas_* (uma chave por jogo/time)
+        for (const chave of Object.keys(currentUserData)) {
+          if (chave.startsWith('perguntasRespondidas_')) {
+            const arr = currentUserData[chave];
+            if (Array.isArray(arr)) {
+              arr.forEach(id => jaRespondidas.add(id));
+            }
+          }
+        }
+
+        // 2. perguntasLigas (chaves por liga, cada uma com array de IDs)
+        if (currentUserData.perguntasLigas) {
+          for (const liga of Object.values(currentUserData.perguntasLigas)) {
+            if (Array.isArray(liga)) {
+              liga.forEach(id => jaRespondidas.add(id));
+            }
+          }
+        }
+
+        // 3. Última pergunta do quiz diário
+        if (currentUserData.ultimaQuizDiarioPerguntaId) {
+          jaRespondidas.add(currentUserData.ultimaQuizDiarioPerguntaId);
+        }
+
+        console.log('📋 Quiz diário: ' + jaRespondidas.size + ' perguntas já respondidas no total');
+
+        // ==========================================
+        // FILTRAR: só perguntas que o usuário NUNCA viu
+        // ==========================================
+        const todasPerguntas = perguntasSnap.docs;
+        let perguntasNovas = todasPerguntas.filter(doc => !jaRespondidas.has(doc.id));
+
+        console.log('📋 Quiz diário: ' + todasPerguntas.length + ' perguntas do time, ' + perguntasNovas.length + ' ainda não respondidas');
+
+        // Se zerou o banco, reseta — permite repetir
+        if (perguntasNovas.length === 0) {
+          console.log('📋 Quiz diário: todas as perguntas já foram respondidas! Reciclando...');
+          perguntasNovas = todasPerguntas;
+          showToast('🔄 Você já respondeu todas! Reciclando perguntas.');
+        }
+
+        // Escolher aleatória entre as novas
+        const randomIndex = Math.floor(Math.random() * perguntasNovas.length);
+        const perguntaDoc = perguntasNovas[randomIndex];
         
         quizDiarioPerguntaAtual = {
           id: perguntaDoc.id,
@@ -3597,8 +3639,15 @@
         });
       }
 
-      // Salvar no Firestore
-      const hoje = new Date().toISOString().split('T')[0];
+      // Salvar no Firestore (data em horário de Brasília)
+      const agora = new Date();
+      const brasilOffset = -3 * 60;
+      const brasilTime = new Date(agora.getTime() + (brasilOffset - agora.getTimezoneOffset()) * 60000);
+      const hoje = brasilTime.toISOString().split('T')[0];
+
+      // Chave de perguntas respondidas do time (mesma usada nos jogos)
+      const chaveRespondidas = 'perguntasRespondidas_' + currentUserData.timeId;
+
       try {
         await db.collection('usuarios').doc(currentUserId).update({
           ultimoQuizDiario: hoje,
@@ -3607,15 +3656,20 @@
           quizDiarioTotal: firebase.firestore.FieldValue.increment(1),
           quizDiarioAcertos: acertou
             ? firebase.firestore.FieldValue.increment(1)
-            : firebase.firestore.FieldValue.increment(0)
+            : firebase.firestore.FieldValue.increment(0),
+          // Salvar no mesmo array dos jogos para cruzar perguntas
+          [chaveRespondidas]: firebase.firestore.FieldValue.arrayUnion(quizDiarioPerguntaAtual.id)
         });
 
         // Atualizar dados locais
         currentUserData.ultimoQuizDiario = hoje;
         currentUserData.ultimaQuizDiarioPerguntaId = quizDiarioPerguntaAtual.id;
         currentUserData.xp = (currentUserData.xp || 0) + xpGanho;
+        // Atualizar array local também
+        if (!currentUserData[chaveRespondidas]) currentUserData[chaveRespondidas] = [];
+        currentUserData[chaveRespondidas].push(quizDiarioPerguntaAtual.id);
 
-        console.log(`✅ Quiz diário: ${acertou ? 'ACERTOU' : 'ERROU'} → +${xpGanho} XP`);
+        console.log(`✅ Quiz diário: ${acertou ? 'ACERTOU' : 'ERROU'} → +${xpGanho} XP | Pergunta ${quizDiarioPerguntaAtual.id} salva em ${chaveRespondidas}`);
       } catch (error) {
         console.error("❌ Erro ao salvar quiz diário:", error);
       }
@@ -3797,7 +3851,10 @@
       const temJogoDoTime = gamesLive.querySelector('.game-card.my-team-playing');
       
       // Se não tem jogo ao vivo, verificar quiz diário pendente
-      const hoje = new Date().toISOString().split('T')[0];
+      const _agora = new Date();
+      const _brOffset = -3 * 60;
+      const _brTime = new Date(_agora.getTime() + (_brOffset - _agora.getTimezoneOffset()) * 60000);
+      const hoje = _brTime.toISOString().split('T')[0];
       const jaFezQuizHoje = currentUserData.ultimoQuizDiario === hoje;
       
       if (temJogoDoTime) {
