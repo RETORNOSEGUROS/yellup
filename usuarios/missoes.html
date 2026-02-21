@@ -181,23 +181,52 @@
       const data=missoesData[missaoId];if(!data||!data.concluido||data.creditada)return;
       const mc=MISSOES_PADRAO.find(m=>m.id===missaoId);if(!mc)return;
       try{
-        const r=await functions.httpsCallable('completarMissao')({missaoId});
-        if(r.data.jaCreditada){showToast('⚠️ Já coletado')}else{
-          if(mc.recompensa.xp>0)await db.collection('usuarios').doc(currentUser.uid).update({xp:firebase.firestore.FieldValue.increment(mc.recompensa.xp),pontuacao:firebase.firestore.FieldValue.increment(mc.recompensa.xp)});
-          let msg='✅ ';if(mc.recompensa.creditos>0)msg+=`+${mc.recompensa.creditos} créditos `;if(mc.recompensa.xp>0)msg+=`+${mc.recompensa.xp} XP`;showToast(msg);
+        // Verificar se já foi creditada (double-check no Firestore)
+        const mRef=db.collection('usuarios').doc(currentUser.uid).collection('missoes').doc(missaoId);
+        const mDoc=await mRef.get();
+        if(mDoc.exists&&mDoc.data().creditada){
+          showToast('⚠️ Já coletado!');
+          missoesData[missaoId].creditada=true;renderMissoes();
+          return;
         }
+
+        // Creditar tudo via batch (créditos + XP + marcar creditada + extrato)
+        const batch=db.batch();
+        const uRef=db.collection('usuarios').doc(currentUser.uid);
+        const updateData={};
+
+        if(mc.recompensa.creditos>0){
+          updateData.creditos=firebase.firestore.FieldValue.increment(mc.recompensa.creditos);
+        }
+        if(mc.recompensa.xp>0){
+          updateData.xp=firebase.firestore.FieldValue.increment(mc.recompensa.xp);
+          updateData.pontuacao=firebase.firestore.FieldValue.increment(mc.recompensa.xp);
+        }
+
+        if(Object.keys(updateData).length>0) batch.update(uRef,updateData);
+        batch.update(mRef,{creditada:true});
+
+        // Registrar no extrato
+        if(mc.recompensa.creditos>0){
+          batch.set(uRef.collection('extrato').doc(),{
+            tipo:'entrada',
+            valor:mc.recompensa.creditos,
+            descricao:'Missão: '+mc.titulo,
+            data:firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+
+        await batch.commit();
+
         missoesData[missaoId].creditada=true;renderMissoes();
+        let msg='✅ ';
+        if(mc.recompensa.creditos>0)msg+='+'+mc.recompensa.creditos+' créditos ';
+        if(mc.recompensa.xp>0)msg+='+'+mc.recompensa.xp+' XP';
+        showToast(msg);
+        console.log('✅ Missão '+missaoId+' creditada:',mc.recompensa);
       }catch(e){
-        console.error('Erro:',e);
-        try{
-          const batch=db.batch();const uRef=db.collection('usuarios').doc(currentUser.uid);const mRef=uRef.collection('missoes').doc(missaoId);
-          const up={};if(mc.recompensa.creditos>0)up.creditos=firebase.firestore.FieldValue.increment(mc.recompensa.creditos);
-          if(mc.recompensa.xp>0){up.xp=firebase.firestore.FieldValue.increment(mc.recompensa.xp);up.pontuacao=firebase.firestore.FieldValue.increment(mc.recompensa.xp)}
-          if(Object.keys(up).length>0)batch.update(uRef,up);batch.update(mRef,{creditada:true});
-          batch.set(uRef.collection('extrato').doc(),{tipo:'entrada',valor:mc.recompensa.creditos||0,descricao:`Missão: ${mc.titulo}`,data:firebase.firestore.FieldValue.serverTimestamp()});
-          await batch.commit();missoesData[missaoId].creditada=true;renderMissoes();
-          let msg='✅ ';if(mc.recompensa.creditos>0)msg+=`+${mc.recompensa.creditos} créditos `;if(mc.recompensa.xp>0)msg+=`+${mc.recompensa.xp} XP`;showToast(msg);
-        }catch(fe){console.error('Fallback:',fe);showToast('❌ Erro. Tente novamente.')}
+        console.error('Erro ao creditar missão:',e);
+        showToast('❌ Erro ao coletar. Tente novamente.');
       }
     }
 
@@ -215,7 +244,6 @@
         // Se a missão é de outro dia, resetar antes de incrementar
         if(dataM&&dataM<hoje){
           await ref.update({atual:1,concluido:1>=(dados.total||1),creditada:false,data:firebase.firestore.Timestamp.now()});
-          if(1>=(dados.total||1)){try{await firebase.functions().httpsCallable('completarMissao')({missaoId:idMissao})}catch(e){console.error(e)}}
           return;
         }
 
@@ -224,7 +252,6 @@
         const novo=(dados.atual||0)+1;
         const concluido=novo>=(dados.total||1);
         await ref.update({atual:novo,concluido});
-        if(concluido){try{await firebase.functions().httpsCallable('completarMissao')({missaoId:idMissao})}catch(e){console.error(e)}}
       }catch(e){console.error('atualizarMissao erro:',e)}
     };
 
