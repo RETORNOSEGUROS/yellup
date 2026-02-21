@@ -4614,8 +4614,28 @@
           try {
             const cooldownInfo = JSON.parse(msg);
             if (cooldownInfo.tipo === 'cooldown') {
-              cooldownState.perguntasRestantes = 0;
-              showToast(`⏳ ${cooldownInfo.mensagem}`);
+              // Sincronizar totalRespondidas do server (é confiável)
+              if (cooldownInfo.totalRespondidas != null) {
+                cooldownState.totalRespondidas = cooldownInfo.totalRespondidas;
+              }
+              // Recalcular disponíveis localmente com nosso cooldown correto
+              if (cooldownState.entradaEm) {
+                const elapsed = (Date.now() - cooldownState.entradaEm) / 1000;
+                const ciclos = Math.floor(elapsed / cooldownState.cooldownSeg);
+                cooldownState.totalDisponivel = 5 + (ciclos * 2) + (cooldownState.skipsUsados * 2);
+                cooldownState.perguntasRestantes = Math.max(0, cooldownState.totalDisponivel - cooldownState.totalRespondidas);
+              } else {
+                cooldownState.perguntasRestantes = 0;
+              }
+              
+              console.log(`⏳ Cooldown: server diz ${cooldownInfo.totalRespondidas} resp, local calcula ${cooldownState.perguntasRestantes} restantes (cooldown local: ${cooldownState.cooldownSeg}s)`);
+              
+              if (cooldownState.perguntasRestantes > 0) {
+                // Server bloqueia mas nosso cálculo diz que tem — retentar
+                showToast('⚠️ Sincronizando... tente novamente');
+              } else {
+                showToast(`⏳ ${cooldownInfo.mensagem}`);
+              }
               await updateFreePlays();
               document.getElementById("btnAnswer").disabled = false;
               document.getElementById("questionModalOverlay").classList.remove("active");
