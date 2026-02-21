@@ -1284,6 +1284,132 @@
       font-weight: 600;
       cursor: pointer;
     }
+
+    /* ===== CROP MODAL ===== */
+    .crop-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.95);
+      z-index: 9999;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .crop-overlay.active { display: flex; }
+
+    .crop-header {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+    .crop-title {
+      color: #fff;
+      font-weight: 700;
+      font-size: 1em;
+    }
+    .crop-btn-cancel {
+      background: none;
+      border: none;
+      color: #a9b5c6;
+      font-family: inherit;
+      font-size: 0.9em;
+      cursor: pointer;
+      padding: 8px 12px;
+    }
+
+    .crop-area {
+      position: relative;
+      width: 300px;
+      height: 300px;
+      overflow: hidden;
+      border-radius: 16px;
+      touch-action: none;
+      background: #111;
+    }
+    .crop-area.circular {
+      border-radius: 50%;
+      border: 3px solid rgba(255,181,71,0.5);
+    }
+    .crop-area.rectangular {
+      width: 320px;
+      height: 200px;
+      border: 3px solid rgba(255,181,71,0.5);
+    }
+
+    .crop-area img {
+      position: absolute;
+      max-width: none;
+      max-height: none;
+      cursor: grab;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .crop-area img:active { cursor: grabbing; }
+
+    .crop-hint {
+      color: #a9b5c6;
+      font-size: 0.75em;
+      margin-top: 14px;
+      text-align: center;
+    }
+
+    .crop-zoom {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 16px;
+      width: 280px;
+    }
+    .crop-zoom-label { color: #a9b5c6; font-size: 0.8em; }
+    .crop-zoom input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none;
+      height: 4px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 2px;
+      outline: none;
+    }
+    .crop-zoom input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 22px;
+      height: 22px;
+      background: linear-gradient(135deg, #ffb547, #ff8c42);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .crop-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .crop-btn-redo {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #a9b5c6;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.9em;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .crop-btn-confirm {
+      background: linear-gradient(135deg, #ffb547, #ff8c42);
+      border: none;
+      color: #000;
+      padding: 12px 32px;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.9em;
+      font-weight: 700;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -1467,13 +1593,13 @@
       <!-- Dados Financeiros -->
       <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
         <div style="font-size: 0.9em; color: #ffb547; margin-bottom: 15px; font-weight: 600;">
-          💰 Dados para Compra de Créditos
+          🎫 Dados para Compra de Passes
         </div>
         
         <div class="form-group">
           <label class="form-label">CPF <span style="color: #ef4444;">*</span></label>
           <input type="text" class="form-input" id="inputCPF" placeholder="000.000.000-00" maxlength="14" oninput="formatarCPF(this)">
-          <small style="color: #a9b5c6; font-size: 0.75em;">Obrigatório para comprar créditos</small>
+          <small style="color: #a9b5c6; font-size: 0.75em;">Obrigatório para comprar passes (semanal, mensal ou anual)</small>
         </div>
       </div>
 
@@ -1587,9 +1713,9 @@
           <span class="text">Minhas Indicações</span>
           <span class="arrow">→</span>
         </a>
-        <a href="loja-creditos.html" class="menu-link">
-          <span class="icon">💎</span>
-          <span class="text">Comprar Créditos</span>
+        <a href="loja-passes.html" class="menu-link">
+          <span class="icon">🎫</span>
+          <span class="text">Comprar Passes</span>
           <span class="arrow">→</span>
         </a>
         <a href="regras.html" class="menu-link">
@@ -1687,6 +1813,32 @@
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>
+
+  <!-- CROP MODAL -->
+  <div class="crop-overlay" id="cropOverlay">
+    <div class="crop-header">
+      <button class="crop-btn-cancel" onclick="fecharCrop()">✕ Cancelar</button>
+      <div class="crop-title" id="cropTitle">Ajustar Foto</div>
+      <div style="width: 80px;"></div>
+    </div>
+
+    <div class="crop-area" id="cropArea">
+      <img id="cropImage" src="" alt="" draggable="false">
+    </div>
+
+    <div class="crop-hint">Arraste para enquadrar • Use o zoom abaixo</div>
+
+    <div class="crop-zoom">
+      <span class="crop-zoom-label">🔍</span>
+      <input type="range" id="cropZoom" min="100" max="300" value="100" oninput="aplicarZoomCrop(this.value)">
+      <span class="crop-zoom-label" id="cropZoomLabel">100%</span>
+    </div>
+
+    <div class="crop-actions">
+      <button class="crop-btn-redo" onclick="resetarCrop()">↻ Resetar</button>
+      <button class="crop-btn-confirm" id="cropBtnConfirm" onclick="confirmarCrop()">✅ Confirmar</button>
+    </div>
+  </div>
 
   <!-- Bottom Nav -->
   <nav class="bottom-nav">
@@ -2513,53 +2665,314 @@
     // ===================================
     // 📷 UPLOAD DE AVATAR
     // ===================================
+    // ==========================================
+    // ✂️ CROP SYSTEM — Ajuste de fotos
+    // ==========================================
+    let cropState = {
+      mode: null,       // 'avatar' or 'bg'
+      bgIndex: null,    // 0,1,2 for bg photos
+      file: null,
+      imgEl: null,
+      isDragging: false,
+      startX: 0, startY: 0,
+      imgX: 0, imgY: 0,
+      zoom: 100,
+      imgNaturalW: 0,
+      imgNaturalH: 0
+    };
+
+    function abrirCrop(file, mode, bgIndex) {
+      cropState.mode = mode;
+      cropState.bgIndex = bgIndex;
+      cropState.file = file;
+      cropState.zoom = 100;
+      cropState.imgX = 0;
+      cropState.imgY = 0;
+
+      const overlay = document.getElementById('cropOverlay');
+      const area = document.getElementById('cropArea');
+      const img = document.getElementById('cropImage');
+      const zoomInput = document.getElementById('cropZoom');
+      const title = document.getElementById('cropTitle');
+
+      // Configurar modo
+      if (mode === 'avatar') {
+        area.className = 'crop-area circular';
+        area.style.width = '280px';
+        area.style.height = '280px';
+        title.textContent = '✂️ Ajustar Avatar';
+      } else {
+        area.className = 'crop-area rectangular';
+        area.style.width = '320px';
+        area.style.height = '200px';
+        title.textContent = '✂️ Ajustar Foto ' + (bgIndex + 1);
+      }
+
+      zoomInput.value = 100;
+      document.getElementById('cropZoomLabel').textContent = '100%';
+
+      // Carregar imagem
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        img.onload = () => {
+          cropState.imgNaturalW = img.naturalWidth;
+          cropState.imgNaturalH = img.naturalHeight;
+          fitImageInArea();
+          overlay.classList.add('active');
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function fitImageInArea() {
+      const area = document.getElementById('cropArea');
+      const img = document.getElementById('cropImage');
+      const areaW = area.offsetWidth;
+      const areaH = area.offsetHeight;
+      const natW = cropState.imgNaturalW;
+      const natH = cropState.imgNaturalH;
+
+      // Fit so shorter side fills the area (cover behavior)
+      const scaleW = areaW / natW;
+      const scaleH = areaH / natH;
+      const baseScale = Math.max(scaleW, scaleH);
+      const zoomFactor = cropState.zoom / 100;
+      const finalScale = baseScale * zoomFactor;
+
+      const imgW = natW * finalScale;
+      const imgH = natH * finalScale;
+
+      img.style.width = imgW + 'px';
+      img.style.height = imgH + 'px';
+
+      // Centralizar se necessário, mas keep current offset
+      // Clamp position so image always covers the area
+      const maxX = 0;
+      const minX = areaW - imgW;
+      const maxY = 0;
+      const minY = areaH - imgH;
+
+      cropState.imgX = Math.min(maxX, Math.max(minX, cropState.imgX));
+      cropState.imgY = Math.min(maxY, Math.max(minY, cropState.imgY));
+
+      img.style.left = cropState.imgX + 'px';
+      img.style.top = cropState.imgY + 'px';
+    }
+
+    function aplicarZoomCrop(val) {
+      cropState.zoom = parseInt(val);
+      document.getElementById('cropZoomLabel').textContent = val + '%';
+
+      // Re-center on zoom
+      const area = document.getElementById('cropArea');
+      const img = document.getElementById('cropImage');
+      const oldW = img.offsetWidth;
+      const oldH = img.offsetHeight;
+
+      fitImageInArea();
+
+      const newW = img.offsetWidth;
+      const newH = img.offsetHeight;
+
+      // Adjust position to keep center
+      cropState.imgX -= (newW - oldW) / 2;
+      cropState.imgY -= (newH - oldH) / 2;
+      fitImageInArea(); // clamp again
+    }
+
+    function resetarCrop() {
+      cropState.zoom = 100;
+      cropState.imgX = 0;
+      cropState.imgY = 0;
+      document.getElementById('cropZoom').value = 100;
+      document.getElementById('cropZoomLabel').textContent = '100%';
+      fitImageInArea();
+
+      // Center image
+      const area = document.getElementById('cropArea');
+      const img = document.getElementById('cropImage');
+      cropState.imgX = (area.offsetWidth - img.offsetWidth) / 2;
+      cropState.imgY = (area.offsetHeight - img.offsetHeight) / 2;
+      fitImageInArea();
+    }
+
+    function fecharCrop() {
+      document.getElementById('cropOverlay').classList.remove('active');
+      cropState.file = null;
+    }
+
+    async function confirmarCrop() {
+      const area = document.getElementById('cropArea');
+      const img = document.getElementById('cropImage');
+      const btn = document.getElementById('cropBtnConfirm');
+
+      btn.textContent = '⏳ Enviando...';
+      btn.disabled = true;
+
+      try {
+        // Criar canvas com o crop
+        const canvas = document.createElement('canvas');
+        const areaW = area.offsetWidth;
+        const areaH = area.offsetHeight;
+
+        // Output size
+        const outputSize = cropState.mode === 'avatar' ? 400 : 1200;
+        const scaleOutput = cropState.mode === 'avatar'
+          ? outputSize / areaW
+          : outputSize / areaW;
+
+        canvas.width = Math.round(areaW * scaleOutput);
+        canvas.height = Math.round(areaH * scaleOutput);
+
+        const ctx = canvas.getContext('2d');
+
+        // Calculate source crop from the visible area
+        const imgDisplayW = img.offsetWidth;
+        const imgDisplayH = img.offsetHeight;
+        const imgLeft = parseFloat(img.style.left) || 0;
+        const imgTop = parseFloat(img.style.top) || 0;
+
+        // Source coordinates in natural image space
+        const displayToNatX = cropState.imgNaturalW / imgDisplayW;
+        const displayToNatY = cropState.imgNaturalH / imgDisplayH;
+
+        const sx = (-imgLeft) * displayToNatX;
+        const sy = (-imgTop) * displayToNatY;
+        const sw = areaW * displayToNatX;
+        const sh = areaH * displayToNatY;
+
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+        // Convert to blob
+        const blob = await new Promise(resolve =>
+          canvas.toBlob(resolve, 'image/jpeg', 0.85)
+        );
+
+        // Upload
+        if (cropState.mode === 'avatar') {
+          await finalizarUploadAvatar(blob);
+        } else {
+          await finalizarUploadBgPhoto(blob, cropState.bgIndex);
+        }
+
+      } catch (error) {
+        console.error('Erro no crop:', error);
+        showToast('❌ Erro ao processar imagem');
+      }
+
+      btn.textContent = '✅ Confirmar';
+      btn.disabled = false;
+      fecharCrop();
+    }
+
+    // Drag events for crop
+    (function setupCropDrag() {
+      const area = document.getElementById('cropArea');
+      if (!area) return;
+
+      let startX, startY, origX, origY;
+
+      function onStart(x, y) {
+        cropState.isDragging = true;
+        startX = x;
+        startY = y;
+        origX = cropState.imgX;
+        origY = cropState.imgY;
+      }
+
+      function onMove(x, y) {
+        if (!cropState.isDragging) return;
+        cropState.imgX = origX + (x - startX);
+        cropState.imgY = origY + (y - startY);
+        fitImageInArea();
+      }
+
+      function onEnd() {
+        cropState.isDragging = false;
+      }
+
+      // Mouse events
+      area.addEventListener('mousedown', (e) => { e.preventDefault(); onStart(e.clientX, e.clientY); });
+      window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+      window.addEventListener('mouseup', onEnd);
+
+      // Touch events
+      area.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          e.preventDefault();
+          onStart(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      }, { passive: false });
+
+      area.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 1) {
+          e.preventDefault();
+          onMove(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      }, { passive: false });
+
+      area.addEventListener('touchend', onEnd);
+
+      // Scroll zoom
+      area.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomInput = document.getElementById('cropZoom');
+        let val = parseInt(zoomInput.value) + (e.deltaY < 0 ? 10 : -10);
+        val = Math.min(300, Math.max(100, val));
+        zoomInput.value = val;
+        aplicarZoomCrop(val);
+      }, { passive: false });
+    })();
+
+    // ==========================================
+    // 📷 UPLOAD AVATAR — com crop
+    // ==========================================
     async function uploadAvatar(input) {
       const file = input.files[0];
       if (!file) return;
 
-      // Validar tipo
       if (!file.type.startsWith('image/')) {
         showToast('❌ Selecione uma imagem válida');
+        input.value = '';
         return;
       }
 
-      // Validar tamanho (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         showToast('❌ Imagem muito grande (máx 5MB)');
+        input.value = '';
         return;
       }
 
+      // Abrir crop modal em vez de upload direto
+      abrirCrop(file, 'avatar', null);
+      input.value = '';
+    }
+
+    async function finalizarUploadAvatar(blob) {
       const btn = document.getElementById('avatarBtn');
       const avatarEl = document.getElementById('avatar');
-      
+
       btn.classList.add('loading');
       btn.textContent = '⏳';
       showToast('📤 Enviando foto...');
 
       try {
-        // Comprimir imagem antes de enviar
-        const compressedFile = await comprimirImagem(file, 400, 0.8);
-        
-        // Criar referência no Storage
         const fileName = `avatars/${currentUserId}_${Date.now()}.jpg`;
         const storageRef = storage.ref(fileName);
-        
-        // Upload
-        const snapshot = await storageRef.put(compressedFile);
+
+        const snapshot = await storageRef.put(blob);
         const downloadURL = await snapshot.ref.getDownloadURL();
-        
-        // Salvar URL no Firestore
+
         await db.collection('usuarios').doc(currentUserId).update({
           avatarUrl: downloadURL
         });
-        
-        // Atualizar interface
+
         avatarEl.innerHTML = `<img src="${downloadURL}" alt="Avatar">`;
         avatarEl.style.background = 'none';
         currentUserData.avatarUrl = downloadURL;
-        
+
         showToast('✅ Foto atualizada com sucesso!');
-        
       } catch (error) {
         console.error('Erro ao fazer upload:', error);
         showToast('❌ Erro ao enviar foto');
@@ -2567,7 +2980,6 @@
 
       btn.classList.remove('loading');
       btn.textContent = '📷';
-      input.value = ''; // Limpar input
     }
 
     // Função para comprimir imagem
@@ -2652,42 +3064,47 @@
       const file = input.files[0];
       if (!file) return;
 
-      // Validar tamanho (máximo 5MB)
       if (file.size > 5 * 1024 * 1024) {
         showToast('❌ Imagem muito grande (máx 5MB)');
+        input.value = '';
         return;
       }
 
+      if (!file.type.startsWith('image/')) {
+        showToast('❌ Selecione uma imagem válida');
+        input.value = '';
+        return;
+      }
+
+      // Abrir crop modal
+      abrirCrop(file, 'bg', index);
+      input.value = '';
+    }
+
+    async function finalizarUploadBgPhoto(blob, index) {
       const slot = document.getElementById(`bgSlot${index + 1}`);
       slot.classList.add('uploading');
 
       try {
-        // Comprimir imagem
-        const comprimida = await comprimirImagem(file, 1200, 0.8);
-        
-        // Upload para Firebase Storage - USA PASTA AVATARS (mesma do avatar que funciona)
         const storage = firebase.storage();
         const fileName = `avatars/${currentUserId}_fundo${index}_${Date.now()}.jpg`;
         const storageRef = storage.ref(fileName);
-        
-        const snapshot = await storageRef.put(comprimida);
+
+        const snapshot = await storageRef.put(blob);
         const downloadURL = await snapshot.ref.getDownloadURL();
 
-        // Atualizar array local
         while (fotosFundo.length <= index) {
           fotosFundo.push(null);
         }
         fotosFundo[index] = downloadURL;
 
-        // Salvar no Firestore
         await db.collection('usuarios').doc(currentUserId).update({
           fotosFundo: fotosFundo.filter(f => f !== null)
         });
 
-        // Atualizar visual
         slot.classList.remove('uploading');
         slot.classList.add('has-photo');
-        
+
         let img = slot.querySelector('img');
         if (!img) {
           img = document.createElement('img');
@@ -2696,24 +3113,16 @@
         img.src = downloadURL;
 
         showToast('✅ Foto adicionada!');
-        console.log(`📷 Foto ${index + 1} salva:`, downloadURL);
-
       } catch (error) {
         console.error('Erro ao fazer upload:', error);
         slot.classList.remove('uploading');
-        
-        // Verificar tipo de erro
+
         if (error.code === 'storage/unauthorized') {
-          showToast('❌ Sem permissão no Storage. Configure as regras no Firebase Console.');
-        } else if (error.code === 'storage/canceled') {
-          showToast('❌ Upload cancelado');
+          showToast('❌ Sem permissão no Storage.');
         } else {
           showToast('❌ Erro ao enviar foto. Tente novamente.');
         }
       }
-
-      // Limpar input
-      input.value = '';
     }
 
     async function removeBgPhoto(index) {
