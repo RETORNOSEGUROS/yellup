@@ -3951,39 +3951,48 @@
         const segFaltam = Math.max(0, Math.ceil((proximoCicloEm - agora) / 1000));
 
         if (segFaltam <= 0) {
-          // Ciclo completou! Recalcular localmente (sem Firestore)
+          // Ciclo completou! Parar timer e aguardar 1.5s para garantir que o ciclo virou
           clearInterval(cooldownInterval);
           cooldownInterval = null;
           
-          const agoraMs = Date.now();
-          const elapsedSeg = (agoraMs - cooldownState.entradaEm) / 1000;
-          const novoCiclos = Math.floor(elapsedSeg / cooldownState.cooldownSeg);
-          const novoDisponivel = 5 + (novoCiclos * 2) + (cooldownState.skipsUsados * 2);
-          const novoRestantes = Math.max(0, novoDisponivel - cooldownState.totalRespondidas);
-          
-          cooldownState.totalDisponivel = novoDisponivel;
-          cooldownState.perguntasRestantes = novoRestantes;
-          
-          console.log(`✅ Timer expirou! Ciclos: ${novoCiclos}, Disponível: ${novoDisponivel}, Restantes: ${novoRestantes}`);
-          
-          // Atualizar UI diretamente
-          const el = document.getElementById("perguntasDisponiveis");
-          if (el) { el.textContent = novoRestantes; el.style.color = novoRestantes > 0 ? '#4caf50' : '#e74c3c'; }
-          
-          const btnAnswer = document.getElementById("btnAnswer");
-          const fabBtn = document.getElementById("fabBtn");
-          if (novoRestantes > 0 && !currentQuestion) {
-            btnAnswer.disabled = false;
-            btnAnswer.textContent = `🎯 Responder Pergunta (${novoRestantes})`;
-            btnAnswer.style.background = "linear-gradient(135deg, var(--accent), #ff8c42)";
-            timerEl.classList.remove('visible');
-            timerEl.style.display = 'none';
-            if (fabBtn) { fabBtn.disabled = false; fabBtn.innerHTML = `<span class="fab-icon">🎯</span><span class="fab-text">${novoRestantes} disponíveis</span>`; }
-            showToast(`🎯 +2 perguntas liberadas! (${novoRestantes} disponíveis)`);
-          } else {
-            // Ainda sem perguntas (raro) — reiniciar timer
-            updateFreePlays();
-          }
+          setTimeout(async () => {
+            const agoraMs = Date.now();
+            const elapsedSeg = (agoraMs - cooldownState.entradaEm) / 1000;
+            const novoCiclos = Math.floor(elapsedSeg / cooldownState.cooldownSeg);
+            const novoDisponivel = 5 + (novoCiclos * 2) + (cooldownState.skipsUsados * 2);
+            let novoRestantes = Math.max(0, novoDisponivel - cooldownState.totalRespondidas);
+            
+            // Garantia: se o timer chegou a 0, pelo menos 2 perguntas devem liberar
+            if (novoRestantes < 2) {
+              console.log(`⚠️ Timer zerou mas novoRestantes=${novoRestantes}, forçando 2`);
+              novoRestantes = 2;
+              cooldownState.totalDisponivel = cooldownState.totalRespondidas + 2;
+            } else {
+              cooldownState.totalDisponivel = novoDisponivel;
+            }
+            cooldownState.perguntasRestantes = novoRestantes;
+            
+            console.log(`✅ Timer expirou! Ciclos: ${novoCiclos}, Disponível: ${cooldownState.totalDisponivel}, Restantes: ${novoRestantes}`);
+            
+            // Atualizar UI diretamente
+            const el = document.getElementById("perguntasDisponiveis");
+            if (el) { el.textContent = novoRestantes; el.style.color = novoRestantes > 0 ? '#4caf50' : '#e74c3c'; }
+            
+            const btnAnswer = document.getElementById("btnAnswer");
+            const fabBtn = document.getElementById("fabBtn");
+            if (novoRestantes > 0 && !currentQuestion) {
+              btnAnswer.disabled = false;
+              btnAnswer.textContent = `🎯 Responder Pergunta (${novoRestantes})`;
+              btnAnswer.style.background = "linear-gradient(135deg, var(--accent), #ff8c42)";
+              timerEl.classList.remove('visible');
+              timerEl.style.display = 'none';
+              if (fabBtn) { fabBtn.disabled = false; fabBtn.innerHTML = `<span class="fab-icon">🎯</span><span class="fab-text">${novoRestantes} disponíveis</span>`; }
+              showToast(`🎯 +2 perguntas liberadas! (${novoRestantes} disponíveis)`);
+            } else {
+              // Fallback: atualizar tudo via Firestore
+              await updateFreePlays();
+            }
+          }, 1500);
           return;
         }
 
