@@ -663,7 +663,7 @@
     let selPeriod = 'geral';      // semana | mes | ano | geral
     let usersCache = [];
     let teamsCache = {};
-    let embatesCache = null; // cache dos embates para torcidas
+    let jogosRankCache = null; // cache dos jogos para torcidas
 
     // ═══════════════════════════════════
     // 🎖️ NÍVEIS
@@ -1172,7 +1172,7 @@
 
       const labels = {
         torcedores: { exp: 'Clubes com mais torcedores cadastrados', title: 'Mais Torcedores', val: 'Torcedores', icon: '👥' },
-        torcidas: { exp: 'Clubes com mais torcidas em jogos (participações)', title: 'Mais Torcidas', val: 'Torcidas', icon: '📣' },
+        torcidas: { exp: 'Clubes com mais torcedores em jogos ao vivo', title: 'Mais Torcidas', val: 'Torcidas', icon: '📣' },
         xpTotal: { exp: 'Clubes com mais XP acumulado pela torcida', title: 'Mais XP Total', val: 'XP Total', icon: '⭐' },
         ativos: { exp: 'Clubes com mais jogadores ativos', title: 'Mais Ativos', val: 'Ativos', icon: '🎮' }
       };
@@ -1183,7 +1183,7 @@
       title.textContent = `Ranking de Times — ${lbl.title}`;
       sub.textContent = perLabel;
 
-      // Se é torcidas, precisa carregar embates
+      // Se é torcidas, carregar jogos ao vivo
       if (teamFilter === 'torcidas') {
         document.getElementById('rankList').innerHTML = '<div class="loading"><div class="spinner"></div><p>Calculando torcidas...</p></div>';
         loadTorcidasTimes();
@@ -1200,7 +1200,7 @@
         });
       }
 
-      // Agregar dados por time
+      // Agregar dados por time (time do coração = timeId)
       const data = {};
       filteredUsers.forEach(u => {
         const tid = u.timeId;
@@ -1209,7 +1209,7 @@
         data[tid].torcedores++;
         data[tid].xp += u.xp || 0;
         data[tid].creditos += u.creditos || 0;
-        if ((u.xp||0) > 0 || (u.totalPartidas||0) > 0) data[tid].ativos++;
+        if ((u.xp||0) > 0 || (u.stats?.totalPartidas||0) > 0 || (u.totalPartidas||0) > 0) data[tid].ativos++;
       });
 
       let ranked = Object.values(data);
@@ -1222,71 +1222,73 @@
     }
 
     // ═══════════════════════════════════
-    // 📣 CARREGAR TORCIDAS (TIMES)
+    // 📣 CARREGAR TORCIDAS (TIMES) — via JOGOS ao vivo
     // ═══════════════════════════════════
-    async function loadEmbatesCache() {
-      if (embatesCache) return;
-      const snap = await db.collection('embates').where('status', '==', 'finalizado').get();
-      embatesCache = [];
-      snap.forEach(d => embatesCache.push({ id: d.id, ...d.data() }));
-      console.log(`✅ ${embatesCache.length} embates em cache`);
+    let jogosCache = null;
+
+    async function loadJogosCache() {
+      if (jogosCache) return;
+      const snap = await db.collection('jogos')
+        .where('status', '==', 'finalizado')
+        .get();
+      jogosCache = [];
+      snap.forEach(d => jogosCache.push({ id: d.id, ...d.data() }));
+      console.log(`✅ ${jogosCache.length} jogos em cache`);
     }
 
-    function filterEmbatesByPeriod(per) {
+    function filterJogosByPeriod(per) {
       const range = getDateRange(per);
-      if (!range) return embatesCache;
-      return embatesCache.filter(e => {
-        const dt = e.dataFinalizacao?.toDate ? e.dataFinalizacao.toDate() : null;
+      if (!range) return jogosCache;
+      return jogosCache.filter(j => {
+        const dt = j.dataHora?.toDate ? j.dataHora.toDate() : null;
         return dt && dt >= range.start && dt <= range.end;
       });
     }
 
     async function loadTorcidasTimes() {
       try {
-        await loadEmbatesCache();
-        const embates = filterEmbatesByPeriod(teamPeriod);
+        await loadJogosCache();
+        const jogos = filterJogosByPeriod(teamPeriod);
 
-        // Contar participações por time
-        const torcidas = {}; // timeId -> { torcidas, torcedores, xp, ativos }
+        // Contar torcidas reais: somar torcidaCasaCount/torcidaForaCount por time
+        const torcidas = {}; // timeId -> { torcidas, torcedores, xp, ativos, jogos }
 
-        for (const embate of embates) {
-          try {
-            const partSnap = await db.collection('embates').doc(embate.id)
-              .collection('participacoes').get();
-            
-            partSnap.forEach(p => {
-              const user = usersCache.find(u => u.id === p.id);
-              if (user?.timeId && teamsCache[user.timeId]) {
-                const tid = user.timeId;
-                if (!torcidas[tid]) torcidas[tid] = { id: tid, nome: teamsCache[tid].nome||'', torcidas: 0, torcedores: 0, xp: 0, ativos: 0 };
-                torcidas[tid].torcidas++;
-              }
-            });
-          } catch(e) {}
+        for (const jogo of jogos) {
+          const casaId = jogo.timeCasaId;
+          const foraId = jogo.timeForaId;
+          const casaCount = jogo.torcidaCasaCount || 0;
+          const foraCount = jogo.torcidaForaCount || 0;
+
+          if (casaId && teamsCache[casaId]) {
+            if (!torcidas[casaId]) torcidas[casaId] = { id: casaId, nome: teamsCache[casaId].nome || '', torcidas: 0, torcedores: 0, xp: 0, ativos: 0, jogos: 0 };
+            torcidas[casaId].torcidas += casaCount;
+            torcidas[casaId].jogos++;
+          }
+          if (foraId && teamsCache[foraId]) {
+            if (!torcidas[foraId]) torcidas[foraId] = { id: foraId, nome: teamsCache[foraId].nome || '', torcidas: 0, torcedores: 0, xp: 0, ativos: 0, jogos: 0 };
+            torcidas[foraId].torcidas += foraCount;
+            torcidas[foraId].jogos++;
+          }
         }
 
-        // Adicionar torcedores e XP base
+        // Adicionar torcedores base (time do coração)
         usersCache.forEach(u => {
           const tid = u.timeId;
-          if (!tid) return;
-          if (!torcidas[tid] && teamsCache[tid]) {
-            torcidas[tid] = { id: tid, nome: teamsCache[tid].nome||'', torcidas: 0, torcedores: 0, xp: 0, ativos: 0 };
-          }
-          if (torcidas[tid]) {
-            torcidas[tid].torcedores++;
-            torcidas[tid].xp += u.xp || 0;
-            if ((u.xp||0) > 0) torcidas[tid].ativos++;
-          }
+          if (!tid || !teamsCache[tid]) return;
+          if (!torcidas[tid]) torcidas[tid] = { id: tid, nome: teamsCache[tid].nome || '', torcidas: 0, torcedores: 0, xp: 0, ativos: 0, jogos: 0 };
+          torcidas[tid].torcedores++;
+          torcidas[tid].xp += u.xp || 0;
+          if ((u.xp || 0) > 0) torcidas[tid].ativos++;
         });
 
         let ranked = Object.values(torcidas)
-          .sort((a,b) => b.torcidas - a.torcidas)
+          .sort((a, b) => b.torcidas - a.torcidas)
           .slice(0, 50);
 
         const lbl = { title: 'Mais Torcidas', val: 'Torcidas', icon: '📣' };
         renderTeamList(ranked, 'torcidas', lbl);
 
-      } catch(e) {
+      } catch (e) {
         console.error(e);
         document.getElementById('rankList').innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Erro ao calcular torcidas</p></div>';
       }
@@ -1398,9 +1400,60 @@
       'suica': '🇨🇭', 'switzerland': '🇨🇭', 'sui': '🇨🇭'
     };
 
+    // Mapa de aliases → chave canônica
+    const PAIS_ALIASES = {
+      'brasil': 'brasil', 'brazil': 'brasil', 'bra': 'brasil', 'br': 'brasil',
+      'argentina': 'argentina', 'arg': 'argentina', 'ar': 'argentina',
+      'uruguai': 'uruguai', 'uruguay': 'uruguai', 'uru': 'uruguai',
+      'paraguai': 'paraguai', 'paraguay': 'paraguai', 'par': 'paraguai',
+      'chile': 'chile', 'chi': 'chile',
+      'colombia': 'colombia', 'col': 'colombia',
+      'peru': 'peru', 'per': 'peru',
+      'equador': 'equador', 'ecuador': 'equador', 'ecu': 'equador',
+      'bolivia': 'bolivia', 'bol': 'bolivia',
+      'venezuela': 'venezuela', 'ven': 'venezuela',
+      'mexico': 'mexico', 'mex': 'mexico',
+      'estados unidos': 'estados unidos', 'usa': 'estados unidos', 'eua': 'estados unidos', 'united states': 'estados unidos', 'us': 'estados unidos',
+      'portugal': 'portugal', 'por': 'portugal', 'pt': 'portugal',
+      'espanha': 'espanha', 'spain': 'espanha', 'esp': 'espanha', 'es': 'espanha',
+      'franca': 'franca', 'france': 'franca', 'fra': 'franca', 'fr': 'franca',
+      'alemanha': 'alemanha', 'germany': 'alemanha', 'ger': 'alemanha', 'ale': 'alemanha', 'de': 'alemanha',
+      'italia': 'italia', 'italy': 'italia', 'ita': 'italia', 'it': 'italia',
+      'inglaterra': 'inglaterra', 'england': 'inglaterra', 'eng': 'inglaterra', 'uk': 'inglaterra',
+      'holanda': 'holanda', 'netherlands': 'holanda', 'ned': 'holanda', 'hol': 'holanda', 'paises baixos': 'holanda',
+      'belgica': 'belgica', 'belgium': 'belgica', 'bel': 'belgica',
+      'japao': 'japao', 'japan': 'japao', 'jpn': 'japao', 'jp': 'japao',
+      'coreia do sul': 'coreia do sul', 'south korea': 'coreia do sul', 'kor': 'coreia do sul',
+      'croacia': 'croacia', 'croatia': 'croacia', 'cro': 'croacia',
+      'marrocos': 'marrocos', 'morocco': 'marrocos', 'mar': 'marrocos',
+      'senegal': 'senegal', 'sen': 'senegal',
+      'nigeria': 'nigeria', 'nig': 'nigeria',
+      'camaroes': 'camaroes', 'cameroon': 'camaroes', 'cam': 'camaroes',
+      'gana': 'gana', 'ghana': 'gana',
+      'australia': 'australia', 'aus': 'australia',
+      'suica': 'suica', 'switzerland': 'suica', 'sui': 'suica'
+    };
+
+    // Nomes bonitos para exibição
+    const PAIS_NOMES = {
+      'brasil': 'Brasil', 'argentina': 'Argentina', 'uruguai': 'Uruguai', 'paraguai': 'Paraguai',
+      'chile': 'Chile', 'colombia': 'Colômbia', 'peru': 'Peru', 'equador': 'Equador',
+      'bolivia': 'Bolívia', 'venezuela': 'Venezuela', 'mexico': 'México',
+      'estados unidos': 'Estados Unidos', 'portugal': 'Portugal', 'espanha': 'Espanha',
+      'franca': 'França', 'alemanha': 'Alemanha', 'italia': 'Itália', 'inglaterra': 'Inglaterra',
+      'holanda': 'Holanda', 'belgica': 'Bélgica', 'japao': 'Japão', 'coreia do sul': 'Coreia do Sul',
+      'croacia': 'Croácia', 'marrocos': 'Marrocos', 'senegal': 'Senegal', 'nigeria': 'Nigéria',
+      'camaroes': 'Camarões', 'gana': 'Gana', 'australia': 'Austrália', 'suica': 'Suíça'
+    };
+
     function normPais(pais) {
       if (!pais) return null;
-      return pais.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const raw = pais.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return PAIS_ALIASES[raw] || raw;
+    }
+
+    function getNomePais(key) {
+      return PAIS_NOMES[key] || key.charAt(0).toUpperCase() + key.slice(1);
     }
 
     function getFlag(pais) {
@@ -1429,7 +1482,7 @@
       title.textContent = `Ranking de Seleções — ${lbl.title}`;
       sub.textContent = perLabel;
 
-      // Se é torcidas, carregar embates
+      // Se é torcidas, contar participações
       if (selFilter === 'torcidas') {
         document.getElementById('rankList').innerHTML = '<div class="loading"><div class="spinner"></div><p>Calculando torcidas...</p></div>';
         loadTorcidasSelecoes(lbl);
@@ -1453,7 +1506,7 @@
         if (!pais) return;
         const key = normPais(pais);
         if (!key) return;
-        if (!data[key]) data[key] = { key, nome: pais, flag: getFlag(pais), torcedores: 0, xp: 0, torcidas: 0 };
+        if (!data[key]) data[key] = { key, nome: getNomePais(key), flag: getFlag(pais), torcedores: 0, xp: 0, torcidas: 0 };
         data[key].torcedores++;
         data[key].xp += u.xp || 0;
       });
@@ -1468,37 +1521,33 @@
 
     async function loadTorcidasSelecoes(lbl) {
       try {
-        await loadEmbatesCache();
-        const embates = filterEmbatesByPeriod(selPeriod);
-
+        // Contar participações em jogos por país
         const torcidas = {}; // paisKey -> { torcidas, torcedores, xp }
 
-        for (const embate of embates) {
-          try {
-            const partSnap = await db.collection('embates').doc(embate.id)
-              .collection('participacoes').get();
-            
-            partSnap.forEach(p => {
-              const user = usersCache.find(u => u.id === p.id);
-              const pais = user?.pais || user?.nacionalidade;
-              if (!pais) return;
-              const key = normPais(pais);
-              if (!key) return;
-              if (!torcidas[key]) torcidas[key] = { key, nome: pais, flag: getFlag(pais), torcidas: 0, torcedores: 0, xp: 0 };
-              torcidas[key].torcidas++;
-            });
-          } catch(e) {}
-        }
+        const range = getDateRange(selPeriod);
 
-        // Adicionar torcedores base
         usersCache.forEach(u => {
           const pais = u.pais || u.nacionalidade;
           if (!pais) return;
           const key = normPais(pais);
           if (!key) return;
-          if (!torcidas[key]) torcidas[key] = { key, nome: pais, flag: getFlag(pais), torcidas: 0, torcedores: 0, xp: 0 };
+          if (!torcidas[key]) torcidas[key] = { key, nome: getNomePais(key), flag: getFlag(pais), torcidas: 0, torcedores: 0, xp: 0 };
           torcidas[key].torcedores++;
           torcidas[key].xp += u.xp || 0;
+
+          // Contar participações em jogos como "torcidas"
+          const partidas = u.stats?.totalPartidas || u.jogosParticipados || 0;
+          if (partidas > 0) {
+            // Filtrar por período se necessário
+            if (range) {
+              const ultimo = u.ultimoAcesso?.toDate ? u.ultimoAcesso.toDate() : (u.stats?.ultimoLogin?.toDate ? u.stats.ultimoLogin.toDate() : null);
+              if (ultimo && ultimo >= range.start) {
+                torcidas[key].torcidas += partidas;
+              }
+            } else {
+              torcidas[key].torcidas += partidas;
+            }
+          }
         });
 
         let ranked = Object.values(torcidas)
