@@ -464,7 +464,7 @@
       // ✅ Atualizar stats COM BASE NOS FILTRADOS (não no total!)
       const participou = filtrados.filter(j => torcidas[j.id]).length;
       let totalCreditos = 0;
-      filtrados.forEach(j => { totalCreditos += (j.creditosIniciais || 0) + (j.poolCreditos || j.poolCreditosPagos || 0); });
+      filtrados.forEach(j => { totalCreditos += calcularTotalFaixa((j.torcidaCasaCount||0) + (j.torcidaForaCount||0)).total; });
 
       document.getElementById('statTotal').textContent = filtrados.length;
       document.getElementById('statParticipou').textContent = participou;
@@ -479,6 +479,27 @@
       `;
 
       renderJogos(filtrados);
+    }
+
+    // ===== FAIXAS DE PREMIAÇÃO =====
+    const PREMIACAO_FAIXAS = [
+      { min: 0, max: 9, top: [10, 7, 5], faixas: [] },
+      { min: 10, max: 100, top: [18, 16, 14, 12, 10], faixas: [
+        { de: 6, ate: 15, valor: 9 }, { de: 16, ate: 25, valor: 7 }, { de: 26, ate: 35, valor: 5 }, { de: 36, ate: 45, valor: 4 }, { de: 46, ate: 50, valor: 3 }
+      ]},
+      { min: 101, max: 500, top: [30, 25, 22, 20, 18], faixas: [
+        { de: 6, ate: 15, valor: 16 }, { de: 16, ate: 25, valor: 14 }, { de: 26, ate: 35, valor: 12 }, { de: 36, ate: 45, valor: 10 }, { de: 46, ate: 50, valor: 5 }
+      ]},
+      { min: 501, max: Infinity, top: [50, 45, 40, 35, 30], faixas: [
+        { de: 6, ate: 15, valor: 25 }, { de: 16, ate: 25, valor: 20 }, { de: 26, ate: 35, valor: 18 }, { de: 36, ate: 45, valor: 15 }, { de: 46, ate: 50, valor: 10 }
+      ]}
+    ];
+    function calcularTotalFaixa(n) {
+      if (n <= 0) n = 1;
+      const f = PREMIACAO_FAIXAS.find(x => n >= x.min && n <= x.max) || PREMIACAO_FAIXAS[0];
+      let total = f.top.reduce((a, b) => a + b, 0), premiados = f.top.length;
+      for (const fx of f.faixas) { for (let p = fx.de; p <= fx.ate && p <= n; p++) { total += fx.valor; premiados++; } }
+      return { total, premiados };
     }
 
     // ===== RENDER =====
@@ -535,10 +556,10 @@
         const casaPontosWinning = percPontosCasa > percPontosFora;
         const foraPontosWinning = percPontosFora > percPontosCasa;
 
-        const creditosAdmin = jogo.creditosIniciais || 0;
-        const poolCreditos = jogo.poolCreditos || jogo.poolCreditosPagos || 0;
-        const creditosEmDisputa = creditosAdmin + poolCreditos;
-        const creditosDisplay = creditosEmDisputa > 0 ? creditosEmDisputa : '--';
+        const totalParticipantes = (jogo.torcidaCasaCount || 0) + (jogo.torcidaForaCount || 0);
+        const premInfo = calcularTotalFaixa(totalParticipantes);
+        const creditosEmDisputa = premInfo.total;
+        const creditosDisplay = creditosEmDisputa;
 
         let userCheeredBadge = '';
         if (jogo.nomeTimeTorcido) {
@@ -603,7 +624,7 @@
             <div class="creditos-disputa ${creditosEmDisputa>=50?'high-value':''}">
               <span class="creditos-icon">💎</span>
               <span class="creditos-valor">${creditosDisplay}</span>
-              <span class="creditos-label">foram disputados</span>
+              <span class="creditos-label">foram disputados (top ${premInfo.premiados})</span>
             </div>
             ${userCheeredBadge}
             <div class="game-card-action">${actionButton}</div>
