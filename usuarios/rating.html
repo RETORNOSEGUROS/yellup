@@ -620,21 +620,24 @@
           ratingData.diasInativo = Math.floor((new Date() - ultimoLogin) / (1000 * 60 * 60 * 24));
         }
 
-        // 2. Buscar posição no ranking via usuarios (mais seguro que ratingRanking)
+        // 2. Buscar posição real no ranking (mesma fonte que ranking.html)
         let posicao = null;
         let totalJogadores = 0;
         try {
-          if (ratingData.ratingFinal > 0) {
+          const rankSnap = await db.collection('ratingRanking')
+            .orderBy('rating', 'desc')
+            .get();
+          totalJogadores = rankSnap.size;
+          rankSnap.docs.forEach((doc, i) => {
+            if (doc.id === currentUser.uid) posicao = i + 1;
+          });
+          // Fallback: se não encontrou no ranking mas tem rating
+          if (!posicao && ratingData.ratingFinal > 0) {
             const superiores = await db.collection('usuarios')
               .where('rating', '>', ratingData.ratingFinal)
               .get();
             posicao = superiores.size + 1;
           }
-          const todos = await db.collection('usuarios')
-            .where('rating', '>', 0)
-            .get();
-          totalJogadores = todos.size;
-          if (!posicao && ratingData.ratingFinal > 0) posicao = totalJogadores;
         } catch (e) {
           console.log('Ranking query:', e.message);
         }
