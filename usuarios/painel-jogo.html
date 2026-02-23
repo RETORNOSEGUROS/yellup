@@ -1625,6 +1625,10 @@
     .chat-input-container {
       display: flex;
       gap: 10px;
+      flex-wrap: wrap;
+    }
+    .chat-input-container .chat-reply-bar {
+      width: 100%;
     }
 
     .chat-input {
@@ -1642,6 +1646,145 @@
       outline: none;
       border-color: var(--accent);
     }
+
+    /* ========== @MENÇÃO E RESPOSTA ========== */
+
+    /* Container do input com autocomplete */
+    .chat-input-wrapper {
+      position: relative;
+      flex: 1;
+    }
+    .chat-input-wrapper .chat-input {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    /* Autocomplete dropdown */
+    .mention-dropdown {
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      right: 0;
+      background: #1a2332;
+      border: 1px solid rgba(167, 139, 250, 0.4);
+      border-radius: 10px;
+      max-height: 180px;
+      overflow-y: auto;
+      z-index: 500;
+      margin-bottom: 4px;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+      display: none;
+    }
+    .mention-dropdown.active {
+      display: block;
+      animation: fadeIn 0.15s ease;
+    }
+    .mention-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 0.85em;
+      transition: background 0.15s;
+    }
+    .mention-item:hover, .mention-item.selected {
+      background: rgba(167, 139, 250, 0.15);
+    }
+    .mention-item img {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+
+    /* @menção no texto do chat */
+    .chat-mention {
+      color: #a78bfa;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .chat-mention.is-me {
+      background: rgba(167, 139, 250, 0.2);
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+
+    /* Reply quote */
+    .chat-reply-quote {
+      font-size: 0.75em;
+      color: #7f8c8d;
+      padding: 4px 8px;
+      border-left: 2px solid rgba(167, 139, 250, 0.5);
+      margin-bottom: 4px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 0 6px 6px 0;
+      max-height: 32px;
+      overflow: hidden;
+    }
+    .chat-reply-quote strong {
+      color: #a78bfa;
+    }
+
+    /* Reply preview bar (above input) */
+    .chat-reply-bar {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: rgba(167, 139, 250, 0.1);
+      border: 1px solid rgba(167, 139, 250, 0.2);
+      border-radius: 8px;
+      margin-bottom: 6px;
+      font-size: 0.8em;
+    }
+    .chat-reply-bar.active {
+      display: flex;
+    }
+    .chat-reply-bar .reply-text {
+      flex: 1;
+      color: #a78bfa;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-reply-bar .reply-close {
+      background: none;
+      border: none;
+      color: #7f8c8d;
+      font-size: 1.1em;
+      cursor: pointer;
+      padding: 0 4px;
+    }
+
+    /* Botão responder no hover da mensagem */
+    .chat-message {
+      position: relative;
+    }
+    .chat-msg-actions {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      display: none;
+    }
+    .chat-message:hover .chat-msg-actions {
+      display: flex;
+    }
+    .btn-reply {
+      background: rgba(167, 139, 250, 0.2);
+      border: none;
+      color: #a78bfa;
+      font-size: 0.7em;
+      padding: 3px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-reply:hover {
+      background: rgba(167, 139, 250, 0.35);
+    }
+
+    /* ========== FIM @MENÇÃO E RESPOSTA ========== */
 
     .chat-send-btn {
       padding: 12px 20px;
@@ -3075,13 +3218,21 @@
               <!-- Mensagens da torcida -->
             </div>
             <div class="chat-input-container">
-              <input 
-                type="text" 
-                class="chat-input" 
-                id="teamChatInput" 
-                placeholder="Mensagem para sua torcida..."
-                maxlength="200"
-              />
+              <div class="chat-reply-bar" id="teamReplyBar">
+                <span class="reply-text" id="teamReplyText">Respondendo...</span>
+                <button class="reply-close" onclick="cancelReply('team')">✕</button>
+              </div>
+              <div class="chat-input-wrapper">
+                <div class="mention-dropdown" id="teamMentionDropdown"></div>
+                <input 
+                  type="text" 
+                  class="chat-input" 
+                  id="teamChatInput" 
+                  placeholder="Mensagem para sua torcida..."
+                  maxlength="200"
+                  oninput="handleMentionInput(this, 'team')"
+                />
+              </div>
               <button class="chat-send-btn" onclick="sendMessage('team')">
                 Enviar
               </button>
@@ -3093,13 +3244,21 @@
               <!-- Mensagens gerais -->
             </div>
             <div class="chat-input-container">
-              <input 
-                type="text" 
-                class="chat-input" 
-                id="generalChatInput" 
-                placeholder="Mensagem para todos..."
-                maxlength="200"
-              />
+              <div class="chat-reply-bar" id="generalReplyBar">
+                <span class="reply-text" id="generalReplyText">Respondendo...</span>
+                <button class="reply-close" onclick="cancelReply('general')">✕</button>
+              </div>
+              <div class="chat-input-wrapper">
+                <div class="mention-dropdown" id="generalMentionDropdown"></div>
+                <input 
+                  type="text" 
+                  class="chat-input" 
+                  id="generalChatInput" 
+                  placeholder="Mensagem para todos..."
+                  maxlength="200"
+                  oninput="handleMentionInput(this, 'general')"
+                />
+              </div>
               <button class="chat-send-btn" onclick="sendMessage('general')">
                 Enviar
               </button>
@@ -5208,16 +5367,24 @@
         teamInput.addEventListener("keypress", (e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
+            document.getElementById('teamMentionDropdown').classList.remove('active');
             sendMessage("team");
           }
+        });
+        teamInput.addEventListener("blur", () => {
+          setTimeout(() => document.getElementById('teamMentionDropdown').classList.remove('active'), 200);
         });
       }
       if (generalInput) {
         generalInput.addEventListener("keypress", (e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
+            document.getElementById('generalMentionDropdown').classList.remove('active');
             sendMessage("general");
           }
+        });
+        generalInput.addEventListener("blur", () => {
+          setTimeout(() => document.getElementById('generalMentionDropdown').classList.remove('active'), 200);
         });
       }
     }
@@ -5229,11 +5396,39 @@
       const displayName = msg.usuarioUnico || msg.usuario || msg.nome || "Anônimo";
       const avatar = msg.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`;
       
+      // Rastrear usuário ativo
+      if (msg.userId && msg.userId !== uid) {
+        chatUsuariosAtivos.set(msg.userId, { nome: displayName, avatar: avatar });
+      }
+      
+      // Processar @menções no texto
+      const textoProcessado = processarMencoes(escapeHtml(msg.mensagem));
+      
+      // Reply quote (se mensagem é resposta a outra)
+      let replyHtml = '';
+      if (msg.replyTo) {
+        const replyNome = escapeHtml(msg.replyTo.nome || '');
+        const replyTexto = escapeHtml((msg.replyTo.texto || '').substring(0, 60));
+        const replyEllipsis = (msg.replyTo.texto?.length > 60) ? '...' : '';
+        replyHtml = `<div class="chat-reply-quote"><strong>@${replyNome}</strong> ${replyTexto}${replyEllipsis}</div>`;
+      }
+      
+      // Detectar qual chat está ativo
+      const chatType = container.id === 'teamChat' ? 'team' : 'general';
+      
+      // Escapar para atributos HTML (prevenir XSS com aspas)
+      const safeName = displayName.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      const safeMsg = (msg.mensagem || '').substring(0, 80).replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, ' ');
+      
       div.innerHTML = `
-        <img src="${avatar}" alt="${displayName}" class="chat-avatar">
+        <img src="${avatar}" alt="${escapeHtml(displayName)}" class="chat-avatar">
         <div class="chat-content-msg">
-          <div class="chat-author">${displayName}</div>
-          <div class="chat-text">${escapeHtml(msg.mensagem)}</div>
+          <div class="chat-author" onclick="inserirMencao('${safeName}', '${chatType}')" title="Clique para @mencionar">${escapeHtml(displayName)}</div>
+          ${replyHtml}
+          <div class="chat-text">${textoProcessado}</div>
+        </div>
+        <div class="chat-msg-actions">
+          <button class="btn-reply" onclick="iniciarReply('${chatType}', '${safeName}', '${safeMsg}')">↩</button>
         </div>
       `;
       container.appendChild(div);
@@ -5241,9 +5436,125 @@
 
     // Função para escapar HTML e prevenir XSS
     function escapeHtml(text) {
+      if (!text) return '';
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // ===================================
+    // 💬 @MENÇÃO — AUTOCOMPLETE + HIGHLIGHT
+    // ===================================
+    
+    // Mapa de usuários ativos no chat
+    const chatUsuariosAtivos = new Map();
+    
+    // Estado do reply
+    let activeReply = { team: null, general: null };
+
+    // Processar @menções no texto — highlight
+    function processarMencoes(texto) {
+      return texto.replace(/@(\w[\w.]{0,30})/g, (match, nome) => {
+        // Verificar se é menção do usuário atual
+        const meuNome = cachedUserData?.usuarioUnico || cachedUserData?.usuario || cachedUserData?.nome || '';
+        const isMe = nome.toLowerCase() === meuNome.toLowerCase();
+        return `<span class="chat-mention${isMe ? ' is-me' : ''}">${match}</span>`;
+      });
+    }
+
+    // Handle input pra detectar @
+    function handleMentionInput(input, chatType) {
+      const dropdown = document.getElementById(`${chatType}MentionDropdown`);
+      const val = input.value;
+      const cursorPos = input.selectionStart;
+      
+      // Encontrar @ antes do cursor
+      const textBeforeCursor = val.substring(0, cursorPos);
+      const atMatch = textBeforeCursor.match(/@(\w*)$/);
+      
+      if (!atMatch) {
+        dropdown.classList.remove('active');
+        return;
+      }
+      
+      const filtro = atMatch[1].toLowerCase();
+      
+      // Filtrar usuários
+      const usuarios = [];
+      chatUsuariosAtivos.forEach((data, odId) => {
+        if (data.nome.toLowerCase().includes(filtro) || filtro === '') {
+          usuarios.push(data);
+        }
+      });
+      
+      if (usuarios.length === 0) {
+        dropdown.classList.remove('active');
+        return;
+      }
+      
+      // Renderizar dropdown (max 6)
+      dropdown.innerHTML = usuarios.slice(0, 6).map(u => {
+        const safeNome = u.nome.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        return `
+        <div class="mention-item" onclick="selecionarMencao('${safeNome}', '${chatType}')">
+          <img src="${u.avatar}" alt="${escapeHtml(u.nome)}">
+          <span>${escapeHtml(u.nome)}</span>
+        </div>`;
+      }).join('');
+      dropdown.classList.add('active');
+    }
+
+    // Selecionar menção do dropdown
+    function selecionarMencao(nome, chatType) {
+      const input = document.getElementById(`${chatType}ChatInput`);
+      const dropdown = document.getElementById(`${chatType}MentionDropdown`);
+      const val = input.value;
+      const cursorPos = input.selectionStart;
+      
+      // Encontrar posição do @ 
+      const textBefore = val.substring(0, cursorPos);
+      const atIndex = textBefore.lastIndexOf('@');
+      
+      if (atIndex >= 0) {
+        const antes = val.substring(0, atIndex);
+        const depois = val.substring(cursorPos);
+        input.value = `${antes}@${nome} ${depois}`;
+        const newPos = atIndex + nome.length + 2; // +2 for @ and space
+        input.setSelectionRange(newPos, newPos);
+      }
+      
+      dropdown.classList.remove('active');
+      input.focus();
+    }
+
+    // Clicar no nome do autor pra @mencionar
+    function inserirMencao(nome, chatType) {
+      const input = document.getElementById(`${chatType}ChatInput`);
+      const current = input.value;
+      if (current && !current.endsWith(' ')) {
+        input.value = current + ' @' + nome + ' ';
+      } else {
+        input.value = current + '@' + nome + ' ';
+      }
+      input.focus();
+    }
+
+    // ===================================
+    // 💬 REPLY — RESPONDER MENSAGEM
+    // ===================================
+    
+    function iniciarReply(chatType, nome, texto) {
+      activeReply[chatType] = { nome, texto };
+      const bar = document.getElementById(`${chatType}ReplyBar`);
+      const replyText = document.getElementById(`${chatType}ReplyText`);
+      replyText.innerHTML = `↩ <strong>@${nome}</strong>: ${texto.substring(0, 50)}${texto.length > 50 ? '...' : ''}`;
+      bar.classList.add('active');
+      document.getElementById(`${chatType}ChatInput`).focus();
+    }
+
+    function cancelReply(chatType) {
+      activeReply[chatType] = null;
+      document.getElementById(`${chatType}ReplyBar`).classList.remove('active');
     }
 
     // ✅ Cache dos dados do usuário para não buscar toda vez
@@ -5279,7 +5590,7 @@
         const avatar = user.avatarUrl || user.avatar || user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`;
 
         // ✅ Enviar para o Firestore
-        await db.collection("chats").add({
+        const chatData = {
           jogoId,
           timeId: type === "team" ? timeTorcida : null,
           tipo: type === "team" ? "torcida" : "geral",
@@ -5290,7 +5601,18 @@
           avatar,
           mensagem,
           timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        };
+        
+        // ✅ Incluir reply se estiver respondendo
+        if (activeReply[type]) {
+          chatData.replyTo = {
+            nome: activeReply[type].nome,
+            texto: activeReply[type].texto
+          };
+          cancelReply(type);
+        }
+        
+        await db.collection("chats").add(chatData);
         
         console.log("✅ Mensagem enviada:", mensagem);
         
