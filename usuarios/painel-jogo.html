@@ -1212,6 +1212,81 @@
       font-weight: 600;
     }
 
+    /* 💰 MINI-BANNER PATROCINADOR (cooldown) */
+    .sponsor-mini-banner {
+      display: none;
+      margin-top: 10px;
+      padding: 10px 14px;
+      background: linear-gradient(135deg, rgba(255,181,71,0.08), rgba(255,181,71,0.03));
+      border: 1px solid rgba(255,181,71,0.15);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      animation: fadeIn 0.4s ease;
+    }
+    .sponsor-mini-banner.active {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .sponsor-mini-banner:hover {
+      background: rgba(255,181,71,0.12);
+      border-color: rgba(255,181,71,0.3);
+      transform: translateY(-1px);
+    }
+    .sponsor-mini-logo {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4em;
+      background: linear-gradient(135deg, #fff, #f0f0f0);
+      flex-shrink: 0;
+    }
+    .sponsor-mini-logo img {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      object-fit: cover;
+    }
+    .sponsor-mini-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .sponsor-mini-tag {
+      font-size: 0.6em;
+      color: #ffb547;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 700;
+    }
+    .sponsor-mini-name {
+      font-size: 0.85em;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sponsor-mini-cta {
+      font-size: 0.7em;
+      color: #10b981;
+      font-weight: 600;
+    }
+    .sponsor-mini-reward {
+      background: rgba(16,185,129,0.15);
+      border: 1px solid rgba(16,185,129,0.3);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 0.7em;
+      color: #10b981;
+      font-weight: 700;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
     .result-message {
       display: none;
       text-align: center;
@@ -3376,6 +3451,17 @@
         </button>
       </div>
 
+      <!-- 💰 MINI-BANNER PATROCINADOR (aparece no cooldown) -->
+      <div class="sponsor-mini-banner" id="sponsorMiniBanner" onclick="clicarMiniBanner()">
+        <div class="sponsor-mini-logo" id="sponsorMiniLogo">🎁</div>
+        <div class="sponsor-mini-info">
+          <div class="sponsor-mini-tag">📢 Patrocinador</div>
+          <div class="sponsor-mini-name" id="sponsorMiniName">--</div>
+          <div class="sponsor-mini-cta" id="sponsorMiniCta">Toque para visitar →</div>
+        </div>
+        <div class="sponsor-mini-reward" id="sponsorMiniReward">+10 pts</div>
+      </div>
+
 
       <!-- 🔥 STREAK E GAMIFICAÇÃO -->
       <div class="streak-container" id="streakContainer">
@@ -4364,6 +4450,8 @@
             }
             // 📊 Enquete durante cooldown
             tentarMostrarEnquete();
+            // 💰 Mini-banner patrocinador durante cooldown
+            mostrarMiniBanner();
           } else if (!currentQuestion) {
             btnAnswer.disabled = false;
             btnAnswer.textContent = `🎯 Responder Pergunta (${perguntasRestantes})`;
@@ -4372,6 +4460,8 @@
               fabBtn.disabled = false;
               fabBtn.innerHTML = `<span class="fab-icon">🎯</span><span class="fab-text">${perguntasRestantes} disponíveis</span>`;
             }
+            // 💰 Esconder mini-banner quando tem perguntas
+            esconderMiniBanner();
           }
         } else {
           // Ainda não entrou na partida — mostrar estado inicial
@@ -4679,6 +4769,8 @@
         
         // 📊 Esconder enquete se visível
         esconderEnquete();
+        // 💰 Esconder mini-banner
+        esconderMiniBanner();
         
         // ✅ Se está em cooldown (sem perguntas), não buscar
         if (cooldownState.perguntasRestantes <= 0 && cooldownState.totalRespondidas > 0) {
@@ -7118,6 +7210,13 @@
       overlay.className = 'achievement-overlay';
       document.body.appendChild(overlay);
 
+      // Sponsor contextual na conquista
+      let sponsorBranding = '';
+      if (patrocinadoresJogo.length > 0) {
+        const s = patrocinadoresJogo[Math.floor(Math.random() * patrocinadoresJogo.length)];
+        sponsorBranding = `<div style="font-size:0.7em;color:#ffb547;margin-top:8px;opacity:0.7;">📢 Conquista patrocinada por ${s.nome}</div>`;
+      }
+
       // Criar popup
       const popup = document.createElement('div');
       popup.className = 'achievement-popup';
@@ -7126,6 +7225,7 @@
         <div class="title">🏅 ${conquista.nome}</div>
         <div class="description">${conquista.descricao}</div>
         <div class="bonus">+${conquista.xpBonus} XP Bônus!</div>
+        ${sponsorBranding}
       `;
       document.body.appendChild(popup);
 
@@ -7150,13 +7250,25 @@
     }
 
     // ===================================
-    // 💰 SISTEMA DE PATROCINADORES
+    // 💰 SISTEMA DE PATROCINADORES (CONTEXTUAL ROTATIVO)
     // ===================================
     let sponsorTimeout = null;
     let patrocinadoresJogo = [];        // Lista de patrocinadores da partida
     let patrocinadorAtualIndex = 0;     // Índice do próximo patrocinador
-    let contadorRespostas = 0;          // Contador de respostas para mostrar a cada 5
+    let contadorRespostas = 0;          // Contador de respostas para mostrar a cada 8
     let patrocinadorPendente = null;    // Patrocinador atual sendo mostrado
+    let sponsorBannerIndex = 0;         // Índice rotativo do mini-banner
+    let sponsorBannerInterval = null;   // Intervalo de rotação do banner
+    let sponsorImpressoes = {};         // { sponsorNome: count }
+
+    // Mensagens contextuais por momento
+    const SPONSOR_CONTEXTOS = [
+      'Enquanto espera, conheça →',
+      'Toque para visitar →',
+      'Apoie quem apoia o jogo →',
+      'Parceiro oficial →',
+      'Visite e ganhe pontos →',
+    ];
     
     // Carregar patrocinadores da partida
     async function carregarPatrocinadores() {
@@ -7193,7 +7305,75 @@
       }
     }
     
-    // Verificar se deve mostrar patrocinador (a cada 5 respostas)
+    // ====== MINI-BANNER ROTATIVO (cooldown) ======
+    
+    function mostrarMiniBanner() {
+      if (patrocinadoresJogo.length === 0) return;
+      
+      const banner = document.getElementById('sponsorMiniBanner');
+      if (!banner) return;
+      
+      atualizarMiniBanner();
+      banner.classList.add('active');
+      
+      // Rotacionar a cada 15 segundos se houver mais de 1 sponsor
+      if (patrocinadoresJogo.length > 1 && !sponsorBannerInterval) {
+        sponsorBannerInterval = setInterval(() => {
+          sponsorBannerIndex = (sponsorBannerIndex + 1) % patrocinadoresJogo.length;
+          atualizarMiniBanner();
+        }, 15000);
+      }
+    }
+    
+    function atualizarMiniBanner() {
+      const sponsor = patrocinadoresJogo[sponsorBannerIndex % patrocinadoresJogo.length];
+      if (!sponsor) return;
+      
+      const logoEl = document.getElementById('sponsorMiniLogo');
+      const nameEl = document.getElementById('sponsorMiniName');
+      const ctaEl = document.getElementById('sponsorMiniCta');
+      const rewardEl = document.getElementById('sponsorMiniReward');
+      
+      // Logo
+      if (sponsor.logoUrl) {
+        logoEl.innerHTML = `<img src="${sponsor.logoUrl}" alt="${sponsor.nome}">`;
+      } else {
+        logoEl.textContent = sponsor.logo || '🎁';
+      }
+      
+      // Info
+      nameEl.textContent = sponsor.nome;
+      const ctxMsg = SPONSOR_CONTEXTOS[Math.floor(Math.random() * SPONSOR_CONTEXTOS.length)];
+      ctaEl.textContent = ctxMsg;
+      
+      // Pontos
+      const pontos = sponsor.pontos || sponsor.creditos || 10;
+      rewardEl.textContent = `+${pontos} pts`;
+      
+      // Registrar impressão
+      sponsorImpressoes[sponsor.nome] = (sponsorImpressoes[sponsor.nome] || 0) + 1;
+    }
+    
+    function esconderMiniBanner() {
+      const banner = document.getElementById('sponsorMiniBanner');
+      if (banner) banner.classList.remove('active');
+      if (sponsorBannerInterval) {
+        clearInterval(sponsorBannerInterval);
+        sponsorBannerInterval = null;
+      }
+    }
+    
+    function clicarMiniBanner() {
+      const sponsor = patrocinadoresJogo[sponsorBannerIndex % patrocinadoresJogo.length];
+      if (!sponsor) return;
+      
+      // Mostrar popup completo desse sponsor
+      mostrarPatrocinadorEspecifico(sponsor);
+    }
+
+    // ====== POPUP DE PATROCINADOR ======
+    
+    // Verificar se deve mostrar patrocinador (a cada 8 respostas)
     function verificarPatrocinador() {
       contadorRespostas++;
       
@@ -7206,28 +7386,26 @@
         [`contadorRespostas.${jogoId}`]: contadorRespostas
       }).catch(e => console.error("Erro ao salvar contador:", e));
       
-      // A cada 5 respostas, mostrar patrocinador
-      if (contadorRespostas % 5 === 0 && patrocinadoresJogo.length > 0) {
+      // A cada 8 respostas, mostrar patrocinador
+      if (contadorRespostas % 8 === 0 && patrocinadoresJogo.length > 0) {
         setTimeout(() => mostrarPatrocinador(), 1500);
       }
     }
     
-    // Mostrar patrocinador atual
+    // Mostrar patrocinador atual (popup cíclico)
     function mostrarPatrocinador() {
-      console.log(`📢 mostrarPatrocinador() - patrocinadoresJogo.length: ${patrocinadoresJogo.length}, índice: ${patrocinadorAtualIndex}`);
-      
-      if (patrocinadoresJogo.length === 0) {
-        console.log("📢 Nenhum patrocinador disponível");
-        return;
-      }
-      
-      // Pegar patrocinador atual (ciclo)
+      if (patrocinadoresJogo.length === 0) return;
       const indexReal = patrocinadorAtualIndex % patrocinadoresJogo.length;
       const sponsor = patrocinadoresJogo[indexReal];
+      mostrarPatrocinadorEspecifico(sponsor);
+    }
+    
+    // Mostrar popup de um sponsor específico
+    function mostrarPatrocinadorEspecifico(sponsor) {
+      if (!sponsor) return;
       patrocinadorPendente = sponsor;
       
-      console.log(`📢 Mostrando patrocinador [${indexReal}]: ${sponsor.nome} (${patrocinadorAtualIndex + 1}/${patrocinadoresJogo.length})`);
-      console.log(`📢 Todos patrocinadores:`, patrocinadoresJogo.map((p, i) => `${i}: ${p.nome}`));
+      console.log(`📢 Mostrando patrocinador: ${sponsor.nome}`);
       
       // Remover popup anterior se existir
       const existingPopup = document.getElementById('sponsorPopup');
