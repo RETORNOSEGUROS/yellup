@@ -502,6 +502,86 @@
       border: 1px solid rgba(255, 181, 71, 0.3);
     }
 
+    /* ✨ Botão Como Ganhar XP */
+    .btn-xp-info {
+      background: transparent;
+      border: 1px solid rgba(167, 139, 250, 0.3);
+      color: #a78bfa;
+      font-size: 0.75em;
+      font-family: 'Poppins', sans-serif;
+      padding: 5px 14px;
+      border-radius: 20px;
+      cursor: pointer;
+      margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+    .btn-xp-info:hover {
+      background: rgba(167, 139, 250, 0.1);
+      border-color: rgba(167, 139, 250, 0.5);
+    }
+
+    /* Modal XP Info */
+    .xp-info-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      animation: fadeIn 0.3s ease;
+      backdrop-filter: blur(8px);
+    }
+    .xp-info-card {
+      background: linear-gradient(145deg, #1a2332, #0e141b);
+      border: 1px solid rgba(167, 139, 250, 0.3);
+      border-radius: 20px;
+      padding: 24px;
+      max-width: 380px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+    }
+    .xp-info-card h3 {
+      text-align: center;
+      margin-bottom: 16px;
+      color: #a78bfa;
+      font-size: 1.2em;
+    }
+    .xp-info-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 10px;
+      margin-bottom: 6px;
+      font-size: 0.85em;
+    }
+    .xp-info-item .xp-val {
+      color: #a78bfa;
+      font-weight: 700;
+      white-space: nowrap;
+      margin-left: 8px;
+    }
+    .xp-info-close {
+      width: 100%;
+      padding: 12px;
+      background: rgba(167, 139, 250, 0.15);
+      border: 1px solid rgba(167, 139, 250, 0.3);
+      border-radius: 12px;
+      color: #a78bfa;
+      font-weight: 600;
+      font-family: 'Poppins', sans-serif;
+      cursor: pointer;
+      margin-top: 12px;
+      transition: all 0.2s;
+    }
+    .xp-info-close:hover {
+      background: rgba(167, 139, 250, 0.25);
+    }
+
     .btn-answer {
       width: 100%;
       padding: 18px;
@@ -2930,6 +3010,11 @@
         </div>
       </div>
 
+      <!-- ✨ COMO GANHAR XP -->
+      <button class="btn-xp-info" onclick="mostrarInfoXP()" title="Como ganhar XP">
+        ✨ Como ganhar XP?
+      </button>
+
       <button class="btn-answer" id="btnAnswer" onclick="getQuestion()">
         🎯 Responder Pergunta
       </button>
@@ -3109,6 +3194,8 @@
     let totalAcertos = 0;            // Total de acertos no jogo
     let totalErros = 0;              // Total de erros no jogo
     let minhaPosicaoAtual = null;    // Posição atual no ranking (para toast)
+    let chatXpGanho = 0;             // XP ganho por chat neste jogo (max 10)
+    let cicloInicialCompleto = false; // Se já completou as 5 perguntas iniciais
 
     // ⏳ COOLDOWN DO QUIZ
     let cooldownState = {
@@ -4563,6 +4650,13 @@
         // Capturar streak anterior para detectar break
         const streakAnterior = streak;
         
+        // ✅ Atualizar contadores locais (fix: estavam no atualizarStreak morto)
+        if (acertou) {
+          totalAcertos++;
+        } else {
+          totalErros++;
+        }
+        
         // Atualizar streak local (server já salvou)
         streak = r.streak || 0;
         maxStreak = r.maxStreak || maxStreak;
@@ -4573,6 +4667,30 @@
         // 🎯 STREAK BREAK — se perdeu streak ≥ 3
         if (!acertou && streakAnterior >= 3) {
           mostrarStreakBreak(streakAnterior);
+        }
+        
+        // 🏅 Verificar conquistas (fix: não era chamado!)
+        if (acertou) {
+          verificarConquistas(tempoResposta);
+        }
+        
+        // ✨ XP BÔNUS — Resposta rápida (<3s e correta)
+        if (acertou && tempoResposta < 3) {
+          const xpRapido = 2;
+          db.collection('usuarios').doc(uid).update({
+            xp: firebase.firestore.FieldValue.increment(xpRapido)
+          }).catch(e => console.error('Erro XP rápido:', e));
+          showToast(`⚡ Resposta rápida! +${xpRapido} XP bônus`);
+        }
+        
+        // ✨ XP BÔNUS — Ciclo inicial completo (5 perguntas)
+        if (!cicloInicialCompleto && (totalAcertos + totalErros) >= 5) {
+          cicloInicialCompleto = true;
+          const xpCiclo = 5;
+          db.collection('usuarios').doc(uid).update({
+            xp: firebase.firestore.FieldValue.increment(xpCiclo)
+          }).catch(e => console.error('Erro XP ciclo:', e));
+          showToast(`🎯 Ciclo completo! +${xpCiclo} XP bônus`);
         }
         
         if (acertou && serverMultiplicador > 1) {
@@ -4849,6 +4967,90 @@
     }
 
     // ===================================
+    // ✨ COMO GANHAR XP — MODAL INFORMATIVO
+    // ===================================
+    function mostrarInfoXP() {
+      const existente = document.getElementById('xpInfoOverlay');
+      if (existente) { existente.remove(); return; }
+
+      const overlay = document.createElement('div');
+      overlay.className = 'xp-info-overlay';
+      overlay.id = 'xpInfoOverlay';
+      overlay.innerHTML = `
+        <div class="xp-info-card">
+          <h3>✨ Como Ganhar XP</h3>
+          
+          <div class="xp-info-item">
+            <span>🎯 Acertar pergunta</span>
+            <span class="xp-val">+10 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>⚡ Resposta rápida (&lt;3s)</span>
+            <span class="xp-val">+2 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>🔥 Streak x1.5 (3+ seguidos)</span>
+            <span class="xp-val">+15 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>🔥 Streak x2 (5+ seguidos)</span>
+            <span class="xp-val">+20 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>🔥 Streak x3 (10+ seguidos)</span>
+            <span class="xp-val">+30 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>📝 Ciclo de 5 perguntas</span>
+            <span class="xp-val">+5 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>💬 Mensagem no chat</span>
+            <span class="xp-val">+2 XP (max 10)</span>
+          </div>
+          
+          <div style="margin: 14px 0 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08);">
+            <div style="font-size: 0.8em; color: #a78bfa; margin-bottom: 8px; font-weight: 600;">🏅 Conquistas (bônus único)</div>
+          </div>
+          <div class="xp-info-item">
+            <span>⚽ Primeiro Gol — 1º acerto</span>
+            <span class="xp-val">+5 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>🎩 Hat-trick — 3 seguidos</span>
+            <span class="xp-val">+15 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>🔥 Mão Quente — 5 seguidos</span>
+            <span class="xp-val">+30 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>🚀 Imparável — 10 seguidos</span>
+            <span class="xp-val">+50 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>⚡ Velocista — acerto em &lt;3s</span>
+            <span class="xp-val">+10 XP</span>
+          </div>
+          <div class="xp-info-item">
+            <span>💯 Perfeito — 10 sem errar</span>
+            <span class="xp-val">+100 XP</span>
+          </div>
+          
+          <button class="xp-info-close" onclick="document.getElementById('xpInfoOverlay').remove()">
+            Entendi! 💪
+          </button>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      
+      // Fechar ao clicar fora
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+      });
+    }
+
+    // ===================================
     // ✅ TOGGLE RANKING (COLAPSÁVEL)
     // ===================================
     let rankingCollapsed = false;
@@ -5091,6 +5293,18 @@
         });
         
         console.log("✅ Mensagem enviada:", mensagem);
+        
+        // ✨ XP BÔNUS — Chat participativo (+2 XP por mensagem, max 10 XP/jogo)
+        if (chatXpGanho < 10) {
+          const xpChat = 2;
+          chatXpGanho += xpChat;
+          db.collection('usuarios').doc(uid).update({
+            xp: firebase.firestore.FieldValue.increment(xpChat)
+          }).catch(e => console.error('Erro XP chat:', e));
+          if (chatXpGanho <= 10) {
+            showToast(`💬 +${xpChat} XP por mensagem! (${chatXpGanho}/10)`);
+          }
+        }
 
       } catch (error) {
         console.error("❌ Erro ao enviar mensagem:", error);
@@ -5808,7 +6022,7 @@
     // ===================================
     // 🏅 VERIFICAR CONQUISTAS
     // ===================================
-    function verificarConquistas() {
+    function verificarConquistas(tempoResposta) {
       // Primeiro acerto
       if (totalAcertos === 1 && !conquistasDesbloqueadas.includes('primeiroAcerto')) {
         mostrarConquista(CONQUISTAS.primeiroAcerto);
@@ -5817,23 +6031,30 @@
       }
 
       // Streak 3
-      if (streak === 3 && !conquistasDesbloqueadas.includes('streak3')) {
+      if (streak >= 3 && !conquistasDesbloqueadas.includes('streak3')) {
         mostrarConquista(CONQUISTAS.streak3);
         conquistasDesbloqueadas.push('streak3');
         salvarConquistas();
       }
 
       // Streak 5
-      if (streak === 5 && !conquistasDesbloqueadas.includes('streak5')) {
+      if (streak >= 5 && !conquistasDesbloqueadas.includes('streak5')) {
         mostrarConquista(CONQUISTAS.streak5);
         conquistasDesbloqueadas.push('streak5');
         salvarConquistas();
       }
 
       // Streak 10
-      if (streak === 10 && !conquistasDesbloqueadas.includes('streak10')) {
+      if (streak >= 10 && !conquistasDesbloqueadas.includes('streak10')) {
         mostrarConquista(CONQUISTAS.streak10);
         conquistasDesbloqueadas.push('streak10');
+        salvarConquistas();
+      }
+
+      // ✅ Velocista — resposta correta em menos de 3 segundos
+      if (tempoResposta && tempoResposta < 3 && !conquistasDesbloqueadas.includes('rapido')) {
+        mostrarConquista(CONQUISTAS.rapido);
+        conquistasDesbloqueadas.push('rapido');
         salvarConquistas();
       }
 
