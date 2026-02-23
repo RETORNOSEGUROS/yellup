@@ -7260,6 +7260,7 @@
     let sponsorBannerIndex = 0;         // Índice rotativo do mini-banner
     let sponsorBannerInterval = null;   // Intervalo de rotação do banner
     let sponsorImpressoes = {};         // { sponsorNome: count }
+    let sponsorsResgatados = new Set(); // Sponsors já resgatados NESTE jogo (anti-spam)
 
     // Mensagens contextuais por momento
     const SPONSOR_CONTEXTOS = [
@@ -7292,6 +7293,10 @@
         const userData = userDoc.data() || {};
         patrocinadorAtualIndex = userData.patrocinadorIndex?.[jogoId] || 0;
         contadorRespostas = userData.contadorRespostas?.[jogoId] || 0;
+        
+        // ✅ Carregar sponsors já resgatados (anti-spam)
+        const resgatados = userData.patrocinadoresResgatados?.[jogoId] || [];
+        resgatados.forEach(r => sponsorsResgatados.add(r.nome));
         
         // ✅ Atualizar contador na interface
         const respostasEl = document.getElementById('respostasCount');
@@ -7343,12 +7348,24 @@
       
       // Info
       nameEl.textContent = sponsor.nome;
-      const ctxMsg = SPONSOR_CONTEXTOS[Math.floor(Math.random() * SPONSOR_CONTEXTOS.length)];
-      ctaEl.textContent = ctxMsg;
-      
-      // Pontos
       const pontos = sponsor.pontos || sponsor.creditos || 10;
-      rewardEl.textContent = `+${pontos} pts`;
+      const jaResgatou = sponsorsResgatados.has(sponsor.nome);
+      if (jaResgatou) {
+        ctaEl.textContent = '✅ Pontos já resgatados • Toque para visitar';
+        ctaEl.style.color = '#7f8c8d';
+        rewardEl.textContent = '✅';
+        rewardEl.style.background = 'rgba(127,140,141,0.15)';
+        rewardEl.style.borderColor = 'rgba(127,140,141,0.3)';
+        rewardEl.style.color = '#7f8c8d';
+      } else {
+        const ctxMsg = SPONSOR_CONTEXTOS[Math.floor(Math.random() * SPONSOR_CONTEXTOS.length)];
+        ctaEl.textContent = ctxMsg;
+        ctaEl.style.color = '#10b981';
+        rewardEl.textContent = `+${pontos} pts`;
+        rewardEl.style.background = 'rgba(16,185,129,0.15)';
+        rewardEl.style.borderColor = 'rgba(16,185,129,0.3)';
+        rewardEl.style.color = '#10b981';
+      }
       
       // Registrar impressão
       sponsorImpressoes[sponsor.nome] = (sponsorImpressoes[sponsor.nome] || 0) + 1;
@@ -7423,20 +7440,33 @@
       
       // Usar campo 'pontos' se existir, senão usa 'creditos' como fallback
       const pontosPatrocinador = sponsor.pontos || sponsor.creditos || 10;
+      const jaResgatou = sponsorsResgatados.has(sponsor.nome);
+      
+      const rewardHtml = jaResgatou
+        ? `<div class="sponsor-reward" style="background:rgba(127,140,141,0.1);border-color:rgba(127,140,141,0.3);color:#7f8c8d;">
+            ✅ Pontos já resgatados nesta partida
+          </div>`
+        : `<div class="sponsor-reward">
+            🏆 Visite o site e ganhe <strong>+${pontosPatrocinador}</strong> ponto${pontosPatrocinador > 1 ? 's' : ''} na partida!
+          </div>`;
+      
+      const btnHtml = jaResgatou
+        ? `<button class="sponsor-btn" onclick="resgatarPatrocinador()">
+            🌐 Visitar Novamente
+          </button>`
+        : `<button class="sponsor-btn" onclick="resgatarPatrocinador()">
+            🌐 Visitar e Ganhar Pontos
+          </button>`;
       
       popup.innerHTML = `
         <div class="sponsor-header">📢 Patrocinador da Partida</div>
         ${logoDisplay}
         <div class="sponsor-name">${sponsor.nome}</div>
         ${sponsor.descricao ? `<div class="sponsor-desc">${sponsor.descricao}</div>` : ''}
-        <div class="sponsor-reward">
-          🏆 Visite o site e ganhe <strong>+${pontosPatrocinador}</strong> ponto${pontosPatrocinador > 1 ? 's' : ''} na partida!
-        </div>
-        <button class="sponsor-btn" onclick="resgatarPatrocinador()">
-          🌐 Visitar e Ganhar Pontos
-        </button>
+        ${rewardHtml}
+        ${btnHtml}
         <button class="sponsor-skip" onclick="fecharPatrocinador()">
-          Pular desta vez
+          Fechar
         </button>
         <div class="sponsor-timer">
           <span id="sponsorCountdown">15</span>s para fechar automaticamente
@@ -7467,11 +7497,23 @@
       const sponsor = patrocinadorPendente;
       const pontosGanhos = sponsor.pontos || sponsor.creditos || 10;
       
+      // ✅ ANTI-SPAM: Verificar se já resgatou este sponsor neste jogo
+      if (sponsorsResgatados.has(sponsor.nome)) {
+        // Abrir site mas NÃO dar pontos novamente
+        if (sponsor.url) window.open(sponsor.url, '_blank');
+        showToast(`🌐 Visitando ${sponsor.nome} (pontos já resgatados)`);
+        fecharPatrocinador(true);
+        return;
+      }
+      
       try {
         // Abrir site do patrocinador em nova aba
         if (sponsor.url) {
           window.open(sponsor.url, '_blank');
         }
+        
+        // ✅ Marcar como resgatado ANTES de dar pontos
+        sponsorsResgatados.add(sponsor.nome);
         
         // ✅ DAR PONTOS NA PARTIDA (não créditos)
         await db.collection('usuarios').doc(uid).update({
