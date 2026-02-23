@@ -1422,6 +1422,99 @@
 
     /* ========== FIM ENQUETES AO VIVO ========== */
 
+    /* ========== PROVOCAÇÕES ENTRE TORCIDAS ========== */
+
+    .provocar-btn {
+      background: linear-gradient(135deg, rgba(231,76,60,0.2), rgba(231,76,60,0.1));
+      border: 1px solid rgba(231,76,60,0.3);
+      color: #e74c3c;
+      font-size: 0.75em;
+      font-weight: 600;
+      font-family: 'Poppins', sans-serif;
+      padding: 5px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .provocar-btn:hover {
+      background: rgba(231,76,60,0.25);
+      transform: scale(1.05);
+    }
+    .provocar-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .provocar-panel {
+      display: none;
+      padding: 10px;
+      background: rgba(231,76,60,0.05);
+      border: 1px solid rgba(231,76,60,0.15);
+      border-radius: 12px;
+      margin: 8px 0;
+      animation: fadeIn 0.2s ease;
+    }
+    .provocar-panel.active {
+      display: block;
+    }
+    .provocar-panel-title {
+      font-size: 0.75em;
+      color: #e74c3c;
+      font-weight: 600;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .provocar-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .provocar-opcao {
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      font-size: 0.8em;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+    }
+    .provocar-opcao:hover {
+      background: rgba(231,76,60,0.15);
+      border-color: rgba(231,76,60,0.3);
+      transform: scale(1.03);
+    }
+    .provocar-cooldown {
+      font-size: 0.7em;
+      color: #7f8c8d;
+      text-align: center;
+      margin-top: 6px;
+    }
+
+    /* Mensagem de provocação no chat */
+    .chat-message.provocacao {
+      background: linear-gradient(135deg, rgba(231,76,60,0.12), rgba(231,76,60,0.05));
+      border: 1px solid rgba(231,76,60,0.2);
+      border-radius: 12px;
+    }
+    .chat-message.provocacao .chat-author {
+      color: #e74c3c;
+    }
+    .chat-message.provocacao .chat-text {
+      font-weight: 700;
+      font-size: 1em;
+    }
+    .chat-message.provocacao .provocacao-tag {
+      font-size: 0.65em;
+      color: #e74c3c;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* ========== FIM PROVOCAÇÕES ========== */
+
     /* ========== FEEDBACK EMOCIONAL — FLASH + STREAK BREAK + RANKING TOAST ========== */
 
     /* Flash verde (acerto) ou vermelho (erro) na tela toda */
@@ -3354,9 +3447,12 @@
       <div class="chat-section" id="chatSection">
         <div class="chat-header">
           <span class="chat-header-title">💬 Chat ao Vivo</span>
-          <button class="chat-fullscreen-btn" onclick="toggleChatFullscreen()">
-            <span id="chatFullscreenIcon">⛶</span> Expandir
-          </button>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button class="provocar-btn" id="provocarBtn" onclick="toggleProvocarPanel()">🗣️ Provocar!</button>
+            <button class="chat-fullscreen-btn" onclick="toggleChatFullscreen()">
+              <span id="chatFullscreenIcon">⛶</span> Expandir
+            </button>
+          </div>
         </div>
         
         <div class="chat-body">
@@ -3367,6 +3463,15 @@
             <div class="chat-tab" onclick="switchChat('general')">
               💬 Geral
             </div>
+          </div>
+
+          <!-- 🗣️ PAINEL DE PROVOCAÇÕES -->
+          <div class="provocar-panel" id="provocarPanel">
+            <div class="provocar-panel-title">🗣️ Manda uma provocação pra torcida adversária!</div>
+            <div class="provocar-grid" id="provocarGrid">
+              <!-- Renderizado via JS -->
+            </div>
+            <div class="provocar-cooldown" id="provocarCooldown"></div>
           </div>
 
           <div class="chat-content active" id="teamChatContent">
@@ -5672,6 +5777,135 @@
     }
 
     // ===================================
+    // 🗣️ PROVOCAÇÕES ENTRE TORCIDAS
+    // ===================================
+
+    const PROVOCACOES = [
+      { id: 0, texto: '🔥 Tá fácil demais!', emoji: '🔥' },
+      { id: 1, texto: '😴 Acordem aí!', emoji: '😴' },
+      { id: 2, texto: '👑 Somos maiores!', emoji: '👑' },
+      { id: 3, texto: '🤡 Cadê o time?', emoji: '🤡' },
+      { id: 4, texto: '💪 Vem que vem!', emoji: '💪' },
+      { id: 5, texto: '⚽ Gooool nosso!', emoji: '⚽' },
+      { id: 6, texto: '🏆 O caneco é nosso!', emoji: '🏆' },
+      { id: 7, texto: '😂 Tô rindo aqui!', emoji: '😂' },
+    ];
+
+    let provocacaoCooldown = 0; // timestamp até quando está em cooldown
+    let provocacaoPanel = false;
+
+    function toggleProvocarPanel() {
+      provocacaoPanel = !provocacaoPanel;
+      const panel = document.getElementById('provocarPanel');
+      
+      if (provocacaoPanel) {
+        renderProvocarGrid();
+        panel.classList.add('active');
+      } else {
+        panel.classList.remove('active');
+      }
+    }
+
+    function renderProvocarGrid() {
+      const grid = document.getElementById('provocarGrid');
+      const agora = Date.now();
+      const emCooldown = agora < provocacaoCooldown;
+
+      grid.innerHTML = PROVOCACOES.map(p => `
+        <div class="provocar-opcao ${emCooldown ? 'disabled' : ''}" 
+             onclick="${emCooldown ? '' : `enviarProvocacao(${p.id})`}"
+             style="${emCooldown ? 'opacity:0.4;cursor:not-allowed;' : ''}">
+          ${p.texto}
+        </div>
+      `).join('');
+
+      const cdEl = document.getElementById('provocarCooldown');
+      if (emCooldown) {
+        const segRestam = Math.ceil((provocacaoCooldown - agora) / 1000);
+        cdEl.textContent = `⏳ Próxima provocação em ${segRestam}s`;
+      } else {
+        cdEl.textContent = 'Escolha uma provocação! Aparece no chat geral 😈';
+      }
+    }
+
+    async function enviarProvocacao(id) {
+      const agora = Date.now();
+      if (agora < provocacaoCooldown) {
+        showToast('⏳ Espere o cooldown pra provocar de novo!');
+        return;
+      }
+
+      const prov = PROVOCACOES.find(p => p.id === id);
+      if (!prov) return;
+
+      // Cooldown: 60 segundos entre provocações
+      provocacaoCooldown = agora + 60000;
+
+      // Fechar painel
+      provocacaoPanel = false;
+      document.getElementById('provocarPanel').classList.remove('active');
+
+      try {
+        if (!cachedUserData) {
+          const userDoc = await db.collection("usuarios").doc(uid).get();
+          cachedUserData = userDoc.data() || {};
+        }
+        const user = cachedUserData;
+        const displayName = user.usuarioUnico || user.usuario || user.nome || "Anônimo";
+        const avatar = user.avatarUrl || user.avatar || user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`;
+
+        // Determinar nome do time do provocador
+        const meuTime = timeTorcida === timeCasaId ? timeCasaData : timeForaData;
+        const meuTimeNome = meuTime?.nome || 'Torcida';
+
+        // Enviar pro chat GERAL com flag de provocação
+        await db.collection("chats").add({
+          jogoId,
+          timeId: null,
+          tipo: "geral",
+          userId: uid,
+          usuario: user.usuario || null,
+          usuarioUnico: user.usuarioUnico || null,
+          nome: displayName,
+          avatar,
+          mensagem: prov.texto,
+          provocacao: true,
+          provocacaoTimeNome: meuTimeNome,
+          provocacaoTimeId: timeTorcida,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        showToast(`🗣️ Provocação enviada! "${prov.texto}"`);
+
+        // Atualizar botão com cooldown visual
+        atualizarBtnProvocar();
+
+      } catch (e) {
+        console.error('Erro ao enviar provocação:', e);
+        showToast('❌ Erro ao enviar provocação.');
+        provocacaoCooldown = 0; // Reset cooldown on error
+      }
+    }
+
+    function atualizarBtnProvocar() {
+      const btn = document.getElementById('provocarBtn');
+      if (!btn) return;
+      
+      const agora = Date.now();
+      if (agora < provocacaoCooldown) {
+        const seg = Math.ceil((provocacaoCooldown - agora) / 1000);
+        btn.disabled = true;
+        btn.textContent = `🗣️ ${seg}s`;
+        
+        // Atualizar a cada segundo
+        setTimeout(atualizarBtnProvocar, 1000);
+      } else {
+        btn.disabled = false;
+        btn.textContent = '🗣️ Provocar!';
+      }
+    }
+
+    // ===================================
     // ✅ TOGGLE RANKING (COLAPSÁVEL)
     // ===================================
     let rankingCollapsed = false;
@@ -5857,6 +6091,24 @@
       
       const displayName = msg.usuarioUnico || msg.usuario || msg.nome || "Anônimo";
       const avatar = msg.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`;
+      
+      // 🗣️ PROVOCAÇÃO — render especial
+      if (msg.provocacao) {
+        div.classList.add('provocacao');
+        const timeNome = escapeHtml(msg.provocacaoTimeNome || 'Torcida');
+        const isMyTeam = msg.provocacaoTimeId === timeTorcida;
+        
+        div.innerHTML = `
+          <img src="${avatar}" alt="${escapeHtml(displayName)}" class="chat-avatar">
+          <div class="chat-content-msg">
+            <div class="provocacao-tag">🗣️ PROVOCAÇÃO • Torcida do ${timeNome}</div>
+            <div class="chat-author">${escapeHtml(displayName)}</div>
+            <div class="chat-text">${escapeHtml(msg.mensagem)}</div>
+          </div>
+        `;
+        container.appendChild(div);
+        return;
+      }
       
       // Rastrear usuário ativo
       if (msg.userId && msg.userId !== uid) {
