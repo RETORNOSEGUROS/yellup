@@ -1273,6 +1273,155 @@
       }
     }
 
+    /* ========== ENQUETES AO VIVO ========== */
+
+    .enquete-section {
+      display: none;
+      margin-bottom: 20px;
+      animation: fadeIn 0.4s ease;
+    }
+    .enquete-section.active {
+      display: block;
+    }
+    .enquete-card {
+      background: linear-gradient(145deg, #1a2332 0%, #0e141b 100%);
+      border: 1px solid rgba(167, 139, 250, 0.3);
+      border-radius: 18px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .enquete-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #a78bfa, #ff8c42, #a78bfa);
+      background-size: 200% 100%;
+      animation: shimmerBar 2s linear infinite;
+    }
+    @keyframes shimmerBar {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .enquete-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .enquete-tag {
+      font-size: 0.7em;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #a78bfa;
+    }
+    .enquete-xp {
+      font-size: 0.7em;
+      color: #a78bfa;
+      background: rgba(167, 139, 250, 0.15);
+      padding: 3px 8px;
+      border-radius: 10px;
+    }
+    .enquete-pergunta {
+      font-size: 1.05em;
+      font-weight: 700;
+      margin-bottom: 14px;
+      color: var(--text-primary);
+    }
+    .enquete-opcoes {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .enquete-opcao {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .enquete-opcao:hover {
+      background: rgba(167, 139, 250, 0.1);
+      border-color: rgba(167, 139, 250, 0.3);
+    }
+    .enquete-opcao.voted {
+      cursor: default;
+    }
+    .enquete-opcao.voted.selected {
+      border-color: rgba(167, 139, 250, 0.5);
+      background: rgba(167, 139, 250, 0.12);
+    }
+    .enquete-opcao .opcao-bar {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      background: rgba(167, 139, 250, 0.12);
+      border-radius: 12px;
+      transition: width 0.6s ease;
+      width: 0%;
+    }
+    .enquete-opcao .opcao-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+    .enquete-opcao .opcao-text {
+      font-size: 0.9em;
+    }
+    .enquete-opcao .opcao-perc {
+      font-size: 0.8em;
+      font-weight: 700;
+      color: #a78bfa;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .enquete-opcao.voted .opcao-perc {
+      opacity: 1;
+    }
+    .enquete-opcoes-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .enquete-opcoes-row .enquete-opcao {
+      flex: 1;
+      min-width: 60px;
+      justify-content: center;
+      text-align: center;
+      padding: 10px 8px;
+    }
+    .enquete-opcoes-row .enquete-opcao .opcao-content {
+      justify-content: center;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .enquete-total-votos {
+      text-align: center;
+      font-size: 0.75em;
+      color: var(--text-secondary);
+      margin-top: 10px;
+    }
+    .enquete-resultado-msg {
+      text-align: center;
+      font-size: 0.8em;
+      color: #a78bfa;
+      margin-top: 8px;
+      font-weight: 600;
+      animation: fadeIn 0.5s ease;
+    }
+
+    /* ========== FIM ENQUETES AO VIVO ========== */
+
     /* ========== FEEDBACK EMOCIONAL — FLASH + STREAK BREAK + RANKING TOAST ========== */
 
     /* Flash verde (acerto) ou vermelho (erro) na tela toda */
@@ -3191,6 +3340,13 @@
       </div>
     </div>
 
+    <!-- 📊 ENQUETE AO VIVO -->
+    <div class="enquete-section" id="enqueteSection">
+      <div class="enquete-card" id="enqueteCard">
+        <!-- Renderizado dinamicamente -->
+      </div>
+    </div>
+
     <!-- Chat and Ranking -->
     <div class="chat-ranking-grid">
       
@@ -3485,6 +3641,7 @@
         await loadUserData();      // Depois carrega dados do usuário
         await updateStats();       // Atualiza estatísticas
         initChat();                // Inicia chat
+        await initEnquetes();      // 📊 Carrega votos do usuário
         await loadRanking();       // Carrega ranking
         await carregarPatrocinadores(); // ✅ NOVO: Carrega patrocinadores da partida
         startGameTimer();          // Inicia timer do jogo
@@ -4100,6 +4257,8 @@
               fabBtn.disabled = true;
               fabBtn.innerHTML = `<span class="fab-icon">⏳</span><span class="fab-text">${min}:${String(seg).padStart(2, '0')}</span>`;
             }
+            // 📊 Enquete durante cooldown
+            tentarMostrarEnquete();
           } else if (!currentQuestion) {
             btnAnswer.disabled = false;
             btnAnswer.textContent = `🎯 Responder Pergunta (${perguntasRestantes})`;
@@ -4412,6 +4571,9 @@
     async function getQuestion() {
       try {
         const btnAnswer = document.getElementById("btnAnswer");
+        
+        // 📊 Esconder enquete se visível
+        esconderEnquete();
         
         // ✅ Se está em cooldown (sem perguntas), não buscar
         if (cooldownState.perguntasRestantes <= 0 && cooldownState.totalRespondidas > 0) {
@@ -4888,6 +5050,8 @@
           currentQuestion = null;
           document.getElementById("questionModalOverlay").classList.remove("active");
           await updateFreePlays();
+          // 📊 30% chance de enquete entre perguntas
+          if (Math.random() < 0.3) tentarMostrarEnquete();
         }, 3000);
 
       } catch (error) {
@@ -5207,6 +5371,304 @@
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) overlay.remove();
       });
+    }
+
+    // ===================================
+    // 📊 ENQUETES AO VIVO
+    // ===================================
+
+    const ENQUETES_TEMPLATES = [
+      // TIPO 1 — Opinião sobre o jogo (repetíveis: marcados com repete: true)
+      { id: 'nota_time', tipo: 'opiniao', pergunta: 'Que nota você dá pro seu time até agora?', 
+        opcoes: ['⭐ 1', '⭐⭐ 2', '⭐⭐⭐ 3', '⭐⭐⭐⭐ 4', '⭐⭐⭐⭐⭐ 5'], layout: 'row', repete: true },
+      { id: 'tatica', tipo: 'opiniao', pergunta: 'Se você fosse o técnico, o que faria agora?', 
+        opcoes: ['🔄 Substituir', '⚔️ Atacar mais', '🛡️ Defender', '✋ Manter'], layout: 'col', repete: true },
+      { id: 'palpite_final', tipo: 'opiniao', pergunta: 'Como vai terminar o jogo?', 
+        opcoes: ['🏠 Vitória Casa', '🤝 Empate', '✈️ Vitória Fora'], layout: 'col', repete: false },
+      { id: 'juiz', tipo: 'opiniao', pergunta: 'O juiz está apitando bem?', 
+        opcoes: ['✅ Sim', '😐 Mais ou menos', '❌ Péssimo'], layout: 'col', repete: false },
+      { id: 'confianca', tipo: 'opiniao', pergunta: 'Nível de confiança no seu time', 
+        opcoes: ['🔥 100%', '💪 75%', '😬 50%', '😰 25%', '💀 0%'], layout: 'row', repete: true },
+      { id: 'melhor_time', tipo: 'opiniao', pergunta: 'Quem está jogando melhor no jogo?', 
+        opcoes: ['🏠 Time Casa', '✈️ Time Fora', '🤷 Nenhum'], layout: 'col', repete: true },
+      { id: 'faltando', tipo: 'opiniao', pergunta: 'O que tá faltando pro seu time?', 
+        opcoes: ['⚡ Velocidade', '🎯 Finalização', '🛡️ Defesa', '🧠 Criatividade'], layout: 'col', repete: false },
+      { id: 'sentimento', tipo: 'opiniao', pergunta: 'Como você tá se sentindo agora?', 
+        opcoes: ['🔥 Confiante', '😤 Nervoso', '😴 Entediado', '🤩 Empolgado', '😭 Sofrendo'], layout: 'row', repete: true },
+      { id: 'segundo_tempo', tipo: 'opiniao', pergunta: 'O segundo tempo vai ser...', 
+        opcoes: ['🔥 Melhor', '😐 Igual', '📉 Pior'], layout: 'col', repete: false },
+      { id: 'nota_partida', tipo: 'opiniao', pergunta: 'Essa partida merece...', 
+        opcoes: ['⭐⭐⭐⭐⭐ Clássico', '⭐⭐⭐ Normal', '⭐ Fraca'], layout: 'col', repete: false },
+
+      // TIPO 2 — Reações rápidas
+      { id: 'reacao_momento', tipo: 'reacao', pergunta: 'Reação ao momento!', 
+        opcoes: ['🔥', '😡', '😂', '🤯', '😴', '🥳'], layout: 'row', repete: true },
+      { id: 'energia', tipo: 'reacao', pergunta: 'Manda a energia!', 
+        opcoes: ['💪', '🙏', '🍀', '⚡'], layout: 'row', repete: true },
+
+      // TIPO 3 — Palpites
+      { id: 'gol_10min', tipo: 'palpite', pergunta: 'Vai ter gol nos próximos 10 minutos?', 
+        opcoes: ['⚽ Sim!', '❌ Não', '🤞 Tomara'], layout: 'col', repete: false },
+      { id: 'cartao_vermelho', tipo: 'palpite', pergunta: 'Vai ter cartão vermelho nesse jogo?', 
+        opcoes: ['🟥 Sim', '❌ Não'], layout: 'col', repete: false },
+      { id: 'gols_1tempo', tipo: 'palpite', pergunta: 'Quantos gols vão sair no 1º tempo?', 
+        opcoes: ['0️⃣ Nenhum', '1️⃣ Um', '2️⃣ Dois', '3️⃣ Três+'], layout: 'row', repete: false },
+
+      // TIPO 4 — Pessoal/Social
+      { id: 'assistindo_de', tipo: 'social', pergunta: 'De onde você tá assistindo?', 
+        opcoes: ['🏠 Casa', '🏟️ Estádio', '🍺 Bar', '📱 Rua'], layout: 'row', repete: false },
+      { id: 'assistindo_com', tipo: 'social', pergunta: 'Com quem tá assistindo?', 
+        opcoes: ['👤 Sozinho', '👥 Amigos', '👨‍👩‍👧 Família', '🏟️ Torcida'], layout: 'row', repete: false },
+      { id: 'torcedor_desde', tipo: 'social', pergunta: 'Torcedor desde quando?', 
+        opcoes: ['👶 Nascença', '🧒 Infância', '🧑 Adolescência', '🆕 Só hoje'], layout: 'row', repete: false },
+    ];
+
+    // Estado das enquetes
+    const enqueteState = {
+      exibidasNeste: [],       // IDs já exibidas neste jogo
+      votosDoUsuario: {},      // { enqueteId: opcaoIndex }
+      enqueteAtual: null,      // Template atual sendo exibida
+      enqueteKey: null,        // Key no Firestore (jogoId + enqueteId + rodada)
+      rodadas: {},             // { enqueteId: quantas vezes exibida }
+      ultimaExibicao: 0,       // Timestamp da última exibição
+      listener: null,          // Firestore listener ativo
+      intervaloMin: 120000,    // Mínimo 2 min entre enquetes (ms)
+    };
+
+    // Inicializar enquetes — carregar votos do usuário
+    async function initEnquetes() {
+      try {
+        const doc = await db.collection('jogos').doc(jogoId).collection('enqueteVotos').doc(uid).get();
+        if (doc.exists) {
+          enqueteState.votosDoUsuario = doc.data().votos || {};
+        }
+      } catch (e) {
+        console.error('Erro ao carregar votos:', e);
+      }
+    }
+
+    // Selecionar próxima enquete (aleatória, respeitando regras)
+    function selecionarEnquete() {
+      const agora = Date.now();
+      if (agora - enqueteState.ultimaExibicao < enqueteState.intervaloMin) return null;
+
+      // Filtrar disponíveis
+      const disponiveis = ENQUETES_TEMPLATES.filter(e => {
+        // Já votou e não repete?
+        if (enqueteState.votosDoUsuario[e.id] != null && !e.repete) return false;
+        // Se repete, verificar se já mostrou nesta rodada (max 3 repetições)
+        if (e.repete) {
+          const rodadas = enqueteState.rodadas[e.id] || 0;
+          if (rodadas >= 3) return false;
+          // Se votou nesta rodada, pular
+          const keyAtual = `${e.id}_r${rodadas}`;
+          if (enqueteState.votosDoUsuario[keyAtual] != null) return false;
+        }
+        return true;
+      });
+
+      if (disponiveis.length === 0) return null;
+
+      // Aleatório com peso: reações e opinião repetível tem mais chance no cooldown
+      const idx = Math.floor(Math.random() * disponiveis.length);
+      return disponiveis[idx];
+    }
+
+    // Mostrar enquete
+    function mostrarEnquete(forcar) {
+      if (jogoStatus === 'finalizado') return;
+      
+      const template = forcar || selecionarEnquete();
+      if (!template) return;
+
+      enqueteState.enqueteAtual = template;
+      enqueteState.ultimaExibicao = Date.now();
+      
+      const rodada = enqueteState.rodadas[template.id] || 0;
+      enqueteState.enqueteKey = template.repete ? `${template.id}_r${rodada}` : template.id;
+
+      const section = document.getElementById('enqueteSection');
+      const card = document.getElementById('enqueteCard');
+
+      // Verificar se já votou nesta instância
+      const jaVotou = enqueteState.votosDoUsuario[enqueteState.enqueteKey] != null;
+
+      const tipoLabels = { opiniao: '📊 ENQUETE AO VIVO', reacao: '⚡ REAÇÃO RÁPIDA', palpite: '🎯 PALPITE', social: '👥 SOBRE VOCÊ' };
+      
+      const opcLayout = template.layout === 'row' ? 'enquete-opcoes-row' : 'enquete-opcoes';
+
+      card.innerHTML = `
+        <div class="enquete-header">
+          <span class="enquete-tag">${tipoLabels[template.tipo] || '📊 ENQUETE'}</span>
+          <span class="enquete-xp">+2 XP</span>
+        </div>
+        <div class="enquete-pergunta">${template.pergunta}</div>
+        <div class="${opcLayout}" id="enqueteOpcoes">
+          ${template.opcoes.map((op, i) => `
+            <div class="enquete-opcao ${jaVotou ? 'voted' : ''} ${jaVotou && enqueteState.votosDoUsuario[enqueteState.enqueteKey] === i ? 'selected' : ''}" 
+                 onclick="votarEnquete(${i})" data-idx="${i}">
+              <div class="opcao-bar" id="enqueteBar_${i}"></div>
+              <div class="opcao-content">
+                <span class="opcao-text">${op}</span>
+                <span class="opcao-perc" id="enquetePerc_${i}"></span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="enquete-total-votos" id="enqueteTotalVotos"></div>
+      `;
+
+      section.classList.add('active');
+
+      // Iniciar listener de votos em tempo real
+      escutarVotosEnquete();
+
+      // Se já votou, carregar resultados
+      if (jaVotou) {
+        carregarResultadosEnquete();
+      }
+    }
+
+    // Votar
+    async function votarEnquete(opcaoIdx) {
+      const key = enqueteState.enqueteKey;
+      if (!key || enqueteState.votosDoUsuario[key] != null) return;
+
+      enqueteState.votosDoUsuario[key] = opcaoIdx;
+      
+      // Marcar visualmente
+      const opcoes = document.querySelectorAll('#enqueteOpcoes .enquete-opcao');
+      opcoes.forEach((el, i) => {
+        el.classList.add('voted');
+        if (i === opcaoIdx) el.classList.add('selected');
+        el.onclick = null; // Desabilitar clique
+      });
+
+      // Salvar voto no Firestore
+      try {
+        // Incrementar contador da opção
+        const enqueteRef = db.collection('jogos').doc(jogoId).collection('enquetes').doc(key);
+        await db.runTransaction(async (t) => {
+          const doc = await t.get(enqueteRef);
+          if (doc.exists) {
+            const votos = doc.data().votos || [];
+            votos[opcaoIdx] = (votos[opcaoIdx] || 0) + 1;
+            t.update(enqueteRef, { votos, totalVotos: firebase.firestore.FieldValue.increment(1) });
+          } else {
+            const votos = new Array(enqueteState.enqueteAtual.opcoes.length).fill(0);
+            votos[opcaoIdx] = 1;
+            t.set(enqueteRef, { 
+              enqueteId: enqueteState.enqueteAtual.id,
+              pergunta: enqueteState.enqueteAtual.pergunta,
+              votos, 
+              totalVotos: 1,
+              criadoEm: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          }
+        });
+
+        // Salvar voto do usuário
+        await db.collection('jogos').doc(jogoId).collection('enqueteVotos').doc(uid).set({
+          votos: enqueteState.votosDoUsuario
+        }, { merge: true });
+
+        // XP bônus
+        await db.collection('usuarios').doc(uid).update({
+          xp: firebase.firestore.FieldValue.increment(2)
+        });
+        showToast('📊 Voto registrado! +2 XP');
+
+        // Atualizar rodada se repetível
+        if (enqueteState.enqueteAtual.repete) {
+          enqueteState.rodadas[enqueteState.enqueteAtual.id] = (enqueteState.rodadas[enqueteState.enqueteAtual.id] || 0) + 1;
+        }
+
+      } catch (e) {
+        console.error('Erro ao votar:', e);
+        showToast('❌ Erro ao votar. Tente novamente.');
+        delete enqueteState.votosDoUsuario[key];
+      }
+    }
+
+    // Escutar votos em tempo real
+    function escutarVotosEnquete() {
+      // Cancelar listener anterior
+      if (enqueteState.listener) enqueteState.listener();
+
+      const key = enqueteState.enqueteKey;
+      if (!key) return;
+
+      enqueteState.listener = db.collection('jogos').doc(jogoId).collection('enquetes').doc(key)
+        .onSnapshot(doc => {
+          if (!doc.exists) return;
+          const data = doc.data();
+          atualizarBarrasEnquete(data.votos || [], data.totalVotos || 0);
+        });
+    }
+
+    // Atualizar barras visuais
+    function atualizarBarrasEnquete(votos, total) {
+      if (!enqueteState.enqueteAtual || total === 0) return;
+
+      enqueteState.enqueteAtual.opcoes.forEach((_, i) => {
+        const count = votos[i] || 0;
+        const perc = Math.round((count / total) * 100);
+        
+        const bar = document.getElementById(`enqueteBar_${i}`);
+        const percEl = document.getElementById(`enquetePerc_${i}`);
+        
+        if (bar) bar.style.width = `${perc}%`;
+        if (percEl) percEl.textContent = `${perc}%`;
+      });
+
+      const totalEl = document.getElementById('enqueteTotalVotos');
+      if (totalEl) totalEl.textContent = `${total} voto${total !== 1 ? 's' : ''}`;
+
+      // Mensagem de destaque se muitos votaram
+      if (total >= 5) {
+        const maxIdx = votos.indexOf(Math.max(...votos));
+        const maxPerc = Math.round((votos[maxIdx] / total) * 100);
+        let msgEl = document.getElementById('enqueteResultMsg');
+        if (!msgEl) {
+          msgEl = document.createElement('div');
+          msgEl.className = 'enquete-resultado-msg';
+          msgEl.id = 'enqueteResultMsg';
+          document.getElementById('enqueteCard').appendChild(msgEl);
+        }
+        if (maxPerc >= 70) {
+          msgEl.textContent = `🔥 ${maxPerc}% concordam: ${enqueteState.enqueteAtual.opcoes[maxIdx]}`;
+        } else {
+          msgEl.textContent = `⚔️ Opiniões divididas!`;
+        }
+      }
+    }
+
+    // Carregar resultados se já votou
+    async function carregarResultadosEnquete() {
+      try {
+        const doc = await db.collection('jogos').doc(jogoId).collection('enquetes').doc(enqueteState.enqueteKey).get();
+        if (doc.exists) {
+          const data = doc.data();
+          atualizarBarrasEnquete(data.votos || [], data.totalVotos || 0);
+        }
+      } catch (e) {
+        console.error('Erro ao carregar resultados:', e);
+      }
+    }
+
+    // Esconder enquete
+    function esconderEnquete() {
+      document.getElementById('enqueteSection').classList.remove('active');
+      if (enqueteState.listener) {
+        enqueteState.listener();
+        enqueteState.listener = null;
+      }
+    }
+
+    // Tentar mostrar enquete (chamada no cooldown e entre perguntas)
+    function tentarMostrarEnquete() {
+      if (enqueteState.enqueteAtual && document.getElementById('enqueteSection').classList.contains('active')) return;
+      mostrarEnquete();
     }
 
     // ===================================
