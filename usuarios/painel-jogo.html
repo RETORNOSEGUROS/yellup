@@ -4097,8 +4097,7 @@
     let timeCasaData = null;         // Dados do time da casa
     let timeForaData = null;         // Dados do time visitante
     let currentQuestion = null;
-    let perguntasRespondidas = [];
-    let perguntasSessao = new Set(); // perguntas vistas NESTA sessão (nunca reseta)
+    let perguntasSessao = new Set(); // ✅ Único tracking: perguntas respondidas (Firestore + sessão)
     let perguntasCache = null;       // ✅ CACHE: perguntas carregadas do Firestore (evita re-fetch)
     let todasPerguntasRespondidas = false;
     let questionTimer = null;        // Timer da pergunta
@@ -4702,10 +4701,9 @@
 
         // ✅ GLOBAL: Carregar perguntas já respondidas DESTE TIME (não do jogo)
         // Assim a pessoa nunca mais vê a mesma pergunta, mesmo em jogos diferentes
-        perguntasRespondidas = user[`perguntasRespondidas_${timeTorcida}`] || [];
-        // Adicionar ao set de sessão também
-        perguntasRespondidas.forEach(id => perguntasSessao.add(id));
-        console.log("📝 Perguntas já respondidas deste time (GLOBAL):", perguntasRespondidas.length);
+        const jaRespondidas = user[`perguntasRespondidas_${timeTorcida}`] || [];
+        jaRespondidas.forEach(id => perguntasSessao.add(id));
+        console.log("📝 Perguntas já respondidas deste time (GLOBAL):", perguntasSessao.size);
 
         // ✅ NOVO: Carregar acertos/erros e conquistas do jogo atual
         // Para não mostrar "Primeiro Gol" toda vez que atualiza
@@ -5245,41 +5243,22 @@
           console.log(`✅ Cache: ${perguntasCache.length} perguntas carregadas`);
         }
 
-        // Filtrar: remover perguntas já respondidas (global) E da sessão atual
-        const perguntasDisponiveis = perguntasCache.filter(p => 
-          !perguntasRespondidas.includes(p.id) && !perguntasSessao.has(p.id)
-        );
+        // Filtrar: remover perguntas já respondidas
+        const perguntasDisponiveis = perguntasCache.filter(p => !perguntasSessao.has(p.id));
 
-        console.log(`📝 Perguntas: ${perguntasCache.length} total | ${perguntasRespondidas.length} respondidas | ${perguntasSessao.size} sessão | ${perguntasDisponiveis.length} disponíveis`);
+        console.log(`📝 Perguntas: ${perguntasCache.length} total | ${perguntasSessao.size} respondidas | ${perguntasDisponiveis.length} disponíveis`);
 
         // Se acabaram as perguntas disponíveis
         if (perguntasDisponiveis.length === 0) {
-          // Tentar perguntas não vistas NESTA SESSÃO (mas respondidas em jogos anteriores)
-          const apenasGlobal = perguntasCache.filter(p => !perguntasSessao.has(p.id));
-
-          if (apenasGlobal.length > 0) {
-            console.log(`🔄 Reciclando ${apenasGlobal.length} perguntas de jogos anteriores`);
-            await db.collection("usuarios").doc(uid).update({
-              [`perguntasRespondidas_${timeTorcida}`]: [...perguntasSessao]
-            });
-            perguntasRespondidas = [...perguntasSessao];
-            
-            const perguntaAleatoria = apenasGlobal[Math.floor(Math.random() * apenasGlobal.length)];
-            currentQuestion = perguntaAleatoria;
-            console.log("📝 Pergunta selecionada:", currentQuestion.pergunta);
-            displayQuestion();
-            return;
-          }
+          // ✅ TODAS as perguntas do banco foram respondidas — reciclar
+          console.log(`🔄 Ciclo completo! Todas as ${perguntasCache.length} perguntas respondidas. Reciclando...`);
+          showToast(`🔄 Todas as ${perguntasCache.length} perguntas respondidas! Reiniciando ciclo...`);
           
-          // Ciclo completo: TODAS vistas nesta sessão — resetar tudo
-          console.log("🔄 Ciclo completo! Reiniciando perguntas...");
+          // Resetar Firestore (para backend aceitar perguntas recicladas) + sessão local
           await db.collection("usuarios").doc(uid).update({
             [`perguntasRespondidas_${timeTorcida}`]: []
           });
-          perguntasRespondidas = [];
           perguntasSessao.clear();
-          
-          showToast(`🔄 Ciclo completo! ${perguntasCache.length} perguntas respondidas.`);
           
           const perguntaAleatoria = perguntasCache[Math.floor(Math.random() * perguntasCache.length)];
           currentQuestion = perguntaAleatoria;
@@ -5479,7 +5458,6 @@
         onRespostaViciante(false, 0, 10);
 
         // Registrar no tracking local
-        perguntasRespondidas.push(currentQuestion.id);
         perguntasSessao.add(currentQuestion.id);
 
         await updateFreePlays();
@@ -5651,8 +5629,7 @@
           resultMessage.textContent = `❌ Errado! Era: ${r.respostaTexto || alternativas[correct] || correct}`;
         }
 
-        // Registrar no tracking local (global + sessão)
-        perguntasRespondidas.push(currentQuestion.id);
+        // Registrar no tracking local
         perguntasSessao.add(currentQuestion.id);
 
         // ✅ Atualizar missão "responder 3 perguntas"
