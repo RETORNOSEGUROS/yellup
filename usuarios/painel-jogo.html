@@ -4097,7 +4097,8 @@
     let timeCasaData = null;         // Dados do time da casa
     let timeForaData = null;         // Dados do time visitante
     let currentQuestion = null;
-    let perguntasSessao = new Set(); // ✅ Único tracking: perguntas respondidas (Firestore + sessão)
+    let perguntasSessao = new Set(); // Tracking para filtro (pode ser parcialmente resetado)
+    let perguntasEsteJogo = new Set(); // ✅ PERMANENTE: perguntas mostradas NESTE JOGO (nunca limpa)
     let perguntasCache = null;       // ✅ CACHE: perguntas carregadas do Firestore (evita re-fetch)
     let buscandoPergunta = false;    // ✅ Mutex: impede chamadas concorrentes
     let todasPerguntasRespondidas = false;
@@ -5261,28 +5262,49 @@
         // Filtrar: remover perguntas já respondidas
         const perguntasDisponiveis = perguntasCache.filter(p => !perguntasSessao.has(p.id));
 
-        console.log(`📝 Perguntas: ${perguntasCache.length} total | ${perguntasSessao.size} respondidas | ${perguntasDisponiveis.length} disponíveis`);
-        console.log(`🔍 DEBUG Set contém:`, [...perguntasSessao]);
-        console.log(`🔍 DEBUG Disponíveis:`, perguntasDisponiveis.map(p => p.pergunta.substring(0, 40)));
+        console.log(`📝 Perguntas: ${perguntasCache.length} total | ${perguntasSessao.size} filtradas | ${perguntasEsteJogo.size} neste jogo | ${perguntasDisponiveis.length} disponíveis`);
 
         // Se acabaram as perguntas disponíveis
         if (perguntasDisponiveis.length === 0) {
-          // ✅ TODAS as perguntas do banco foram respondidas — reciclar
-          console.log(`🔄 Ciclo completo! Todas as ${perguntasCache.length} perguntas respondidas. Reciclando...`);
+          
+          // PASSO 1: Tentar liberar perguntas de JOGOS ANTERIORES (que não apareceram neste jogo)
+          const naoVistasNesteJogo = perguntasCache.filter(p => !perguntasEsteJogo.has(p.id));
+          
+          if (naoVistasNesteJogo.length > 0) {
+            console.log(`🔄 Liberando ${naoVistasNesteJogo.length} perguntas de jogos anteriores (nunca vistas neste jogo)`);
+            // Resetar Firestore + Set de filtro mantendo apenas as deste jogo
+            await db.collection("usuarios").doc(uid).update({
+              [`perguntasRespondidas_${timeTorcida}`]: []
+            });
+            perguntasSessao = new Set(perguntasEsteJogo); // manter só as deste jogo
+            
+            const perguntaAleatoria = naoVistasNesteJogo[Math.floor(Math.random() * naoVistasNesteJogo.length)];
+            currentQuestion = perguntaAleatoria;
+            perguntasSessao.add(currentQuestion.id);
+            perguntasEsteJogo.add(currentQuestion.id);
+            console.log("📝 Pergunta selecionada (liberada de jogo anterior):", currentQuestion.id, currentQuestion.pergunta);
+            displayQuestion();
+            buscandoPergunta = false;
+            return;
+          }
+          
+          // PASSO 2: TODAS as perguntas já foram vistas neste jogo — reciclar tudo
+          console.log(`🔄 Ciclo completo! Todas as ${perguntasCache.length} perguntas respondidas NESTE JOGO. Reciclando...`);
           showToast(`🔄 Todas as ${perguntasCache.length} perguntas respondidas! Reiniciando ciclo...`);
           
-          // Resetar Firestore (para backend aceitar perguntas recicladas) + sessão local
           await db.collection("usuarios").doc(uid).update({
             [`perguntasRespondidas_${timeTorcida}`]: []
           });
           perguntasSessao.clear();
+          perguntasEsteJogo.clear();
           
           const perguntaAleatoria = perguntasCache[Math.floor(Math.random() * perguntasCache.length)];
           currentQuestion = perguntaAleatoria;
-          perguntasSessao.add(currentQuestion.id); // ✅ Marcar imediatamente
+          perguntasSessao.add(currentQuestion.id);
+          perguntasEsteJogo.add(currentQuestion.id);
           console.log("📝 Pergunta selecionada (ciclo novo):", currentQuestion.id, currentQuestion.pergunta);
           displayQuestion();
-          buscandoPergunta = false; // ✅ Liberar mutex
+          buscandoPergunta = false;
           return;
         }
 
@@ -5291,11 +5313,11 @@
         currentQuestion = perguntaAleatoria;
         
         // ✅ Marcar como vista IMEDIATAMENTE (antes do display, antes do backend)
-        // Garante que NUNCA será sorteada de novo, mesmo se backend falhar
         perguntasSessao.add(currentQuestion.id);
+        perguntasEsteJogo.add(currentQuestion.id);
 
         console.log("📝 Pergunta selecionada:", currentQuestion.id, currentQuestion.pergunta);
-        console.log(`🔍 DEBUG Set agora (${perguntasSessao.size}):`, [...perguntasSessao]);
+        console.log(`🔍 Set filtro (${perguntasSessao.size}) | Neste jogo (${perguntasEsteJogo.size})`);
 
         displayQuestion();
         buscandoPergunta = false; // ✅ Liberar mutex após seleção
