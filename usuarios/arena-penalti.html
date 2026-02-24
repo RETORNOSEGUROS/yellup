@@ -392,6 +392,20 @@
     .goal-zone:hover .zone-label { opacity: 1; }
     .goal-zone:active { transform: scale(0.95); }
 
+    /* HEATMAP: opponent tendencies */
+    .zone-heat {
+      position: absolute; top: 2px; right: 2px;
+      font-size: 0.55em; font-weight: 800; line-height: 1;
+      border-radius: 50%; width: 16px; height: 16px;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none; z-index: 5;
+    }
+    .goal-zone.heat-low { background: rgba(255,159,67,0.08); }
+    .goal-zone.heat-med { background: rgba(255,71,87,0.12); border-color: rgba(255,71,87,0.2); }
+    .goal-zone.heat-high { background: rgba(255,71,87,0.22); border-color: rgba(255,71,87,0.4); box-shadow: inset 0 0 12px rgba(255,71,87,0.12); }
+    .heatmap-hint { text-align:center; font-size:0.7em; color:var(--txt2); padding:2px 12px; display:none; }
+    .heatmap-hint span { color:var(--accent); font-weight:600; }
+
     .goal-zone.selected {
       background: rgba(255,159,67,0.22);
       border-color: var(--accent);
@@ -974,6 +988,7 @@
   <!-- ============ CONTROLS ============ -->
   <div class="controls">
     <div class="instruction waiting" id="instruction">Carregando...</div>
+    <div class="heatmap-hint" id="heatmapHint"></div>
     <button class="btn-confirm" id="btnConfirm" disabled onclick="confirmarEscolha()">Confirmar</button>
     <div class="match-timer" id="matchTimer"></div>
     <button class="btn-abandon" onclick="abandonarArena()">🏳️ Abandonar Partida</button>
@@ -1105,6 +1120,7 @@
     // GAME STATE
     // ============================================================
     var matchId = new URLSearchParams(window.location.search).get('id');
+    var isTreino = new URLSearchParams(window.location.search).get('modo') === 'treino';
     var currentUser = null;
     var matchData = null;
     var myRole = null;
@@ -1113,6 +1129,12 @@
     var unsubMatch = null;
     var matchTimerInterval = null;
     var MATCH_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+    // 🤖 BOT: tendências de chute e defesa (aprendíveis pelo jogador)
+    var BOT_TENDENCIES = {
+      chute:  { TL:16, TC:8, TR:16, ML:10, MC:6, MR:10, BL:14, BC:6, BR:14 },
+      defesa: { TL:10, TC:6, TR:10, ML:18, MC:14, MR:18, BL:8, BC:6, BR:10 }
+    };
 
     var ZONE_POSITIONS = {
       TL: { x: '18%', y: '18%' }, TC: { x: '50%', y: '12%' }, TR: { x: '82%', y: '18%' },
@@ -1178,12 +1200,14 @@
 
         // Then handle timer (wrapped in try-catch so it never blocks the game)
         try {
-          startMatchTimer();
-          if (matchData.criadoEm && matchData.criadoEm.toDate) {
-            var startTime = matchData.criadoEm.toDate().getTime();
-            var elapsed = Date.now() - startTime;
-            if (elapsed >= MATCH_TIMEOUT_MS && matchData.status === 'em_andamento') {
-              handleTimeout();
+          if (!isTreino) { // Treino não tem timer
+            startMatchTimer();
+            if (matchData.criadoEm && matchData.criadoEm.toDate) {
+              var startTime = matchData.criadoEm.toDate().getTime();
+              var elapsed = Date.now() - startTime;
+              if (elapsed >= MATCH_TIMEOUT_MS && matchData.status === 'em_andamento') {
+                handleTimeout();
+              }
             }
           }
         } catch (timerErr) {
@@ -1230,9 +1254,12 @@
         var p1score = d.placar ? (d.placar.jogador1 || 0) : 0;
         var p2score = d.placar ? (d.placar.jogador2 || 0) : 0;
         var reembolso = d.valorAposta || 2; // taxa paga
-        var premioSistema = d.premioSistema || 6; // prêmio do sistema
+        var premioSistema = d.premioSistema || 4; // prêmio do sistema
 
-        if (p1score === p2score) {
+        // 🤖 Treino: sem créditos
+        if (d.tipo === 'treino') {
+          await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: 'empate_timeout' });
+        } else if (p1score === p2score) {
           // Empate → reembolso da taxa para ambos
           await db.collection('usuarios').doc(currentUser.uid).update({ creditos: firebase.firestore.FieldValue.increment(reembolso) });
           await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({ tipo: 'entrada', valor: reembolso, descricao: 'Pênaltis: empate por tempo (reembolso taxa)', data: firebase.firestore.FieldValue.serverTimestamp() });
@@ -1256,6 +1283,15 @@
     }
 
     async function abandonarArena() {
+      if (isTreino) {
+        // Treino: simplesmente encerrar
+        try {
+          await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: 'empate_timeout' });
+        } catch(e) {}
+        showToast('🤖 Treino encerrado');
+        setTimeout(function() { window.location.href = 'penaltis.html'; }, 800);
+        return;
+      }
       if (!confirm('🏳️ Tem certeza? Você perderá sua taxa de entrada.')) return;
       if (isProcessing) return;
       isProcessing = true;
@@ -1265,7 +1301,7 @@
         var isP1 = myRole === 'jogador1';
         var vencedorUid = isP1 ? d.jogador2.uid : d.jogador1.uid;
         var perdedorUid = currentUser.uid;
-        var premioSistema = d.premioSistema || 6;
+        var premioSistema = d.premioSistema || 4;
         await db.collection('penaltis').doc(matchId).update({ status: 'finalizado', vencedor: vencedorUid, abandonou: perdedorUid, creditoPendente: { uid: vencedorUid, valor: premioSistema, tipo: 'wo' } });
         var nomePerdedor = isP1 ? d.jogador1.nome : d.jogador2.nome;
         try {
@@ -1299,8 +1335,8 @@
 
       var isSuddenDeath = rodada > 10;
       document.getElementById('roundInfo').textContent = isSuddenDeath
-        ? '⚡ Morte Súbita R' + (rodada - 10) + ' • 🎟️ 2 💎'
-        : 'Rodada ' + rodada + '/10 • 🎟️ 2 💎';
+        ? '⚡ Morte Súbita R' + (rodada - 10) + (isTreino ? ' • 🤖 Treino' : ' • 🎟️ 2 💎')
+        : 'Rodada ' + rodada + '/10' + (isTreino ? ' • 🤖 Treino' : ' • 🎟️ 2 💎');
 
       var cobrador = getCobrador(rodada);
       var p1R = document.getElementById('p1Role');
@@ -1632,6 +1668,7 @@
           btnEl.disabled = true;
           btnEl.textContent = 'Selecione um quadrante';
           enableGoalGrid();
+          showHeatmap(); // 📊 Mostrar tendências do adversário
         });
         
         // Set instruction immediately (visible behind overlay)
@@ -1658,6 +1695,112 @@
     }
 
     // ============================================================
+    // 📊 HEATMAP: Tendências do adversário
+    // ============================================================
+    function buildHeatmap(rodadas, outroRole, action) {
+      var freq = {};
+      var total = 0;
+      rodadas.forEach(function(r) {
+        var key = null;
+        if (action === 'chute' && r.cobrador === outroRole) key = r.chute;
+        else if (action === 'defesa' && r.cobrador !== outroRole) key = r.defesa;
+        if (key) { freq[key] = (freq[key] || 0) + 1; total++; }
+      });
+      return { freq: freq, total: total };
+    }
+
+    function showHeatmap() {
+      clearHeatmap();
+      var rodadas = matchData.rodadas || [];
+      if (rodadas.length < 2) return;
+      
+      var rodada = matchData.rodadaAtual || 1;
+      var cobrador = getCobrador(rodada);
+      var iAmCobrador = cobrador === myRole;
+      var outroRole = myRole === 'jogador1' ? 'jogador2' : 'jogador1';
+      
+      var heatData, hintText;
+      if (iAmCobrador) {
+        heatData = buildHeatmap(rodadas, outroRole, 'defesa');
+        hintText = '📊 Tendência de <span>defesa</span> do adversário';
+      } else {
+        heatData = buildHeatmap(rodadas, outroRole, 'chute');
+        hintText = '📊 Tendência de <span>chute</span> do adversário';
+      }
+      
+      if (heatData.total < 1) return;
+      
+      var zones = ['TL','TC','TR','ML','MC','MR','BL','BC','BR'];
+      var maxFreq = 1;
+      zones.forEach(function(z) { if ((heatData.freq[z] || 0) > maxFreq) maxFreq = heatData.freq[z]; });
+      
+      zones.forEach(function(z) {
+        var cell = document.querySelector('[data-zone="' + z + '"]');
+        var count = heatData.freq[z] || 0;
+        if (count > 0) {
+          var heatEl = document.createElement('span');
+          heatEl.className = 'zone-heat';
+          heatEl.textContent = count;
+          var intensity = count / maxFreq;
+          if (intensity >= 0.7) {
+            cell.classList.add('heat-high');
+            heatEl.style.background = 'rgba(255,71,87,0.8)'; heatEl.style.color = '#fff';
+          } else if (intensity >= 0.4) {
+            cell.classList.add('heat-med');
+            heatEl.style.background = 'rgba(255,159,67,0.7)'; heatEl.style.color = '#fff';
+          } else {
+            cell.classList.add('heat-low');
+            heatEl.style.background = 'rgba(255,255,255,0.25)'; heatEl.style.color = 'rgba(255,255,255,0.8)';
+          }
+          cell.appendChild(heatEl);
+        }
+      });
+      
+      var hintEl = document.getElementById('heatmapHint');
+      if (hintEl) {
+        hintEl.innerHTML = hintText + ' (' + heatData.total + ' cobranças)';
+        hintEl.style.display = 'block';
+      }
+    }
+
+    function clearHeatmap() {
+      document.querySelectorAll('.zone-heat').forEach(function(el) { el.remove(); });
+      document.querySelectorAll('.goal-zone').forEach(function(z) { 
+        z.classList.remove('heat-low', 'heat-med', 'heat-high'); 
+      });
+      var hintEl = document.getElementById('heatmapHint');
+      if (hintEl) hintEl.style.display = 'none';
+    }
+
+    // ============================================================
+    // 🤖 BOT: Lógica do treino
+    // ============================================================
+    function botEscolher(tipo) {
+      var weights = BOT_TENDENCIES[tipo];
+      var zones = Object.keys(weights);
+      var totalW = zones.reduce(function(s, z) { return s + weights[z]; }, 0);
+      var rand = Math.random() * totalW;
+      var cum = 0;
+      for (var i = 0; i < zones.length; i++) {
+        cum += weights[zones[i]];
+        if (rand <= cum) return zones[i];
+      }
+      return 'MC';
+    }
+
+    async function botResponder() {
+      try {
+        var rodada = matchData.rodadaAtual || 1;
+        var cobrador = getCobrador(rodada);
+        var botRole = myRole === 'jogador1' ? 'jogador2' : 'jogador1';
+        var isBotCobrador = cobrador === botRole;
+        var escolha = botEscolher(isBotCobrador ? 'chute' : 'defesa');
+        var campo = 'escolha' + capitalize(botRole);
+        await db.collection('penaltis').doc(matchId).update({ [campo]: escolha });
+      } catch(e) { console.warn('Bot error:', e); }
+    }
+
+    // ============================================================
     // ZONE SELECTION
     // ============================================================
     function selectZone(zone) {
@@ -1674,6 +1817,7 @@
         z.classList.remove('selected', 'disabled', 'result-gol', 'result-defesa');
         z.querySelector('.zone-result').textContent = '';
       });
+      clearHeatmap();
     }
     function resetPlayers() {
       // Reset kicker
@@ -1704,6 +1848,11 @@
         document.getElementById('instruction').className = 'instruction waiting';
         document.getElementById('instruction').innerHTML = '<span class="waiting-spinner"></span> Aguardando adversário...';
         btn.textContent = 'Aguardando...';
+
+        // 🤖 Bot responde automaticamente no treino
+        if (isTreino) {
+          setTimeout(function() { botResponder(); }, 600 + Math.random() * 1000);
+        }
       } catch (e) {
         console.error('Erro ao enviar escolha:', e);
         showToast('❌ Erro ao enviar escolha');
@@ -1885,8 +2034,8 @@
         update.stats = computeStats(rodadas);
 
         // Pay winner: system prize (not from opponent!)
-        if (vencedor) {
-          var premio = matchData.premioSistema || 6;
+        if (vencedor && !(matchData.tipo === 'treino')) {
+          var premio = matchData.premioSistema || 4;
           if (vencedor === currentUser.uid) {
             await db.collection('usuarios').doc(currentUser.uid).update({
               creditos: firebase.firestore.FieldValue.increment(premio)
@@ -1914,6 +2063,15 @@
               data: firebase.firestore.FieldValue.serverTimestamp()
             });
           } catch(e) { console.log('Notif error:', e); }
+        }
+
+        // 🤖 Treino: dar XP ao jogador
+        if (matchData.tipo === 'treino') {
+          try {
+            await db.collection('usuarios').doc(currentUser.uid).update({
+              xp: firebase.firestore.FieldValue.increment(5)
+            });
+          } catch(e) { console.warn('XP treino:', e); }
         }
       }
 
@@ -1950,7 +2108,7 @@
       renderTracker();
 
       // Claim pending credits if I'm the winner and credits haven't been claimed yet
-      if (matchData.creditoPendente && matchData.creditoPendente.uid === currentUser.uid) {
+      if (matchData.creditoPendente && matchData.creditoPendente.uid === currentUser.uid && matchData.tipo !== 'treino') {
         (async () => {
           try {
             var pendente = matchData.creditoPendente;
@@ -1967,7 +2125,7 @@
       var wasAbandoned = !!matchData.abandonou;
       var ganhei = matchData.vencedor === currentUser.uid;
       var placarStr = (matchData.placar ? matchData.placar.jogador1 || 0 : 0) + ' × ' + (matchData.placar ? matchData.placar.jogador2 || 0 : 0);
-      var premio = matchData.valorAposta * 2;
+      var premio = matchData.premioSistema || 4;
 
       var card = document.getElementById('resultCard');
       var icon = document.getElementById('resultIcon');
@@ -1976,7 +2134,18 @@
       var credits = document.getElementById('resultCredits');
       var btn = document.getElementById('btnResult');
 
-      if (isTimeout) {
+      // 🤖 Treino: mostrar XP
+      if (matchData.tipo === 'treino') {
+        card.className = 'result-card' + (ganhei ? ' win' : '');
+        icon.textContent = ganhei ? '🏆' : '🤖';
+        title.textContent = ganhei ? 'Vitória no Treino!' : 'Derrota no Treino';
+        title.style.color = ganhei ? 'var(--green)' : 'var(--accent)';
+        credits.className = 'r-credits';
+        credits.textContent = '+5 XP 🎯 (treino)';
+        credits.style.color = 'var(--accent)';
+        btn.className = 'btn-result' + (ganhei ? ' win' : '');
+        if (ganhei) spawnConfetti();
+      } else if (isTimeout) {
         // Draw due to timeout - both refunded
         card.className = 'result-card';
         icon.textContent = '⏰';
