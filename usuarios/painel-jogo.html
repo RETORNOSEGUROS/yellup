@@ -4099,6 +4099,7 @@
     let currentQuestion = null;
     let perguntasSessao = new Set(); // ✅ Único tracking: perguntas respondidas (Firestore + sessão)
     let perguntasCache = null;       // ✅ CACHE: perguntas carregadas do Firestore (evita re-fetch)
+    let buscandoPergunta = false;    // ✅ Mutex: impede chamadas concorrentes
     let todasPerguntasRespondidas = false;
     let questionTimer = null;        // Timer da pergunta
     let questionTimeLeft = 10;       // 10 segundos por pergunta
@@ -4222,7 +4223,7 @@
       .catch((error) => console.error("❌ Erro persistência:", error));
 
     auth.onAuthStateChanged(async (user) => {
-      console.log("🔍 Verificando autenticação...");
+      console.log("🔍 Verificando autenticação...", "perguntasSessao.size=", perguntasSessao.size);
       
       if (!user) {
         console.log("❌ Usuário não autenticado");
@@ -4704,6 +4705,7 @@
         const jaRespondidas = user[`perguntasRespondidas_${timeTorcida}`] || [];
         jaRespondidas.forEach(id => perguntasSessao.add(id));
         console.log("📝 Perguntas já respondidas deste time (GLOBAL):", perguntasSessao.size);
+        console.log("🔍 DEBUG loadUserData - Set após init:", [...perguntasSessao]);
 
         // ✅ NOVO: Carregar acertos/erros e conquistas do jogo atual
         // Para não mostrar "Primeiro Gol" toda vez que atualiza
@@ -5184,7 +5186,15 @@
 
     async function getQuestion() {
       try {
+        // ✅ MUTEX: impedir chamadas concorrentes
+        if (buscandoPergunta) {
+          console.log("⚠️ getQuestion já em execução, ignorando chamada dupla");
+          return;
+        }
+        buscandoPergunta = true;
+        
         const btnAnswer = document.getElementById("btnAnswer");
+        const fabBtn = document.getElementById("fabBtn");
         
         // 📊 Esconder enquete se visível
         esconderEnquete();
@@ -5194,6 +5204,7 @@
         // ✅ Se está em cooldown (sem perguntas), não buscar
         if (cooldownState.perguntasRestantes <= 0 && cooldownState.totalRespondidas > 0) {
           showToast("⏳ Aguarde o próximo ciclo de perguntas ou use créditos para adiantar!");
+          buscandoPergunta = false;
           return;
         }
         
@@ -5207,10 +5218,12 @@
             await loadRanking();
           }
           atualizarBotaoBaseadoNoStatus();
+          buscandoPergunta = false;
           return;
         }
         
         btnAnswer.disabled = true;
+        if (fabBtn) fabBtn.disabled = true;
         btnAnswer.textContent = "🔍 Buscando pergunta...";
 
         // ✅ CACHE: só busca perguntas do Firestore na PRIMEIRA vez
@@ -5226,6 +5239,8 @@
             alert("Nenhuma pergunta disponível para este time!\n\nO administrador precisa cadastrar perguntas.");
             btnAnswer.disabled = false;
             btnAnswer.textContent = "🎯 Responder Pergunta";
+            if (fabBtn) fabBtn.disabled = false;
+            buscandoPergunta = false;
             return;
           }
 
@@ -5247,6 +5262,8 @@
         const perguntasDisponiveis = perguntasCache.filter(p => !perguntasSessao.has(p.id));
 
         console.log(`📝 Perguntas: ${perguntasCache.length} total | ${perguntasSessao.size} respondidas | ${perguntasDisponiveis.length} disponíveis`);
+        console.log(`🔍 DEBUG Set contém:`, [...perguntasSessao]);
+        console.log(`🔍 DEBUG Disponíveis:`, perguntasDisponiveis.map(p => p.pergunta.substring(0, 40)));
 
         // Se acabaram as perguntas disponíveis
         if (perguntasDisponiveis.length === 0) {
@@ -5263,8 +5280,9 @@
           const perguntaAleatoria = perguntasCache[Math.floor(Math.random() * perguntasCache.length)];
           currentQuestion = perguntaAleatoria;
           perguntasSessao.add(currentQuestion.id); // ✅ Marcar imediatamente
-          console.log("📝 Pergunta selecionada (ciclo novo):", currentQuestion.pergunta);
+          console.log("📝 Pergunta selecionada (ciclo novo):", currentQuestion.id, currentQuestion.pergunta);
           displayQuestion();
+          buscandoPergunta = false; // ✅ Liberar mutex
           return;
         }
 
@@ -5276,12 +5294,17 @@
         // Garante que NUNCA será sorteada de novo, mesmo se backend falhar
         perguntasSessao.add(currentQuestion.id);
 
-        console.log("📝 Pergunta selecionada:", currentQuestion.pergunta);
+        console.log("📝 Pergunta selecionada:", currentQuestion.id, currentQuestion.pergunta);
+        console.log(`🔍 DEBUG Set agora (${perguntasSessao.size}):`, [...perguntasSessao]);
 
         displayQuestion();
+        buscandoPergunta = false; // ✅ Liberar mutex após seleção
 
       } catch (error) {
         console.error("❌ Erro ao buscar pergunta:", error);
+        buscandoPergunta = false;
+        const fabBtn = document.getElementById("fabBtn");
+        if (fabBtn) fabBtn.disabled = false;
         alert("Erro ao buscar pergunta. Tente novamente!");
         document.getElementById("btnAnswer").disabled = false;
         document.getElementById("btnAnswer").textContent = "🎯 Responder Pergunta";
@@ -5490,6 +5513,7 @@
           currentQuestion = null;
           document.getElementById("btnAnswer").disabled = false;
           document.getElementById("btnAnswer").textContent = "🎯 Responder Pergunta";
+          const fab = document.getElementById("fabBtn"); if (fab) fab.disabled = false;
           document.getElementById("questionModalOverlay").classList.remove("active");
         }, 2000);
       }
@@ -5705,6 +5729,7 @@
         }
         document.getElementById("btnAnswer").disabled = false;
         document.getElementById("btnAnswer").textContent = "🎯 Responder Pergunta";
+        const fab2 = document.getElementById("fabBtn"); if (fab2) fab2.disabled = false;
         document.getElementById("questionModalOverlay").classList.remove("active");
       }
     }
