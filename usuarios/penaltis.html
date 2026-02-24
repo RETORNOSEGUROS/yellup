@@ -137,14 +137,13 @@
     <div class="credits-bar"><span class="credits-label">💰 Seus créditos</span><span class="credits-value" id="myCredits">0</span></div>
 
     <div class="buttons-row">
-      <button class="btn-create" onclick="abrirModalCriar('publica')">⚽ Criar Disputa</button>
-      <button class="btn-challenge" onclick="abrirModalCriar('amigo')">👥 Desafiar Amigo</button>
+      <button class="btn-challenge" onclick="abrirModalCriar('amigo')" style="width:100%">⚽ Desafiar Jogador</button>
     </div>
 
     <a href="ranking-penaltis.html" class="ranking-link">🏆 Ver Ranking de Pênaltis →</a>
 
     <div class="tabs">
-      <div class="tab active" onclick="switchTab('abertas')" id="tabAbertas">🔴 Abertas</div>
+      <div class="tab active" onclick="switchTab('abertas')" id="tabAbertas">📩 Desafios</div>
       <div class="tab" onclick="switchTab('minhas')" id="tabMinhas">⚡ Minhas</div>
       <div class="tab" onclick="switchTab('historico')" id="tabHistorico">📋 Histórico</div>
     </div>
@@ -161,17 +160,18 @@
       <div class="rule-item"><span>🧤</span><span>Se acertar o quadrante = defende!</span></div>
       <div class="rule-item"><span>💰</span><span>Taxa: 2 créditos (queimados) • Prêmio: 6 créditos do sistema</span></div>
       <div class="rule-item"><span>⚡</span><span>Morte súbita se empatar após 5×5</span></div>
+      <div class="rule-item"><span>🎟️</span><span>Free: 2 disputas/dia • Com Passe: ilimitado</span></div>
     </div>
   </div>
 
   <!-- MODAL -->
   <div class="modal-overlay" id="modalCriar" onclick="if(event.target===this)fecharModal()">
     <div class="modal-card">
-      <div class="modal-title" id="modalTitle">⚽ Criar Disputa</div>
-      <div id="friendPickerSection" style="display:none;">
+      <div class="modal-title" id="modalTitle">⚽ Desafiar Jogador</div>
+      <div id="friendPickerSection">
         <div class="modal-field">
-          <div class="modal-label">Escolha um amigo para desafiar</div>
-          <input type="text" class="friends-search" id="searchFriend" placeholder="🔍 Buscar..." oninput="filtrarAmigos()">
+          <div class="modal-label">Escolha um jogador para desafiar</div>
+          <input type="text" class="friends-search" id="searchFriend" placeholder="🔍 Buscar jogador..." oninput="filtrarAmigos()">
           <div class="friends-list" id="friendsList"><div class="friends-empty">Carregando...</div></div>
         </div>
       </div>
@@ -246,7 +246,7 @@
     const db=firebase.firestore(),auth=firebase.auth();
     auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>console.error(e));
 
-    let currentUser=null,currentUserData=null,allMatches=[],allFriends=[],allUsers=[],friendUids=new Set(),selectedFriendUid=null,modalMode='publica',currentTab='abertas';
+    let currentUser=null,currentUserData=null,allMatches=[],allFriends=[],allUsers=[],friendUids=new Set(),selectedFriendUid=null,modalMode='amigo',currentTab='abertas';
     let allTimes=[],selectedTimeId=null,selectedTimeData=null;
     let acceptingMatchId=null,acceptingMatchValor=0,selectedTimeAcceptId=null,selectedTimeAcceptData=null;
     let unsubDisputas=null;
@@ -433,10 +433,10 @@
 
     function renderAbertas(){
       const c=document.getElementById('contentAbertas');
-      const list=allMatches.filter(d=>d.status==='aguardando'&&d.jogador1?.uid!==currentUser.uid&&(!d.desafiadoUid||d.desafiadoUid===currentUser.uid)).slice(0,5);
-      if(!list.length){c.innerHTML='<div class="empty-state"><div class="empty-icon">😴</div><p>Nenhuma disputa aberta. Crie uma!</p></div>';return}
+      const list=allMatches.filter(d=>d.status==='aguardando'&&d.desafiadoUid===currentUser.uid).slice(0,10);
+      if(!list.length){c.innerHTML='<div class="empty-state"><div class="empty-icon">😴</div><p>Nenhum desafio recebido no momento</p></div>';return}
       c.innerHTML=list.map(d=>{
-        const nome=d.jogador1?.nome||'Jogador',ini=nome.charAt(0).toUpperCase(),tempo=d.criadoEm?.toDate?tempoRelativo(d.criadoEm.toDate()):'',isDesafio=d.desafiadoUid===currentUser.uid;
+        const nome=d.jogador1?.nome||'Jogador',ini=nome.charAt(0).toUpperCase(),tempo=d.criadoEm?.toDate?tempoRelativo(d.criadoEm.toDate()):'';
         const teamBadge=d.jogador1?.time?`<div class="match-team-badge" style="background:${d.jogador1.time.primaria}22;color:${d.jogador1.time.primaria}">${d.jogador1.time.abreviacao||d.jogador1.time.nome}</div>`:'';
         const avatarContent=d.jogador1?.avatarUrl?`<img src="${d.jogador1.avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`:`${ini}`;
         const avatarStyle=d.jogador1?.time?`style="background:linear-gradient(135deg,${d.jogador1.time.primaria},${d.jogador1.time.secundaria})"`:'';
@@ -448,7 +448,7 @@
           const min=Math.floor(restante/60),seg=restante%60;
           expiraHtml=restante>0?`<div style="font-size:.7em;color:var(--accent-primary);text-align:center;margin-bottom:8px">⏰ Expira em ${min}:${String(seg).padStart(2,'0')}</div>`:'';
         }
-        return `<div class="match-card"><div class="match-top"><div class="match-creator"><div class="match-avatar" ${avatarStyle}>${avatarContent}</div><div><div class="match-name">${nome}</div>${teamBadge}<div class="match-time">${tempo}</div></div></div><span class="match-status status-aguardando">${isDesafio?'📩 Desafio':'Aguardando'}</span></div>${isDesafio?'<div class="match-challenge-info">👊 Você foi desafiado!</div>':''}${expiraHtml}<div class="match-middle"><div><div class="match-bet-value">🎟️ 2 💎</div><div class="match-bet-label">taxa • 🏆 6 prêmio</div></div></div><button class="btn-accept" onclick="aceitarDisputa('${d.id}',2)">⚽ Aceitar Desafio!</button></div>`
+        return `<div class="match-card"><div class="match-top"><div class="match-creator"><div class="match-avatar" ${avatarStyle}>${avatarContent}</div><div><div class="match-name">${nome}</div>${teamBadge}<div class="match-time">${tempo}</div></div></div><span class="match-status status-aguardando">📩 Desafio</span></div><div class="match-challenge-info">👊 Você foi desafiado!</div>${expiraHtml}<div class="match-middle"><div><div class="match-bet-value">🎟️ 2 💎</div><div class="match-bet-label">taxa • 🏆 6 prêmio</div></div></div><button class="btn-accept" onclick="aceitarDisputa('${d.id}',2)">⚽ Aceitar Desafio!</button></div>`
       }).join('');
     }
 
@@ -502,18 +502,12 @@
 
     // MODAL
     function abrirModalCriar(mode){
-      modalMode=mode;selectedFriendUid=null;
+      modalMode='amigo';selectedFriendUid=null;
       document.getElementById('modalCriar').classList.add('active');
-      if(mode==='amigo'){
-        document.getElementById('modalTitle').textContent='👥 Desafiar Amigo';
-        document.getElementById('friendPickerSection').style.display='block';
-        document.getElementById('btnModalConfirm').textContent='⚡ Desafiar!';
-        renderFriendsList();
-      }else{
-        document.getElementById('modalTitle').textContent='⚽ Criar Disputa Pública';
-        document.getElementById('friendPickerSection').style.display='none';
-        document.getElementById('btnModalConfirm').textContent='⚽ Criar!';
-      }
+      document.getElementById('modalTitle').textContent='⚽ Desafiar Jogador';
+      document.getElementById('friendPickerSection').style.display='block';
+      document.getElementById('btnModalConfirm').textContent='⚡ Desafiar!';
+      renderFriendsList();
     }
     function fecharModal(){document.getElementById('modalCriar').classList.remove('active')}
     function setValor(v){document.getElementById('inputValor').value=v;document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));event.target.classList.add('active')}
@@ -538,7 +532,7 @@
     }
 
     function renderFriendsListHTML(c,list){
-      if(!list.length){c.innerHTML='<div class="friends-empty">'+(allFriends.length===0?'Nenhum amigo ainda. Digite para buscar jogadores.':'Nenhum jogador encontrado')+'</div>';return}
+      if(!list.length){c.innerHTML='<div class="friends-empty">'+(allFriends.length===0?'Digite o nome para buscar jogadores':'Nenhum jogador encontrado')+'</div>';return}
       c.innerHTML=list.map(x=>{
         const sel=selectedFriendUid===x.uid?'selected':'';
         const badge=x.isFriend?'<span style="font-size:0.65em;background:rgba(46,213,115,0.15);color:#2ed573;padding:1px 6px;border-radius:4px;margin-left:4px">amigo</span>':'';
@@ -549,11 +543,41 @@
     function filtrarAmigos(){renderFriendsList(document.getElementById('searchFriend').value)}
     function selectFriend(uid){selectedFriendUid=uid;renderFriendsList(document.getElementById('searchFriend').value)}
 
+    // ✅ LIMITE DIÁRIO: Free = 2/dia, Passe = ilimitado
+    async function verificarLimiteDiario() {
+      const passe = currentUserData?.passe || {};
+      const temPasse = (passe.ativo || passe.temPasse) && passe.tipo && passe.tipo !== 'free';
+      if (temPasse && passe.dataExpiracao) {
+        const dExp = passe.dataExpiracao.toDate ? passe.dataExpiracao.toDate() : new Date(passe.dataExpiracao);
+        if (new Date() > dExp) return await contarHoje(); // expirou
+      }
+      if (temPasse) return { ok: true, restantes: '∞' };
+      return await contarHoje();
+    }
+    async function contarHoje() {
+      const hoje = new Date();
+      hoje.setHours(0,0,0,0);
+      const hojeMs = hoje.getTime();
+      // Contar disputas de hoje onde participei (como criador ou como aceitante)
+      const total = allMatches.filter(d => {
+        const criado = d.criadoEm?.toDate ? d.criadoEm.toDate().getTime() : 0;
+        if (criado < hojeMs) return false;
+        return d.jogador1?.uid === currentUser.uid || d.jogador2?.uid === currentUser.uid;
+      }).length;
+      const limite = 2;
+      if (total >= limite) return { ok: false, restantes: 0, msg: `❌ Limite diário atingido (${limite}/dia). Adquira um Passe para jogar ilimitado!` };
+      return { ok: true, restantes: limite - total };
+    }
+
     // CRIAR
     async function criarDisputa(){
       const valor=2; // FIXO: 2 créditos
       if((currentUserData?.creditos||0)<valor){showToast('❌ Créditos insuficientes (precisa de 2 💎)');return}
-      if(modalMode==='amigo'&&!selectedFriendUid){showToast('❌ Selecione um amigo');return}
+      if(!selectedFriendUid){showToast('❌ Selecione um jogador para desafiar');return}
+
+      // ✅ Verificar limite diário (free = 2/dia)
+      const limite = await verificarLimiteDiario();
+      if (!limite.ok) { showToast(limite.msg); return; }
 
       // ✅ Limite: 1 disputa aberta por vez
       const existente=allMatches.find(d=>d.jogador1?.uid===currentUser.uid&&d.status==='aguardando');
@@ -567,12 +591,11 @@
         if(selectedTimeData) j1.time={id:selectedTimeData.id,nome:selectedTimeData.nome,primaria:selectedTimeData.primaria,secundaria:selectedTimeData.secundaria,terciaria:selectedTimeData.terciaria,abreviacao:selectedTimeData.abreviacao};
         console.log('🎽 Criando disputa - j1:', JSON.stringify(j1));
         const matchData={jogador1:j1,jogador2:null,status:'aguardando',valorAposta:valor,premioSistema:6,modeloV2:true,rodadaAtual:1,rodadas:[],placar:{jogador1:0,jogador2:0},escolhaJogador1:null,escolhaJogador2:null,vencedor:null,criadoEm:firebase.firestore.FieldValue.serverTimestamp(),expiraEm:new Date(Date.now()+5*60*1000)};
-        if(modalMode==='amigo'&&selectedFriendUid){
-          const amigo=allFriends.find(f=>f.uid===selectedFriendUid);
-          matchData.desafiadoUid=selectedFriendUid;
-          matchData.desafiadoNome=amigo?.nome||'Amigo';
-          await db.collection('notificacoes').add({para:selectedFriendUid,de:currentUser.uid,tipo:'desafio_penalti',titulo:'⚽ Desafio de Pênaltis!',mensagem:`${nome} te desafiou para pênaltis! 🎟️ Taxa: 2 créditos • 🏆 Prêmio: 6 créditos`,link:'penaltis.html',lida:false,data:firebase.firestore.FieldValue.serverTimestamp()});
-        }
+        // ✅ Sempre desafio direto (sem disputas públicas)
+        const amigoData=[...allFriends,...allUsers].find(f=>f.uid===selectedFriendUid);
+        matchData.desafiadoUid=selectedFriendUid;
+        matchData.desafiadoNome=amigoData?.nome||'Jogador';
+        await db.collection('notificacoes').add({para:selectedFriendUid,de:currentUser.uid,tipo:'desafio_penalti',titulo:'⚽ Desafio de Pênaltis!',mensagem:`${nome} te desafiou para pênaltis! 🎟️ Taxa: 2 créditos • 🏆 Prêmio: 6 créditos`,link:'penaltis.html',lida:false,data:firebase.firestore.FieldValue.serverTimestamp()});
         const docRef=await db.collection('penaltis').add(matchData);
         await db.collection('usuarios').doc(currentUser.uid).collection('extrato').doc().set({tipo:'saida',valor,descricao:'Pênaltis: taxa de entrada (queimada)',data:firebase.firestore.FieldValue.serverTimestamp()});
         currentUserData.creditos-=valor;
@@ -585,8 +608,11 @@
     }
 
     // ACEITAR - show team picker first
-    function aceitarDisputa(id,valor){
+    async function aceitarDisputa(id,valor){
       if((currentUserData?.creditos||0)<2){showToast('❌ Créditos insuficientes (precisa de 2 💎)');return}
+      // ✅ Verificar limite diário (free = 2/dia)
+      const limite = await verificarLimiteDiario();
+      if (!limite.ok) { showToast(limite.msg); return; }
       acceptingMatchId=id;acceptingMatchValor=2; // FIXO: 2 créditos
       selectedTimeAcceptId=selectedTimeId;selectedTimeAcceptData=selectedTimeData; // pre-select favorite
       renderTimePicker('teamPickerAccept','accept');
@@ -597,6 +623,11 @@
     async function confirmarAceitar(){
       if(!acceptingMatchId) return;
       const id=acceptingMatchId,valor=2; // FIXO: 2 créditos
+
+      // ✅ Verificar limite diário (free = 2/dia)
+      const limite = await verificarLimiteDiario();
+      if (!limite.ok) { showToast(limite.msg); document.getElementById('modalAcceptTeam').classList.remove('active'); return; }
+
       document.getElementById('modalAcceptTeam').classList.remove('active');
       try{
         const nome=currentUserData.usuarioUnico||currentUserData.usuario||currentUserData.nome||'Jogador';
