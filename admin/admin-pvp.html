@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PvP — Yellup Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root{--bg-primary:#0c0e14;--bg-secondary:#12141c;--bg-card:#181a24;--bg-card-hover:#1e2030;--bg-sidebar:#10121a;--border:#1e2030;--border-light:#282a3a;--text-primary:#e8e9ed;--text-secondary:#8b8d9a;--text-muted:#5c5e6e;--accent:#f0b429;--accent-dim:rgba(240,180,41,.12);--green:#34d399;--green-dim:rgba(52,211,153,.12);--red:#f87171;--red-dim:rgba(248,113,113,.12);--blue:#60a5fa;--blue-dim:rgba(96,165,250,.12);--purple:#a78bfa;--purple-dim:rgba(167,139,250,.12);--orange:#fb923c;--orange-dim:rgba(251,146,60,.12);--pink:#f472b6;--pink-dim:rgba(244,114,182,.12);--sidebar-w:250px;--header-h:64px;}
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100vh;overflow-x:hidden;}
+        .sidebar{position:fixed;left:0;top:0;width:var(--sidebar-w);height:100vh;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform .3s ease;}
+        .sidebar-brand{height:var(--header-h);display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--border);flex-shrink:0;}
+        .sidebar-brand .logo{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#000;}
+        .sidebar-brand h1{font-size:17px;font-weight:700;letter-spacing:-.3px;} .sidebar-brand h1 span{color:var(--text-muted);font-weight:500;font-size:12px;margin-left:6px;}
+        .sidebar-nav{flex:1;overflow-y:auto;padding:12px 0;} .sidebar-nav::-webkit-scrollbar{width:0;}
+        .nav-group{margin-bottom:8px;} .nav-group-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-muted);padding:12px 20px 6px;}
+        .nav-item{display:flex;align-items:center;gap:10px;padding:8px 16px;margin:1px 8px;border-radius:8px;color:var(--text-secondary);text-decoration:none;font-size:13px;font-weight:500;transition:all .15s;cursor:pointer;}
+        .nav-item:hover{background:var(--bg-card);color:var(--text-primary);} .nav-item.active{background:var(--accent-dim);color:var(--accent);}
+        .nav-item .icon{width:20px;text-align:center;font-size:14px;flex-shrink:0;}
+        .sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0;}
+        .sidebar-footer .admin-box{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;cursor:pointer;transition:background .15s;} .sidebar-footer .admin-box:hover{background:var(--bg-card);}
+        .admin-avatar{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),#e09800);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#000;}
+        .admin-info-text{flex:1;} .admin-info-text .name{font-size:13px;font-weight:600;} .admin-info-text .role{font-size:11px;color:var(--text-muted);}
+        .btn-logout{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px;border-radius:6px;transition:all .15s;} .btn-logout:hover{color:var(--red);background:var(--red-dim);}
+        .main{margin-left:var(--sidebar-w);min-height:100vh;}
+        .header{height:var(--header-h);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:var(--bg-primary);position:sticky;top:0;z-index:50;}
+        .header-left h2{font-size:16px;font-weight:600;letter-spacing:-.3px;} .header-left p{font-size:12px;color:var(--text-muted);margin-top:1px;}
+        .header-actions{display:flex;align-items:center;gap:8px;}
+        .content{padding:24px 32px 40px;}
+
+        /* Stats */
+        .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+        .stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:20px;transition:border-color .2s;} .stat-card:hover{border-color:var(--border-light);}
+        .stat-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;}
+        .stat-icon-box{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+        .stat-icon-box.blue{background:var(--blue-dim);} .stat-icon-box.green{background:var(--green-dim);} .stat-icon-box.accent{background:var(--accent-dim);} .stat-icon-box.red{background:var(--red-dim);} .stat-icon-box.purple{background:var(--purple-dim);} .stat-icon-box.orange{background:var(--orange-dim);}
+        .stat-value{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;line-height:1;margin-bottom:4px;}
+        .stat-label{font-size:12px;color:var(--text-muted);font-weight:500;}
+        .stat-sub{font-size:11px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;}
+        .stat-sub .green{color:var(--green);} .stat-sub .red{color:var(--red);} .stat-sub .accent{color:var(--accent);}
+
+        /* Tabs */
+        .tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:4px;}
+        .tab{flex:1;padding:10px;text-align:center;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted);transition:all .15s;border:none;background:none;font-family:inherit;}
+        .tab:hover{color:var(--text-primary);background:var(--bg-card-hover);}
+        .tab.active{background:var(--accent);color:#000;}
+        .tab .count{font-family:'JetBrains Mono',monospace;font-size:11px;margin-left:4px;opacity:.7;}
+
+        /* Filters */
+        .filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+        .fsel{padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-primary);font-size:12px;font-family:inherit;cursor:pointer;} .fsel:focus{outline:none;border-color:var(--accent);}
+        .search-box{flex:1;min-width:200px;position:relative;}
+        .search-box input{width:100%;padding:8px 12px 8px 32px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-primary);font-size:12px;font-family:inherit;} .search-box input:focus{outline:none;border-color:var(--accent);}
+        .search-box .si{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:12px;}
+        .btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px;transition:all .15s;}
+        .btn:hover{border-color:var(--accent);} .btn-sm{padding:5px 10px;font-size:11px;}
+        .btn-red{background:var(--red-dim);color:var(--red);border-color:rgba(248,113,113,.3);} .btn-red:hover{background:var(--red);color:#fff;}
+        .btn-green{background:var(--green-dim);color:var(--green);border-color:rgba(52,211,153,.3);} .btn-green:hover{background:var(--green);color:#000;}
+        .btn-accent{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600;} .btn-accent:hover{opacity:.9;}
+        .btn-blue{background:var(--blue-dim);color:var(--blue);border-color:rgba(96,165,250,.3);} .btn-blue:hover{background:var(--blue);color:#000;}
+
+        /* Table */
+        .table-wrap{overflow-x:auto;} 
+        table{width:100%;border-collapse:collapse;}
+        th{padding:10px 16px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);border-bottom:1px solid var(--border);background:var(--bg-secondary);position:sticky;top:0;}
+        td{padding:12px 16px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle;}
+        tr:hover td{background:var(--bg-card-hover);}
+        .badge{font-size:10px;font-weight:600;padding:3px 10px;border-radius:6px;white-space:nowrap;}
+        .badge-aguardando{color:var(--orange);background:var(--orange-dim);}
+        .badge-ativo{color:var(--blue);background:var(--blue-dim);}
+        .badge-finalizado{color:var(--green);background:var(--green-dim);}
+        .badge-cancelado{color:var(--text-muted);background:var(--bg-card-hover);}
+        .badge-wo{color:var(--red);background:var(--red-dim);}
+        .badge-empate{color:var(--purple);background:var(--purple-dim);}
+        .user-cell{display:flex;align-items:center;gap:8px;}
+        .user-avatar{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;}
+        .vs{color:var(--text-muted);font-weight:700;font-size:11px;}
+        .mono{font-family:'JetBrains Mono',monospace;font-size:12px;}
+        .cr{color:var(--accent);}
+        .pag{display:flex;justify-content:center;gap:8px;margin-top:16px;}
+        .pag button{padding:7px 16px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--text-primary);font-size:12px;cursor:pointer;font-family:inherit;} .pag button:hover:not(:disabled){border-color:var(--accent);color:var(--accent);} .pag button:disabled{opacity:.4;cursor:not-allowed;}
+        .pag span{padding:7px 12px;font-size:12px;color:var(--text-muted);}
+
+        /* Card wrapper */
+        .card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+        .card-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);}
+        .card-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;}
+        .card-title .count{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg-card-hover);color:var(--text-secondary);padding:1px 8px;border-radius:6px;}
+
+        /* Modal */
+        .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;backdrop-filter:blur(4px);} .modal-bg.active{display:flex;}
+        .modal{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;width:90%;max-width:640px;max-height:90vh;overflow-y:auto;padding:24px;}
+        .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
+        .modal-head h3{font-size:16px;font-weight:600;}
+        .modal-close{background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;padding:4px 8px;border-radius:6px;} .modal-close:hover{color:var(--red);background:var(--red-dim);}
+        .det-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;}
+        .det-item{background:var(--bg-secondary);border-radius:8px;padding:10px 12px;}
+        .det-item .dl{font-size:10px;color:var(--text-muted);margin-bottom:2px;}
+        .det-item .dv{font-size:14px;font-weight:600;}
+        .det-section{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;padding-top:12px;border-top:1px solid var(--border);}
+        .det-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);}
+
+        /* Refresh indicator */
+        .refresh-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;animation:pulse-dot 2s infinite;}
+        @keyframes pulse-dot{0%,100%{opacity:1;}50%{opacity:.3;}}
+
+        .empty-state{text-align:center;padding:40px 20px;color:var(--text-muted);font-size:13px;}
+        .empty-state .empty-icon{font-size:32px;margin-bottom:8px;}
+
+        .mobile-toggle{display:none;position:fixed;top:16px;left:16px;z-index:200;width:40px;height:40px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
+        .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:90;} .overlay.open{display:block;}
+        .toast{position:fixed;bottom:24px;right:24px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);padding:12px 20px;border-radius:10px;font-size:13px;z-index:300;transform:translateY(80px);opacity:0;transition:all .3s;} .toast.show{transform:translateY(0);opacity:1;}
+        @media(max-width:1200px){.stats-row{grid-template-columns:repeat(2,1fr);}}
+        @media(max-width:768px){.sidebar{transform:translateX(-100%);} .sidebar.open{transform:translateX(0);} .overlay.open{display:block;} .mobile-toggle{display:flex;} .main{margin-left:0;} .header{padding:0 16px 0 64px;} .content{padding:16px;} .stats-row{grid-template-columns:1fr 1fr;} .det-grid{grid-template-columns:1fr 1fr;} .filters{flex-direction:column;}}
+    </style>
+</head>
+<body>
+    <button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+    <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+    <div class="toast" id="toast"></div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand"><div class="logo">Y</div><h1>Yellup <span>Admin</span></h1></div>
+        <nav class="sidebar-nav">
+            <div class="nav-group"><div class="nav-group-title">Visão Geral</div><a href="dashboard.html" class="nav-item"><span class="icon">📊</span> Dashboard</a></div>
+            <div class="nav-group"><div class="nav-group-title">Conteúdo</div><a href="jogos.html" class="nav-item"><span class="icon">🎮</span> Jogos</a><a href="perguntas.html" class="nav-item"><span class="icon">❓</span> Perguntas</a><a href="importar-perguntas.html" class="nav-item"><span class="icon">📥</span> Importar</a><a href="gerar-perguntas.html" class="nav-item"><span class="icon">🤖</span> Gerar com IA</a><a href="times.html" class="nav-item"><span class="icon">⚽</span> Times</a></div>
+            <div class="nav-group"><div class="nav-group-title">Jogadores</div><a href="usuarios.html" class="nav-item"><span class="icon">👥</span> Usuários</a><a href="ranking.html" class="nav-item"><span class="icon">🏆</span> Rankings</a><a href="admin-noticias.html" class="nav-item"><span class="icon">📰</span> Notícias</a></div>
+            <div class="nav-group"><div class="nav-group-title">Competições</div><a href="torneios.html" class="nav-item"><span class="icon">🏅</span> Torneios</a><a href="admin-pvp.html" class="nav-item active"><span class="icon">⚔️</span> PvP Center</a></div>
+            <div class="nav-group"><div class="nav-group-title">Financeiro</div><a href="financeiro.html" class="nav-item"><span class="icon">💰</span> Resumo</a><a href="creditar-manual.html" class="nav-item"><span class="icon">➕</span> Creditar Manual</a><a href="transacoes.html" class="nav-item"><span class="icon">💳</span> Transações</a><a href="premiacao.html" class="nav-item"><span class="icon">🎁</span> Premiação</a><a href="admin-passes.html" class="nav-item"><span class="icon">🎫</span> Passes</a><a href="indicacoes.html" class="nav-item"><span class="icon">🔗</span> Indicações</a></div>
+            <div class="nav-group"><div class="nav-group-title">Comunidade</div><a href="admin-chat.html" class="nav-item"><span class="icon">💬</span> Chat</a><a href="admin-logs.html" class="nav-item"><span class="icon">📋</span> Logs</a></div>
+            <div class="nav-group"><div class="nav-group-title">Sistema</div><a href="bolsa-admin.html" class="nav-item"><span class="icon">📈</span> Bolsa</a><a href="configuracoes.html" class="nav-item"><span class="icon">⚙️</span> Config</a><a href="suporte-admin.html" class="nav-item"><span class="icon">🎧</span> Suporte</a></div>
+        </nav>
+        <div class="sidebar-footer"><div class="admin-box"><div class="admin-avatar">A</div><div class="admin-info-text"><div class="name" id="adminName">Admin</div><div class="role">Administrador</div></div><button class="btn-logout" onclick="sair()" title="Sair">⏻</button></div></div>
+    </aside>
+
+    <div class="main">
+        <header class="header">
+            <div class="header-left">
+                <h2>⚔️ PvP Center</h2>
+                <p><span class="refresh-dot"></span>Embates e Pênaltis — atualiza a cada 30s</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn" onclick="carregarTudo()">🔄 Atualizar</button>
+            </div>
+        </header>
+
+        <div class="content">
+            <!-- Stats -->
+            <div class="stats-row" id="statsRow">
+                <div class="stat-card"><div class="stat-top"><div class="stat-icon-box blue">⚔️</div></div><div class="stat-value" id="sEmbatesHoje">—</div><div class="stat-label">Embates hoje</div><div class="stat-sub" id="sEmbatesSub"></div></div>
+                <div class="stat-card"><div class="stat-top"><div class="stat-icon-box green">⚽</div></div><div class="stat-value" id="sPenaltisHoje">—</div><div class="stat-label">Pênaltis hoje</div><div class="stat-sub" id="sPenaltisSub"></div></div>
+                <div class="stat-card"><div class="stat-top"><div class="stat-icon-box accent">💰</div></div><div class="stat-value" id="sCreditosPagos">—</div><div class="stat-label">Créditos pagos (sistema)</div><div class="stat-sub" id="sCreditosSub"></div></div>
+                <div class="stat-card"><div class="stat-top"><div class="stat-icon-box red">🔥</div></div><div class="stat-value" id="sAtivos">—</div><div class="stat-label">Partidas ativas agora</div><div class="stat-sub" id="sAtivosSub"></div></div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" onclick="trocarTab('embates')">⚔️ Embates <span class="count" id="tabCountEmb">0</span></button>
+                <button class="tab" onclick="trocarTab('penaltis')">⚽ Pênaltis <span class="count" id="tabCountPen">0</span></button>
+                <button class="tab" onclick="trocarTab('alertas')">🚨 Alertas <span class="count" id="tabCountAlerts">0</span></button>
+            </div>
+
+            <!-- Filters -->
+            <div class="filters">
+                <div class="search-box"><span class="si">🔍</span><input type="text" id="busca" placeholder="Buscar por nome de jogador..." oninput="filtrar()"></div>
+                <select class="fsel" id="filtroStatus" onchange="filtrar()">
+                    <option value="">Todos os status</option>
+                    <option value="aguardando">⏳ Aguardando</option>
+                    <option value="ativo">🔵 Ativo</option>
+                    <option value="finalizado">✅ Finalizado</option>
+                    <option value="cancelado">❌ Cancelado</option>
+                </select>
+                <select class="fsel" id="filtroPeriodo" onchange="filtrar()">
+                    <option value="hoje">Hoje</option>
+                    <option value="7d">Últimos 7 dias</option>
+                    <option value="30d">Últimos 30 dias</option>
+                    <option value="all">Tudo</option>
+                </select>
+            </div>
+
+            <!-- Table -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title" id="tableTitle">⚔️ Embates <span class="count" id="tableCount">0</span></div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead id="tableHead"></thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+                <div class="pag">
+                    <button onclick="pagAnterior()" id="btnPrev" disabled>← Anterior</button>
+                    <span id="pagInfo">1/1</span>
+                    <button onclick="pagProxima()" id="btnNext">Próxima →</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Detail -->
+    <div class="modal-bg" id="modalDet">
+        <div class="modal">
+            <div class="modal-head"><h3 id="modalTitle">Detalhes</h3><button class="modal-close" onclick="fecharModal()">✕</button></div>
+            <div id="modalConteudo"></div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",authDomain:"painel-yellup.firebaseapp.com",projectId:"painel-yellup",storageBucket:"painel-yellup.appspot.com",messagingSenderId:"608347210297",appId:"1:608347210297:web:75092713724e617c7203e8"};
+        firebase.initializeApp(firebaseConfig);
+        const db=firebase.firestore(), auth=firebase.auth();
+
+        let tabAtual='embates', embates=[], penaltis=[], filtrados=[], pagAtual=1;
+        const porPag=20;
+        let refreshInterval;
+
+        auth.onAuthStateChanged(u=>{
+            if(!u){window.location.href='login.html';return;}
+            document.getElementById('adminName').textContent=u.email.split('@')[0];
+            carregarTudo();
+            refreshInterval=setInterval(carregarTudo,30000);
+        });
+
+        async function carregarTudo(){
+            await Promise.all([carregarEmbates(),carregarPenaltis()]);
+            calcularStats();
+            detectarAlertas();
+            filtrar();
+        }
+
+        async function carregarEmbates(){
+            try{
+                const snap=await db.collection('embates').orderBy('criadoEm','desc').limit(500).get();
+                embates=snap.docs.map(d=>({id:d.id,...d.data(),_tipo:'embate'}));
+                document.getElementById('tabCountEmb').textContent=embates.length;
+            }catch(e){console.error('Embates:',e);}
+        }
+
+        async function carregarPenaltis(){
+            try{
+                const snap=await db.collection('penaltis').orderBy('criadoEm','desc').limit(500).get();
+                penaltis=snap.docs.map(d=>({id:d.id,...d.data(),_tipo:'penalti'}));
+                document.getElementById('tabCountPen').textContent=penaltis.length;
+            }catch(e){console.error('Penaltis:',e);}
+        }
+
+        function calcularStats(){
+            const hoje=new Date(); hoje.setHours(0,0,0,0);
+            const isHoje=d=>{const t=d.criadoEm?.toDate?d.criadoEm.toDate():null; return t&&t>=hoje;};
+
+            const embHoje=embates.filter(isHoje);
+            const penHoje=penaltis.filter(isHoje);
+            const embFin=embHoje.filter(e=>e.status==='finalizado');
+            const penFin=penHoje.filter(p=>p.status==='finalizado');
+
+            document.getElementById('sEmbatesHoje').textContent=embHoje.length;
+            document.getElementById('sEmbatesSub').innerHTML=`<span class="green">${embFin.length} finalizados</span> · ${embHoje.filter(e=>e.status==='aguardando'||e.status==='pendente').length} aguardando`;
+
+            document.getElementById('sPenaltisHoje').textContent=penHoje.length;
+            document.getElementById('sPenaltisSub').innerHTML=`<span class="green">${penFin.length} finalizados</span> · ${penHoje.filter(p=>p.tipo==='treino').length} treinos`;
+
+            const credPagos=(embFin.length*4)+(penFin.filter(p=>p.tipo!=='treino').length*4);
+            document.getElementById('sCreditosPagos').textContent=credPagos;
+            document.getElementById('sCreditosSub').innerHTML=`<span class="accent">${embFin.length*4}cr</span> embates · <span class="accent">${penFin.filter(p=>p.tipo!=='treino').length*4}cr</span> pênaltis`;
+
+            const ativos=[...embates,...penaltis].filter(x=>x.status==='ativo'||x.status==='em_andamento');
+            document.getElementById('sAtivos').textContent=ativos.length;
+            document.getElementById('sAtivosSub').innerHTML=`${embates.filter(e=>e.status==='ativo').length} embates · ${penaltis.filter(p=>p.status==='ativo').length} pênaltis`;
+        }
+
+        function detectarAlertas(){
+            const alertas=[];
+            // Detectar jogadores com muitas vitórias consecutivas
+            const vitorias={};
+            [...embates,...penaltis].filter(x=>x.status==='finalizado'&&x.vencedor).forEach(x=>{
+                vitorias[x.vencedor]=(vitorias[x.vencedor]||0)+1;
+            });
+            Object.entries(vitorias).filter(([,v])=>v>=10).forEach(([uid,v])=>{
+                alertas.push({tipo:'warn',msg:`Jogador ${uid.slice(0,8)}... tem ${v} vitórias PvP — verificar`});
+            });
+            // Embates antigos sem aceitar
+            const agora=new Date();
+            embates.filter(e=>(e.status==='aguardando'||e.status==='pendente')).forEach(e=>{
+                const criado=e.criadoEm?.toDate?e.criadoEm.toDate():null;
+                if(criado&&(agora-criado)>3600000*24){
+                    alertas.push({tipo:'info',msg:`Embate ${e.id.slice(0,8)}... aguardando há mais de 24h`});
+                }
+            });
+            document.getElementById('tabCountAlerts').textContent=alertas.length;
+            window._alertas=alertas;
+        }
+
+        function trocarTab(tab){
+            tabAtual=tab; pagAtual=1;
+            document.querySelectorAll('.tab').forEach((t,i)=>{t.classList.toggle('active',['embates','penaltis','alertas'][i]===tab);});
+            filtrar();
+        }
+
+        function filtrar(){
+            const busca=document.getElementById('busca').value.toLowerCase();
+            const status=document.getElementById('filtroStatus').value;
+            const periodo=document.getElementById('filtroPeriodo').value;
+
+            let fonte=tabAtual==='embates'?embates:tabAtual==='penaltis'?penaltis:[];
+            let agora=new Date(), desde=new Date(0);
+            if(periodo==='hoje'){desde=new Date();desde.setHours(0,0,0,0);}
+            else if(periodo==='7d'){desde=new Date(agora-7*86400000);}
+            else if(periodo==='30d'){desde=new Date(agora-30*86400000);}
+
+            if(tabAtual==='alertas'){renderAlertas();return;}
+
+            filtrados=fonte.filter(x=>{
+                const dt=x.criadoEm?.toDate?x.criadoEm.toDate():null;
+                if(dt&&dt<desde)return false;
+                if(status){
+                    const s=x.status||'';
+                    if(status==='aguardando'&&s!=='aguardando'&&s!=='pendente')return false;
+                    if(status!=='aguardando'&&s!==status)return false;
+                }
+                if(busca){
+                    const nomes=getNomes(x).join(' ').toLowerCase();
+                    if(!nomes.includes(busca)&&!x.id.toLowerCase().includes(busca))return false;
+                }
+                return true;
+            });
+            pagAtual=1;
+            renderTabela();
+        }
+
+        function getNomes(x){
+            if(x._tipo==='embate') return [x.criadorNome||x.criador||'',x.adversarioNome||x.adversario||''];
+            if(x._tipo==='penalti') return [x.jogador1?.nome||'',x.jogador2?.nome||''];
+            return [];
+        }
+
+        function renderTabela(){
+            const head=document.getElementById('tableHead');
+            const body=document.getElementById('tableBody');
+            const titulo=tabAtual==='embates'?'⚔️ Embates':'⚽ Pênaltis';
+            document.getElementById('tableTitle').innerHTML=`${titulo} <span class="count">${filtrados.length}</span>`;
+
+            if(tabAtual==='embates'){
+                head.innerHTML='<tr><th>Data</th><th>Jogador 1</th><th></th><th>Jogador 2</th><th>Status</th><th>Placar</th><th>Economia</th><th>Ações</th></tr>';
+            }else{
+                head.innerHTML='<tr><th>Data</th><th>Jogador 1</th><th></th><th>Jogador 2</th><th>Tipo</th><th>Status</th><th>Placar</th><th>Ações</th></tr>';
+            }
+
+            const inicio=(pagAtual-1)*porPag;
+            const pagina=filtrados.slice(inicio,inicio+porPag);
+            const totalPag=Math.max(1,Math.ceil(filtrados.length/porPag));
+
+            if(!pagina.length){
+                body.innerHTML=`<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">${tabAtual==='embates'?'⚔️':'⚽'}</div>Nenhum resultado encontrado</div></td></tr>`;
+            }else{
+                body.innerHTML=pagina.map(x=>tabAtual==='embates'?renderRowEmbate(x):renderRowPenalti(x)).join('');
+            }
+            document.getElementById('pagInfo').textContent=`${pagAtual}/${totalPag}`;
+            document.getElementById('btnPrev').disabled=pagAtual<=1;
+            document.getElementById('btnNext').disabled=pagAtual>=totalPag;
+        }
+
+        function renderRowEmbate(e){
+            const dt=e.criadoEm?.toDate?e.criadoEm.toDate().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+            const n1=esc(e.criadorNome||e.criador?.slice(0,8)||'—');
+            const n2=esc(e.adversarioNome||e.adversario?.slice(0,8)||'Aguardando...');
+            const st=getStatusBadge(e.status);
+            const p1=e.pontuacoes?.[e.criador]||'—';
+            const p2=e.pontuacoes?.[e.adversario]||'—';
+            const taxa=e.taxaEntrada||2;
+            const premio=e.premioMultiplicador||4;
+            return `<tr>
+                <td class="mono">${dt}</td>
+                <td><div class="user-cell"><div class="user-avatar" style="background:var(--blue-dim);color:var(--blue)">${n1[0]}</div>${n1}</div></td>
+                <td class="vs">VS</td>
+                <td><div class="user-cell"><div class="user-avatar" style="background:var(--red-dim);color:var(--red)">${n2[0]}</div>${n2}</div></td>
+                <td>${st}</td>
+                <td class="mono">${p1} × ${p2}</td>
+                <td class="mono"><span class="cr">${taxa}cr</span> → <span class="cr">${premio}cr</span></td>
+                <td><button class="btn btn-sm" onclick="verDetalhe('embate','${e.id}')">👁️</button>${e.status==='aguardando'||e.status==='pendente'?` <button class="btn btn-red btn-sm" onclick="cancelarEmbate('${e.id}')">✕</button>`:''}</td>
+            </tr>`;
+        }
+
+        function renderRowPenalti(p){
+            const dt=p.criadoEm?.toDate?p.criadoEm.toDate().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+            const n1=esc(p.jogador1?.nome||'—');
+            const n2=p.tipo==='treino'?'🤖 Bot':esc(p.jogador2?.nome||'Aguardando...');
+            const st=getStatusBadge(p.status);
+            const pl=p.placar||{};
+            const tipo=p.tipo==='treino'?'<span class="badge" style="color:var(--purple);background:var(--purple-dim)">Treino</span>':'<span class="badge" style="color:var(--accent);background:var(--accent-dim)">PvP</span>';
+            return `<tr>
+                <td class="mono">${dt}</td>
+                <td><div class="user-cell"><div class="user-avatar" style="background:var(--blue-dim);color:var(--blue)">${n1[0]}</div>${n1}</div></td>
+                <td class="vs">VS</td>
+                <td><div class="user-cell"><div class="user-avatar" style="background:var(--red-dim);color:var(--red)">${n2[0]}</div>${n2}</div></td>
+                <td>${tipo}</td>
+                <td>${st}</td>
+                <td class="mono">${pl.jogador1||0} × ${pl.jogador2||0}</td>
+                <td><button class="btn btn-sm" onclick="verDetalhe('penalti','${p.id}')">👁️</button></td>
+            </tr>`;
+        }
+
+        function getStatusBadge(s){
+            const map={aguardando:'badge-aguardando',pendente:'badge-aguardando',ativo:'badge-ativo',em_andamento:'badge-ativo',finalizado:'badge-finalizado',cancelado:'badge-cancelado'};
+            const labels={aguardando:'⏳ Aguardando',pendente:'⏳ Pendente',ativo:'🔵 Ativo',em_andamento:'🔵 Em jogo',finalizado:'✅ Finalizado',cancelado:'❌ Cancelado'};
+            return `<span class="badge ${map[s]||'badge-cancelado'}">${labels[s]||s||'—'}</span>`;
+        }
+
+        function renderAlertas(){
+            const alertas=window._alertas||[];
+            document.getElementById('tableTitle').innerHTML=`🚨 Alertas <span class="count">${alertas.length}</span>`;
+            document.getElementById('tableHead').innerHTML='<tr><th>Tipo</th><th>Descrição</th></tr>';
+            const body=document.getElementById('tableBody');
+            if(!alertas.length){
+                body.innerHTML='<tr><td colspan="2"><div class="empty-state"><div class="empty-icon">✅</div>Nenhum alerta — tudo normal!</div></td></tr>';
+            }else{
+                body.innerHTML=alertas.map(a=>`<tr><td><span class="badge ${a.tipo==='warn'?'badge-aguardando':'badge-ativo'}">${a.tipo==='warn'?'⚠️ Atenção':'ℹ️ Info'}</span></td><td>${esc(a.msg)}</td></tr>`).join('');
+            }
+        }
+
+        function verDetalhe(tipo,id){
+            const item=tipo==='embate'?embates.find(e=>e.id===id):penaltis.find(p=>p.id===id);
+            if(!item)return;
+            document.getElementById('modalTitle').textContent=tipo==='embate'?`⚔️ Embate ${id.slice(0,8)}...`:`⚽ Pênalti ${id.slice(0,8)}...`;
+            const dt=item.criadoEm?.toDate?item.criadoEm.toDate().toLocaleString('pt-BR'):'—';
+            let html='';
+
+            if(tipo==='embate'){
+                const n1=esc(item.criadorNome||item.criador||'—');
+                const n2=esc(item.adversarioNome||item.adversario||'—');
+                const p1=item.pontuacoes?.[item.criador]||0;
+                const p2=item.pontuacoes?.[item.adversario]||0;
+                html=`
+                    <div class="det-grid">
+                        <div class="det-item"><div class="dl">Criador</div><div class="dv">${n1}</div></div>
+                        <div class="det-item"><div class="dl">Adversário</div><div class="dv">${n2}</div></div>
+                        <div class="det-item"><div class="dl">Status</div><div class="dv">${getStatusBadge(item.status)}</div></div>
+                        <div class="det-item"><div class="dl">Data</div><div class="dv">${dt}</div></div>
+                        <div class="det-item"><div class="dl">Categoria</div><div class="dv">${esc(item.categoria||'geral')}</div></div>
+                        <div class="det-item"><div class="dl">Modelo</div><div class="dv">${item.modeloV2?'V2':'V1'}</div></div>
+                    </div>
+                    <div class="det-section">📊 Resultado</div>
+                    <div class="det-grid">
+                        <div class="det-item"><div class="dl">Placar</div><div class="dv" style="font-family:'JetBrains Mono';color:var(--accent)">${p1} × ${p2}</div></div>
+                        <div class="det-item"><div class="dl">Vencedor</div><div class="dv">${item.vencedor?esc(item.vencedor.slice(0,12)+'...'):'—'}</div></div>
+                        <div class="det-item"><div class="dl">Perguntas</div><div class="dv">${item.perguntas?.length||0}</div></div>
+                    </div>
+                    <div class="det-section">💰 Economia</div>
+                    <div class="det-grid">
+                        <div class="det-item"><div class="dl">Taxa entrada</div><div class="dv" style="color:var(--accent)">${item.taxaEntrada||2} cr cada</div></div>
+                        <div class="det-item"><div class="dl">Prêmio sistema</div><div class="dv" style="color:var(--green)">${item.premioMultiplicador||4} cr</div></div>
+                        <div class="det-item"><div class="dl">Criador UID</div><div class="dv mono" style="font-size:10px;word-break:break-all">${item.criador||'—'}</div></div>
+                    </div>`;
+            }else{
+                const n1=esc(item.jogador1?.nome||'—');
+                const n2=item.tipo==='treino'?'🤖 Bot':esc(item.jogador2?.nome||'—');
+                const pl=item.placar||{};
+                const rodadas=item.rodadas||[];
+                html=`
+                    <div class="det-grid">
+                        <div class="det-item"><div class="dl">Jogador 1</div><div class="dv">${n1}</div></div>
+                        <div class="det-item"><div class="dl">Jogador 2</div><div class="dv">${n2}</div></div>
+                        <div class="det-item"><div class="dl">Status</div><div class="dv">${getStatusBadge(item.status)}</div></div>
+                        <div class="det-item"><div class="dl">Data</div><div class="dv">${dt}</div></div>
+                        <div class="det-item"><div class="dl">Tipo</div><div class="dv">${item.tipo==='treino'?'Treino':'PvP'}</div></div>
+                        <div class="det-item"><div class="dl">Rodada</div><div class="dv">${item.rodadaAtual||0}</div></div>
+                    </div>
+                    <div class="det-section">📊 Placar</div>
+                    <div class="det-grid">
+                        <div class="det-item"><div class="dl">${n1}</div><div class="dv" style="font-size:24px;color:var(--accent)">${pl.jogador1||0}</div></div>
+                        <div class="det-item"><div class="dl">${n2}</div><div class="dv" style="font-size:24px;color:var(--accent)">${pl.jogador2||0}</div></div>
+                        <div class="det-item"><div class="dl">Vencedor</div><div class="dv">${item.vencedor?esc(String(item.vencedor).slice(0,12)+'...'):'—'}</div></div>
+                    </div>
+                    ${rodadas.length?`<div class="det-section">🎯 Rodadas (${rodadas.length})</div>
+                    <div style="display:grid;gap:4px">${rodadas.map((r,i)=>`<div style="display:flex;gap:8px;padding:6px 10px;background:var(--bg-secondary);border-radius:6px;font-size:12px;align-items:center"><span style="color:var(--text-muted);width:20px">${i+1}.</span><span>${r.gol?'⚽ GOL':'🧤 Defesa'}</span><span style="color:var(--text-muted);margin-left:auto">Canto: ${r.cantoCobrador||'?'} vs ${r.cantoGoleiro||'?'}</span></div>`).join('')}</div>`:''}
+                    <div class="det-section">💰 Economia</div>
+                    <div class="det-grid">
+                        <div class="det-item"><div class="dl">Aposta</div><div class="dv" style="color:var(--accent)">${item.valorAposta||0} cr</div></div>
+                        <div class="det-item"><div class="dl">Prêmio sistema</div><div class="dv" style="color:var(--green)">${item.premioSistema||4} cr</div></div>
+                        <div class="det-item"><div class="dl">J1 UID</div><div class="dv mono" style="font-size:10px;word-break:break-all">${item.jogador1?.odId||'—'}</div></div>
+                    </div>`;
+            }
+            document.getElementById('modalConteudo').innerHTML=html;
+            document.getElementById('modalDet').classList.add('active');
+        }
+
+        async function cancelarEmbate(id){
+            if(!confirm('Cancelar este embate e reembolsar?'))return;
+            try{
+                await db.collection('embates').doc(id).update({status:'cancelado',canceladoPor:'admin',canceladoEm:firebase.firestore.FieldValue.serverTimestamp()});
+                showToast('✅ Embate cancelado');
+                carregarTudo();
+            }catch(e){showToast('❌ Erro: '+e.message);}
+        }
+
+        function fecharModal(){document.getElementById('modalDet').classList.remove('active');}
+        function pagAnterior(){if(pagAtual>1){pagAtual--;renderTabela();}}
+        function pagProxima(){const tp=Math.ceil(filtrados.length/porPag);if(pagAtual<tp){pagAtual++;renderTabela();}}
+        function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+        function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
+        function sair(){auth.signOut().then(()=>window.location.href='login.html');}
+        function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('overlay').classList.toggle('open');}
+    </script>
+</body>
+</html>

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Passes — Yellup Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root{--bg-primary:#0c0e14;--bg-secondary:#12141c;--bg-card:#181a24;--bg-card-hover:#1e2030;--bg-sidebar:#10121a;--border:#1e2030;--border-light:#282a3a;--text-primary:#e8e9ed;--text-secondary:#8b8d9a;--text-muted:#5c5e6e;--accent:#f0b429;--accent-dim:rgba(240,180,41,.12);--green:#34d399;--green-dim:rgba(52,211,153,.12);--red:#f87171;--red-dim:rgba(248,113,113,.12);--blue:#60a5fa;--blue-dim:rgba(96,165,250,.12);--purple:#a78bfa;--purple-dim:rgba(167,139,250,.12);--orange:#fb923c;--orange-dim:rgba(251,146,60,.12);--sidebar-w:250px;--header-h:64px;}
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100vh;overflow-x:hidden;}
+        .sidebar{position:fixed;left:0;top:0;width:var(--sidebar-w);height:100vh;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform .3s ease;}
+        .sidebar-brand{height:var(--header-h);display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--border);flex-shrink:0;}
+        .sidebar-brand .logo{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#000;}
+        .sidebar-brand h1{font-size:17px;font-weight:700;letter-spacing:-.3px;} .sidebar-brand h1 span{color:var(--text-muted);font-weight:500;font-size:12px;margin-left:6px;}
+        .sidebar-nav{flex:1;overflow-y:auto;padding:12px 0;} .sidebar-nav::-webkit-scrollbar{width:0;}
+        .nav-group{margin-bottom:8px;} .nav-group-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-muted);padding:12px 20px 6px;}
+        .nav-item{display:flex;align-items:center;gap:10px;padding:8px 16px;margin:1px 8px;border-radius:8px;color:var(--text-secondary);text-decoration:none;font-size:13px;font-weight:500;transition:all .15s;cursor:pointer;}
+        .nav-item:hover{background:var(--bg-card);color:var(--text-primary);} .nav-item.active{background:var(--accent-dim);color:var(--accent);}
+        .nav-item .icon{width:20px;text-align:center;font-size:14px;flex-shrink:0;}
+        .sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0;}
+        .sidebar-footer .admin-box{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;} .admin-avatar{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),#e09800);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#000;}
+        .admin-info-text{flex:1;} .admin-info-text .name{font-size:13px;font-weight:600;} .admin-info-text .role{font-size:11px;color:var(--text-muted);}
+        .btn-logout{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px;border-radius:6px;} .btn-logout:hover{color:var(--red);background:var(--red-dim);}
+        .main{margin-left:var(--sidebar-w);min-height:100vh;}
+        .header{height:var(--header-h);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:var(--bg-primary);position:sticky;top:0;z-index:50;}
+        .header-left h2{font-size:16px;font-weight:600;} .header-left p{font-size:12px;color:var(--text-muted);margin-top:1px;}
+        .content{padding:24px 32px 40px;}
+        .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+        .stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:20px;} .stat-card:hover{border-color:var(--border-light);}
+        .stat-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;}
+        .stat-icon-box{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+        .stat-icon-box.green{background:var(--green-dim);} .stat-icon-box.accent{background:var(--accent-dim);} .stat-icon-box.red{background:var(--red-dim);} .stat-icon-box.blue{background:var(--blue-dim);} .stat-icon-box.purple{background:var(--purple-dim);} .stat-icon-box.orange{background:var(--orange-dim);}
+        .stat-value{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;line-height:1;margin-bottom:4px;}
+        .stat-label{font-size:12px;color:var(--text-muted);font-weight:500;}
+        .stat-sub{font-size:11px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;}
+        .stat-sub .green{color:var(--green);} .stat-sub .red{color:var(--red);} .stat-sub .accent{color:var(--accent);}
+
+        .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+        .card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+        .card-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);}
+        .card-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;}
+        .card-title .count{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg-card-hover);color:var(--text-secondary);padding:1px 8px;border-radius:6px;}
+        .list-item{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);transition:background .1s;} .list-item:last-child{border-bottom:none;} .list-item:hover{background:var(--bg-card-hover);}
+        .list-avatar{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex-shrink:0;}
+        .list-content{flex:1;min-width:0;} .list-content h4{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .list-content p{font-size:11px;color:var(--text-muted);margin-top:1px;}
+        .list-badge{font-size:10px;font-weight:600;padding:3px 10px;border-radius:6px;white-space:nowrap;flex-shrink:0;}
+        .badge-semanal{color:var(--blue);background:var(--blue-dim);} .badge-mensal{color:var(--purple);background:var(--purple-dim);} .badge-anual{color:var(--accent);background:var(--accent-dim);}
+        .badge-expiring{color:var(--red);background:var(--red-dim);}
+        .empty-state{text-align:center;padding:32px;color:var(--text-muted);font-size:13px;}
+        .empty-state .empty-icon{font-size:24px;margin-bottom:8px;}
+
+        /* Distribution bars */
+        .dist-row{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border);}
+        .dist-row:last-child{border-bottom:none;}
+        .dist-label{width:80px;font-size:12px;font-weight:600;flex-shrink:0;}
+        .dist-bar-bg{flex:1;height:24px;background:var(--bg-secondary);border-radius:6px;overflow:hidden;position:relative;}
+        .dist-bar{height:100%;border-radius:6px;transition:width .6s cubic-bezier(.16,1,.3,1);display:flex;align-items:center;padding-left:8px;font-size:11px;font-weight:600;}
+        .dist-val{width:60px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;flex-shrink:0;}
+
+        .refresh-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;animation:pulse-dot 2s infinite;}
+        @keyframes pulse-dot{0%,100%{opacity:1;}50%{opacity:.3;}}
+        .btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px;}
+        .btn:hover{border-color:var(--accent);}
+        .mobile-toggle{display:none;position:fixed;top:16px;left:16px;z-index:200;width:40px;height:40px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
+        .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:90;} .overlay.open{display:block;}
+        @media(max-width:1200px){.stats-row{grid-template-columns:repeat(2,1fr);}}
+        @media(max-width:768px){.sidebar{transform:translateX(-100%);} .sidebar.open{transform:translateX(0);} .overlay.open{display:block;} .mobile-toggle{display:flex;} .main{margin-left:0;} .header{padding:0 16px 0 64px;} .content{padding:16px;} .stats-row{grid-template-columns:1fr;} .grid-2{grid-template-columns:1fr;}}
+    </style>
+</head>
+<body>
+    <button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+    <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand"><div class="logo">Y</div><h1>Yellup <span>Admin</span></h1></div>
+        <nav class="sidebar-nav">
+            <div class="nav-group"><div class="nav-group-title">Visão Geral</div><a href="dashboard.html" class="nav-item"><span class="icon">📊</span> Dashboard</a></div>
+            <div class="nav-group"><div class="nav-group-title">Conteúdo</div><a href="jogos.html" class="nav-item"><span class="icon">🎮</span> Jogos</a><a href="perguntas.html" class="nav-item"><span class="icon">❓</span> Perguntas</a><a href="importar-perguntas.html" class="nav-item"><span class="icon">📥</span> Importar</a><a href="gerar-perguntas.html" class="nav-item"><span class="icon">🤖</span> Gerar com IA</a><a href="times.html" class="nav-item"><span class="icon">⚽</span> Times</a></div>
+            <div class="nav-group"><div class="nav-group-title">Jogadores</div><a href="usuarios.html" class="nav-item"><span class="icon">👥</span> Usuários</a><a href="ranking.html" class="nav-item"><span class="icon">🏆</span> Rankings</a><a href="admin-noticias.html" class="nav-item"><span class="icon">📰</span> Notícias</a></div>
+            <div class="nav-group"><div class="nav-group-title">Competições</div><a href="torneios.html" class="nav-item"><span class="icon">🏅</span> Torneios</a><a href="admin-pvp.html" class="nav-item"><span class="icon">⚔️</span> PvP Center</a></div>
+            <div class="nav-group"><div class="nav-group-title">Financeiro</div><a href="financeiro.html" class="nav-item"><span class="icon">💰</span> Resumo</a><a href="creditar-manual.html" class="nav-item"><span class="icon">➕</span> Creditar Manual</a><a href="transacoes.html" class="nav-item"><span class="icon">💳</span> Transações</a><a href="premiacao.html" class="nav-item"><span class="icon">🎁</span> Premiação</a><a href="admin-passes.html" class="nav-item active"><span class="icon">🎫</span> Passes</a><a href="indicacoes.html" class="nav-item"><span class="icon">🔗</span> Indicações</a></div>
+            <div class="nav-group"><div class="nav-group-title">Comunidade</div><a href="admin-chat.html" class="nav-item"><span class="icon">💬</span> Chat</a><a href="admin-logs.html" class="nav-item"><span class="icon">📋</span> Logs</a></div>
+            <div class="nav-group"><div class="nav-group-title">Sistema</div><a href="bolsa-admin.html" class="nav-item"><span class="icon">📈</span> Bolsa</a><a href="configuracoes.html" class="nav-item"><span class="icon">⚙️</span> Config</a><a href="suporte-admin.html" class="nav-item"><span class="icon">🎧</span> Suporte</a></div>
+        </nav>
+        <div class="sidebar-footer"><div class="admin-box"><div class="admin-avatar">A</div><div class="admin-info-text"><div class="name" id="adminName">Admin</div><div class="role">Administrador</div></div><button class="btn-logout" onclick="sair()" title="Sair">⏻</button></div></div>
+    </aside>
+
+    <div class="main">
+        <header class="header">
+            <div class="header-left"><h2>🎫 Gestão de Passes</h2><p><span class="refresh-dot"></span>Assinaturas e conversão</p></div>
+            <div><button class="btn" onclick="carregar()">🔄 Atualizar</button></div>
+        </header>
+
+        <div class="content">
+            <div class="stats-row">
+                <div class="stat-card"><div class="stat-top"><div class="stat-icon-box green">🎫</div></div><div class="stat-value" id="sAtivos">—</div><div class="stat-label">Passes ativos</div><div class="stat-sub" id="sAtivosSub"></div></div>
+                <div class="stat-card"><div class="stat-top"><div class="stat-icon-box accent">💰</div></div><div class="stat-value" id="sMRR">—</div><div class="stat-label">MRR estimado</div><div class="stat-sub" id="sMRRSub"></div></div>
+                <div class="stat-card"><div class="stat-top"><div class="stat-icon-box blue">📊</div></div><div class="stat-value" id="sConversao">—</div><div class="stat-label">Taxa de conversão</div><div class="stat-sub">Free → Passe</div></div>
+                <div class="stat-card"><div class="stat-top"><div class="stat-icon-box red">⏰</div></div><div class="stat-value" id="sExpirando">—</div><div class="stat-label">Expirando em 7 dias</div><div class="stat-sub" id="sExpirandoSub"></div></div>
+            </div>
+
+            <div class="grid-2">
+                <!-- Distribution -->
+                <div class="card">
+                    <div class="card-header"><div class="card-title">📊 Distribuição de Passes</div></div>
+                    <div id="distContainer" style="padding:8px 0;">
+                        <div class="dist-row"><div class="dist-label">Free</div><div class="dist-bar-bg"><div class="dist-bar" id="barFree" style="width:0;background:var(--text-muted)"></div></div><div class="dist-val" id="valFree">—</div></div>
+                        <div class="dist-row"><div class="dist-label">Semanal</div><div class="dist-bar-bg"><div class="dist-bar" id="barSemanal" style="width:0;background:var(--blue)"></div></div><div class="dist-val" id="valSemanal">—</div></div>
+                        <div class="dist-row"><div class="dist-label">Mensal</div><div class="dist-bar-bg"><div class="dist-bar" id="barMensal" style="width:0;background:var(--purple)"></div></div><div class="dist-val" id="valMensal">—</div></div>
+                        <div class="dist-row"><div class="dist-label">Anual</div><div class="dist-bar-bg"><div class="dist-bar" id="barAnual" style="width:0;background:var(--accent)"></div></div><div class="dist-val" id="valAnual">—</div></div>
+                    </div>
+                </div>
+
+                <!-- Expiring soon -->
+                <div class="card">
+                    <div class="card-header"><div class="card-title">⏰ Expirando em breve <span class="count" id="countExp">0</span></div></div>
+                    <div id="listaExpirando"><div class="empty-state"><div class="empty-icon">✅</div>Nenhum passe expirando</div></div>
+                </div>
+            </div>
+
+            <!-- Active subscribers -->
+            <div class="card">
+                <div class="card-header"><div class="card-title">🎫 Assinantes ativos <span class="count" id="countAtivos">0</span></div></div>
+                <div id="listaAtivos"><div class="empty-state"><div class="empty-icon">🎫</div>Carregando...</div></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig={apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",authDomain:"painel-yellup.firebaseapp.com",projectId:"painel-yellup",storageBucket:"painel-yellup.appspot.com",messagingSenderId:"608347210297",appId:"1:608347210297:web:75092713724e617c7203e8"};
+        firebase.initializeApp(firebaseConfig);
+        const db=firebase.firestore(), auth=firebase.auth();
+
+        const PRECOS={semanal:9.90,mensal:19.90,anual:199.90};
+
+        auth.onAuthStateChanged(u=>{
+            if(!u){window.location.href='login.html';return;}
+            document.getElementById('adminName').textContent=u.email.split('@')[0];
+            carregar();
+        });
+
+        async function carregar(){
+            try{
+                const snap=await db.collection('usuarios').get();
+                const usuarios=snap.docs.map(d=>({id:d.id,...d.data()}));
+                const total=usuarios.length;
+
+                const agora=new Date();
+                const em7d=new Date(agora.getTime()+7*86400000);
+
+                let free=0,semanal=0,mensal=0,anual=0;
+                const ativos=[], expirando=[];
+
+                usuarios.forEach(u=>{
+                    const p=u.passe||{};
+                    const tipo=(p.tipo||'free').toLowerCase();
+                    const ativo=p.ativo===true;
+                    const exp=p.dataExpiracao?.toDate?p.dataExpiracao.toDate():null;
+
+                    if(!ativo||tipo==='free'){free++;return;}
+
+                    if(tipo==='semanal') semanal++;
+                    else if(tipo==='mensal') mensal++;
+                    else if(tipo==='anual') anual++;
+                    else{free++;return;}
+
+                    ativos.push({...u,_tipo:tipo,_exp:exp});
+                    if(exp&&exp<=em7d){expirando.push({...u,_tipo:tipo,_exp:exp});}
+                });
+
+                const totalPagos=semanal+mensal+anual;
+                const mrr=(semanal*PRECOS.semanal*4.33)+(mensal*PRECOS.mensal)+(anual*PRECOS.anual/12);
+                const conversao=total>0?((totalPagos/total)*100).toFixed(1):'0';
+
+                // Stats
+                document.getElementById('sAtivos').textContent=totalPagos;
+                document.getElementById('sAtivosSub').innerHTML=`de <span class="accent">${total}</span> usuários totais`;
+                document.getElementById('sMRR').textContent='R$ '+mrr.toFixed(0);
+                document.getElementById('sMRRSub').innerHTML=`<span class="green">S: ${semanal}</span> · <span class="accent">M: ${mensal}</span> · <span class="accent">A: ${anual}</span>`;
+                document.getElementById('sConversao').textContent=conversao+'%';
+                document.getElementById('sExpirando').textContent=expirando.length;
+                document.getElementById('sExpirandoSub').innerHTML=expirando.length>0?`<span class="red">Ação necessária</span>`:'Tudo OK';
+
+                // Distribution bars
+                const maxBar=Math.max(free,semanal,mensal,anual,1);
+                setBarra('Free',free,maxBar,total);
+                setBarra('Semanal',semanal,maxBar,total);
+                setBarra('Mensal',mensal,maxBar,total);
+                setBarra('Anual',anual,maxBar,total);
+
+                // Expiring list
+                document.getElementById('countExp').textContent=expirando.length;
+                const expContainer=document.getElementById('listaExpirando');
+                if(!expirando.length){
+                    expContainer.innerHTML='<div class="empty-state"><div class="empty-icon">✅</div>Nenhum passe expirando nos próximos 7 dias</div>';
+                }else{
+                    expirando.sort((a,b)=>(a._exp||0)-(b._exp||0));
+                    expContainer.innerHTML=expirando.slice(0,10).map(u=>renderUser(u,true)).join('');
+                }
+
+                // Active list
+                document.getElementById('countAtivos').textContent=totalPagos;
+                const ativosContainer=document.getElementById('listaAtivos');
+                if(!ativos.length){
+                    ativosContainer.innerHTML='<div class="empty-state"><div class="empty-icon">🎫</div>Nenhum assinante ainda</div>';
+                }else{
+                    ativos.sort((a,b)=>(b._exp||0)-(a._exp||0));
+                    ativosContainer.innerHTML=ativos.slice(0,50).map(u=>renderUser(u,false)).join('');
+                }
+
+            }catch(e){console.error(e);}
+        }
+
+        function setBarra(tipo,val,max,total){
+            const id=tipo.toLowerCase().replace('é','e');
+            const pct=max>0?(val/max*100):0;
+            document.getElementById('bar'+tipo.charAt(0).toUpperCase()+tipo.slice(1).toLowerCase()).style.width=pct+'%';
+            document.getElementById('val'+tipo.charAt(0).toUpperCase()+tipo.slice(1).toLowerCase()).textContent=val+` (${total>0?(val/total*100).toFixed(0):0}%)`;
+        }
+
+        function renderUser(u,showExp){
+            const badges={semanal:'badge-semanal',mensal:'badge-mensal',anual:'badge-anual'};
+            const labels={semanal:'Semanal',mensal:'Mensal',anual:'Anual'};
+            const exp=u._exp?u._exp.toLocaleDateString('pt-BR'):'—';
+            const diasRestantes=u._exp?Math.ceil((u._exp-new Date())/86400000):0;
+            const nome=esc(u.nome||u.usuarioUnico||u.usuario||'Sem nome');
+            const ini=nome.charAt(0).toUpperCase();
+            const expBadge=showExp&&diasRestantes<=3?'<span class="list-badge badge-expiring">⚠️ '+diasRestantes+'d</span>':'';
+
+            return `<div class="list-item">
+                <div class="list-avatar" style="background:var(--${u._tipo==='anual'?'accent':u._tipo==='mensal'?'purple':'blue'}-dim);color:var(--${u._tipo==='anual'?'accent':u._tipo==='mensal'?'purple':'blue'})">${ini}</div>
+                <div class="list-content"><h4>${nome}</h4><p>${esc(u.email||'')} · Expira: ${exp} ${diasRestantes>0?'('+diasRestantes+' dias)':''}</p></div>
+                <span class="list-badge ${badges[u._tipo]||''}">${labels[u._tipo]||u._tipo}</span>
+                ${expBadge}
+            </div>`;
+        }
+
+        function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+        function sair(){auth.signOut().then(()=>window.location.href='login.html');}
+        function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('overlay').classList.toggle('open');}
+    </script>
+</body>
+</html>
