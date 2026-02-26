@@ -412,10 +412,8 @@
         } else {
           // Perfil incompleto → step 2
           const isGoogle = user.providerData.some(p => p.providerId === 'google.com');
-          if (isGoogle) {
-            authMethod = 'google';
-            irParaStep2(user);
-          }
+          authMethod = isGoogle ? 'google' : 'email';
+          irParaStep2(user);
         }
       } catch(e) { console.error(e); }
     });
@@ -434,7 +432,8 @@
       document.getElementById('dot1').classList.remove('active');
       document.getElementById('dot2').classList.add('active');
 
-      if (user && authMethod === 'google') {
+      if (authMethod === 'google' && user) {
+        // Google: mostrar welcome card + termos no step2
         const wc = document.getElementById('welcomeCard');
         wc.style.display = 'block';
         if (user.photoURL) {
@@ -445,11 +444,15 @@
         document.getElementById('welcomeName').textContent = user.displayName || '';
         document.getElementById('welcomeEmail').textContent = user.email || '';
         if (user.displayName) document.getElementById('nome').value = user.displayName;
-        // Google users see terms in step 2
         document.getElementById('termsGroup2').style.display = 'flex';
-        // Hide back button for Google (already authenticated)
-        document.getElementById('btnVoltar').style.display = 'none';
+      } else if (authMethod === 'email' && user) {
+        // Email: já aceitou termos no step1, não precisa de novo
+        document.getElementById('welcomeCard').style.display = 'none';
+        document.getElementById('termsGroup2').style.display = 'none';
       }
+
+      // Esconder botão voltar (já está autenticado)
+      document.getElementById('btnVoltar').style.display = 'none';
     }
 
     function voltarStep1() {
@@ -619,7 +622,7 @@
         errorDiv.style.display = 'block'; return;
       }
 
-      // Terms check (Google users)
+      // Terms check (Google users see terms in step2, email users accepted in step1)
       if (authMethod === 'google') {
         if (!document.getElementById('termos2').checked) {
           errorDiv.textContent = '❌ Você precisa aceitar os Termos de Uso para continuar.';
@@ -629,6 +632,7 @@
           return;
         }
       }
+      // Email users: termos já aceitos no step1 (salvo no localStorage)
 
       btn.disabled = true;
       btn.textContent = '⏳ Verificando dados...';
