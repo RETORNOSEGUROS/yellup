@@ -1860,14 +1860,46 @@
     .chat-ranking-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 30px;
+      gap: 0;
       margin-bottom: 30px;
     }
+    
+    /* Tab switcher for chat/ranking */
+    .cr-tab-bar {
+      display: flex;
+      background: var(--bg-card);
+      border-radius: 16px 16px 0 0;
+      border: 1px solid var(--glass-border);
+      border-bottom: none;
+      overflow: hidden;
+    }
+    .cr-tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      font-weight: 700;
+      font-size: 0.9em;
+      cursor: pointer;
+      transition: background 0.3s, color 0.3s;
+      color: var(--text-secondary);
+      border: none; background: transparent;
+    }
+    .cr-tab.active {
+      color: var(--accent);
+      background: rgba(255,138,71,0.1);
+      border-bottom: 2px solid var(--accent);
+    }
+    .cr-tab-content { display: none; }
+    .cr-tab-content.active { display: block; }
 
     @media (min-width: 992px) {
       .chat-ranking-grid {
         grid-template-columns: 1fr 1fr;
+        gap: 20px;
       }
+      .cr-tab-bar { display: none; }
+      .cr-tab-content { display: block !important; }
+      .chat-section, .ranking-section { border-radius: var(--card-radius) !important; }
     }
 
     /* ✅ CHAT SECTION COM FULLSCREEN */
@@ -4104,9 +4136,14 @@
 
     <!-- Chat and Ranking -->
     <div class="chat-ranking-grid">
+      <!-- Tab bar (mobile only) -->
+      <div class="cr-tab-bar">
+        <button class="cr-tab active" onclick="switchCRTab('chat')">💬 Chat ao Vivo</button>
+        <button class="cr-tab" onclick="switchCRTab('ranking')">🏆 Ranking</button>
+      </div>
       
       <!-- ✅ CHAT COM FULLSCREEN -->
-      <div class="chat-section" id="chatSection">
+      <div class="chat-section cr-tab-content active" id="chatSection" data-cr="chat">
         <div class="chat-header">
           <span class="chat-header-title">💬 Chat ao Vivo</span>
           <div style="display:flex; gap:6px; align-items:center;">
@@ -4193,7 +4230,7 @@
       </div>
 
       <!-- ✅ RANKING COLAPSÁVEL -->
-      <div class="ranking-section" id="rankingSection">
+      <div class="ranking-section cr-tab-content" id="rankingSection" data-cr="ranking">
         <div class="ranking-header" onclick="toggleRanking()">
           <h3 class="ranking-title">🏆 Ranking da Partida</h3>
           <button class="ranking-toggle" id="rankingToggle">▼</button>
@@ -4530,32 +4567,48 @@
       const statusAnterior = jogoStatus;
       
       if (!jogoDataInicio || !jogoDataFim) {
-        // Se não tiver datas, considera ao vivo (fallback)
         jogoStatus = 'ao_vivo';
-        console.log("⚠️ Datas não definidas, considerando ao vivo");
       } else if (agora < jogoDataInicio) {
         jogoStatus = 'agendado';
-        console.log("⏳ Jogo agendado - ainda não começou");
       } else if (agora >= jogoDataInicio && agora <= jogoDataFim) {
         jogoStatus = 'ao_vivo';
-        console.log("🔴 Jogo AO VIVO!");
       } else {
         jogoStatus = 'finalizado';
-        console.log("🏁 Jogo finalizado");
-        
-        // ✅ BLOQUEAR CHAT QUANDO TERMINA
+      }
+      
+      console.log(`📍 Status: ${jogoStatus}`);
+      
+      if (jogoStatus === 'finalizado') {
+        // ✅ PARAR TUDO quando finaliza
+        pararTodosTimers();
         bloquearChat();
         
-        // ✅ NOVO: Se acabou de finalizar, executar premiação
         if (statusAnterior !== 'finalizado' && !premiacaoExecutada) {
-          setTimeout(() => {
-            executarPremiacao();
-          }, 2000);
+          setTimeout(() => executarPremiacao(), 2000);
         }
       }
       
       atualizarBotaoBaseadoNoStatus();
       atualizarLiveBadge();
+    }
+    
+    // ✅ PARAR TODOS OS TIMERS E INTERVALOS
+    function pararTodosTimers() {
+      console.log("🛑 Parando todos os timers...");
+      // Timer de rodadas
+      if (momentumState._timerInterval) { clearInterval(momentumState._timerInterval); momentumState._timerInterval = null; }
+      // Enquete fixa
+      if (momentumState.enqueteFixaInterval) { clearInterval(momentumState.enqueteFixaInterval); momentumState.enqueteFixaInterval = null; }
+      // Alertas
+      if (momentumState.alertaInterval) { clearTimeout(momentumState.alertaInterval); momentumState.alertaInterval = null; }
+      // Bloquear perguntas
+      momentumState.perguntasRestantesFase = 0;
+      // Esconder elementos de jogo
+      const els = ['cooldownTimer', 'enqueteFixa', 'sponsorMiniBanner'];
+      els.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+      // Desabilitar FAB
+      const fab = document.getElementById('fabBtn');
+      if (fab) { fab.disabled = true; fab.innerHTML = '<span class="fab-icon">🏁</span><span class="fab-text">Encerrado</span>'; }
     }
     
     // ✅ BLOQUEAR CHAT APÓS TÉRMINO
@@ -4650,9 +4703,17 @@
             momentumState.respondidasRodada = pp.respondidasRodada || 0;
             momentumState.acertosRodada = pp.acertosRodada || 0;
             momentumState.emTimer = pp.emTimer || false;
-            momentumState.tipoPasse = pp.tipoPasse || 'free';
           }
         }
+        // ✅ SEMPRE pegar tipo do passe do USER (não do participante — pode estar desatualizado)
+        const passeUser2 = user.passe || {};
+        let temPasseUser2 = (passeUser2.ativo || passeUser2.temPasse) && passeUser2.tipo && passeUser2.tipo !== 'free';
+        if (temPasseUser2 && passeUser2.dataExpiracao) {
+          const dExp2 = passeUser2.dataExpiracao.toDate ? passeUser2.dataExpiracao.toDate() : new Date(passeUser2.dataExpiracao);
+          if (new Date() > dExp2) temPasseUser2 = false;
+        }
+        momentumState.tipoPasse = temPasseUser2 ? passeUser2.tipo : 'free';
+        console.log(`🎫 tipoPasse definido: ${momentumState.tipoPasse}`);
         await updateFreePlays();
         }
       }, 15000);
@@ -5030,7 +5091,19 @@
       try {
         const userDoc = await db.collection("usuarios").doc(uid).get();
         const user = userDoc.data() || {};
-        document.getElementById("paidCredits").textContent = user.creditos || 0;
+        const creditEl = document.getElementById("paidCredits");
+        if (creditEl) {
+          const newCredits = user.creditos || 0;
+          const oldCredits = parseInt(creditEl.textContent) || 0;
+          creditEl.textContent = newCredits;
+          // Flash se mudou
+          if (newCredits !== oldCredits) {
+            creditEl.style.transition = 'transform 0.2s, color 0.2s';
+            creditEl.style.transform = 'scale(1.3)';
+            creditEl.style.color = newCredits > oldCredits ? '#4caf50' : '#e74c3c';
+            setTimeout(() => { creditEl.style.transform = ''; creditEl.style.color = ''; }, 500);
+          }
+        }
 
         const participanteRef = db.collection("jogos").doc(jogoId).collection("participantes").doc(uid);
         const participanteDoc = await participanteRef.get();
@@ -5105,6 +5178,9 @@
 
     // ✅ NOVO: Função dedicada p/ atualizar botão baseado no momentumState
     function atualizarMomentumBotao() {
+      // ✅ Se jogo finalizado, não mexer no botão
+      if (jogoStatus === 'finalizado') return;
+      
       const rest = momentumState.perguntasRestantesFase;
       const el = document.getElementById("perguntasDisponiveis");
       if (el) { el.textContent = rest; el.style.color = rest > 0 ? '#4caf50' : '#e74c3c'; }
@@ -5262,6 +5338,11 @@
         catch(e){ if(e?.code==='resource-exhausted')throw e; r=(await functions.httpsCallable('adiantarPerguntasV2')({jogoId})).data; }
         showToast(`🎯 +1 pergunta! (${r.creditosRestantes} cr restantes)`);
         momentumState.perguntasRestantesFase = (momentumState.perguntasRestantesFase||0)+1;
+        // ✅ Atualizar créditos na tela
+        if (r.creditosRestantes != null) {
+          const cEl = document.getElementById('paidCredits');
+          if (cEl) cEl.textContent = r.creditosRestantes;
+        }
         momentumState.lastServerUpdate = Date.now();
         cooldownState.skipsUsados = r.skipsUsados||(cooldownState.skipsUsados+1);
         if(momentumState.timerInterval){clearInterval(momentumState.timerInterval);momentumState.timerInterval=null;}
@@ -5449,7 +5530,8 @@
           return;
         }
         
-        // ✅ VERIFICAR STATUS DO JOGO (da memória, sem re-ler Firestore)
+        // ✅ VERIFICAR STATUS DO JOGO
+        calcularStatusDoJogo(); // Re-checar status antes de cada pergunta
         if (jogoStatus !== 'ao_vivo') {
           if (jogoStatus === 'agendado') {
             alert("⏳ O jogo ainda não começou!");
@@ -9177,12 +9259,12 @@
 
     // 🗳️ ENQUETE FIXA
     const ENQUETES_FIXA_TEMPLATES=[
-      {id:'clima',pergunta:'🗳️ Como tá seu clima?',opcoes:['😎 De boa','😰 Tenso','🔥 Focado']},
-      {id:'confianca_f',pergunta:'🗳️ Confiança no time?',opcoes:['💪 Alta','😐 Média','😰 Baixa']},
-      {id:'gol',pergunta:'🗳️ Vai ter gol?',opcoes:['⚽ Sim!','❌ Não','🤞 Tomara']},
-      {id:'nota',pergunta:'🗳️ Nota pro jogo?',opcoes:['⭐ 1-2','⭐⭐ 3-4','⭐⭐⭐ 5']},
-      {id:'momento',pergunta:'🗳️ Reação agora?',opcoes:['🔥','😡','😂','🤯']},
-      {id:'tecnico',pergunta:'🗳️ Substituição?',opcoes:['🔄 Sim','✋ Não']},
+      {id:'sentimento',pergunta:'😄 Como você está se sentindo agora?',opcoes:['🔥 Empolgado','😰 Nervoso','😎 Tranquilo','😤 Irritado']},
+      {id:'nota_time',pergunta:'⭐ Nota pro seu time hoje:',opcoes:['⭐','⭐⭐','⭐⭐⭐','⭐⭐⭐⭐⭐']},
+      {id:'tatica',pergunta:'🎯 O que faria agora?',opcoes:['🔄 Substituir','⚔️ Ataque total','🛡️ Recuar','✅ Manter']},
+      {id:'qualidade_jogo',pergunta:'📺 Como está o jogo?',opcoes:['🔥 Jogão!','😐 Morno','💤 Muito ruim']},
+      {id:'gol_next',pergunta:'⚽ Próximo gol vai ser de quem?',opcoes:['🏠 Casa','✈️ Fora','❌ Nenhum']},
+      {id:'humor',pergunta:'🎭 Resumo em emoji:',opcoes:['🔥','😂','😡','🤯']},
     ];
     function iniciarEnqueteFixa(){trocarEnqueteFixa();momentumState.enqueteFixaInterval=setInterval(trocarEnqueteFixa,180000);}
     function trocarEnqueteFixa(){
@@ -9269,6 +9351,20 @@
       el.classList.add('show');
       SoundFX.whoosh();
       setTimeout(() => el.classList.remove('show'), 4000);
+    }
+
+    // Tab switcher for chat/ranking (mobile)
+    function switchCRTab(tab) {
+      document.querySelectorAll('.cr-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.cr-tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelector(`.cr-tab-content[data-cr="${tab}"]`)?.classList.add('active');
+      // Ativar o botão correto
+      document.querySelectorAll('.cr-tab').forEach(t => {
+        if ((tab === 'chat' && t.textContent.includes('Chat')) || (tab === 'ranking' && t.textContent.includes('Ranking'))) {
+          t.classList.add('active');
+        }
+      });
+      if (tab === 'ranking') loadRanking();
     }
 
     function atualizarMomentumUI(){
