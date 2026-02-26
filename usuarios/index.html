@@ -9,7 +9,7 @@
   <link rel="icon" type="image/x-icon" href="/icons/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="apple-touch-icon" href="/icons/apple-icon-180.png">
-  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Yellup">
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   
@@ -291,8 +291,13 @@
         // Login com email/senha
         const cred = await auth.signInWithEmailAndPassword(email, senha);
 
-        // Verificar se email foi confirmado
-        if (!cred.user.emailVerified) {
+        // Verificar se perfil está completo no Firestore
+        const doc = await db.collection("usuarios").doc(cred.user.uid).get();
+        const perfilCompleto = doc.exists && doc.data().usuarioUnico;
+
+        // Verificar email APENAS para contas novas (sem perfil completo)
+        // Contas legadas (criadas antes da verificação) passam direto
+        if (!cred.user.emailVerified && !perfilCompleto) {
           infoDiv.innerHTML = '📬 <strong>Verifique seu e-mail!</strong> Cheque sua caixa de entrada (' + email + ') e clique no link de confirmação.<br><br><a href="#" onclick="reenviarVerificacao(); return false;" style="color:#ffb547; font-weight:600;">🔄 Reenviar e-mail de verificação</a>';
           infoDiv.style.display = 'block';
           await auth.signOut();
@@ -301,9 +306,7 @@
           return;
         }
 
-        // Verificar se perfil está completo
-        const doc = await db.collection("usuarios").doc(cred.user.uid).get();
-        if (!doc.exists || !doc.data().usuarioUnico) {
+        if (!perfilCompleto) {
           // Perfil incompleto → completar cadastro
           window.location.href = "cadastro.html";
           return;
