@@ -5091,7 +5091,15 @@
     function atualizarMomentumBotao() {
       const rest = momentumState.perguntasRestantesFase;
       const el = document.getElementById("perguntasDisponiveis");
-      if (el) { el.textContent = rest; el.style.color = rest > 0 ? '#4caf50' : '#e74c3c'; }
+      
+      console.log(`🔄 atualizarMomentumBotao: fase=${momentumState.fase} rest=${rest} bonus=${momentumState.momentumBonus} currentQ=${!!currentQuestion}`);
+      
+      // Na Fase 2, mostrar o bonus acumulado (que SOBE) em vez do saldo estático
+      if (momentumState.fase === 2) {
+        if (el) { el.textContent = rest; el.style.color = rest > 0 ? '#a78bfa' : '#e74c3c'; }
+      } else {
+        if (el) { el.textContent = rest; el.style.color = rest > 0 ? '#4caf50' : '#e74c3c'; }
+      }
       atualizarFaseIndicador();
 
       const btn = document.getElementById("btnAnswer");
@@ -5111,12 +5119,18 @@
         mostrarMiniBanner();
       } else if (!currentQuestion) {
         btn.disabled = false;
-        const label = momentumState.fase === 2 ? '⚡' : '🎯';
-        btn.textContent = `${label} Responder Pergunta (${rest})`;
-        btn.style.background = momentumState.fase === 2
-          ? "linear-gradient(135deg,#a78bfa,#8b5cf6)"
-          : "linear-gradient(135deg,var(--accent),#ff8c42)";
-        if (fab) { fab.disabled = false; fab.innerHTML = `<span class="fab-icon">${label}</span><span class="fab-text">${rest} disponíveis</span>`; }
+        if (momentumState.fase === 2) {
+          // Fase 2: mostrar CADEIA (sobe!) no botão — é mais excitante
+          const cadeia = momentumState.momentumBonus || rest;
+          btn.textContent = `⚡ Cadeia de ${cadeia}! Responder`;
+          btn.style.background = "linear-gradient(135deg,#a78bfa,#8b5cf6)";
+          if (fab) { fab.disabled = false; fab.innerHTML = `<span class="fab-icon">⚡</span><span class="fab-text">Cadeia ${cadeia}!</span>`; }
+        } else {
+          const label = '🎯';
+          btn.textContent = `${label} Responder Pergunta (${rest})`;
+          btn.style.background = "linear-gradient(135deg,var(--accent),#ff8c42)";
+          if (fab) { fab.disabled = false; fab.innerHTML = `<span class="fab-icon">${label}</span><span class="fab-text">${rest} disponíveis</span>`; }
+        }
         esconderMiniBanner();
       }
     }
@@ -5811,7 +5825,12 @@
           console.log(`⚡ SERVER: fase=${r.fase} restantes=${r.perguntasRestantes} bonus=${r.momentumBonus}`);
 
           // Feedbacks visuais
-          if (r.momentumGanhou) { mostrarMomentumFeedback('unlock','⚡ +1 DESBLOQUEADA!'); SoundFX.momentumPlus(); adicionarLiveFeed('⚡','desbloqueou +1!'); }
+          if (r.momentumGanhou) { 
+            mostrarMomentumFeedback('unlock','⚡ +1 DESBLOQUEADA!'); SoundFX.momentumPlus(); adicionarLiveFeed('⚡','desbloqueou +1!');
+            // Flash no botão e phase bar pra mostrar que mudou
+            const phaseBar = document.getElementById('momentumPhaseBar');
+            if (phaseBar) { phaseBar.style.transition='transform 0.2s'; phaseBar.style.transform='scale(1.05)'; setTimeout(()=>phaseBar.style.transform='',300); }
+          }
           if (r.momentumQuebrou) { mostrarMomentumFeedback('break','💔 MOMENTUM QUEBROU'); SoundFX.momentumBreak(); adicionarLiveFeed('💔','Momentum quebrou!'); }
           if (faseAnt === 1 && r.fase === 2) {
             mostrarMomentumFeedback('phase-up', `⚡ MOMENTUM! ${r.fase1Acertos||0}/5 = ${r.momentumBonus} bônus!`);
@@ -9014,8 +9033,11 @@
       } else if (momentumState.fase === 2) {
         bar.classList.add('fase-2');
         if(icon)icon.textContent='⚡'; text.textContent='MOMENTUM';
-        info.textContent=`+${momentumState.momentumBonus} bônus | ${momentumState.perguntasRestantesFase} restantes`;
-        fill.style.width=momentumState.perguntasRestantesFase>0?'100%':'0%';
+        // Mostrar cadeia (que SOBE) como info principal, saldo como secundário
+        const cadeia = momentumState.momentumBonus || 0;
+        const disp = momentumState.perguntasRestantesFase;
+        info.textContent=`🔗 ${cadeia} na cadeia | ${disp} disp.`;
+        fill.style.width=disp>0?'100%':'0%';
         const s=bar.querySelector('.btn-skip-inline'); if(s)s.remove();
       } else if (momentumState.fase === 3) {
         bar.classList.add('fase-3');
