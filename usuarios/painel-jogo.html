@@ -7467,21 +7467,38 @@
           return;
         }
         
-        // ✅ Premiação é feita pelo admin — aqui só mostramos se já foi premiado
-        // Se já premiado, mostra resultado. Se não, mostra tela de espera.
-        console.log("⏳ Jogo não foi premiado ainda. Aguardando admin...");
-        premiacaoExecutada = true;
-        
-        // Escutar em tempo real quando admin premiar
-        db.collection("jogos").doc(jogoId).onSnapshot((snap) => {
-          const d = snap.data();
-          if (d && d.premiado && d.premiacaoDetalhes) {
-            console.log("🏆 Premiação detectada!");
-            mostrarResultadoPremiacao(d.premiacaoDetalhes);
+        // ✅ Tentar premiar automaticamente, se falhar (não admin) escutar admin
+        try {
+          const premiarJogoFn = functions.httpsCallable('premiarJogoV2');
+          const resultadoPremio = await premiarJogoFn({ jogoId: jogoId });
+          
+          if (resultadoPremio.data.semParticipantes) {
+            console.log("⚠️ Sem participantes");
+            premiacaoExecutada = true;
+            mostrarAguardandoPremiacao();
+            return;
           }
-        });
-        
-        mostrarAguardandoPremiacao();
+          
+          const premiacaoDetalhes = resultadoPremio.data.detalhes;
+          console.log("🏆 PREMIAÇÃO PROCESSADA COM SUCESSO!");
+          premiacaoExecutada = true;
+          mostrarResultadoPremiacao(premiacaoDetalhes);
+          
+        } catch(premioErr) {
+          console.warn("⚠️ Não foi possível premiar (aguardando admin):", premioErr.message);
+          premiacaoExecutada = true;
+          
+          // Escutar em tempo real quando admin premiar
+          db.collection("jogos").doc(jogoId).onSnapshot((snap) => {
+            const d = snap.data();
+            if (d && d.premiado && d.premiacaoDetalhes) {
+              console.log("🏆 Premiação detectada via admin!");
+              mostrarResultadoPremiacao(d.premiacaoDetalhes);
+            }
+          });
+          
+          mostrarAguardandoPremiacao();
+        }
         
       } catch (error) {
         console.error("❌ Erro na premiação:", error);
