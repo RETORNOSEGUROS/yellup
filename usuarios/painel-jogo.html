@@ -4295,22 +4295,25 @@
     let cooldownInterval = null;     // Intervalo do timer visual
     // ⚡ MOMENTUM v3 STATE
     let momentumState = {
+      // === RODADAS ===
+      rodadaAtual: 1,
+      perguntasTotalRodada: 10,
+      respondidasRodada: 0,
+      acertosRodada: 0,
+      totalRespondidas: 0,
+      emTimer: false,
+      timerIntervalo: 120,
+      tipoPasse: 'free',
+      // Compatibilidade
+      perguntasRestantesFase: 10,
       fase: 1,
       momentumBonus: 0,
-      totalRespondidas: 0,
-      totalDisponivel: 5,
-      timerSegundos: 120,
-      timerAcertosConsecutivos: 0,
-      tipoPasse: 'free',
-      fase1Acertos: 0,
-      perguntasRestantesFase: 5,
       timerInterval: null,
       liveFeedListener: null,
       alertaInterval: null,
       enqueteFixaInterval: null,
       enqueteFixaAtual: null,
       enqueteFixaVoto: null,
-      // ✅ TIMESTAMP protection: updateFreePlays won't read Firestore within 8s of server response
       lastServerUpdate: 0,
     };
 
@@ -4638,7 +4641,19 @@
       // ✅ ATUALIZAR COOLDOWN/PERGUNTAS A CADA 15 SEGUNDOS
       setInterval(async () => {
         if (jogoStatus === 'ao_vivo' || jogoStatus === 'pre_jogo') {
-          await updateFreePlays();
+          // Inicializar rodadas se participante já existe
+        if (participanteDoc.exists) {
+          const pp = participanteDoc.data();
+          if (pp.modeloRodadas || pp.rodadaAtual) {
+            momentumState.rodadaAtual = pp.rodadaAtual || 1;
+            momentumState.perguntasTotalRodada = pp.perguntasTotalRodada || 10;
+            momentumState.respondidasRodada = pp.respondidasRodada || 0;
+            momentumState.acertosRodada = pp.acertosRodada || 0;
+            momentumState.emTimer = pp.emTimer || false;
+            momentumState.tipoPasse = pp.tipoPasse || 'free';
+          }
+        }
+        await updateFreePlays();
         }
       }, 15000);
 
@@ -5032,27 +5047,34 @@
           const serverRecente = msSinceServer < 8000;
 
           if (!serverRecente) {
-            if (p.modeloV3 || p.faseAtual) {
-              momentumState.fase = p.faseAtual || 1;
-              momentumState.momentumBonus = p.momentumBonus || 0;
+            if (p.modeloRodadas || p.rodadaAtual) {
+              // === MODELO RODADAS ===
+              momentumState.rodadaAtual = p.rodadaAtual || 1;
+              momentumState.perguntasTotalRodada = p.perguntasTotalRodada || 10;
+              momentumState.respondidasRodada = p.respondidasRodada || 0;
+              momentumState.acertosRodada = p.acertosRodada || 0;
               momentumState.totalRespondidas = p.totalRespondidas || 0;
-              momentumState.timerAcertosConsecutivos = p.timerAcertosConsecutivos || 0;
-              momentumState.tipoPasse = cooldownState.tipoPasse || 'free';
+              momentumState.emTimer = p.emTimer || false;
+              momentumState.tipoPasse = p.tipoPasse || cooldownState.tipoPasse || 'free';
 
-              if (momentumState.fase === 1) {
-                momentumState.perguntasRestantesFase = Math.max(0, 5 - momentumState.totalRespondidas);
-              } else if (momentumState.fase === 2) {
-                // ✅ FIX: null-safe (0 é valor válido, || tratava como falsy)
-                const r2 = p.perguntasRestantesFase2;
-                momentumState.perguntasRestantesFase = (r2 != null) ? r2 : 0;
-              } else if (momentumState.fase === 3) {
-                const f3 = p.fase3InicioEm?.toDate?.()?.getTime() || 0;
-                const timer = calcularTimerMomentum();
-                momentumState.perguntasRestantesFase = ((Date.now()-f3)/1000 >= timer) ? 1 : 0;
-                momentumState.timerSegundos = timer;
+              if (!momentumState.emTimer) {
+                // Rodadas: restantes = total da rodada - respondidas
+                momentumState.perguntasRestantesFase = Math.max(0, momentumState.perguntasTotalRodada - momentumState.respondidasRodada);
+              } else {
+                // Timer: verificar se intervalo passou
+                const ult = p.ultimaRespostaEm?.toDate?.()?.getTime() || 0;
+                const intervalo = getTimerIntervaloLocal(momentumState.tipoPasse);
+                momentumState.timerIntervalo = intervalo;
+                momentumState.perguntasRestantesFase = ((Date.now()-ult)/1000 >= intervalo) ? 1 : 0;
               }
               cooldownState.totalRespondidas = momentumState.totalRespondidas;
               cooldownState.perguntasRestantes = momentumState.perguntasRestantesFase;
+            } else if (p.modeloV3 || p.faseAtual) {
+              // Legacy V3 — fallback
+              momentumState.totalRespondidas = p.totalRespondidas || 0;
+              momentumState.perguntasRestantesFase = 0;
+              cooldownState.totalRespondidas = momentumState.totalRespondidas;
+              cooldownState.perguntasRestantes = 0;
             } else {
               // V2 fallback
               const agora = Date.now();
@@ -5085,25 +5107,20 @@
     function atualizarMomentumBotao() {
       const rest = momentumState.perguntasRestantesFase;
       const el = document.getElementById("perguntasDisponiveis");
-      
-      console.log(`🔄 atualizarMomentumBotao: fase=${momentumState.fase} rest=${rest} bonus=${momentumState.momentumBonus} currentQ=${!!currentQuestion}`);
-      
-      // Na Fase 2, mostrar o bonus acumulado (que SOBE) em vez do saldo estático
-      if (momentumState.fase === 2) {
-        if (el) { el.textContent = rest; el.style.color = rest > 0 ? '#a78bfa' : '#e74c3c'; }
-      } else {
-        if (el) { el.textContent = rest; el.style.color = rest > 0 ? '#4caf50' : '#e74c3c'; }
-      }
+      if (el) { el.textContent = rest; el.style.color = rest > 0 ? '#4caf50' : '#e74c3c'; }
       atualizarFaseIndicador();
 
       const btn = document.getElementById("btnAnswer");
       const fab = document.getElementById("fabBtn");
       if (!btn) return;
 
+      console.log(`🔄 botao: R${momentumState.rodadaAtual} rest=${rest} timer=${momentumState.emTimer} currentQ=${!!currentQuestion}`);
+
       if (rest <= 0 && !currentQuestion) {
         btn.disabled = true;
-        if (momentumState.fase === 3) {
-          btn.textContent = '⏳ +1 pergunta em breve';
+        if (momentumState.emTimer) {
+          btn.textContent = '⏳ Aguardando...';
+          iniciarTimerRodadas();
         } else {
           btn.textContent = '⏳ Aguarde...';
         }
@@ -5113,17 +5130,19 @@
         mostrarMiniBanner();
       } else if (!currentQuestion) {
         btn.disabled = false;
-        if (momentumState.fase === 2) {
-          // Fase 2: mostrar CADEIA (sobe!) no botão — é mais excitante
-          const cadeia = momentumState.momentumBonus || rest;
-          btn.textContent = `⚡ Cadeia de ${cadeia}! Responder`;
-          btn.style.background = "linear-gradient(135deg,#a78bfa,#8b5cf6)";
-          if (fab) { fab.disabled = false; fab.innerHTML = `<span class="fab-icon">⚡</span><span class="fab-text">Cadeia ${cadeia}!</span>`; }
-        } else {
-          const label = '🎯';
-          btn.textContent = `${label} Responder Pergunta (${rest})`;
+        const r = momentumState.rodadaAtual || 1;
+        if (momentumState.emTimer) {
+          btn.textContent = '🎯 Responder Pergunta (1)';
+          btn.style.background = "linear-gradient(135deg,#f59e0b,#d97706)";
+          if (fab) { fab.disabled = false; fab.innerHTML = '<span class="fab-icon">🎯</span><span class="fab-text">1 disponível</span>'; }
+        } else if (r === 1) {
+          btn.textContent = `🎯 Responder Pergunta (${rest})`;
           btn.style.background = "linear-gradient(135deg,var(--accent),#ff8c42)";
-          if (fab) { fab.disabled = false; fab.innerHTML = `<span class="fab-icon">${label}</span><span class="fab-text">${rest} disponíveis</span>`; }
+          if (fab) { fab.disabled = false; fab.innerHTML = `<span class="fab-icon">🎯</span><span class="fab-text">${rest} disponíveis</span>`; }
+        } else {
+          btn.textContent = `⚡ Rodada ${r} — Responder (${rest})`;
+          btn.style.background = "linear-gradient(135deg,#a78bfa,#8b5cf6)";
+          if (fab) { fab.disabled = false; fab.innerHTML = `<span class="fab-icon">⚡</span><span class="fab-text">R${r} · ${rest} disp.</span>`; }
         }
         esconderMiniBanner();
       }
@@ -5239,7 +5258,7 @@
         const ba = document.getElementById("btnAdiantar");
         if(ba){ba.disabled=true;ba.textContent='⏳...';}
         let r;
-        try { r=(await functions.httpsCallable('adiantarPerguntasMomentumV3')({jogoId})).data; }
+        try { r=(await functions.httpsCallable('adiantarPerguntaRodadas')({jogoId})).data; }
         catch(e){ if(e?.code==='resource-exhausted')throw e; r=(await functions.httpsCallable('adiantarPerguntasV2')({jogoId})).data; }
         showToast(`🎯 +1 pergunta! (${r.creditosRestantes} cr restantes)`);
         momentumState.perguntasRestantesFase = (momentumState.perguntasRestantesFase||0)+1;
@@ -5424,7 +5443,7 @@
         
         // ⚡ Sem perguntas? Bloquear
         if (momentumState.perguntasRestantesFase <= 0 && momentumState.totalRespondidas > 0) {
-          const faseMsg = momentumState.fase === 3 ? '⏳ Aguarde o timer ou use 💎 1 crédito!' : '⏳ Aguarde...';
+          const faseMsg = momentumState.emTimer ? '⏳ Aguarde o timer ou use 💎 1 crédito!' : '⏳ Aguarde...';
           showToast(faseMsg);
           buscandoPergunta = false;
           return;
@@ -5785,12 +5804,12 @@
         // ⚡ Chamar server
         let r, usouV3 = false;
         try {
-          const fn = functions.httpsCallable('responderPerguntaMomentumV3');
+          const fn = functions.httpsCallable('responderPerguntaRodadas');
           r = (await fn({ jogoId, perguntaId: currentQuestion.id, resposta: selectedLetter, tempoResposta, usandoCredito: false })).data;
           usouV3 = true;
         } catch (e) {
           if (e?.code === 'resource-exhausted' || e?.code === 'already-exists') throw e;
-          console.warn('⚠️ V3 indisponível, fallback V2');
+          console.warn('⚠️ Rodadas indisponível, fallback V2');
           const fn = functions.httpsCallable('responderPerguntaV2');
           r = (await fn({ jogoId, perguntaId: currentQuestion.id, resposta: selectedLetter, tempoResposta })).data;
         }
@@ -5806,32 +5825,32 @@
         // ═══════════════════════════════════════════════════
         momentumState.lastServerUpdate = Date.now();
 
-        if (usouV3 && r.fase != null) {
-          const faseAnt = momentumState.fase;
-          momentumState.fase = r.fase;
-          momentumState.momentumBonus = r.momentumBonus || 0;
+        if (usouV3 && r.modeloRodadas) {
+          momentumState.lastServerUpdate = Date.now();
+          momentumState.rodadaAtual = r.rodadaAtual;
+          momentumState.perguntasTotalRodada = r.perguntasTotalRodada;
+          momentumState.respondidasRodada = r.respondidasRodada;
+          momentumState.acertosRodada = r.acertosRodada;
           momentumState.totalRespondidas = r.totalRespondidas || (momentumState.totalRespondidas + 1);
-          momentumState.timerAcertosConsecutivos = r.timerAcertosConsecutivos || 0;
-          momentumState.perguntasRestantesFase = r.perguntasRestantes; // EXATO do server
-          if (r.timerSegundos != null) momentumState.timerSegundos = r.timerSegundos;
-          if (r.fase1Acertos != null) momentumState.fase1Acertos = r.fase1Acertos;
+          momentumState.emTimer = r.emTimer;
+          momentumState.timerIntervalo = r.timerIntervalo || 120;
+          momentumState.tipoPasse = r.tipoPasse || 'free';
+          momentumState.perguntasRestantesFase = r.perguntasRestantes;
 
-          console.log(`⚡ SERVER: fase=${r.fase} restantes=${r.perguntasRestantes} bonus=${r.momentumBonus}`);
+          console.log(`🎯 SERVER: R${r.rodadaAtual} ${r.respondidasRodada}/${r.perguntasTotalRodada} | restantes=${r.perguntasRestantes} | timer=${r.emTimer}`);
 
           // Feedbacks visuais
-          if (r.momentumGanhou) { 
-            mostrarMomentumFeedback('unlock','⚡ +1 DESBLOQUEADA!'); SoundFX.momentumPlus(); adicionarLiveFeed('⚡','desbloqueou +1!');
-            // Flash no botão e phase bar pra mostrar que mudou
-            const phaseBar = document.getElementById('momentumPhaseBar');
-            if (phaseBar) { phaseBar.style.transition='transform 0.2s'; phaseBar.style.transform='scale(1.05)'; setTimeout(()=>phaseBar.style.transform='',300); }
-          }
-          if (r.momentumQuebrou) { mostrarMomentumFeedback('break','💔 MOMENTUM QUEBROU'); SoundFX.momentumBreak(); adicionarLiveFeed('💔','Momentum quebrou!'); }
-          if (faseAnt === 1 && r.fase === 2) {
-            mostrarMomentumFeedback('phase-up', `⚡ MOMENTUM! ${r.fase1Acertos||0}/5 = ${r.momentumBonus} bônus!`);
+          if (r.novaRodada) {
+            mostrarMomentumFeedback('phase-up', `🎯 RODADA ${r.rodadaAtual}! ${r.perguntasTotalRodada} perguntas!`);
             SoundFX.momentumUp();
-            showToast(`⚡ Fase Momentum! ${r.momentumBonus} perguntas bônus!`, 4000);
+            showToast(`🎯 Nova rodada! ${r.perguntasTotalRodada} perguntas liberadas!`, 4000);
+            adicionarLiveFeed('🎯', `Rodada ${r.rodadaAtual}!`);
           }
-          if (r.timerEncurtou) showToast(`⏱️ Timer encurtou! Próxima em ${r.timerSegundos}s`);
+          if (r.entrarTimer) {
+            mostrarMomentumFeedback('break', `⏳ MODO TIMER — 1 pergunta a cada ${r.timerIntervalo}s`);
+            SoundFX.momentumBreak();
+            adicionarLiveFeed('⏳', 'Entrou no modo timer');
+          }
         } else {
           // Fallback V2
           momentumState.totalRespondidas++;
@@ -5839,8 +5858,8 @@
             cooldownState.totalRespondidas = r.totalRespondidas;
             if (cooldownState.entradaEm) {
               const el = (Date.now() - cooldownState.entradaEm) / 1000;
-              const c = Math.floor(el / cooldownState.cooldownSeg);
-              cooldownState.totalDisponivel = 5 + (c*2) + (cooldownState.skipsUsados*2);
+              const cc = Math.floor(el / cooldownState.cooldownSeg);
+              cooldownState.totalDisponivel = 5 + (cc*2) + (cooldownState.skipsUsados*2);
             }
             cooldownState.perguntasRestantes = Math.max(0, cooldownState.totalDisponivel - cooldownState.totalRespondidas);
             momentumState.perguntasRestantesFase = cooldownState.perguntasRestantes;
@@ -5911,7 +5930,7 @@
           // Atualizar UI com dados do server (ainda protegido por timestamp 8s)
           atualizarMomentumBotao();
           atualizarFaseIndicador();
-          if(momentumState.fase===3 && momentumState.perguntasRestantesFase<=0) iniciarTimerMomentum();
+          if(momentumState.emTimer && momentumState.perguntasRestantesFase<=0) iniciarTimerRodadas();
           if(Math.random()<0.3) tentarMostrarEnquete();
         }, 3000);
 
@@ -5920,7 +5939,7 @@
         const code=error?.code||error?.details?.code||'';
         const msg=error?.message||error?.details||"";
         if(code==='resource-exhausted'){
-          try{const ci=JSON.parse(msg);if(ci.tipo==='cooldown'){momentumState.perguntasRestantesFase=0;if(ci.fase)momentumState.fase=ci.fase;showToast(`⏳ ${ci.mensagem}`);atualizarMomentumBotao();document.getElementById("questionModalOverlay").classList.remove("active");return;}}catch(e){}
+          try{const ci=JSON.parse(msg);if(ci.tipo==='cooldown'){momentumState.perguntasRestantesFase=0;if(ci.emTimer)momentumState.emTimer=ci.emTimer;showToast(`⏳ ${ci.mensagem}`);atualizarMomentumBotao();document.getElementById("questionModalOverlay").classList.remove("active");return;}}catch(e){}
           mostrarOverlayLimiteAtingido();
         }else{showToast("❌ "+msg);}
         document.getElementById("btnAnswer").disabled=false;
@@ -7366,26 +7385,21 @@
           return;
         }
         
-        // ✅ V2: Cloud Function com valores fixos por posição
-        const premiarJogoFn = functions.httpsCallable('premiarJogoV2');
-        const resultadoPremio = await premiarJogoFn({ jogoId: jogoId });
-        
-        if (resultadoPremio.data.semParticipantes) {
-          console.log("⚠️ Sem participantes");
-          premiacaoExecutada = true;
-          mostrarAguardandoPremiacao();
-          return;
-        }
-        
-        const premiacaoDetalhes = resultadoPremio.data.detalhes;
-        
-        console.log("🏆 PREMIAÇÃO PROCESSADA COM SUCESSO!");
+        // ✅ Premiação é feita pelo admin — aqui só mostramos se já foi premiado
+        // Se já premiado, mostra resultado. Se não, mostra tela de espera.
+        console.log("⏳ Jogo não foi premiado ainda. Aguardando admin...");
         premiacaoExecutada = true;
         
-        // 📈 Bolsa: preços atualizados automaticamente pela Cloud Function
+        // Escutar em tempo real quando admin premiar
+        db.collection("jogos").doc(jogoId).onSnapshot((snap) => {
+          const d = snap.data();
+          if (d && d.premiado && d.premiacaoDetalhes) {
+            console.log("🏆 Premiação detectada!");
+            mostrarResultadoPremiacao(d.premiacaoDetalhes);
+          }
+        });
         
-        // Mostrar resultado
-        mostrarResultadoPremiacao(premiacaoDetalhes);
+        mostrarAguardandoPremiacao();
         
       } catch (error) {
         console.error("❌ Erro na premiação:", error);
@@ -9017,32 +9031,88 @@
       const text=document.getElementById('phaseText'), info=document.getElementById('phaseInfo'), fill=document.getElementById('phaseFill');
       bar.className='momentum-phase-bar';
       const icon = bar.querySelector('.phase-icon');
+      const s=bar.querySelector('.btn-skip-inline'); if(s)s.remove();
 
-      if (momentumState.fase === 1) {
-        bar.classList.add('fase-1');
-        const r=Math.min(momentumState.totalRespondidas,5);
-        if(icon)icon.textContent='🎯'; text.textContent='AQUECIMENTO'; info.textContent=`${r}/5`;
-        fill.style.width=`${(r/5)*100}%`;
-        const s=bar.querySelector('.btn-skip-inline'); if(s)s.remove();
-      } else if (momentumState.fase === 2) {
-        bar.classList.add('fase-2');
-        if(icon)icon.textContent='⚡'; text.textContent='MOMENTUM';
-        // Mostrar cadeia (que SOBE) como info principal, saldo como secundário
-        const cadeia = momentumState.momentumBonus || 0;
-        const disp = momentumState.perguntasRestantesFase;
-        info.textContent=`🔗 ${cadeia} na cadeia | ${disp} disp.`;
-        fill.style.width=disp>0?'100%':'0%';
-        const s=bar.querySelector('.btn-skip-inline'); if(s)s.remove();
-      } else if (momentumState.fase === 3) {
+      if (momentumState.emTimer) {
+        // MODO TIMER
         bar.classList.add('fase-3');
         if(icon)icon.textContent='⏳'; text.textContent='TIMER';
-        const red=momentumState.timerAcertosConsecutivos*15;
-        info.innerHTML=`${red>0?'-'+red+'s | ':''}<span id="phaseTimerCountdown">--:--</span>`;
+        info.innerHTML=`<span id="phaseTimerCountdown">--:--</span>`;
         fill.style.width='0%';
         if(!bar.querySelector('.btn-skip-inline')){
           const b=document.createElement('button');b.className='btn-skip-inline';b.textContent='💎 Skip';b.onclick=adiantarPerguntas;bar.appendChild(b);
         }
+      } else {
+        // MODO RODADAS
+        const r = momentumState.rodadaAtual || 1;
+        const total = momentumState.perguntasTotalRodada || 10;
+        const resp = momentumState.respondidasRodada || 0;
+        const acertos = momentumState.acertosRodada || 0;
+        const restantes = Math.max(0, total - resp);
+        const perc = total > 0 ? (resp / total) * 100 : 0;
+
+        if (r === 1) {
+          bar.classList.add('fase-1');
+          if(icon)icon.textContent='🎯'; text.textContent=`RODADA 1`;
+          info.textContent=`${resp}/${total} · ✅ ${acertos}`;
+        } else {
+          bar.classList.add('fase-2');
+          if(icon)icon.textContent='⚡'; text.textContent=`RODADA ${r}`;
+          info.textContent=`${resp}/${total} · ✅ ${acertos}`;
+        }
+        fill.style.width=`${perc}%`;
       }
+    }
+
+    // === TIMER RODADAS ===
+    function getTimerIntervaloLocal(tipoPasse) {
+      switch(tipoPasse) {
+        case 'anual': return 45;
+        case 'mensal': return 60;
+        case 'semanal': return 90;
+        default: return 120;
+      }
+    }
+
+    function iniciarTimerRodadas() {
+      // Limpar timer anterior
+      if (momentumState._timerInterval) clearInterval(momentumState._timerInterval);
+      
+      const intervalo = momentumState.timerIntervalo || getTimerIntervaloLocal(momentumState.tipoPasse);
+      const countdownEl = document.getElementById('phaseTimerCountdown');
+      const btn = document.getElementById('btnAnswer');
+      const fab = document.getElementById('fabBtn');
+      const fillEl = document.getElementById('phaseFill');
+      
+      momentumState._timerInterval = setInterval(() => {
+        // Calcular tempo restante baseado no lastServerUpdate
+        const elapsed = (Date.now() - momentumState.lastServerUpdate) / 1000;
+        const restante = Math.max(0, intervalo - elapsed);
+        
+        if (restante <= 0) {
+          clearInterval(momentumState._timerInterval);
+          momentumState.perguntasRestantesFase = 1;
+          if (countdownEl) countdownEl.textContent = 'PRONTA!';
+          if (fillEl) fillEl.style.width = '100%';
+          if (btn && !currentQuestion) {
+            btn.disabled = false;
+            btn.textContent = '🎯 Responder Pergunta (1)';
+            btn.style.background = 'linear-gradient(135deg,#f59e0b,#d97706)';
+          }
+          if (fab && !currentQuestion) {
+            fab.disabled = false;
+            fab.innerHTML = '<span class="fab-icon">🎯</span><span class="fab-text">1 disponível</span>';
+          }
+          SoundFX.whoosh();
+          return;
+        }
+        
+        const min = Math.floor(restante / 60);
+        const sec = Math.floor(restante % 60);
+        if (countdownEl) countdownEl.textContent = `${min}:${String(sec).padStart(2,'0')}`;
+        if (fillEl) fillEl.style.width = `${((intervalo - restante) / intervalo) * 100}%`;
+        if (btn && !currentQuestion) btn.textContent = `⏳ Próxima em ${min}:${String(sec).padStart(2,'0')}`;
+      }, 1000);
     }
 
     function mostrarMomentumFeedback(tipo, texto) {
@@ -9170,8 +9240,8 @@
       if(p&&p<=5)ms.push(`🏆 Você está em #${p}!`);
       if(p&&p>1&&p<=10)ms.push(`⬆️ Falta pouco pro top 3!`);
       if(streak>=5)ms.push(`🔥 Streak de ${streak}!`);
-      if(momentumState.fase===2)ms.push(`⚡ Momentum ativo!`);
-      if(momentumState.fase===3&&momentumState.perguntasRestantesFase<=0){
+      if(momentumState.rodadaAtual>1&&!momentumState.emTimer)ms.push(`⚡ Rodada ${momentumState.rodadaAtual}!`);
+      if(momentumState.emTimer&&momentumState.perguntasRestantesFase<=0){
         ms.push(`📊 Outros estão respondendo!`);
         if(cr>0)ms.push(`💎 ${cr} créditos! 1 cr = 1 pergunta`);
       }
