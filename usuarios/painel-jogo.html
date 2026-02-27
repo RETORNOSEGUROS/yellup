@@ -2307,6 +2307,33 @@
 
     @keyframes pulseOnline { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
 
+    /* ⚽ Eventos da partida */
+    .evento-item {
+      display: flex; align-items: center; gap: 8px; padding: 3px 0;
+      font-size: 0.78em; color: var(--text-secondary); 
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      animation: eventoFadeIn 0.5s ease;
+    }
+    .evento-item:last-child { border-bottom: none; }
+    @keyframes eventoFadeIn { from { opacity:0; transform:translateX(-10px); } to { opacity:1; transform:translateX(0); } }
+    .evento-tempo { font-weight: 700; min-width: 32px; text-align: center; font-family: 'Poppins',sans-serif; }
+    .evento-icon { font-size: 1.1em; }
+    .evento-texto { flex: 1; }
+    .evento-item.gol { color: #2ecc71; font-weight: 600; }
+    .evento-item.cartao-amarelo .evento-tempo { color: #f1c40f; }
+    .evento-item.cartao-vermelho .evento-tempo { color: #e74c3c; }
+    .evento-item.substituicao { color: #3498db; }
+
+    /* Mini stats bars */
+    .mini-stat-row {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 0.72em;
+    }
+    .mini-stat-label { width: 55px; text-align: right; color: var(--text-secondary); font-weight: 500; }
+    .mini-stat-bar { flex: 1; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; display: flex; }
+    .mini-stat-fill-home { background: var(--cor-timeA, #3498db); height: 100%; transition: width 0.5s; border-radius: 3px 0 0 3px; }
+    .mini-stat-fill-away { background: var(--cor-timeB, #e74c3c); height: 100%; transition: width 0.5s; border-radius: 0 3px 3px 0; margin-left: auto; }
+    .mini-stat-val { width: 22px; text-align: center; font-weight: 600; font-size: 0.95em; }
+
     /* 📱 Card de compartilhamento */
     .share-card-overlay {
       position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);
@@ -3094,10 +3121,21 @@
         <span>⏳ Restante: <span class="timer" id="timer">--:--</span></span>
         <span id="onlineCounter" style="color:#2ecc71;"><span style="display:inline-block;width:8px;height:8px;background:#2ecc71;border-radius:50%;margin-right:4px;animation:pulseOnline 1.5s ease infinite;"></span><span id="onlineCount">0</span> online</span>
       </div>
-      <!-- ⚽ Placar ao vivo -->
-      <div id="placarAoVivo" style="display:none;text-align:center;padding:6px 0;">
-        <span style="font-size:1.8em;font-weight:900;letter-spacing:2px;" id="placarDisplay">0 x 0</span>
-        <span style="font-size:0.8em;color:var(--text-secondary);margin-left:8px;" id="placarMinuto"></span>
+      <!-- ⚽ Placar ao vivo + Eventos -->
+      <div id="placarAoVivo" style="display:none;">
+        <div style="text-align:center;padding:6px 0;">
+          <div style="display:flex;align-items:center;justify-content:center;gap:12px;">
+            <span style="font-size:1.8em;font-weight:900;letter-spacing:2px;" id="placarDisplay">0 x 0</span>
+          </div>
+          <div id="placarStatus" style="font-size:0.75em;margin-top:2px;">
+            <span id="placarMinuto" style="color:var(--text-secondary);"></span>
+            <span id="placarStatusTxt" style="color:var(--accent);margin-left:6px;"></span>
+          </div>
+        </div>
+        <!-- Eventos recentes -->
+        <div id="eventosTimeline" style="display:none;max-height:90px;overflow-y:auto;padding:4px 12px;margin:4px 0;"></div>
+        <!-- Mini stats -->
+        <div id="miniStats" style="display:none;padding:4px 16px 8px;"></div>
       </div>
     </div>
     
@@ -3567,20 +3605,185 @@
     }
 
     // ===================================
-    // ⚽ PLACAR AO VIVO (Firestore onSnapshot)
+    // ⚽ PLACAR AO VIVO + EVENTOS (Firestore onSnapshot)
     // ===================================
+    let eventosConhecidos = new Set();
+    let placarAnteriorCasa = null, placarAnteriorFora = null;
+
     function iniciarPlacarAoVivo() {
       db.collection("jogos").doc(jogoId).onSnapshot(doc => {
         const d = doc.data();
-        if (d && (d.placarCasa != null || d.placarFora != null)) {
+        if (!d) return;
+        
+        // Placar
+        if (d.placarCasa != null || d.placarFora != null) {
           const el = document.getElementById("placarAoVivo");
           const disp = document.getElementById("placarDisplay");
-          const min = document.getElementById("placarMinuto");
+          const minEl = document.getElementById("placarMinuto");
+          const statusEl = document.getElementById("placarStatusTxt");
           if (el) el.style.display = 'block';
-          if (disp) disp.textContent = `${d.placarCasa ?? 0} x ${d.placarFora ?? 0}`;
-          if (min && d.minutosJogo) min.textContent = `${d.minutosJogo}'`;
+          
+          const pc = d.placarCasa ?? 0, pf = d.placarFora ?? 0;
+          if (disp) disp.textContent = `${pc} x ${pf}`;
+          if (minEl && d.minutosJogo) minEl.textContent = `${d.minutosJogo}'`;
+          
+          // Status detalhado
+          if (statusEl && d.statusPartida) {
+            const statusMap = {
+              'First Half': '● 1º Tempo', 'Second Half': '● 2º Tempo',
+              'Halftime': '● Intervalo', 'Extra Time': '● Prorrogação',
+              'Penalty In Progress': '● Pênaltis', 'Match Finished': '✓ Encerrado',
+              'Not Started': '○ Não iniciado', 'ao_vivo': '● Ao Vivo',
+              'intervalo': '● Intervalo', 'finalizado': '✓ Encerrado'
+            };
+            statusEl.textContent = statusMap[d.statusPartida] || d.statusPartida;
+          }
+          
+          // Detectar GOL novo → narrar + som
+          if (placarAnteriorCasa !== null) {
+            if (pc > placarAnteriorCasa) {
+              // Gol time da casa!
+              const golEvento = encontrarUltimoGol(d.eventosJogo, timeCasaData?.nome);
+              const jogador = golEvento ? golEvento.jogador : '';
+              const tempo = golEvento ? golEvento.tempo : d.minutosJogo;
+              narrar('⚽', `GOOOOL! ${jogador ? jogador + ' marca' : 'Gol'} ${timeCasaData?.nome || 'Casa'}! ${pc} × ${pf} · ${tempo}'`, 'conquista');
+              SFX.streak();
+              criarConfetesGol();
+            }
+            if (pf > placarAnteriorFora) {
+              // Gol time de fora!
+              const golEvento = encontrarUltimoGol(d.eventosJogo, timeForaData?.nome);
+              const jogador = golEvento ? golEvento.jogador : '';
+              const tempo = golEvento ? golEvento.tempo : d.minutosJogo;
+              narrar('⚽', `GOOOOL! ${jogador ? jogador + ' marca' : 'Gol'} ${timeForaData?.nome || 'Fora'}! ${pc} × ${pf} · ${tempo}'`, 'conquista');
+              SFX.streak();
+              criarConfetesGol();
+            }
+          }
+          placarAnteriorCasa = pc;
+          placarAnteriorFora = pf;
+        }
+        
+        // Eventos (gols, cartões, substituições)
+        if (d.eventosJogo && d.eventosJogo.length > 0) {
+          renderEventos(d.eventosJogo);
+          narrarEventosNovos(d.eventosJogo);
+        }
+        
+        // Estatísticas (se existirem)
+        if (d.estatisticasPartida) {
+          renderMiniStats(d.estatisticasPartida);
         }
       });
+    }
+
+    function encontrarUltimoGol(eventos, timeNome) {
+      if (!eventos || !timeNome) return null;
+      const gols = eventos.filter(e => e.tipo === 'Goal' && e.time && e.time.includes(timeNome.substring(0, 5)));
+      return gols.length > 0 ? gols[gols.length - 1] : null;
+    }
+
+    function renderEventos(eventos) {
+      const el = document.getElementById("eventosTimeline");
+      if (!el) return;
+      
+      // Mostrar últimos 5 eventos (mais recentes primeiro)
+      const recentes = eventos.slice(-5).reverse();
+      if (recentes.length === 0) { el.style.display = 'none'; return; }
+      
+      el.style.display = 'block';
+      el.innerHTML = recentes.map(e => {
+        let icon = '📋', css = '';
+        if (e.tipo === 'Goal') { icon = '⚽'; css = 'gol'; }
+        else if (e.tipo === 'Card' && e.detalhe === 'Yellow Card') { icon = '🟨'; css = 'cartao-amarelo'; }
+        else if (e.tipo === 'Card' && (e.detalhe === 'Red Card' || e.detalhe === 'Second Yellow card')) { icon = '🟥'; css = 'cartao-vermelho'; }
+        else if (e.tipo === 'subst') { icon = '🔄'; css = 'substituicao'; }
+        else if (e.tipo === 'Var') { icon = '📺'; css = ''; }
+        
+        const assist = e.assistencia ? ` (assist. ${e.assistencia})` : '';
+        const detalhe = e.detalhe === 'Own Goal' ? ' (contra)' : e.detalhe === 'Penalty' ? ' (pênalti)' : '';
+        
+        return `<div class="evento-item ${css}">
+          <span class="evento-tempo">${e.tempo}'</span>
+          <span class="evento-icon">${icon}</span>
+          <span class="evento-texto">${e.jogador || ''}${detalhe}${assist} <span style="opacity:0.6">· ${e.time || ''}</span></span>
+        </div>`;
+      }).join('');
+    }
+
+    function narrarEventosNovos(eventos) {
+      eventos.forEach(e => {
+        const key = `${e.tempo}_${e.tipo}_${e.jogador}`;
+        if (eventosConhecidos.has(key)) return;
+        eventosConhecidos.add(key);
+        
+        // Só narrar cartões e substituições (gols já são tratados na detecção de placar)
+        if (e.tipo === 'Card' && e.detalhe === 'Yellow Card') {
+          narrar('🟨', `Cartão amarelo! ${e.jogador || 'Jogador'} · ${e.time || ''} · ${e.tempo}'`, 'info');
+        } else if (e.tipo === 'Card' && (e.detalhe === 'Red Card' || e.detalhe === 'Second Yellow card')) {
+          narrar('🟥', `CARTÃO VERMELHO! ${e.jogador || 'Jogador'} expulso! ${e.time || ''} · ${e.tempo}'`, 'urgente');
+          SFX.erro();
+        } else if (e.tipo === 'subst') {
+          // substituições só narrar se for do time do usuário
+          const meuTimeNome = (timeTorcida === timeCasaId ? timeCasaData : timeForaData)?.nome || '';
+          if (e.time && e.time.includes(meuTimeNome.substring(0, 5))) {
+            narrar('🔄', `Substituição no ${meuTimeNome}: entra ${e.assistencia || '?'}, sai ${e.jogador || '?'} · ${e.tempo}'`, 'info');
+          }
+        }
+      });
+    }
+
+    function renderMiniStats(stats) {
+      const el = document.getElementById("miniStats");
+      if (!el || !stats) return;
+      el.style.display = 'block';
+      
+      // stats vem como array de {type, value} por time
+      const casa = stats.casa || {};
+      const fora = stats.fora || {};
+      
+      const rows = [];
+      const statItems = [
+        { key: 'Ball Possession', label: 'Posse', suffix: '' },
+        { key: 'Total Shots', label: 'Chutes', suffix: '' },
+        { key: 'Shots on Goal', label: 'No gol', suffix: '' },
+        { key: 'Corner Kicks', label: 'Escanteios', suffix: '' }
+      ];
+      
+      statItems.forEach(s => {
+        const vc = parseInt(casa[s.key]) || 0;
+        const vf = parseInt(fora[s.key]) || 0;
+        const total = vc + vf || 1;
+        const pc = Math.round((vc / total) * 100);
+        rows.push(`<div class="mini-stat-row">
+          <span class="mini-stat-val">${vc}${s.suffix}</span>
+          <span class="mini-stat-label">${s.label}</span>
+          <div class="mini-stat-bar">
+            <div class="mini-stat-fill-home" style="width:${pc}%"></div>
+            <div class="mini-stat-fill-away" style="width:${100-pc}%"></div>
+          </div>
+          <span class="mini-stat-val">${vf}${s.suffix}</span>
+        </div>`);
+      });
+      
+      el.innerHTML = rows.join('');
+    }
+
+    function criarConfetesGol() {
+      // Mini confete rápido pro gol (menos que o de fim de jogo)
+      const cores = ['#ffd700', '#2ecc71', '#fff', '#ff6b6b'];
+      const container = document.createElement('div');
+      container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:19999;overflow:hidden;';
+      document.body.appendChild(container);
+      for (let i = 0; i < 40; i++) {
+        setTimeout(() => {
+          const c = document.createElement('div');
+          c.style.cssText = `position:absolute;top:-10px;left:${Math.random()*100}vw;background:${cores[Math.floor(Math.random()*cores.length)]};width:${Math.random()*8+4}px;height:${Math.random()*8+4}px;border-radius:${Math.random()>0.5?'50%':'0'};animation:confeteFall ${Math.random()*1.5+1.5}s linear forwards;opacity:${Math.random()*0.5+0.5};`;
+          container.appendChild(c);
+          setTimeout(() => c.remove(), 3500);
+        }, i * 15);
+      }
+      setTimeout(() => container.remove(), 4000);
     }
 
     // ===================================
