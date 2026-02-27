@@ -2305,6 +2305,51 @@
     .timer-unlock-btn.go { background: white; color: #27ae60; }
     .timer-unlock-btn.wait { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); }
 
+    @keyframes pulseOnline { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+    /* 📱 Card de compartilhamento */
+    .share-card-overlay {
+      position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);
+      z-index:19000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;
+    }
+    .share-card-btns { display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;justify-content:center; }
+    .share-card-btn {
+      padding:12px 20px;border:none;border-radius:12px;font-weight:700;font-size:0.9em;
+      cursor:pointer;font-family:'Poppins',sans-serif;display:flex;align-items:center;gap:6px;
+    }
+    .share-card-btn.whatsapp { background:#25D366;color:white; }
+    .share-card-btn.download { background:rgba(255,255,255,0.1);color:white;border:1px solid rgba(255,255,255,0.2); }
+    .share-card-btn.fechar { background:rgba(255,255,255,0.05);color:var(--text-secondary); }
+
+    /* 🏆 Ranking Fullscreen */
+    .ranking-full-overlay {
+      position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(10,12,30,0.98);
+      z-index:17500;display:flex;flex-direction:column;overflow:hidden;
+    }
+    .ranking-full-header {
+      padding:16px 20px;display:flex;justify-content:space-between;align-items:center;
+      border-bottom:1px solid rgba(255,255,255,0.1);flex-shrink:0;
+    }
+    .ranking-full-list { flex:1;overflow-y:auto;padding:8px 16px; }
+    .ranking-full-item {
+      display:flex;align-items:center;gap:10px;padding:10px 12px;
+      border-radius:10px;margin-bottom:4px;transition:background 0.2s;
+    }
+    .ranking-full-item:hover { background:rgba(255,255,255,0.05); }
+    .ranking-full-item.is-me { background:rgba(255,138,71,0.15);border:1px solid rgba(255,138,71,0.3); }
+    .ranking-full-item .rf-pos { width:36px;text-align:center;font-weight:800;font-size:1.1em; }
+    .ranking-full-item .rf-avatar { width:36px;height:36px;border-radius:50%;object-fit:cover; }
+    .ranking-full-item .rf-info { flex:1; }
+    .ranking-full-item .rf-name { font-weight:600;font-size:0.9em; }
+    .ranking-full-item .rf-stats { font-size:0.75em;color:var(--text-secondary); }
+    .ranking-full-item .rf-pts { font-weight:800;color:var(--accent);font-size:1em; }
+    .ranking-full-item .rf-creditos { font-size:0.8em;color:#2ecc71; }
+    .ranking-full-me-bar {
+      position:sticky;bottom:0;background:linear-gradient(135deg,rgba(20,25,50,0.98),rgba(30,35,60,0.98));
+      padding:12px 20px;border-top:1px solid rgba(255,138,71,0.3);
+      display:flex;align-items:center;gap:10px;flex-shrink:0;
+    }
+
     .encerramento-premio {
       background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 140, 0, 0.1));
       border: 2px solid #ffd700;
@@ -3047,6 +3092,12 @@
         <span>🏆 <span id="matchLeague">Liga</span></span>
         <span>📅 <span id="matchDate">Data</span></span>
         <span>⏳ Restante: <span class="timer" id="timer">--:--</span></span>
+        <span id="onlineCounter" style="color:#2ecc71;"><span style="display:inline-block;width:8px;height:8px;background:#2ecc71;border-radius:50%;margin-right:4px;animation:pulseOnline 1.5s ease infinite;"></span><span id="onlineCount">0</span> online</span>
+      </div>
+      <!-- ⚽ Placar ao vivo -->
+      <div id="placarAoVivo" style="display:none;text-align:center;padding:6px 0;">
+        <span style="font-size:1.8em;font-weight:900;letter-spacing:2px;" id="placarDisplay">0 x 0</span>
+        <span style="font-size:0.8em;color:var(--text-secondary);margin-left:8px;" id="placarMinuto"></span>
       </div>
     </div>
     
@@ -3173,6 +3224,11 @@
         </div>
       </div>
 
+      <!-- 📊 MÉDIA E TEMA -->
+      <div id="mediaInfo" style="text-align:center;font-size:0.8em;color:var(--text-secondary);margin:6px 0;display:none;">
+        <span id="mediaTexto"></span>
+      </div>
+
       <button class="btn-answer" id="btnAnswer" onclick="getQuestion()">
         🎯 Responder Pergunta
       </button>
@@ -3202,6 +3258,7 @@
           <div class="question-text" id="questionText"></div>
           <div class="options-container" id="optionsContainer"></div>
           <div class="result-message" id="resultMessage"></div>
+          <div id="btnProximaContainer" style="display:none;text-align:center;"></div>
         </div>
       </div>
     </div>
@@ -3427,6 +3484,243 @@
     }
 
     // ===================================
+    // ===================================
+    // 🔊 SISTEMA DE SONS (Web Audio API)
+    // ===================================
+    const SFX = (() => {
+      let ctx;
+      function getCtx() { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); return ctx; }
+      function play(freq, dur, type='sine', vol=0.3) {
+        try {
+          const c = getCtx(); const o = c.createOscillator(); const g = c.createGain();
+          o.type = type; o.frequency.value = freq; g.gain.value = vol;
+          g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
+          o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur);
+        } catch(e){}
+      }
+      return {
+        acerto() { play(880, 0.12); setTimeout(() => play(1320, 0.15), 80); },
+        erro() { play(220, 0.25, 'sawtooth', 0.2); },
+        streak() { play(660,0.08); setTimeout(()=>play(880,0.08),60); setTimeout(()=>play(1100,0.12),120); },
+        creditos() { play(1000,0.08); setTimeout(()=>play(1200,0.08),80); setTimeout(()=>play(1500,0.15),160); },
+        pop() { play(600, 0.06, 'sine', 0.15); },
+        apito() { play(1200,0.3,'square',0.2); setTimeout(()=>play(1200,0.3,'square',0.2),400); }
+      };
+    })();
+
+    // ===================================
+    // ⏭️ FECHAR MODAL PERGUNTA
+    // ===================================
+    function fecharModalPergunta() {
+      clearTimeout(window._modalCloseTimer);
+      currentQuestion = null;
+      document.getElementById("questionModalOverlay").classList.remove("active");
+      const bp = document.getElementById('btnProximaContainer');
+      if (bp) bp.style.display = 'none';
+      updateFreePlays();
+    }
+    function fecharModalERespoder() {
+      fecharModalPergunta();
+      setTimeout(() => getQuestion(), 300);
+    }
+
+    // ===================================
+    // 👥 PRESENÇA ONLINE
+    // ===================================
+    let presencaInterval = null;
+    function iniciarPresenca() {
+      if (!uid || !jogoId) return;
+      const ref = db.collection("jogos").doc(jogoId).collection("participantes").doc(uid);
+      const atualizar = () => ref.update({ ultimoVisto: firebase.firestore.FieldValue.serverTimestamp() }).catch(()=>{});
+      atualizar();
+      presencaInterval = setInterval(atualizar, 30000);
+      // Contar online a cada 30s
+      contarOnline();
+      setInterval(contarOnline, 30000);
+    }
+    async function contarOnline() {
+      try {
+        const agora = new Date();
+        agora.setMinutes(agora.getMinutes() - 2);
+        const snap = await db.collection("jogos").doc(jogoId).collection("participantes")
+          .where("ultimoVisto", ">", firebase.firestore.Timestamp.fromDate(agora)).get();
+        const el = document.getElementById("onlineCount");
+        if (el) el.textContent = snap.size;
+      } catch(e) {}
+    }
+
+    // ===================================
+    // 📊 MÉDIA DOS JOGADORES
+    // ===================================
+    function atualizarMedia(ranking) {
+      if (!ranking || ranking.length === 0) return;
+      const soma = ranking.reduce((s, u) => s + u.pontos, 0);
+      const media = Math.round(soma / ranking.length);
+      const meusPts = minhaPosicaoAtual ? ranking.find(u => u.odId === uid)?.pontos || 0 : 0;
+      const el = document.getElementById("mediaInfo");
+      const txt = document.getElementById("mediaTexto");
+      if (el && txt) {
+        el.style.display = 'block';
+        const comp = meusPts >= media ? '✅ acima da média!' : '📈 bora subir!';
+        txt.textContent = `📊 Média: ${media} pts · Você: ${meusPts} pts (${comp})`;
+      }
+    }
+
+    // ===================================
+    // ⚽ PLACAR AO VIVO (Firestore onSnapshot)
+    // ===================================
+    function iniciarPlacarAoVivo() {
+      db.collection("jogos").doc(jogoId).onSnapshot(doc => {
+        const d = doc.data();
+        if (d && (d.placarCasa != null || d.placarFora != null)) {
+          const el = document.getElementById("placarAoVivo");
+          const disp = document.getElementById("placarDisplay");
+          const min = document.getElementById("placarMinuto");
+          if (el) el.style.display = 'block';
+          if (disp) disp.textContent = `${d.placarCasa ?? 0} x ${d.placarFora ?? 0}`;
+          if (min && d.minutosJogo) min.textContent = `${d.minutosJogo}'`;
+        }
+      });
+    }
+
+    // ===================================
+    // 📱 CARD DE COMPARTILHAMENTO
+    // ===================================
+    async function gerarCardCompartilhamento(posicao, pontos, acertos, total, aproveitamento, timeNome, timeCor) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 600; canvas.height = 400;
+      const c = canvas.getContext('2d');
+      // Fundo
+      const grad = c.createLinearGradient(0,0,600,400);
+      grad.addColorStop(0,'#0f1429'); grad.addColorStop(1,'#1a2040');
+      c.fillStyle = grad; c.fillRect(0,0,600,400);
+      // Borda dourada
+      c.strokeStyle = 'rgba(255,181,71,0.5)'; c.lineWidth = 3;
+      c.roundRect(10,10,580,380,16); c.stroke();
+      // Logo text
+      c.fillStyle = '#ffb547'; c.font = 'bold 28px Poppins, sans-serif'; c.textAlign = 'center';
+      c.fillText('YELLUP', 300, 50);
+      // Posição
+      const posEmoji = posicao <= 3 ? ['🥇','🥈','🥉'][posicao-1] : '🏅';
+      c.fillStyle = '#fff'; c.font = 'bold 52px Poppins, sans-serif';
+      c.fillText(`${posEmoji} ${posicao}º lugar`, 300, 120);
+      // Time
+      c.fillStyle = timeCor || '#fff'; c.font = 'bold 20px Poppins, sans-serif';
+      c.fillText(`Torcendo: ${timeNome}`, 300, 160);
+      // Stats
+      c.fillStyle = '#fff'; c.font = 'bold 32px Poppins, sans-serif';
+      c.fillText(`${pontos} pontos`, 300, 220);
+      c.fillStyle = '#aaa'; c.font = '18px Poppins, sans-serif';
+      c.fillText(`${acertos}/${total} acertos · ${aproveitamento}% aproveitamento`, 300, 255);
+      // CTA
+      c.fillStyle = '#ffb547'; c.font = 'bold 16px Poppins, sans-serif';
+      c.fillText('Jogue você também! yellup.app', 300, 370);
+      return canvas;
+    }
+
+    async function compartilharResultado() {
+      const totalResp = totalAcertos + totalErros;
+      const aprov = totalResp > 0 ? Math.round((totalAcertos/totalResp)*100) : 0;
+      const meuTimeData2 = timeTorcida === timeCasaId ? timeCasaData : timeForaData;
+      const timeNome = meuTimeData2?.nome || 'Meu Time';
+      const timeCor = meuTimeData2?.primaria || '#fff';
+      const pos = minhaPosicaoAtual || '?';
+      const canvas = await gerarCardCompartilhamento(pos, 0, totalAcertos, totalResp, aprov, timeNome, timeCor);
+      // Pegar pontos do ranking
+      try {
+        const pDoc = await db.collection("jogos").doc(jogoId).collection("participantes").doc(uid).get();
+        if (pDoc.exists) {
+          const pts = pDoc.data().pontos || 0;
+          canvas.getContext('2d').clearRect(150, 190, 300, 50);
+          const c2 = canvas.getContext('2d');
+          c2.fillStyle = '#fff'; c2.font = 'bold 32px Poppins, sans-serif'; c2.textAlign = 'center';
+          c2.fillText(`${pts} pontos`, 300, 220);
+        }
+      } catch(e) {}
+
+      canvas.toBlob(async blob => {
+        const file = new File([blob], 'yellup-resultado.png', { type: 'image/png' });
+        const texto = `🏆 Fiquei em ${pos}º no quiz da Yellup! ${totalAcertos} acertos, ${aprov}% aproveitamento. Joga também: https://yellup.app`;
+        
+        if (navigator.share) {
+          try { await navigator.share({ text: texto, files: [file] }); return; } catch(e) {}
+        }
+        // Fallback: overlay com download
+        const url = URL.createObjectURL(blob);
+        const ov = document.createElement('div');
+        ov.className = 'share-card-overlay';
+        ov.id = 'shareOverlay';
+        ov.innerHTML = `
+          <img src="${url}" style="max-width:90%;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.5);">
+          <div class="share-card-btns">
+            <a href="https://wa.me/?text=${encodeURIComponent(texto)}" target="_blank" class="share-card-btn whatsapp">📱 WhatsApp</a>
+            <a href="${url}" download="yellup-resultado.png" class="share-card-btn download">💾 Salvar imagem</a>
+            <button class="share-card-btn fechar" onclick="document.getElementById('shareOverlay').remove()">✕ Fechar</button>
+          </div>
+        `;
+        document.body.appendChild(ov);
+      }, 'image/png');
+    }
+
+    // ===================================
+    // 🏆 RANKING FULLSCREEN (50 primeiros)
+    // ===================================
+    async function abrirRankingCompleto() {
+      const ov = document.createElement('div');
+      ov.className = 'ranking-full-overlay';
+      ov.id = 'rankingFullOverlay';
+      ov.innerHTML = `
+        <div class="ranking-full-header">
+          <span style="font-weight:700;font-size:1.1em;">🏆 Ranking Completo</span>
+          <button onclick="document.getElementById('rankingFullOverlay').remove()" style="background:none;border:none;color:white;font-size:1.3em;cursor:pointer;">✕</button>
+        </div>
+        <div class="ranking-full-list" id="rankingFullList"><div style="text-align:center;padding:40px;color:var(--text-secondary);">Carregando...</div></div>
+      `;
+      document.body.appendChild(ov);
+
+      try {
+        const snap = await db.collection("jogos").doc(jogoId).collection("participantes")
+          .orderBy("pontos","desc").limit(50).get();
+        const list = document.getElementById("rankingFullList");
+        list.innerHTML = '';
+        let pos = 0;
+        let mePosicao = null;
+        const creditosEst = calcularCreditosEstimados(snap.size);
+        const items = [];
+        snap.forEach(doc => {
+          pos++;
+          const p = doc.data();
+          if ((p.pontos || 0) <= 0) return;
+          const nome = p.nome || 'Anônimo';
+          const isMe = doc.id === uid;
+          if (isMe) mePosicao = pos;
+          const medalha = pos === 1 ? '🥇' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : `${pos}º`;
+          const timeData = (p.timeId || '') === timeCasaId ? timeCasaData : timeForaData;
+          const corTime = (p.timeId || '') === timeCasaId ? 'var(--cor-timeA)' : 'var(--cor-timeB)';
+          const avatar = p.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(nome)}&background=random&size=36`;
+          const miniJ = gerarMiniCamiseta(timeData?.primaria||'#666', timeData?.secundaria||'#fff', timeData?.terciaria||'#666');
+          const cred = creditosEst[pos-1] || 0;
+          items.push(`<div class="ranking-full-item ${isMe?'is-me':''}">
+            <span class="rf-pos">${medalha}</span>
+            <img class="rf-avatar" src="${avatar}">
+            <div class="rf-info"><div class="rf-name" style="color:${corTime}">${miniJ} ${nome}</div><div class="rf-stats">${(p.tempoMedio||0).toFixed(1)}s avg</div></div>
+            <div style="text-align:right"><div class="rf-pts">${p.pontos||0} pts</div>${cred>0?`<div class="rf-creditos">+${cred} 💎</div>`:''}</div>
+          </div>`);
+        });
+        list.innerHTML = items.join('');
+        // My position fixed bar if not in top 10
+        if (mePosicao && mePosicao > 10) {
+          const pDoc = await db.collection("jogos").doc(jogoId).collection("participantes").doc(uid).get();
+          const mp = pDoc.exists ? pDoc.data() : {};
+          ov.innerHTML += `<div class="ranking-full-me-bar">
+            <span style="font-weight:800;">${mePosicao}º</span>
+            <span style="flex:1;">Você · ${mp.pontos||0} pts</span>
+            <span style="color:var(--text-secondary);">${(mp.tempoMedio||0).toFixed(1)}s avg</span>
+          </div>`;
+        }
+      } catch(e) { console.error('Ranking full error:', e); }
+    }
+
     // 🔐 VERIFICAÇÃO DE AUTENTICAÇÃO
     // ===================================
     auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
@@ -3721,6 +4015,12 @@
       
       // ✅ NARRADOR
       iniciarNarrador();
+      
+      // ✅ PRESENÇA ONLINE
+      iniciarPresenca();
+      
+      // ✅ PLACAR AO VIVO
+      iniciarPlacarAoVivo();
       
       // ✅ ONBOARDING (só se jogo ao_vivo e primeira vez)
       if (jogoStatus === 'ao_vivo' && !sessionStorage.getItem('onb_' + jogoId)) {
@@ -4484,7 +4784,9 @@
               pergunta: dados.pergunta,
               alternativas: dados.alternativas,
               pontuacao: dados.pontuacao || dados.pontos || 10,
-              timeId: dados.timeId
+              timeId: dados.timeId,
+              curiosidade: dados.curiosidade || '',
+              categoria: dados.categoria || ''
               // ❌ NÃO incluir: correta, resposta, answer
             });
           }
@@ -4586,9 +4888,12 @@
       modalOverlay.classList.add("active");
       
       // Resetar
-      questionText.textContent = currentQuestion.pergunta;
+      const cat = currentQuestion.categoria;
+      questionText.innerHTML = (cat ? `<div style="font-size:0.7em;color:var(--text-secondary);margin-bottom:6px;font-weight:400;">📚 ${cat}</div>` : '') + currentQuestion.pergunta;
       optionsContainer.innerHTML = "";
       resultMessage.style.display = "none";
+      const bp = document.getElementById('btnProximaContainer');
+      if (bp) bp.style.display = 'none';
 
       // Mostrar pontuação
       const pontos = currentQuestion.pontuacao || currentQuestion.pontos || 10;
@@ -4738,12 +5043,9 @@
 
         await updateFreePlays();
 
-        // ✅ FECHAR MODAL após 3 segundos
-        setTimeout(async () => {
-          currentQuestion = null;
-          document.getElementById("questionModalOverlay").classList.remove("active");
-          await updateFreePlays();
-        }, 3000);
+        // ✅ FECHAR MODAL após 5s (ou botão)
+        clearTimeout(window._modalCloseTimer);
+        window._modalCloseTimer = setTimeout(() => fecharModalPergunta(), 5000);
 
       } catch (error) {
         console.error("❌ Erro no timeout:", error);
@@ -4880,11 +5182,24 @@
         if (acertou && serverMultiplicador > 1) {
           resultMessage.innerHTML = `🎉 Correto! +${pontosFinais} pontos <span style="color: #a78bfa;">(x${serverMultiplicador} bônus!)</span>`;
           mostrarXPFlutuante(pontosFinais, true);
+          SFX.acerto();
         } else if (acertou) {
           resultMessage.textContent = `🎉 Correto! +${pontosFinais} pontos`;
           mostrarXPFlutuante(pontosFinais, false);
+          SFX.acerto();
         } else {
-          resultMessage.textContent = `❌ Errado! A resposta correta era: ${r.respostaTexto || alternativas[correct] || correct}`;
+          const curiosidade = currentQuestion.curiosidade;
+          resultMessage.innerHTML = `❌ Errado! A resposta correta era: ${r.respostaTexto || alternativas[correct] || correct}${curiosidade ? `<div style="margin-top:8px;padding:8px 12px;background:rgba(52,152,219,0.15);border-radius:8px;border-left:3px solid #3498db;font-size:0.85em;color:#85c1e9;">💡 ${curiosidade}</div>` : ''}`;
+          SFX.erro();
+        }
+
+        // Botão "Próxima" (fecha o modal e pede outra)
+        const btnProxContainer = document.getElementById('btnProximaContainer');
+        if (btnProxContainer) {
+          btnProxContainer.innerHTML = cooldownState.perguntasRestantes > 0
+            ? `<button onclick="fecharModalERespoder()" style="margin-top:10px;padding:10px 24px;background:linear-gradient(135deg,var(--accent),#ff8c42);border:none;border-radius:10px;color:white;font-weight:700;font-size:0.95em;cursor:pointer;font-family:'Poppins',sans-serif;">➡️ Próxima</button>`
+            : `<button onclick="fecharModalPergunta()" style="margin-top:10px;padding:10px 24px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:10px;color:var(--text-secondary);font-weight:600;font-size:0.9em;cursor:pointer;font-family:'Poppins',sans-serif;">✓ Fechar</button>`;
+          btnProxContainer.style.display = 'block';
         }
 
         // Atualizar barra de rodadas (fallback V2)
@@ -4912,12 +5227,9 @@
         // 🎙️ Narrador pós-resposta
         narrarPosResposta(acertou, streak, (totalAcertos + totalErros), totalAcertos);
 
-        // ✅ FECHAR MODAL após 3 segundos
-        setTimeout(async () => {
-          currentQuestion = null;
-          document.getElementById("questionModalOverlay").classList.remove("active");
-          await updateFreePlays();
-        }, 3000);
+        // ✅ FECHAR MODAL após 5s (ou botão)
+        clearTimeout(window._modalCloseTimer);
+        window._modalCloseTimer = setTimeout(() => fecharModalPergunta(), 5000);
 
       } catch (error) {
         console.error("❌ Erro ao processar resposta:", error);
@@ -5445,6 +5757,9 @@
         
         // Atualizar info de premiação (inclui créditos do admin)
         atualizarInfoPremiacao(totalCreditosPagosJogo, ranking.length, jogoCreditosIniciais);
+        
+        // 📊 Atualizar média
+        atualizarMedia(ranking);
 
       } catch (error) {
         console.error("❌ Erro ao carregar ranking:", error);
@@ -5707,9 +6022,9 @@
     function narrarPosResposta(acertou, streak, totalResp, totalAcertos) {
       narradorInativo = 0;
       if (acertou) {
-        if (streak === 3) narrar('🔥', `3 em sequência! Multiplicador 1.5x ativado!`, 'conquista');
-        else if (streak === 5) narrar('⚡', `5 SEGUIDAS! Multiplicador 2x! Tá impossível!`, 'conquista');
-        else if (streak === 10) narrar('🏆', `10 SEGUIDAS! LENDÁRIO! Multiplicador 3x!`, 'conquista');
+        if (streak === 3) { narrar('🔥', `3 em sequência! Multiplicador 1.5x ativado!`, 'conquista'); SFX.streak(); }
+        else if (streak === 5) { narrar('⚡', `5 SEGUIDAS! Multiplicador 2x! Tá impossível!`, 'conquista'); SFX.streak(); }
+        else if (streak === 10) { narrar('🏆', `10 SEGUIDAS! LENDÁRIO! Multiplicador 3x!`, 'conquista'); SFX.streak(); }
         else if (totalAcertos === 1) narrar('🎉', `Primeiro acerto! Agora vai!`, 'positivo');
         else if (totalResp % 10 === 0) narrar('📊', `${totalResp} respostas! ${totalAcertos} acertos! Tá voando!`, 'positivo');
         else if (totalAcertos === 5) narrar('🎯', `5 acertos! Tá mandando bem!`, 'positivo');
@@ -5989,6 +6304,7 @@
     function mostrarResultadoPremiacao(detalhes) {
       // ✅ SEMPRE criar confetes quando o jogo termina - PARA TODOS!
       criarConfetes();
+      SFX.apito();
       
       // Verificar se usuário ganhou algo
       const premio = verificarPremioUsuario(detalhes);
@@ -6123,7 +6439,8 @@
           <div class="enc-act enc-act-7">
             <div class="enc-msg-final">🏆 Confira o ranking dos 50 primeiros!</div>
             <div class="enc-btns">
-              <button class="enc-btn enc-btn-primary" onclick="verPremiacaoCompleta()">🏆 Ver Ranking Completo</button>
+              <button class="enc-btn enc-btn-primary" onclick="document.getElementById('encerramentoOverlay').remove(); abrirRankingCompleto();">🏆 Ver Ranking Completo</button>
+              <button class="enc-btn enc-btn-primary" style="background:linear-gradient(135deg,#25D366,#128C7E);" onclick="compartilharResultado()">📱 Compartilhar Resultado</button>
               <button class="enc-btn enc-btn-secondary" onclick="document.getElementById('encerramentoOverlay').remove(); window.location.href='https://www.yellup.app/usuarios/historico.html';">📋 Histórico de Partidas</button>
             </div>
           </div>
