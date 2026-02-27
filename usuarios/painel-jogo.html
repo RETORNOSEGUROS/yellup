@@ -3850,24 +3850,48 @@
           if (participante.entradaEm) {
             const passe = user.passe || { tipo: 'free', ativo: false };
             const temPasse = passe.ativo && passe.tipo !== 'free';
-            const cooldown = temPasse ? 180 : 300; // 3min passe, 5min free
+            const cooldown = temPasse ? 180 : 300;
             const entradaEm = participante.entradaEm.toDate().getTime();
-            const elapsed = (Date.now() - entradaEm) / 1000;
-            const ciclosPassados = Math.floor(elapsed / cooldown);
             const skipsUsados = participante.skipsUsados || 0;
             const totalRespondidas = participante.totalRespondidas || 0;
-            const totalDisponivel = 5 + (ciclosPassados * 2) + (skipsUsados * 2);
 
-            cooldownState = {
-              entradaEm: entradaEm,
-              cooldownSeg: cooldown,
-              totalRespondidas: totalRespondidas,
-              totalDisponivel: totalDisponivel,
-              skipsUsados: skipsUsados,
-              tipoPasse: temPasse ? passe.tipo : 'free',
-              perguntasRestantes: Math.max(0, totalDisponivel - totalRespondidas)
-            };
-            console.log(`⏳ Cooldown: ${cooldownState.perguntasRestantes} disponíveis, cooldown ${cooldown}s, ${totalRespondidas} respondidas`);
+            if (participante.modeloRodadas) {
+              // RODADAS: calcular da rodada atual
+              const total = participante.perguntasTotalRodada || 10;
+              const resp = participante.respondidasRodada || 0;
+              const restantes = participante.emTimer ? 0 : Math.max(0, total - resp);
+              cooldownState = {
+                entradaEm: entradaEm,
+                cooldownSeg: cooldown,
+                totalRespondidas: totalRespondidas,
+                totalDisponivel: totalRespondidas + restantes,
+                skipsUsados: skipsUsados,
+                tipoPasse: temPasse ? passe.tipo : 'free',
+                perguntasRestantes: restantes
+              };
+              // Inicializar barra visual
+              rodadasUI.rodada = participante.rodadaAtual || 1;
+              rodadasUI.respondidas = resp;
+              rodadasUI.total = total;
+              rodadasUI.acertos = participante.acertosRodada || 0;
+              rodadasUI.emTimer = participante.emTimer || false;
+              atualizarRodadasBar();
+            } else {
+              // V2 COOLDOWN
+              const elapsed = (Date.now() - entradaEm) / 1000;
+              const ciclosPassados = Math.floor(elapsed / cooldown);
+              const totalDisponivel = 5 + (ciclosPassados * 2) + (skipsUsados * 2);
+              cooldownState = {
+                entradaEm: entradaEm,
+                cooldownSeg: cooldown,
+                totalRespondidas: totalRespondidas,
+                totalDisponivel: totalDisponivel,
+                skipsUsados: skipsUsados,
+                tipoPasse: temPasse ? passe.tipo : 'free',
+                perguntasRestantes: Math.max(0, totalDisponivel - totalRespondidas)
+              };
+            }
+            console.log(`⏳ Cooldown: ${cooldownState.perguntasRestantes} disponíveis, ${totalRespondidas} respondidas`);
           }
         }
         
@@ -5226,6 +5250,23 @@
         const meuIndex = ranking.findIndex(u => u.odId === uid);
         minhaPosicaoAtual = meuIndex >= 0 ? meuIndex + 1 : null;
 
+        // 📸 Buscar avatares reais do top 10 (participantes antigos podem não ter)
+        const top10 = ranking.slice(0, 10);
+        const semAvatar = top10.filter(u => !u.avatar || u.avatar.includes('ui-avatars'));
+        if (semAvatar.length > 0) {
+          try {
+            const promises = semAvatar.map(u => db.collection('usuarios').doc(u.odId).get());
+            const docs = await Promise.all(promises);
+            docs.forEach((doc, i) => {
+              if (doc.exists) {
+                const ud = doc.data();
+                const url = ud.avatarUrl || ud.avatar || ud.photoURL;
+                if (url) semAvatar[i].avatar = url;
+              }
+            });
+          } catch(e) { console.warn('Avatar fetch error:', e); }
+        }
+
         // Calcular créditos estimados
         const creditosEstimados = calcularCreditosEstimados(ranking.length);
 
@@ -5464,16 +5505,17 @@
         await db.runTransaction(async (t) => {
           const doc = await t.get(ref);
           const data = doc.exists ? doc.data() : { votos: {}, total: 0 };
-          // Remover voto anterior SE existir
-          if (enqueteFixaMeuVoto !== null && enqueteFixaMeuVoto !== idx) {
+          // Remover voto anterior SE existir (não muda total, só move)
+          if (enqueteFixaMeuVoto !== null) {
             const oldKey = String(enqueteFixaMeuVoto);
             data.votos[oldKey] = Math.max(0, (data.votos[oldKey] || 0) - 1);
-            data.total = Math.max(0, (data.total || 0) - 1);
+          } else {
+            // Primeiro voto: incrementa total
+            data.total = (data.total || 0) + 1;
           }
           // Adicionar novo voto
           const newKey = String(idx);
           data.votos[newKey] = (data.votos[newKey] || 0) + 1;
-          if (enqueteFixaMeuVoto === null) data.total = (data.total || 0) + 1; // só incrementa total se primeiro voto
           t.set(ref, data);
         });
         enqueteFixaMeuVoto = idx;
