@@ -285,30 +285,77 @@
         let dadosJogos = null;
         let yellupJogos = {};
 
+        // API-Football direta (fallback se Cloud Function falhar)
+        const API_KEY = '35647fb22d9fa6e5ab4397cb1a0d27a3';
+        const API_HOST = 'v3.football.api-sports.io';
+
+        async function apiFootballDirect(endpoint) {
+            const resp = await fetch(`https://${API_HOST}${endpoint}`, {
+                headers: { 'x-apisports-key': API_KEY }
+            });
+            return resp.json();
+        }
+
+        function formatFixture(f) {
+            return {
+                id: f.fixture.id,
+                data: f.fixture.date,
+                timestamp: f.fixture.timestamp,
+                status: f.fixture.status.long,
+                statusCode: f.fixture.status.short,
+                minutos: f.fixture.status.elapsed,
+                timeCasa: { id: f.teams.home.id, nome: f.teams.home.name, logo: f.teams.home.logo, vencendo: f.teams.home.winner },
+                timeFora: { id: f.teams.away.id, nome: f.teams.away.name, logo: f.teams.away.logo, vencendo: f.teams.away.winner },
+                placar: { casa: f.goals.home, fora: f.goals.away },
+                liga: { id: f.league.id, nome: f.league.name, pais: f.league.country, logo: f.league.logo, bandeira: f.league.flag, rodada: f.league.round }
+            };
+        }
+
         async function carregarJogos() {
             try {
                 // Buscar jogos Yellup ativos
-                const yellupSnap = await db.collection('jogos')
-                    .where('status', 'in', ['ao_vivo', 'agendado'])
-                    .get();
-                yellupJogos = {};
-                yellupSnap.forEach(doc => {
-                    const j = doc.data();
-                    if (j.apiFootballId) yellupJogos[j.apiFootballId] = doc.id;
-                });
+                try {
+                    const yellupSnap = await db.collection('jogos')
+                        .where('status', 'in', ['ao_vivo', 'agendado'])
+                        .get();
+                    yellupJogos = {};
+                    yellupSnap.forEach(doc => {
+                        const j = doc.data();
+                        if (j.apiFootballId) yellupJogos[j.apiFootballId] = doc.id;
+                    });
+                } catch(e) { console.log('Yellup jogos skip:', e); }
 
-                // Buscar jogos da API
-                const fn = functions.httpsCallable('buscarJogosHoje');
-                const result = await fn({ ligas: [] }); // todas as ligas
-                dadosJogos = result.data;
+                // Tentar Cloud Function primeiro, fallback pra API direta
+                let aoVivo = [], agendados = [], finalizados = [];
+                try {
+                    const fn = functions.httpsCallable('buscarJogosHoje');
+                    const result = await fn({ ligas: [] });
+                    dadosJogos = result.data;
+                    aoVivo = [...(dadosJogos.aoVivo || []), ...(dadosJogos.aoVivoOutros || [])];
+                    agendados = dadosJogos.agendados || [];
+                    finalizados = dadosJogos.finalizados || [];
+                } catch(fnErr) {
+                    console.warn('Cloud Function falhou, usando API direta:', fnErr.message);
+                    // Fallback: chamar API direto do browser
+                    const [liveRes, hojeRes] = await Promise.all([
+                        apiFootballDirect('/fixtures?live=all'),
+                        apiFootballDirect(`/fixtures?date=${new Date().toISOString().split('T')[0]}`)
+                    ]);
+                    const liveAll = (liveRes.response || []).map(formatFixture);
+                    const hojeAll = (hojeRes.response || []).map(formatFixture);
+                    aoVivo = liveAll;
+                    agendados = hojeAll.filter(j => j.statusCode === 'NS').sort((a,b) => new Date(a.data) - new Date(b.data));
+                    finalizados = hojeAll.filter(j => ['FT','AET','PEN'].includes(j.statusCode)).sort((a,b) => new Date(b.data) - new Date(a.data));
+                    dadosJogos = { aoVivo, aoVivoOutros: [], agendados, finalizados };
+                }
 
                 document.getElementById('atualizadoEm').textContent = new Date().toLocaleTimeString('pt-BR');
 
                 // Counts
-                const liveCount = (dadosJogos.aoVivo?.length || 0) + (dadosJogos.aoVivoOutros?.length || 0);
+                const liveCount = aoVivo.length;
                 document.getElementById('tabLiveCount').textContent = liveCount;
-                document.getElementById('tabHojeCount').textContent = dadosJogos.agendados?.length || 0;
-                document.getElementById('tabFinCount').textContent = dadosJogos.finalizados?.length || 0;
+                document.getElementById('tabHojeCount').textContent = agendados.length;
+                document.getElementById('tabFinCount').textContent = finalizados.length;
                 document.getElementById('headerLiveCount').textContent = liveCount;
                 document.getElementById('headerLive').style.display = liveCount > 0 ? 'flex' : 'none';
 
