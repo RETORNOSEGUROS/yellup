@@ -1348,8 +1348,11 @@
       border-radius: 0;
       padding-top: env(safe-area-inset-top);
       padding-bottom: env(safe-area-inset-bottom);
-      display: flex;
+      display: flex !important;
       flex-direction: column;
+      overflow: visible;
+      max-height: none !important;
+      opacity: 1 !important;
     }
     
     .chat-section.fullscreen .chat-body {
@@ -5470,7 +5473,7 @@
     ];
     let enqueteFixaAtual = 0;
     let enqueteFixaInterval = null;
-    let enqueteFixaMeuVoto = null;
+    let enqueteFixaVotos = {}; // { enqueteId: votoIndex } — tracks per enquete
 
     function iniciarEnquetesFixas() {
       if (jogoStatus !== 'ao_vivo') return;
@@ -5481,7 +5484,6 @@
 
     function trocarEnqueteFixa() {
       enqueteFixaAtual = (enqueteFixaAtual + 1) % ENQUETES_FIXA.length;
-      enqueteFixaMeuVoto = null;
       mostrarEnqueteFixa(enqueteFixaAtual);
     }
 
@@ -5502,25 +5504,25 @@
 
     async function votarEnqueteFixa(enqueteId, idx, label) {
       try {
-        if (enqueteFixaMeuVoto === idx) return; // já votou nessa
+        const meuVotoAnterior = enqueteFixaVotos[enqueteId] ?? null;
+        if (meuVotoAnterior === idx) return; // já votou nessa
         const ref = db.collection('jogos').doc(jogoId).collection('enqueteFixaVotos').doc(enqueteId);
         await db.runTransaction(async (t) => {
           const doc = await t.get(ref);
           const data = doc.exists ? doc.data() : { votos: {}, total: 0 };
-          // Remover voto anterior SE existir (não muda total, só move)
-          if (enqueteFixaMeuVoto !== null) {
-            const oldKey = String(enqueteFixaMeuVoto);
+          if (meuVotoAnterior !== null) {
+            // Trocar voto: remove do anterior, não muda total
+            const oldKey = String(meuVotoAnterior);
             data.votos[oldKey] = Math.max(0, (data.votos[oldKey] || 0) - 1);
           } else {
-            // Primeiro voto: incrementa total
+            // Primeiro voto nesta enquete
             data.total = (data.total || 0) + 1;
           }
-          // Adicionar novo voto
           const newKey = String(idx);
           data.votos[newKey] = (data.votos[newKey] || 0) + 1;
           t.set(ref, data);
         });
-        enqueteFixaMeuVoto = idx;
+        enqueteFixaVotos[enqueteId] = idx;
         carregarVotosEnquete(enqueteId);
       } catch(e) { console.error('Erro voto:', e); }
     }
@@ -5531,12 +5533,13 @@
         if (!doc.exists) return;
         const data = doc.data();
         const total = data.total || 1;
+        const meuVoto = enqueteFixaVotos[enqueteId] ?? null;
         const btns = document.querySelectorAll('.enquete-fixa-btn');
         btns.forEach((btn, i) => {
           const count = data.votos?.[i] || 0;
           const perc = Math.round((count / total) * 100);
           btn.querySelector('.ef-bar').style.width = perc + '%';
-          btn.classList.toggle('voted', enqueteFixaMeuVoto === i);
+          btn.classList.toggle('voted', meuVoto === i);
           const label = btn.querySelector('.ef-label');
           const opcaoTexto = ENQUETES_FIXA[enqueteFixaAtual].opcoes[i];
           label.textContent = total > 0 ? `${opcaoTexto} ${perc}%` : opcaoTexto;
