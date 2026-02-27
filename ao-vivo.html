@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yellup - Jogos Ao Vivo</title>
+    <link rel="icon" type="image/x-icon" href="/icons/favicon.ico">
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+    :root {
+      --bg: #080b16;
+      --surface: #0e1225;
+      --surface2: #151a33;
+      --accent: #ffb547;
+      --live: #ff3b5c;
+      --green: #2ecc71;
+      --text: #e8eaf0;
+      --text2: #7a82a0;
+      --border: rgba(255,255,255,0.06);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background: var(--bg); color: var(--text); font-family: 'Outfit', sans-serif;
+      min-height: 100vh; overflow-x: hidden;
+    }
+
+    /* Background */
+    body::before {
+      content:''; position:fixed; top:0; left:0; right:0; bottom:0;
+      background:
+        radial-gradient(ellipse 600px 400px at 15% 10%, rgba(255,59,92,0.06), transparent),
+        radial-gradient(ellipse 500px 500px at 85% 80%, rgba(255,181,71,0.05), transparent),
+        radial-gradient(ellipse 800px 600px at 50% 50%, rgba(30,40,80,0.3), transparent);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* Header */
+    .header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(8,11,22,0.85); backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .header-left { display: flex; align-items: center; gap: 16px; }
+    .header-logo { height: 34px; filter: drop-shadow(0 2px 8px rgba(255,181,71,0.25)); }
+    .header-title { font-weight: 700; font-size: 1.15em; letter-spacing: -0.02em; }
+    .header-live {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255,59,92,0.12); padding: 6px 14px; border-radius: 20px;
+      font-size: 0.85em; font-weight: 600; color: var(--live);
+      border: 1px solid rgba(255,59,92,0.2);
+    }
+    .header-live .dot {
+      width: 8px; height: 8px; background: var(--live); border-radius: 50%;
+      animation: livePulse 1.5s ease infinite;
+    }
+    @keyframes livePulse { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(255,59,92,0.4)} 50%{opacity:0.6;box-shadow:0 0 0 6px rgba(255,59,92,0)} }
+    .header-btn {
+      padding: 8px 18px; background: linear-gradient(135deg, var(--accent), #ff8c42);
+      border: none; border-radius: 10px; color: white; font-weight: 600;
+      font-size: 0.85em; cursor: pointer; font-family: 'Outfit', sans-serif;
+      text-decoration: none; transition: transform 0.2s;
+    }
+    .header-btn:hover { transform: scale(1.04); }
+
+    .page { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 20px 16px 60px; }
+
+    /* Tabs */
+    .tabs {
+      display: flex; gap: 4px; background: var(--surface); border-radius: 12px;
+      padding: 4px; margin-bottom: 20px; border: 1px solid var(--border);
+    }
+    .tab {
+      flex: 1; padding: 10px; text-align: center; border-radius: 10px;
+      font-weight: 600; font-size: 0.9em; cursor: pointer; transition: all 0.3s;
+      color: var(--text2); border: none; background: none; font-family: 'Outfit', sans-serif;
+    }
+    .tab.active { background: var(--surface2); color: var(--text); box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+    .tab .tab-count {
+      display: inline-block; background: rgba(255,255,255,0.1); padding: 1px 7px;
+      border-radius: 8px; font-size: 0.8em; margin-left: 4px;
+    }
+    .tab.active .tab-count { background: var(--accent); color: #000; }
+    .tab-live .tab-count { background: var(--live); color: white; }
+
+    /* Section */
+    .section-title {
+      font-size: 0.8em; font-weight: 600; color: var(--text2); text-transform: uppercase;
+      letter-spacing: 0.08em; margin: 20px 0 10px; padding-left: 4px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-title .line { flex:1; height:1px; background: var(--border); }
+
+    /* Match Card */
+    .match-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 14px 16px; margin-bottom: 8px;
+      transition: all 0.3s; cursor: default;
+    }
+    .match-card:hover { border-color: rgba(255,255,255,0.12); background: var(--surface2); }
+    .match-card.live { border-left: 3px solid var(--live); }
+    .match-card.finished { opacity: 0.75; }
+
+    .match-liga {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 10px;
+      font-size: 0.75em; color: var(--text2);
+    }
+    .match-liga img { width: 16px; height: 16px; border-radius: 3px; }
+    .match-liga .liga-flag { width: 14px; height: 10px; border-radius: 2px; }
+
+    .match-body {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .match-team {
+      display: flex; align-items: center; gap: 10px; flex: 1;
+    }
+    .match-team.away { justify-content: flex-end; text-align: right; }
+    .match-team img { width: 32px; height: 32px; object-fit: contain; }
+    .match-team-name { font-weight: 600; font-size: 0.95em; line-height: 1.2; }
+    .match-team-name.winner { color: var(--green); }
+
+    .match-score {
+      min-width: 80px; text-align: center; flex-shrink: 0;
+    }
+    .match-score-num {
+      font-family: 'Space Mono', monospace; font-size: 1.6em; font-weight: 700;
+      letter-spacing: 4px;
+    }
+    .match-score-num.live-score { color: var(--live); }
+    .match-minute {
+      font-size: 0.75em; margin-top: 2px; padding: 2px 8px; border-radius: 6px;
+      display: inline-block;
+    }
+    .match-minute.live-min {
+      background: rgba(255,59,92,0.15); color: var(--live); font-weight: 600;
+      animation: minutePulse 2s ease infinite;
+    }
+    @keyframes minutePulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+    .match-minute.ft { color: var(--text2); }
+    .match-minute.ns { color: var(--text2); }
+
+    .match-time-ns {
+      font-size: 1.1em; font-weight: 600; color: var(--text2);
+    }
+
+    /* Liga group */
+    .liga-group { margin-bottom: 16px; }
+    .liga-header {
+      display: flex; align-items: center; gap: 8px; padding: 8px 4px;
+      font-size: 0.85em; font-weight: 600; color: var(--text);
+    }
+    .liga-header img { width: 20px; height: 20px; border-radius: 4px; }
+    .liga-header .flag { width: 18px; height: 12px; border-radius: 2px; }
+
+    /* Loading */
+    .loading {
+      text-align: center; padding: 60px 20px; color: var(--text2);
+    }
+    .loading-spinner {
+      width: 40px; height: 40px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Empty */
+    .empty { text-align: center; padding: 50px 20px; color: var(--text2); }
+    .empty-icon { font-size: 3em; margin-bottom: 12px; }
+
+    /* Yellup games banner */
+    .yellup-banner {
+      background: linear-gradient(135deg, rgba(255,181,71,0.1), rgba(255,140,66,0.05));
+      border: 1px solid rgba(255,181,71,0.2); border-radius: 14px;
+      padding: 16px 20px; margin-bottom: 20px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .yellup-banner-text { font-size: 0.9em; }
+    .yellup-banner-text strong { color: var(--accent); }
+    .yellup-banner-btn {
+      padding: 10px 20px; background: linear-gradient(135deg, var(--accent), #ff8c42);
+      border: none; border-radius: 10px; color: white; font-weight: 700;
+      font-size: 0.85em; cursor: pointer; white-space: nowrap; font-family: 'Outfit', sans-serif;
+      text-decoration: none;
+    }
+
+    /* Refresh */
+    .refresh-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px; font-size: 0.8em; color: var(--text2);
+    }
+    .refresh-btn {
+      padding: 6px 14px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text2); cursor: pointer; font-size: 0.85em;
+      font-family: 'Outfit', sans-serif; transition: all 0.2s;
+    }
+    .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    @media (max-width: 600px) {
+      .header { padding: 12px 16px; }
+      .match-team-name { font-size: 0.85em; }
+      .match-score-num { font-size: 1.3em; }
+      .match-team img { width: 26px; height: 26px; }
+      .yellup-banner { flex-direction: column; text-align: center; }
+    }
+    </style>
+</head>
+<body>
+
+    <header class="header">
+        <div class="header-left">
+            <a href="/"><img src="/icons/logo-yellup.png" alt="Yellup" class="header-logo"></a>
+            <span class="header-title">Jogos Ao Vivo</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+            <div class="header-live" id="headerLive" style="display:none;">
+                <span class="dot"></span>
+                <span><span id="headerLiveCount">0</span> ao vivo</span>
+            </div>
+            <a href="/usuarios/painel.html" class="header-btn">🏟️ Jogar</a>
+        </div>
+    </header>
+
+    <div class="page">
+
+        <!-- Yellup banner -->
+        <div class="yellup-banner" id="yellupBanner" style="display:none;">
+            <div class="yellup-banner-text">
+                ⚽ <strong id="bannerQtd">0</strong> dessas partidas estão com quiz ativo na <strong>Yellup</strong>! Responda perguntas, ganhe créditos.
+            </div>
+            <a href="/usuarios/painel.html" class="yellup-banner-btn">🎮 Participar</a>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab tab-live active" data-tab="aoVivo" onclick="switchTab('aoVivo')">
+                🔴 Ao Vivo <span class="tab-count" id="tabLiveCount">0</span>
+            </button>
+            <button class="tab" data-tab="agendados" onclick="switchTab('agendados')">
+                📅 Hoje <span class="tab-count" id="tabHojeCount">0</span>
+            </button>
+            <button class="tab" data-tab="finalizados" onclick="switchTab('finalizados')">
+                ✅ Encerrados <span class="tab-count" id="tabFinCount">0</span>
+            </button>
+        </div>
+
+        <!-- Refresh bar -->
+        <div class="refresh-bar">
+            <span>Atualizado: <span id="atualizadoEm">--</span></span>
+            <button class="refresh-btn" onclick="carregarJogos()">🔄 Atualizar</button>
+        </div>
+
+        <!-- Content -->
+        <div class="tab-content active" id="content-aoVivo">
+            <div class="loading" id="loadingAoVivo">
+                <div class="loading-spinner"></div>
+                <div>Carregando jogos ao vivo...</div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="content-agendados"></div>
+        <div class="tab-content" id="content-finalizados"></div>
+
+    </div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyCdjlKpBfDpNmVoTBmGJ99HSbEqa0WKEdA",
+            authDomain: "od-coins.firebaseapp.com",
+            projectId: "od-coins",
+            storageBucket: "od-coins.appspot.com",
+            messagingSenderId: "665820842828",
+            appId: "1:665820842828:web:73f5c2790367e7ba6b42dc"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const functions = firebase.functions();
+
+        let dadosJogos = null;
+        let yellupJogos = {};
+
+        async function carregarJogos() {
+            try {
+                // Buscar jogos Yellup ativos
+                const yellupSnap = await db.collection('jogos')
+                    .where('status', 'in', ['ao_vivo', 'agendado'])
+                    .get();
+                yellupJogos = {};
+                yellupSnap.forEach(doc => {
+                    const j = doc.data();
+                    if (j.apiFootballId) yellupJogos[j.apiFootballId] = doc.id;
+                });
+
+                // Buscar jogos da API
+                const fn = functions.httpsCallable('buscarJogosHoje');
+                const result = await fn({ ligas: [] }); // todas as ligas
+                dadosJogos = result.data;
+
+                document.getElementById('atualizadoEm').textContent = new Date().toLocaleTimeString('pt-BR');
+
+                // Counts
+                const liveCount = (dadosJogos.aoVivo?.length || 0) + (dadosJogos.aoVivoOutros?.length || 0);
+                document.getElementById('tabLiveCount').textContent = liveCount;
+                document.getElementById('tabHojeCount').textContent = dadosJogos.agendados?.length || 0;
+                document.getElementById('tabFinCount').textContent = dadosJogos.finalizados?.length || 0;
+                document.getElementById('headerLiveCount').textContent = liveCount;
+                document.getElementById('headerLive').style.display = liveCount > 0 ? 'flex' : 'none';
+
+                // Yellup banner
+                const yellupAtivos = Object.keys(yellupJogos).length;
+                if (yellupAtivos > 0) {
+                    document.getElementById('bannerQtd').textContent = yellupAtivos;
+                    document.getElementById('yellupBanner').style.display = 'flex';
+                }
+
+                renderAoVivo();
+                renderAgendados();
+                renderFinalizados();
+
+            } catch(e) {
+                console.error('Erro:', e);
+                document.getElementById('loadingAoVivo').innerHTML = `
+                    <div class="empty"><div class="empty-icon">⚠️</div><div>Erro ao carregar jogos. Tente novamente.</div></div>`;
+            }
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+            document.getElementById(`content-${tab}`).classList.add('active');
+        }
+
+        function renderMatchCard(j, isLive = false, isFin = false) {
+            const isYellup = yellupJogos[j.id];
+            const yellupTag = isYellup ? `<a href="/usuarios/painel-jogo.html?jogoId=${yellupJogos[j.id]}" style="margin-left:auto;padding:4px 10px;background:linear-gradient(135deg,var(--accent),#ff8c42);border-radius:6px;font-size:0.7em;font-weight:700;color:#000;text-decoration:none;">🎮 Jogar</a>` : '';
+            
+            let scoreHtml = '';
+            if (isLive) {
+                scoreHtml = `
+                    <div class="match-score-num live-score">${j.placar.casa ?? 0} - ${j.placar.fora ?? 0}</div>
+                    <div class="match-minute live-min">${j.minutos || ''}' </div>`;
+            } else if (isFin) {
+                scoreHtml = `
+                    <div class="match-score-num">${j.placar.casa ?? 0} - ${j.placar.fora ?? 0}</div>
+                    <div class="match-minute ft">Encerrado</div>`;
+            } else {
+                const hora = new Date(j.data).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+                scoreHtml = `<div class="match-time-ns">${hora}</div>`;
+            }
+
+            const casaWinner = j.timeCasa.vencendo ? ' winner' : '';
+            const foraWinner = j.timeFora.vencendo ? ' winner' : '';
+
+            return `
+            <div class="match-card ${isLive ? 'live' : ''} ${isFin ? 'finished' : ''}">
+                <div class="match-liga">
+                    ${j.liga.bandeira ? `<img class="liga-flag" src="${j.liga.bandeira}">` : ''}
+                    ${j.liga.logo ? `<img src="${j.liga.logo}">` : ''}
+                    <span>${j.liga.nome}</span>
+                    ${j.liga.rodada ? `<span style="color:var(--text2);font-size:0.9em;">· ${j.liga.rodada}</span>` : ''}
+                    ${yellupTag}
+                </div>
+                <div class="match-body">
+                    <div class="match-team">
+                        <img src="${j.timeCasa.logo}" alt="${j.timeCasa.nome}" onerror="this.style.display='none'">
+                        <span class="match-team-name${casaWinner}">${j.timeCasa.nome}</span>
+                    </div>
+                    <div class="match-score">${scoreHtml}</div>
+                    <div class="match-team away">
+                        <span class="match-team-name${foraWinner}">${j.timeFora.nome}</span>
+                        <img src="${j.timeFora.logo}" alt="${j.timeFora.nome}" onerror="this.style.display='none'">
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function groupByLiga(jogos) {
+            const groups = {};
+            jogos.forEach(j => {
+                const key = j.liga.id;
+                if (!groups[key]) groups[key] = { liga: j.liga, jogos: [] };
+                groups[key].jogos.push(j);
+            });
+            return Object.values(groups);
+        }
+
+        function renderAoVivo() {
+            const el = document.getElementById('content-aoVivo');
+            const todos = [...(dadosJogos.aoVivo || []), ...(dadosJogos.aoVivoOutros || [])];
+            if (todos.length === 0) {
+                el.innerHTML = `<div class="empty"><div class="empty-icon">😴</div><div>Nenhum jogo ao vivo agora</div><div style="margin-top:8px;font-size:0.85em;color:var(--text2);">Confira a aba "Hoje" para os próximos jogos</div></div>`;
+                return;
+            }
+            const groups = groupByLiga(todos);
+            el.innerHTML = groups.map(g => `
+                <div class="liga-group">
+                    <div class="liga-header">
+                        ${g.liga.bandeira ? `<img class="flag" src="${g.liga.bandeira}">` : ''}
+                        ${g.liga.logo ? `<img src="${g.liga.logo}">` : ''}
+                        ${g.liga.nome}
+                    </div>
+                    ${g.jogos.map(j => renderMatchCard(j, true, false)).join('')}
+                </div>
+            `).join('');
+        }
+
+        function renderAgendados() {
+            const el = document.getElementById('content-agendados');
+            const jogos = dadosJogos.agendados || [];
+            if (jogos.length === 0) {
+                el.innerHTML = `<div class="empty"><div class="empty-icon">📅</div><div>Nenhum jogo agendado para hoje</div></div>`;
+                return;
+            }
+            const groups = groupByLiga(jogos);
+            el.innerHTML = groups.map(g => `
+                <div class="liga-group">
+                    <div class="liga-header">
+                        ${g.liga.bandeira ? `<img class="flag" src="${g.liga.bandeira}">` : ''}
+                        ${g.liga.logo ? `<img src="${g.liga.logo}">` : ''}
+                        ${g.liga.nome}
+                    </div>
+                    ${g.jogos.map(j => renderMatchCard(j, false, false)).join('')}
+                </div>
+            `).join('');
+        }
+
+        function renderFinalizados() {
+            const el = document.getElementById('content-finalizados');
+            const jogos = dadosJogos.finalizados || [];
+            if (jogos.length === 0) {
+                el.innerHTML = `<div class="empty"><div class="empty-icon">✅</div><div>Nenhum jogo encerrado hoje</div></div>`;
+                return;
+            }
+            const groups = groupByLiga(jogos);
+            el.innerHTML = groups.map(g => `
+                <div class="liga-group">
+                    <div class="liga-header">
+                        ${g.liga.bandeira ? `<img class="flag" src="${g.liga.bandeira}">` : ''}
+                        ${g.liga.logo ? `<img src="${g.liga.logo}">` : ''}
+                        ${g.liga.nome}
+                    </div>
+                    ${g.jogos.map(j => renderMatchCard(j, false, true)).join('')}
+                </div>
+            `).join('');
+        }
+
+        // Init
+        carregarJogos();
+        // Auto refresh a cada 60s
+        setInterval(carregarJogos, 60000);
+    </script>
+</body>
+</html>
