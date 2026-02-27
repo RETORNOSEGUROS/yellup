@@ -397,15 +397,15 @@
     /* ==================== BARRAS DE FORÇA ==================== */
     .force-bars-container {
       background: linear-gradient(135deg, var(--bg-card) 0%, rgba(37, 43, 72, 0.8) 100%);
-      border-radius: 20px;
-      padding: 25px;
-      margin-bottom: 30px;
+      border-radius: 16px;
+      padding: 12px 16px;
+      margin-bottom: 15px;
       backdrop-filter: blur(20px);
       border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     .force-bar-section {
-      margin-bottom: 20px;
+      margin-bottom: 8px;
     }
 
     .force-bar-section:last-child {
@@ -414,10 +414,11 @@
 
     .force-bar-title {
       display: flex;
-      justify-content: space-between;
+      justify-content: center;
       align-items: center;
-      margin-bottom: 10px;
-      font-size: 0.9em;
+      margin-bottom: 4px;
+      font-size: 0.75em;
+      opacity: 0.7;
     }
 
     .force-bar-title .team-label {
@@ -1889,8 +1890,8 @@
       background: rgba(255,138,71,0.1);
       border-bottom: 2px solid var(--accent);
     }
-    .cr-tab-content { display: none; }
-    .cr-tab-content.active { display: block; }
+    .cr-tab-content { display: none !important; }
+    .cr-tab-content.active { display: flex !important; flex-direction: column; }
 
     @media (min-width: 992px) {
       .chat-ranking-grid {
@@ -1898,7 +1899,7 @@
         gap: 20px;
       }
       .cr-tab-bar { display: none; }
-      .cr-tab-content { display: block !important; }
+      .cr-tab-content { display: flex !important; flex-direction: column; }
       .chat-section, .ranking-section { border-radius: var(--card-radius) !important; }
     }
 
@@ -2291,6 +2292,7 @@
       border: 1px solid var(--glass-border);
       overflow: hidden;
       overflow-x: hidden;
+      flex-direction: column;
     }
     
     .ranking-header {
@@ -3870,6 +3872,25 @@
       </div>
     </div>
 
+    <!-- Match Info (sem nomes dos times) -->
+    <div class="match-header">
+      <div class="match-info">
+        <span id="liveBadge" class="live-badge ao-vivo">
+          <span class="live-dot"></span> AO VIVO
+        </span>
+        <span>🏆 <span id="matchLeague">Liga</span></span>
+        <span>📅 <span id="matchDate">Data</span></span>
+        <span>⏳ Restante: <span class="timer" id="timer">--:--</span></span>
+      </div>
+      <div class="online-counter" id="onlineCounter">
+        <span class="online-dot"></span>
+        <span><strong id="onlineCount">0</strong> torcedores ao vivo</span>
+      </div>
+    </div>
+    
+    <!-- matchTitle oculto para manter compatibilidade JS -->
+    <h1 id="matchTitle" style="display:none;">Time A vs Time B</h1>
+
     <!-- Teams (TOPO) -->
     <div class="teams-section">
       <div class="team-card" id="teamACard">
@@ -3907,37 +3928,12 @@
       </div>
     </div>
 
-    <!-- Match Info (sem nomes dos times) -->
-    <div class="match-header">
-      <div class="match-info">
-        <span id="liveBadge" class="live-badge ao-vivo">
-          <span class="live-dot"></span> AO VIVO
-        </span>
-        <span>🏆 <span id="matchLeague">Liga</span></span>
-        <span>📅 <span id="matchDate">Data</span></span>
-        <span>⏳ Restante: <span class="timer" id="timer">--:--</span></span>
-      </div>
-      <div class="online-counter" id="onlineCounter">
-        <span class="online-dot"></span>
-        <span><strong id="onlineCount">0</strong> torcedores ao vivo</span>
-      </div>
-    </div>
-    
-    <!-- matchTitle oculto para manter compatibilidade JS -->
-    <h1 id="matchTitle" style="display:none;">Time A vs Time B</h1>
-
     <!-- Barras de Força -->
     <div class="force-bars-container">
       <!-- Barra de Torcida -->
       <div class="force-bar-section">
         <div class="force-bar-title">
-          <div class="team-label">
-            <span id="forceTeamAName">Time A</span>
-          </div>
-          <span>👥 FORÇA DA TORCIDA</span>
-          <div class="team-label">
-            <span id="forceTeamBName">Time B</span>
-          </div>
+          <span>👥 TORCIDA</span>
         </div>
         <div class="force-bar-wrapper">
           <div class="force-bar team-a" id="forceTorcidaA" style="width: 50%;">
@@ -3952,13 +3948,7 @@
       <!-- Barra de Pontuação -->
       <div class="force-bar-section">
         <div class="force-bar-title">
-          <div class="team-label">
-            <span id="pointsTeamAValue">0 pts</span>
-          </div>
           <span>🏆 PONTUAÇÃO</span>
-          <div class="team-label">
-            <span id="pointsTeamBValue">0 pts</span>
-          </div>
         </div>
         <div class="force-bar-wrapper">
           <div class="force-bar team-a" id="forcePontosA" style="width: 50%;">
@@ -3971,6 +3961,7 @@
       </div>
     </div>
 
+    <span id="forceTeamAName" style="display:none">Time A</span><span id="forceTeamBName" style="display:none">Time B</span><span id="pointsTeamAValue" style="display:none">0</span><span id="pointsTeamBValue" style="display:none">0</span>
     <!-- 📊 MINI STATS PESSOAL -->
     <div class="my-stats-bar" id="myStatsBar">
       <div class="my-stat">
@@ -4674,6 +4665,27 @@
       if (statsUpdateInterval) clearInterval(statsUpdateInterval);
       
       console.log("🔄 Iniciando atualização automática...");
+      
+      // ✅ LISTENER: detectar mudanças no jogo (status, premiação) em tempo real
+      db.collection("jogos").doc(jogoId).onSnapshot((snap) => {
+        const d = snap.data();
+        if (!d) return;
+        // Detectar finalização
+        if (d.status === 'finalizado' && jogoStatus !== 'finalizado') {
+          console.log("🏁 Jogo finalizado detectado via onSnapshot!");
+          jogoStatus = 'finalizado';
+          pararTodosTimers();
+          bloquearChat();
+          atualizarBotaoBaseadoNoStatus();
+          if (!premiacaoExecutada) setTimeout(() => executarPremiacao(), 2000);
+        }
+        // Detectar premiação
+        if (d.premiado && d.premiacaoDetalhes && !premiacaoExecutada) {
+          console.log("🏆 Premiação detectada via onSnapshot!");
+          premiacaoExecutada = true;
+          mostrarResultadoPremiacao(d.premiacaoDetalhes);
+        }
+      });
       
       // ✅ ATUALIZAR RANKING A CADA 30 SEGUNDOS
       rankingUpdateInterval = setInterval(async () => {
@@ -7488,14 +7500,7 @@
           console.warn("⚠️ Não foi possível premiar (aguardando admin):", premioErr.message);
           premiacaoExecutada = true;
           
-          // Escutar em tempo real quando admin premiar
-          db.collection("jogos").doc(jogoId).onSnapshot((snap) => {
-            const d = snap.data();
-            if (d && d.premiado && d.premiacaoDetalhes) {
-              console.log("🏆 Premiação detectada via admin!");
-              mostrarResultadoPremiacao(d.premiacaoDetalhes);
-            }
-          });
+          // Listener já ativo via initAutoUpdates — não duplicar
           
           mostrarAguardandoPremiacao();
         }
