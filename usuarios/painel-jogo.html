@@ -1270,13 +1270,14 @@
     /* Ambient style: dimmed, lights up on hover/focus */
     .chat-section, .ranking-section {
       opacity: 0.4;
-      transition: opacity 0.4s ease, transform 0.3s ease;
-      max-height: 350px;
+      transition: opacity 0.4s ease, transform 0.3s ease, max-height 0.4s ease;
+      max-height: 400px;
     }
     .chat-section:hover, .chat-section:focus-within,
     .ranking-section:hover, .ranking-section:focus-within {
       opacity: 1;
       transform: scale(1.01);
+      max-height: 600px;
     }
     .chat-section.fullscreen {
       opacity: 1;
@@ -3262,6 +3263,7 @@
     let jogoCreditosIniciais = 0;    // ✅ NOVO: Créditos iniciais do admin
     let statusCheckInterval = null;  // ✅ NOVO: Intervalo para checar status
     let premiacaoExecutada = false;  // ✅ NOVO: Flag para evitar premiar múltiplas vezes
+    let minhaPosicaoAtual = null;
 
     // 🎮 GAMIFICAÇÃO
     let streak = 0;                  // Sequência de acertos
@@ -3317,6 +3319,19 @@
             background:linear-gradient(135deg, rgba(255,255,255,0.18), transparent 55%);
             ${mask}pointer-events:none;"></div>
         </div>`;
+    }
+
+    function gerarMiniCamiseta(corPrimaria, corSecundaria, corTerciaria) {
+      const bp = '/icons/camiseta-base.png';
+      const t = corTerciaria || corPrimaria;
+      const s = corSecundaria || corPrimaria;
+      const mask = `mask-image:url(${bp});-webkit-mask-image:url(${bp});mask-size:contain;-webkit-mask-size:contain;mask-repeat:no-repeat;-webkit-mask-repeat:no-repeat;mask-position:center;-webkit-mask-position:center;`;
+      return `<div style="position:relative;display:inline-block;width:22px;height:26px;vertical-align:middle;margin-right:4px;">
+        <img src="${bp}" style="width:100%;height:100%;display:block;object-fit:contain;" />
+        <div style="position:absolute;top:0;left:0;right:0;bottom:0;
+          background:radial-gradient(ellipse at 6% 26%,${t}88 0%,transparent 18%),radial-gradient(ellipse at 94% 26%,${t}88 0%,transparent 18%),linear-gradient(90deg,transparent 40%,${s}55 49%,${s}55 51%,transparent 60%),${corPrimaria};
+          mix-blend-mode:multiply;${mask}"></div>
+      </div>`;
     }
 
     // ===================================
@@ -5196,7 +5211,7 @@
               pontos: p.pontos || 0,
               tempoMedio: p.tempoMedio || 10,
               timeId: timeUser,
-              avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`
+              avatar: p.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=40`
             });
           }
         });
@@ -5204,8 +5219,12 @@
         // ✅ ORDENAR: Por pontos (desc), desempate por tempo médio (asc = mais rápido)
         ranking.sort((a, b) => {
           if (b.pontos !== a.pontos) return b.pontos - a.pontos;
-          return a.tempoMedio - b.tempoMedio; // Menor tempo = melhor
+          return a.tempoMedio - b.tempoMedio;
         });
+
+        // 🎯 Posição do usuário
+        const meuIndex = ranking.findIndex(u => u.odId === uid);
+        minhaPosicaoAtual = meuIndex >= 0 ? meuIndex + 1 : null;
 
         // Calcular créditos estimados
         const creditosEstimados = calcularCreditosEstimados(ranking.length);
@@ -5229,15 +5248,28 @@
           // Cor do time
           const corTime = user.timeId === timeCasaId ? 'var(--cor-timeA)' : 'var(--cor-timeB)';
           
+          // Mini camiseta do time
+          const timeData = user.timeId === timeCasaId ? timeCasaData : timeForaData;
+          const miniJersey = gerarMiniCamiseta(
+            timeData?.primaria || '#666',
+            timeData?.secundaria || '#fff',
+            timeData?.terciaria || timeData?.primaria || '#666'
+          );
+          
           // Créditos estimados para esta posição
           const creditos = creditosEstimados[index] || 0;
           const creditosDisplay = creditos > 0 ? `<span class="ranking-credits">+${creditos} 💎</span>` : '';
+          
+          // Destacar usuário atual
+          if (user.odId === uid) li.classList.add('is-me');
           
           li.innerHTML = `
             <span class="ranking-position">${medalha}</span>
             <img src="${user.avatar}" alt="${user.nome}" class="ranking-avatar">
             <div class="ranking-info">
-              <span class="ranking-name" style="color: ${corTime}">${user.nome}</span>
+              <span class="ranking-name" style="color: ${corTime}">
+                ${miniJersey}${user.nome}
+              </span>
               <span class="ranking-time">${user.tempoMedio.toFixed(1)}s avg</span>
             </div>
             <div class="ranking-stats">
