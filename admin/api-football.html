@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API-Football — Yellup Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0c0e14; --bg-secondary: #12141c; --bg-card: #181a24;
+            --bg-card-hover: #1e2030; --bg-sidebar: #10121a;
+            --border: #1e2030; --border-light: #282a3a;
+            --text-primary: #e8e9ed; --text-secondary: #8b8d9a; --text-muted: #5c5e6e;
+            --accent: #f0b429; --accent-dim: rgba(240, 180, 41, 0.12);
+            --green: #34d399; --green-dim: rgba(52, 211, 153, 0.12);
+            --red: #f87171; --red-dim: rgba(248, 113, 113, 0.12);
+            --blue: #60a5fa; --blue-dim: rgba(96, 165, 250, 0.12);
+            --purple: #a78bfa; --purple-dim: rgba(167, 139, 250, 0.12);
+            --orange: #fb923c; --orange-dim: rgba(251, 146, 60, 0.12);
+            --cyan: #22d3ee; --cyan-dim: rgba(34, 211, 238, 0.12);
+            --sidebar-w: 250px; --header-h: 64px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'DM Sans', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+
+        .sidebar { position: fixed; left: 0; top: 0; width: var(--sidebar-w); height: 100vh; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 100; transition: transform 0.3s ease; }
+        .sidebar-brand { height: var(--header-h); display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .sidebar-brand .logo { width: 32px; height: 32px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: #000; }
+        .sidebar-brand h1 { font-size: 17px; font-weight: 700; }
+        .sidebar-brand h1 span { color: var(--text-muted); font-weight: 500; font-size: 12px; margin-left: 6px; }
+        .sidebar-nav { flex: 1; overflow-y: auto; padding: 12px 0; }
+        .nav-group { margin-bottom: 8px; }
+        .nav-group-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); padding: 12px 20px 6px; }
+        .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 16px; margin: 1px 8px; border-radius: 8px; color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+        .nav-item:hover { background: var(--bg-card); color: var(--text-primary); }
+        .nav-item.active { background: var(--accent-dim); color: var(--accent); }
+        .nav-item .icon { width: 20px; text-align: center; font-size: 14px; flex-shrink: 0; }
+        .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
+        .sidebar-footer .admin-box { display: flex; align-items: center; gap: 10px; padding: 8px; }
+        .admin-avatar { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), #e09800); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #000; }
+        .admin-info-text { flex: 1; }
+        .admin-info-text .name { font-size: 13px; font-weight: 600; }
+        .admin-info-text .role { font-size: 11px; color: var(--text-muted); }
+        .btn-logout { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px; border-radius: 6px; }
+        .btn-logout:hover { color: var(--red); background: var(--red-dim); }
+
+        .main { margin-left: var(--sidebar-w); min-height: 100vh; }
+        .topbar { height: var(--header-h); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--bg-primary); position: sticky; top: 0; z-index: 50; }
+        .topbar h2 { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .topbar-actions { display: flex; gap: 8px; }
+        .content { padding: 20px 24px; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+        .stat-card .stat-value { font-size: 24px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .stat-card .stat-label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        .stat-card .stat-sub { font-size: 11px; color: var(--green); margin-top: 4px; }
+        .stat-card .stat-sub.warn { color: var(--orange); }
+        .stat-card .stat-sub.bad { color: var(--red); }
+
+        /* TABS */
+        .tabs { display: flex; gap: 4px; margin-bottom: 20px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
+        .tab { flex: 1; padding: 10px; text-align: center; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; color: var(--text-secondary); border: none; background: none; font-family: inherit; }
+        .tab:hover { color: var(--text-primary); background: rgba(255,255,255,0.03); }
+        .tab.active { background: var(--accent-dim); color: var(--accent); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* TABLE */
+        .table-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        thead th { padding: 10px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); border-bottom: 1px solid var(--border); text-align: left; background: var(--bg-secondary); white-space: nowrap; }
+        tbody td { padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+        tbody tr:hover { background: var(--bg-card-hover); }
+        .mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+        .badge { display: inline-flex; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+        .badge-ok { background: var(--green-dim); color: var(--green); }
+        .badge-new { background: var(--blue-dim); color: var(--blue); }
+        .badge-miss { background: var(--red-dim); color: var(--red); }
+        .badge-warn { background: var(--orange-dim); color: var(--orange); }
+        .badge-info { background: var(--cyan-dim); color: var(--cyan); }
+
+        .team-row { display: flex; align-items: center; gap: 8px; }
+        .team-row img { width: 24px; height: 24px; border-radius: 4px; background: rgba(255,255,255,0.05); }
+        .team-row .color-dot { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; }
+
+        .score-bar { display: flex; align-items: center; gap: 6px; }
+        .score-fill { height: 6px; border-radius: 3px; background: var(--green); }
+        .score-text { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+
+        /* BUTTONS */
+        .btn-primary { padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent); color: #000; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s; }
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+        .btn-outline { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-outline:hover { border-color: var(--accent); }
+        .btn-danger { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--red); background: var(--red-dim); color: var(--red); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+
+        /* ACTION PANEL */
+        .action-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+        .action-panel h3 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+        .action-panel p { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+        .action-btns { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .action-btns select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); font-size: 13px; font-family: inherit; }
+        .action-btns select:focus { outline: none; border-color: var(--accent); }
+        .action-btns select option { background: var(--bg-card); }
+
+        /* PROGRESS */
+        .progress-wrap { margin: 16px 0; display: none; }
+        .progress-wrap.active { display: block; }
+        .progress-bar-outer { background: var(--bg-secondary); border-radius: 8px; height: 8px; overflow: hidden; }
+        .progress-bar-inner { height: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); border-radius: 8px; transition: width 0.3s; width: 0%; }
+        .progress-text { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+
+        /* LOG */
+        .log-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px; max-height: 200px; overflow-y: auto; margin-top: 12px; display: none; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.8; }
+        .log-box.active { display: block; }
+        .log-ok { color: var(--green); }
+        .log-err { color: var(--red); }
+        .log-warn { color: var(--orange); }
+        .log-info { color: var(--blue); }
+
+        /* TOAST */
+        .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 10px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); font-size: 13px; font-weight: 500; z-index: 999; transform: translateY(100px); opacity: 0; transition: all 0.3s; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+
+        /* EMPTY */
+        .empty-state { text-align: center; padding: 40px; color: var(--text-muted); font-size: 13px; }
+
+        /* MOBILE */
+        .mobile-toggle { display: none; position: fixed; top: 16px; left: 16px; z-index: 200; width: 40px; height: 40px; border-radius: 10px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); font-size: 18px; cursor: pointer; align-items: center; justify-content: center; }
+        .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 90; }
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .overlay.open { display: block; }
+            .mobile-toggle { display: flex; }
+            .main { margin-left: 0; }
+            .topbar { padding: 0 16px 0 64px; }
+            .content { padding: 16px; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .tabs { flex-wrap: wrap; }
+            .tab { flex: none; min-width: 80px; }
+        }
+    </style>
+</head>
+<body>
+
+    <button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+    <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand"><div class="logo">Y</div><h1>Yellup <span>Admin</span></h1></div>
+        <nav class="sidebar-nav">
+            <div class="nav-group"><div class="nav-group-title">Visão Geral</div><a href="dashboard.html" class="nav-item"><span class="icon">📊</span> Dashboard</a></div>
+            <div class="nav-group"><div class="nav-group-title">Conteúdo</div><a href="jogos.html" class="nav-item"><span class="icon">🎮</span> Jogos</a><a href="perguntas.html" class="nav-item"><span class="icon">❓</span> Perguntas</a><a href="importar-perguntas.html" class="nav-item"><span class="icon">📥</span> Importar</a><a href="gerar-perguntas.html" class="nav-item"><span class="icon">🤖</span> Gerar com IA</a><a href="times.html" class="nav-item"><span class="icon">⚽</span> Times</a></div>
+            <div class="nav-group"><div class="nav-group-title">Jogadores</div><a href="usuarios.html" class="nav-item"><span class="icon">👥</span> Usuários</a><a href="ranking.html" class="nav-item"><span class="icon">🏆</span> Rankings</a><a href="admin-noticias.html" class="nav-item"><span class="icon">📰</span> Notícias</a></div>
+            <div class="nav-group"><div class="nav-group-title">Competições</div><a href="torneios.html" class="nav-item"><span class="icon">🏅</span> Torneios</a><a href="inicializar-pvp.html" class="nav-item"><span class="icon">⚔️</span> Embates PvP</a></div>
+            <div class="nav-group"><div class="nav-group-title">Financeiro</div><a href="financeiro.html" class="nav-item"><span class="icon">💰</span> Resumo</a><a href="creditar-manual.html" class="nav-item"><span class="icon">➕</span> Creditar Manual</a><a href="transacoes.html" class="nav-item"><span class="icon">💳</span> Transações</a><a href="premiacao.html" class="nav-item"><span class="icon">🎁</span> Premiação</a><a href="indicacoes.html" class="nav-item"><span class="icon">🔗</span> Indicações</a></div>
+            <div class="nav-group"><div class="nav-group-title">API & Dados</div><a href="api-football.html" class="nav-item active"><span class="icon">📡</span> API-Football</a></div>
+            <div class="nav-group"><div class="nav-group-title">Sistema</div><a href="configuracoes.html" class="nav-item"><span class="icon">⚙️</span> Configurações</a><a href="checkup.html" class="nav-item"><span class="icon">🔍</span> Checkup</a></div>
+        </nav>
+        <div class="sidebar-footer"><div class="admin-box"><div class="admin-avatar">A</div><div class="admin-info-text"><div class="name">Admin</div><div class="role">Administrador</div></div><button class="btn-logout" onclick="sair()" title="Sair">⏻</button></div></div>
+    </aside>
+
+    <div class="main">
+        <div class="topbar">
+            <h2>📡 API-Football — Importação & Mapeamento</h2>
+            <div class="topbar-actions">
+                <button class="btn-outline" onclick="carregarRelatorio()">📊 Atualizar Relatório</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- STATS -->
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card"><div class="stat-value" id="statTimes">—</div><div class="stat-label">TIMES TOTAL</div><div class="stat-sub" id="statTimesApi">Carregando...</div></div>
+                <div class="stat-card"><div class="stat-value" id="statCamps">—</div><div class="stat-label">CAMPEONATOS</div><div class="stat-sub" id="statCampsApi">Carregando...</div></div>
+                <div class="stat-card"><div class="stat-value" id="statSelecoes">—</div><div class="stat-label">SELEÇÕES</div><div class="stat-sub" id="statSelecoesApi">Carregando...</div></div>
+                <div class="stat-card"><div class="stat-value" id="statEscudos">—</div><div class="stat-label">COM ESCUDO</div><div class="stat-sub" id="statEscudosApi">Carregando...</div></div>
+            </div>
+
+            <!-- TABS -->
+            <div class="tabs">
+                <button class="tab active" onclick="trocarTab('campeonatos')">🏆 Campeonatos</button>
+                <button class="tab" onclick="trocarTab('times')">⚽ Times</button>
+                <button class="tab" onclick="trocarTab('selecoes')">🏳️ Seleções</button>
+                <button class="tab" onclick="trocarTab('relatorio')">📋 Relatório</button>
+            </div>
+
+            <!-- TAB: CAMPEONATOS -->
+            <div class="tab-content active" id="tab-campeonatos">
+                <div class="action-panel">
+                    <h3>🏆 Mapear Campeonatos</h3>
+                    <p>Adiciona <code>apiFootballId</code> + <code>logo</code> nos 68 campeonatos do teu Firestore. Mapeamento manual, 100% correto.</p>
+                    <div class="action-btns">
+                        <button class="btn-outline" onclick="executar('mapearCampeonatos', true)">🔍 Testar (dry run)</button>
+                        <button class="btn-primary" onclick="confirmarExecucao('mapearCampeonatos')">✅ Executar de verdade</button>
+                    </div>
+                    <div class="progress-wrap" id="prog-campeonatos"><div class="progress-bar-outer"><div class="progress-bar-inner" id="bar-campeonatos"></div></div><div class="progress-text" id="txt-campeonatos"></div></div>
+                    <div class="log-box" id="log-campeonatos"></div>
+                </div>
+
+                <div class="table-card" id="table-campeonatos">
+                    <div class="empty-state">Clique em "Testar" para ver o preview dos campeonatos</div>
+                </div>
+            </div>
+
+            <!-- TAB: TIMES -->
+            <div class="tab-content" id="tab-times">
+                <div class="action-panel">
+                    <h3>⚽ Mapear Times de Todas as Ligas</h3>
+                    <p>Busca times de 39 ligas profissionais na API, cruza com os teus 897 times por nome, e adiciona <code>apiFootballId</code> + <code>escudo</code> + <code>estádio</code>.</p>
+                    <div class="action-btns">
+                        <label style="font-size:12px;color:var(--text-muted)">Temporada:</label>
+                        <select id="seasonSelect">
+                            <option value="2025" selected>2025</option>
+                            <option value="2024">2024</option>
+                            <option value="2023">2023</option>
+                        </select>
+                        <button class="btn-outline" onclick="executar('mapearTodasLigas', true)">🔍 Testar (dry run)</button>
+                        <button class="btn-primary" onclick="confirmarExecucao('mapearTodasLigas')">✅ Executar de verdade</button>
+                    </div>
+                    <div class="progress-wrap" id="prog-times"><div class="progress-bar-outer"><div class="progress-bar-inner" id="bar-times"></div></div><div class="progress-text" id="txt-times"></div></div>
+                    <div class="log-box" id="log-times"></div>
+                </div>
+
+                <!-- Liga individual -->
+                <div class="action-panel" style="margin-top:12px">
+                    <h3>⚽ Mapear Liga Individual</h3>
+                    <p>Importar times de uma liga específica.</p>
+                    <div class="action-btns">
+                        <select id="ligaSelect" style="min-width:220px">
+                            <optgroup label="🇧🇷 Brasil">
+                                <option value="71">Brasileirão Série A (71)</option>
+                                <option value="72">Brasileirão Série B (72)</option>
+                                <option value="73">Copa do Brasil (73)</option>
+                                <option value="75">Série C (75)</option>
+                                <option value="479">Gauchão (479)</option>
+                                <option value="475">Paulistão (475)</option>
+                                <option value="481">Carioca (481)</option>
+                            </optgroup>
+                            <optgroup label="🇦🇷 Argentina">
+                                <option value="128">Liga Argentina (128)</option>
+                            </optgroup>
+                            <optgroup label="🏆 Continentais">
+                                <option value="13">Copa Libertadores (13)</option>
+                                <option value="11">Copa Sulamericana (11)</option>
+                                <option value="2">Champions League (2)</option>
+                                <option value="3">Europa League (3)</option>
+                            </optgroup>
+                            <optgroup label="🇬🇧 Inglaterra">
+                                <option value="39">Premier League (39)</option>
+                                <option value="40">Championship (40)</option>
+                            </optgroup>
+                            <optgroup label="🇪🇸 Espanha">
+                                <option value="140">La Liga (140)</option>
+                            </optgroup>
+                            <optgroup label="🇩🇪 Alemanha">
+                                <option value="78">Bundesliga (78)</option>
+                            </optgroup>
+                            <optgroup label="🇮🇹 Itália">
+                                <option value="135">Serie A (135)</option>
+                            </optgroup>
+                            <optgroup label="🇫🇷 França">
+                                <option value="61">Ligue 1 (61)</option>
+                            </optgroup>
+                            <optgroup label="🇵🇹 Portugal">
+                                <option value="94">Liga Portugal (94)</option>
+                            </optgroup>
+                        </select>
+                        <button class="btn-outline" onclick="executarLiga(true)">🔍 Testar</button>
+                        <button class="btn-primary" onclick="confirmarExecucaoLiga()">✅ Executar</button>
+                    </div>
+                    <div class="log-box" id="log-liga"></div>
+                </div>
+
+                <div class="table-card" id="table-times" style="margin-top:16px">
+                    <div class="empty-state">Clique em "Testar" para ver o preview do mapeamento</div>
+                </div>
+            </div>
+
+            <!-- TAB: SELEÇÕES -->
+            <div class="tab-content" id="tab-selecoes">
+                <div class="action-panel">
+                    <h3>🏳️ Mapear Seleções</h3>
+                    <p>Busca seleções nacionais na API e vincula com as 146 que tu já tem, adicionando <code>apiFootballId</code> + <code>escudo</code>.</p>
+                    <div class="action-btns">
+                        <button class="btn-outline" onclick="executar('mapearSelecoes', true)">🔍 Testar (dry run)</button>
+                        <button class="btn-primary" onclick="confirmarExecucao('mapearSelecoes')">✅ Executar de verdade</button>
+                    </div>
+                    <div class="progress-wrap" id="prog-selecoes"><div class="progress-bar-outer"><div class="progress-bar-inner" id="bar-selecoes"></div></div><div class="progress-text" id="txt-selecoes"></div></div>
+                    <div class="log-box" id="log-selecoes"></div>
+                </div>
+                <div class="table-card" id="table-selecoes">
+                    <div class="empty-state">Clique em "Testar" para ver o preview das seleções</div>
+                </div>
+            </div>
+
+            <!-- TAB: RELATÓRIO -->
+            <div class="tab-content" id="tab-relatorio">
+                <div class="action-panel">
+                    <h3>📋 Relatório de Mapeamento</h3>
+                    <p>Mostra o status atual: quantos times/campeonatos já têm <code>apiFootballId</code>, quantos faltam, quantos têm escudo.</p>
+                    <div class="action-btns">
+                        <button class="btn-primary" onclick="carregarRelatorio()">🔄 Gerar Relatório</button>
+                    </div>
+                </div>
+
+                <div id="relatorioContent" style="margin-top:16px">
+                    <div class="empty-state">Clique em "Gerar Relatório" para ver o status</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // ===== FIREBASE =====
+        firebase.initializeApp({
+            apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+            authDomain: "painel-yellup.firebaseapp.com",
+            projectId: "painel-yellup",
+            storageBucket: "painel-yellup.appspot.com",
+            messagingSenderId: "608347210297",
+            appId: "1:608347210297:web:75092713724e617c7203e8"
+        });
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+        const fnc = firebase.functions();
+
+        auth.onAuthStateChanged(user => {
+            if (!user || user.email !== 'admin@yellup.com') { window.location.href = 'login.html'; return; }
+            carregarStats();
+        });
+
+        function sair() { auth.signOut().then(() => window.location.href = 'login.html'); }
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('overlay').classList.toggle('open'); }
+
+        // ===== STATS =====
+        async function carregarStats() {
+            try {
+                const [timesSnap, campsSnap] = await Promise.all([
+                    db.collection('times').get(),
+                    db.collection('campeonatos').get()
+                ]);
+
+                let total = 0, comApi = 0, comEscudo = 0, clubes = 0, selecoes = 0;
+                let campsTotal = 0, campsComApi = 0;
+
+                timesSnap.forEach(doc => {
+                    const d = doc.data();
+                    total++;
+                    if (d.apiFootballId) comApi++;
+                    if (d.escudo) comEscudo++;
+                    if (d.tipo === 'selecao') selecoes++;
+                    else clubes++;
+                });
+
+                campsSnap.forEach(doc => {
+                    campsTotal++;
+                    if (doc.data().apiFootballId) campsComApi++;
+                });
+
+                document.getElementById('statTimes').textContent = total;
+                document.getElementById('statTimesApi').textContent = `${comApi} com API (${Math.round(comApi/total*100)}%)`;
+                document.getElementById('statTimesApi').className = comApi > total*0.5 ? 'stat-sub' : 'stat-sub bad';
+
+                document.getElementById('statCamps').textContent = campsTotal;
+                document.getElementById('statCampsApi').textContent = `${campsComApi} com API (${Math.round(campsComApi/campsTotal*100)}%)`;
+                document.getElementById('statCampsApi').className = campsComApi > campsTotal*0.5 ? 'stat-sub' : 'stat-sub warn';
+
+                document.getElementById('statSelecoes').textContent = selecoes;
+                document.getElementById('statSelecoesApi').textContent = `${clubes} clubes`;
+
+                document.getElementById('statEscudos').textContent = comEscudo;
+                document.getElementById('statEscudosApi').textContent = `${total - comEscudo} sem escudo`;
+                document.getElementById('statEscudosApi').className = comEscudo > total*0.5 ? 'stat-sub' : 'stat-sub bad';
+
+            } catch (e) { console.error(e); }
+        }
+
+        // ===== TABS =====
+        function trocarTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.getElementById('tab-' + tab).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // ===== EXECUTAR CLOUD FUNCTION =====
+        async function executar(funcao, dryRun) {
+            const tabMap = { mapearCampeonatos: 'campeonatos', mapearTodasLigas: 'times', mapearSelecoes: 'selecoes' };
+            const tabId = tabMap[funcao];
+            const logEl = document.getElementById('log-' + tabId);
+            const progEl = document.getElementById('prog-' + tabId);
+            const barEl = document.getElementById('bar-' + tabId);
+            const txtEl = document.getElementById('txt-' + tabId);
+
+            logEl.classList.add('active');
+            logEl.innerHTML = `<span class="log-info">⏳ ${dryRun ? 'Testando' : 'Executando'} ${funcao}...</span><br>`;
+            progEl.classList.add('active');
+            barEl.style.width = '30%';
+            txtEl.textContent = 'Chamando Cloud Function...';
+
+            try {
+                const callable = fnc.httpsCallable(funcao);
+                const params = { dryRun };
+                if (funcao === 'mapearTodasLigas') {
+                    params.season = parseInt(document.getElementById('seasonSelect').value);
+                }
+
+                barEl.style.width = '60%';
+                txtEl.textContent = 'Processando na API-Football...';
+
+                const result = await callable(params);
+                const data = result.data;
+
+                barEl.style.width = '100%';
+                txtEl.textContent = dryRun ? '✅ Teste concluído! Nada foi salvo.' : '✅ Execução concluída! Dados salvos.';
+
+                // Log
+                logEl.innerHTML += `<span class="log-ok">✅ Sucesso!</span><br>`;
+                logEl.innerHTML += `<span class="log-info">Modo: ${dryRun ? 'DRY RUN (só teste)' : 'EXECUTADO (salvo!)'}</span><br>`;
+
+                if (data.totalMapeados !== undefined) {
+                    logEl.innerHTML += `<span class="log-ok">Mapeados: ${data.totalMapeados}</span><br>`;
+                    logEl.innerHTML += `<span class="log-warn">Novos: ${data.totalNovos}</span><br>`;
+                }
+
+                // Render table
+                if (data.resultados) {
+                    renderTable(tabId, data.resultados, funcao);
+                }
+
+                if (!dryRun) carregarStats();
+                showToast(dryRun ? '🔍 Teste concluído — revise os resultados' : '✅ Mapeamento executado com sucesso!');
+
+            } catch (e) {
+                barEl.style.width = '100%';
+                barEl.style.background = 'var(--red)';
+                txtEl.textContent = '❌ Erro: ' + e.message;
+                logEl.innerHTML += `<span class="log-err">❌ ${e.message}</span><br>`;
+                showToast('❌ Erro: ' + e.message);
+            }
+        }
+
+        function confirmarExecucao(funcao) {
+            if (confirm('⚠️ EXECUTAR DE VERDADE?\n\nIsso vai salvar as alterações no Firestore.\nRecomendado: Teste primeiro com "Testar (dry run)".\n\nContinuar?')) {
+                executar(funcao, false);
+            }
+        }
+
+        // ===== EXECUTAR LIGA INDIVIDUAL =====
+        async function executarLiga(dryRun) {
+            const leagueId = parseInt(document.getElementById('ligaSelect').value);
+            const season = parseInt(document.getElementById('seasonSelect').value);
+            const logEl = document.getElementById('log-liga');
+            logEl.classList.add('active');
+            logEl.innerHTML = `<span class="log-info">⏳ ${dryRun ? 'Testando' : 'Executando'} liga ${leagueId}...</span><br>`;
+
+            try {
+                const callable = fnc.httpsCallable('mapearTimesLiga');
+                const result = await callable({ leagueId, season, dryRun });
+                const data = result.data;
+
+                logEl.innerHTML += `<span class="log-ok">✅ ${data.mapeados} mapeados | ${data.novos} novos</span><br>`;
+
+                if (data.resultados) {
+                    renderTimesTable(data.resultados);
+                }
+
+                if (!dryRun) carregarStats();
+                showToast(dryRun ? `🔍 Teste: ${data.mapeados} mapeados, ${data.novos} novos` : `✅ Liga importada!`);
+            } catch (e) {
+                logEl.innerHTML += `<span class="log-err">❌ ${e.message}</span><br>`;
+                showToast('❌ ' + e.message);
+            }
+        }
+
+        function confirmarExecucaoLiga() {
+            if (confirm('Executar mapeamento desta liga? Isso vai salvar no Firestore.')) {
+                executarLiga(false);
+            }
+        }
+
+        // ===== RENDER TABLES =====
+        function renderTable(tabId, resultados, funcao) {
+            const el = document.getElementById('table-' + tabId);
+            if (funcao === 'mapearCampeonatos') renderCampeonatosTable(el, resultados);
+            else if (funcao === 'mapearTodasLigas') renderLigasResumo(el, resultados);
+            else if (funcao === 'mapearSelecoes') renderSelecoesTable(el, resultados);
+        }
+
+        function renderCampeonatosTable(el, resultados) {
+            let html = `<table><thead><tr><th>Doc ID</th><th>API ID</th><th>Logo</th><th>Status</th></tr></thead><tbody>`;
+            for (const r of resultados) {
+                const badge = r.status === 'atualizado'
+                    ? '<span class="badge badge-ok">✅ Atualizado</span>'
+                    : '<span class="badge badge-miss">❌ Doc não existe</span>';
+                const logo = r.apiId ? `<img src="https://media.api-sports.io/football/leagues/${r.apiId}.png" width="24" height="24" style="border-radius:4px;background:rgba(255,255,255,0.05)">` : '—';
+                html += `<tr><td class="mono">${r.id}</td><td class="mono">${r.apiId}</td><td>${logo}</td><td>${badge}</td></tr>`;
+            }
+            html += '</tbody></table>';
+            el.innerHTML = html;
+        }
+
+        function renderLigasResumo(el, resultados) {
+            let html = `<table><thead><tr><th>Liga</th><th>Times API</th><th>Mapeados</th><th>Novos</th><th>Status</th></tr></thead><tbody>`;
+            for (const r of resultados) {
+                const badge = r.status === 'ok'
+                    ? '<span class="badge badge-ok">✅ OK</span>'
+                    : r.status === 'vazio'
+                    ? '<span class="badge badge-warn">⚠️ Vazio</span>'
+                    : '<span class="badge badge-miss">❌ Erro</span>';
+                html += `<tr><td>${r.liga}</td><td class="mono">${r.timesAPI || 0}</td><td class="mono" style="color:var(--green)">${r.mapeados || 0}</td><td class="mono" style="color:var(--blue)">${r.novos || 0}</td><td>${badge}</td></tr>`;
+            }
+            html += '</tbody></table>';
+            el.innerHTML = html;
+        }
+
+        function renderTimesTable(resultados) {
+            const el = document.getElementById('table-times');
+            let html = `<table><thead><tr><th>Escudo</th><th>Time API</th><th>→</th><th>Time Yellup</th><th>Score</th><th>Status</th></tr></thead><tbody>`;
+            for (const r of resultados) {
+                const escudo = r.escudo ? `<img src="${r.escudo}" width="24" height="24" style="border-radius:4px;background:rgba(255,255,255,0.05)">` : '—';
+                const badge = r.status === 'mapeado'
+                    ? '<span class="badge badge-ok">✅ Mapeado</span>'
+                    : '<span class="badge badge-new">🆕 Novo</span>';
+                const seta = r.firestoreNome ? '→' : '';
+                const scoreHtml = r.score > 0 ? `<div class="score-bar"><div class="score-fill" style="width:${r.score}px"></div><span class="score-text">${r.score}%</span></div>` : '—';
+                html += `<tr><td>${escudo}</td><td>${r.apiNome}</td><td style="color:var(--accent)">${seta}</td><td>${r.firestoreNome || '<em style="color:var(--text-muted)">vai criar</em>'}</td><td>${scoreHtml}</td><td>${badge}</td></tr>`;
+            }
+            html += '</tbody></table>';
+            el.innerHTML = html;
+        }
+
+        function renderSelecoesTable(el, resultados) {
+            let html = `<table><thead><tr><th>API</th><th>→</th><th>Firestore</th><th>Status</th></tr></thead><tbody>`;
+            for (const r of resultados) {
+                const badge = r.status === 'mapeado'
+                    ? '<span class="badge badge-ok">✅ Mapeado</span>'
+                    : '<span class="badge badge-miss">❌ Não encontrado</span>';
+                html += `<tr><td>${r.apiNome}</td><td style="color:var(--accent)">→</td><td>${r.firestoreNome || '—'}</td><td>${badge}</td></tr>`;
+            }
+            html += '</tbody></table>';
+            el.innerHTML = html;
+        }
+
+        // ===== RELATÓRIO =====
+        async function carregarRelatorio() {
+            const el = document.getElementById('relatorioContent');
+            el.innerHTML = '<div class="empty-state">⏳ Gerando relatório...</div>';
+
+            try {
+                const callable = fnc.httpsCallable('verificarMapeamento');
+                const result = await callable({});
+                const data = result.data;
+
+                let html = '';
+
+                // Times
+                html += `<div class="action-panel"><h3>⚽ Times</h3>`;
+                html += `<div class="stats-grid" style="margin:12px 0">`;
+                html += `<div class="stat-card"><div class="stat-value">${data.times.total}</div><div class="stat-label">TOTAL</div></div>`;
+                html += `<div class="stat-card"><div class="stat-value" style="color:var(--green)">${data.times.comApiFootballId}</div><div class="stat-label">COM API ID</div><div class="stat-sub">${data.times.percentual}</div></div>`;
+                html += `<div class="stat-card"><div class="stat-value" style="color:var(--green)">${data.times.comEscudo}</div><div class="stat-label">COM ESCUDO</div></div>`;
+                html += `<div class="stat-card"><div class="stat-value" style="color:var(--red)">${data.times.semApiFootballId}</div><div class="stat-label">SEM API ID</div></div>`;
+                html += `</div>`;
+
+                if (data.times.listaSemApi && data.times.listaSemApi.length > 0) {
+                    html += `<details><summary style="cursor:pointer;font-size:12px;color:var(--text-muted);margin:8px 0">Ver ${data.times.semApiFootballId} times sem API ID</summary>`;
+                    html += `<div class="table-card" style="margin-top:8px"><table><thead><tr><th>Nome</th><th>País</th><th>Tipo</th></tr></thead><tbody>`;
+                    for (const t of data.times.listaSemApi) {
+                        html += `<tr><td>${t.nome}</td><td>${t.pais || '—'}</td><td><span class="badge badge-info">${t.tipo}</span></td></tr>`;
+                    }
+                    html += `</tbody></table></div></details>`;
+                }
+                html += `</div>`;
+
+                // Campeonatos
+                html += `<div class="action-panel" style="margin-top:12px"><h3>🏆 Campeonatos</h3>`;
+                html += `<div class="stats-grid" style="margin:12px 0;grid-template-columns:repeat(3,1fr)">`;
+                html += `<div class="stat-card"><div class="stat-value">${data.campeonatos.total}</div><div class="stat-label">TOTAL</div></div>`;
+                html += `<div class="stat-card"><div class="stat-value" style="color:var(--green)">${data.campeonatos.comApiFootballId}</div><div class="stat-label">COM API ID</div><div class="stat-sub">${data.campeonatos.percentual}</div></div>`;
+                html += `<div class="stat-card"><div class="stat-value" style="color:var(--red)">${data.campeonatos.semApiFootballId}</div><div class="stat-label">SEM API ID</div></div>`;
+                html += `</div>`;
+
+                if (data.campeonatos.listaSemApi && data.campeonatos.listaSemApi.length > 0) {
+                    html += `<details><summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">Ver campeonatos sem API ID</summary>`;
+                    html += `<div style="margin-top:8px">`;
+                    for (const c of data.campeonatos.listaSemApi) {
+                        html += `<span class="badge badge-miss" style="margin:2px">${c.nome}</span> `;
+                    }
+                    html += `</div></details>`;
+                }
+                html += `</div>`;
+
+                el.innerHTML = html;
+                showToast('📋 Relatório gerado!');
+
+            } catch (e) {
+                el.innerHTML = `<div class="action-panel"><span class="log-err">❌ Erro: ${e.message}</span><br><br><p style="font-size:12px;color:var(--text-muted)">Verifique se as Cloud Functions foram deployadas:<br><code>firebase deploy --only functions</code></p></div>`;
+            }
+        }
+
+        // ===== TOAST =====
+        function showToast(m) { const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
+    </script>
+</body>
+</html>
