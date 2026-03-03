@@ -677,55 +677,85 @@ function gerarMiniCamiseta(cor1, cor2, cor3) {
 // =====================
 // AUTH + INIT
 // =====================
-auth.onAuthStateChanged(async user => {
-  if (!user) { window.location.href = 'index.html'; return; }
+auth.onAuthStateChanged(async (user) => {
+  console.log("🔍 Verificando autenticação...");
+
+  if (!user) {
+    console.log("❌ Usuário não autenticado");
+    setTimeout(() => window.location.href = "index.html", 500);
+    return;
+  }
+
+  console.log("✅ Usuário autenticado:", user.uid);
   uid = user.uid;
   
   const params = new URLSearchParams(window.location.search);
-  jogoId = params.get('id') || params.get('jogoId');
-  if (!jogoId) { window.location.href = 'jogos-hoje.html'; return; }
+  jogoId = params.get('jogoId') || params.get('id');
+  console.log("🎮 jogoId:", jogoId);
+
+  if (!jogoId) {
+    console.log("❌ Sem jogoId na URL");
+    setTimeout(() => window.location.href = 'jogos-hoje.html', 500);
+    return;
+  }
   
   try {
     updateLoadingText('Carregando partida...');
     await loadGameData();
+    console.log("✅ Jogo carregado:", jogoData?.liga, timeCasaData?.nome, 'vs', timeForaData?.nome);
+    
     updateLoadingText('Preparando torcida...');
-    await loadUserData();
+    const userLoaded = await loadUserData();
+    if (!userLoaded) return; // Redirect happened inside loadUserData
+    console.log("✅ Usuário carregado. Torcida:", timeTorcida);
+    
     updateLoadingText('Montando arena...');
     await loadRanking();
     await carregarPatrocinadores();
 
-    renderMatchHero();
-    updateForceBar();
-    updateUI();
-    renderInsights();
+    console.log("🎨 Renderizando interface...");
+    try { renderMatchHero(); } catch(e) { console.error("❌ renderMatchHero:", e); }
+    try { updateForceBar(); } catch(e) { console.error("❌ updateForceBar:", e); }
+    try { updateUI(); } catch(e) { console.error("❌ updateUI:", e); }
+    try { renderInsights(); } catch(e) { console.error("❌ renderInsights:", e); }
 
-    initChat();
+    try { initChat(); } catch(e) { console.error("❌ initChat:", e); }
     startStatusCheck();
     startCooldownLoop();
     iniciarPresenca();
     iniciarAtualizacaoAutomatica();
-    iniciarEnquetesFixas();
-
+    if (jogoStatus === 'ao_vivo') iniciarEnquetesFixas();
     if (jogoData.apiFootballId) iniciarPlacarAoVivo();
 
-    // Show
+    // Show app
+    console.log("✅ Escondendo loading, mostrando app...");
     document.getElementById('loadingScreen').classList.add('hidden');
     document.getElementById('mainApp').style.display = 'block';
 
     if (jogoStatus === 'agendado') startCountdown();
     if (jogoStatus === 'finalizado') verificarPremiacao();
 
-    // Onboarding check
-    const onbKey = `arena_onboarding_${jogoId}`;
-    if (!localStorage.getItem(onbKey)) {
-      mostrarOnboarding();
-      localStorage.setItem(onbKey, '1');
-    }
+    // Onboarding
+    try {
+      const onbKey = `arena_onboarding_${jogoId}`;
+      if (!localStorage.getItem(onbKey)) {
+        mostrarOnboarding();
+        localStorage.setItem(onbKey, '1');
+      }
+    } catch(e) { console.error("❌ Onboarding:", e); }
 
-    console.log('🏟️ Arena iniciada!', { jogoId, uid, status: jogoStatus });
+    console.log('🏟️ Arena carregada com sucesso!', { jogoId, uid, status: jogoStatus });
   } catch(e) {
     console.error('❌ Erro fatal:', e);
     document.getElementById('loadingText').textContent = '❌ Erro: ' + e.message;
+    // Mostrar botão de retry
+    document.getElementById('loadingScreen').innerHTML += `
+      <div style="margin-top:20px;text-align:center;">
+        <p style="color:#f87171;font-size:14px;margin-bottom:12px;">❌ ${e.message}</p>
+        <button onclick="location.reload()" style="padding:10px 24px;border-radius:10px;background:#ffb547;border:none;color:#000;font-weight:700;cursor:pointer;font-family:'Outfit',sans-serif;">🔄 Tentar novamente</button>
+        <br><br>
+        <a href="jogos-hoje.html" style="color:#7a82a0;font-size:12px;">← Voltar aos jogos</a>
+      </div>`;
   }
 });
 
@@ -767,22 +797,56 @@ async function loadGameData() {
 // =====================
 async function loadUserData() {
   const userDoc = await db.collection('usuarios').doc(uid).get();
-  userData = userDoc.exists ? userDoc.data() : {};
+  if (!userDoc.exists) throw new Error("Usuário não encontrado!");
+  
+  userData = userDoc.data();
+  cachedUserData = userData;
+  console.log("👤 Dados do usuário carregados:", userData.usuario || userData.nome);
 
   // Torcida
   timeTorcida = userData.torcidas?.[jogoId];
-  if (!timeTorcida) { window.location.href = `painel-jogo.html?jogoId=${jogoId}`; return; }
+  console.log("👕 Torcida:", timeTorcida, "| Casa:", timeCasaData?.id, "| Fora:", timeForaData?.id);
+  
+  if (!timeTorcida) {
+    console.log("❌ Sem torcida escolhida, redirecionando para painel-jogo");
+    showToast("⚠️ Você precisa escolher um time primeiro!");
+    setTimeout(() => window.location.href = `painel-jogo.html?jogoId=${jogoId}`, 1500);
+    return false;
+  }
 
   // Perguntas respondidas globalmente por time
   const respKey = `perguntasRespondidas_${timeTorcida}`;
-  if (userData[respKey] && Array.isArray(userData[respKey])) {
-    userData[respKey].forEach(pid => perguntasRespondidas.add(pid));
+  const respondidas = userData[respKey];
+  if (respondidas && Array.isArray(respondidas)) {
+    respondidas.forEach(pid => perguntasRespondidas.add(pid));
   }
+  console.log("📝 Perguntas respondidas (global):", perguntasRespondidas.size);
 
   // Participante
   const partDoc = await db.collection('jogos').doc(jogoId).collection('participantes').doc(uid).get();
-  if (partDoc.exists) {
+  const precisaInicializar = !partDoc.exists || !partDoc.data()?.entradaEm;
+  
+  if (precisaInicializar) {
+    // Primeiro acesso - entrar na partida
+    try {
+      console.log("⚡ Inicializando participante via entrarPartidaV2...");
+      const entrarFn = functions.httpsCallable('entrarPartidaV2');
+      const entradaResult = await entrarFn({ jogoId: jogoId, timeId: timeTorcida });
+      const er = entradaResult.data;
+      console.log(`✅ entrarPartidaV2: ${er.perguntasDisponiveis || er.totalDisponivel} disponíveis, cooldown ${er.cooldownSegundos}s`);
+      cooldownState = {
+        entradaEm: er.entradaEm || Date.now(),
+        cooldownSeg: er.cooldownSegundos || 300,
+        totalRespondidas: er.totalRespondidas || 0,
+        totalDisponivel: er.totalDisponivel || 5,
+        skipsUsados: er.skipsUsados || 0,
+        perguntasRestantes: er.perguntasRestantes ?? 5
+      };
+    } catch(e) { console.error('❌ Erro entrarPartidaV2:', e); }
+  } else {
+    // Participante já existe - carregar dados
     participanteData = partDoc.data();
+    console.log("📊 Participante existente:", participanteData);
     totalAcertos = participanteData.acertos || 0;
     totalErros = participanteData.erros || 0;
     totalPontos = participanteData.pontos || 0;
@@ -796,18 +860,6 @@ async function loadUserData() {
     cooldownState.totalDisponivel = participanteData.totalDisponivel || 5;
     cooldownState.skipsUsados = participanteData.skipsUsados || 0;
     cooldownState.perguntasRestantes = participanteData.perguntasRestantes ?? 5;
-  } else {
-    // Primeiro acesso - entrar na partida
-    try {
-      const fn = functions.httpsCallable('entrarPartidaV2');
-      const res = await fn({ jogoId });
-      const d = res.data;
-      cooldownState.entradaEm = d.entradaEm;
-      cooldownState.cooldownSeg = d.cooldownSegundos || 300;
-      cooldownState.totalDisponivel = d.totalDisponivel || 5;
-      cooldownState.perguntasRestantes = d.perguntasRestantes ?? 5;
-      console.log('✅ Entrou na partida:', d);
-    } catch(e) { console.error('Erro entrarPartidaV2:', e); }
   }
 
   // Contador de patrocinadores
@@ -826,6 +878,7 @@ async function loadUserData() {
 
   updateStreak();
   updateAchievements();
+  return true;
 }
 
 // =====================
