@@ -303,8 +303,8 @@
                     <div class="api-controls">
                         <input type="date" id="apiData" onchange="buscarJogosAPI()">
                         <select id="apiLigaFiltro" onchange="filtrarJogosAPI()">
-                            <option value="">Todas as ligas</option>
-                            <option value="fav" selected>⭐ Ligas favoritas</option>
+                            <option value="" selected>Todas as ligas</option>
+                            <option value="fav">⭐ Ligas favoritas</option>
                         </select>
                         <button class="btn-sm btn-sm-outline" onclick="buscarJogosAPI()">🔄 Buscar</button>
                         <button class="btn-sm btn-sm-outline" onclick="selecionarTodos()">☑ Todos</button>
@@ -312,7 +312,7 @@
                     </div>
                 </div>
                 <div class="api-body" id="apiBody">
-                    <div class="api-empty">Selecione uma data e clique em "Buscar" para ver os jogos disponíveis</div>
+                    <div class="api-empty">⏳ Buscando jogos de hoje automaticamente...</div>
                 </div>
                 <div class="api-footer">
                     <div class="api-stats" id="apiStatsFooter">
@@ -947,7 +947,37 @@
         function showToast(m) { const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3000); }
 
         // ===== API IMPORT =====
-        const LIGAS_FAVORITAS = [71,72,73,13,11,2,3,848,39,135,140,61,78,128,262,253,98,307,94,88,203];
+        // Ligas favoritas expandidas (IDs API-Football)
+        const LIGAS_FAVORITAS = [
+            // 🇧🇷 Brasil
+            71, 72, 73, 75, 76,       // Série A, B, Copa do Brasil, Série C, Série D
+            // 🌎 Sul-Americana
+            13, 11, 541,              // Libertadores, Sudamericana, Recopa
+            // 🇦🇷 Argentina
+            128, 129, 130,            // Liga Pro, Copa Argentina, Supercopa
+            // 🏆 Europa (clubes)
+            2, 3, 848, 531,           // UCL, UEL, Conference, Super Cup UEFA
+            // 🇪🇸 Espanha
+            140, 143, 556,            // La Liga, Copa del Rey, Super Copa
+            // 🏴 Inglaterra
+            39, 45, 48, 528,          // Premier, FA Cup, League Cup, Community Shield
+            // 🇮🇹 Itália
+            135, 137, 547,            // Serie A, Coppa Italia, Supercoppa
+            // 🇩🇪 Alemanha
+            78, 81, 529,              // Bundesliga, DFB Pokal, Supercup
+            // 🇫🇷 França
+            61, 66,                   // Ligue 1, Coupe de France
+            // 🇵🇹 Portugal
+            94, 96,                   // Primeira Liga, Taça de Portugal
+            // 🇳🇱 Holanda
+            88, 90,                   // Eredivisie, KNVB Cup
+            // 🌍 Outros
+            262, 253, 307, 203, 98,   // Liga MX, MLS, Saudi, Turkey, J-League
+            // 🌐 Seleções
+            1, 4, 5, 6, 9, 10, 34,   // World Cup, Euros, Nations League, Copa América, WC Qual SA, WC Qual EU, Amistosos
+            // 🏟️ Mundiais de Clubes
+            15, 480, 850              // Club World Cup variantes
+        ];
         let jogosAPI = []; // Resultado raw da API
         let jogosAPIFiltrados = []; // Pós filtro
 
@@ -955,7 +985,9 @@
         document.addEventListener('DOMContentLoaded', () => {
             const hoje = new Date().toISOString().split('T')[0];
             document.getElementById('apiData').value = hoje;
-            document.getElementById('apiLigaFiltro').value = 'fav'; // Default: só favoritas
+            document.getElementById('apiLigaFiltro').value = ''; // Default: todas as ligas
+            // Auto-buscar jogos da API ao carregar
+            setTimeout(() => buscarJogosAPI(), 500);
         });
 
         async function buscarJogosAPI() {
@@ -967,7 +999,7 @@
 
             try {
                 const fn = firebase.functions().httpsCallable('importarJogosAPI');
-                const result = await fn({ data: dataVal, ligas: [], dryRun: true });
+                const result = await fn({ data: dataVal, ligas: LIGAS_FAVORITAS, dryRun: true });
                 jogosAPI = result.data.jogos || [];
 
                 // Preencher filtro de ligas
@@ -976,11 +1008,14 @@
                     if (!ligasSet.has(j.liga.nome)) ligasSet.set(j.liga.nome, j.liga);
                 });
                 const sel = document.getElementById('apiLigaFiltro');
-                const prevVal = sel.value || 'fav';
+                const prevVal = sel.value || '';
                 sel.innerHTML = `<option value="">Todas (${jogosAPI.length})</option><option value="fav">⭐ Favoritas</option>`;
-                for (const [nome, liga] of ligasSet) {
+                // Ordenar ligas por nome
+                const ligasOrdenadas = [...ligasSet.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+                for (const [nome, liga] of ligasOrdenadas) {
                     const count = jogosAPI.filter(j => j.liga.nome === nome).length;
-                    sel.innerHTML += `<option value="${esc(nome)}">${esc(liga.pais||'')} ${esc(nome)} (${count})</option>`;
+                    const isFav = LIGAS_FAVORITAS.includes(liga.apiId) ? '⭐ ' : '';
+                    sel.innerHTML += `<option value="${esc(nome)}">${isFav}${esc(liga.pais||'')} ${esc(nome)} (${count})</option>`;
                 }
                 sel.value = prevVal;
 
@@ -994,7 +1029,10 @@
         function filtrarJogosAPI() {
             const filtro = document.getElementById('apiLigaFiltro').value;
             if (filtro === 'fav') {
-                jogosAPIFiltrados = jogosAPI.filter(j => LIGAS_FAVORITAS.includes(j.liga?.apiId));
+                jogosAPIFiltrados = jogosAPI.filter(j => {
+                    const ligaId = j.liga?.apiId || j.liga?.id || j.liga?.apiFootballId;
+                    return LIGAS_FAVORITAS.includes(ligaId);
+                });
             } else if (filtro) {
                 jogosAPIFiltrados = jogosAPI.filter(j => j.liga.nome === filtro);
             } else {
