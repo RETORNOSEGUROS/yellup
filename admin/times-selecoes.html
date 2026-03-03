@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Times & Seleções — Yellup Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+<style>
+:root {
+  --bg: #0a0b0f;
+  --bg2: #0f1117;
+  --bg3: #141720;
+  --card: #191c27;
+  --card2: #1e2230;
+  --bdr: #1e2230;
+  --bdr2: #252939;
+  --t1: #ecedf2;
+  --t2: #8e90a0;
+  --t3: #4e5066;
+  --acc: #f0b429;
+  --acc2: #ffd166;
+  --adim: rgba(240,180,41,.1);
+  --grn: #2dd4a0;
+  --gdim: rgba(45,212,160,.1);
+  --red: #f06060;
+  --rdim: rgba(240,96,96,.1);
+  --blu: #5b9cf6;
+  --bdim: rgba(91,156,246,.1);
+  --pur: #a78bfa;
+  --pdim: rgba(167,139,250,.1);
+  --sw: 240px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--t1); min-height:100vh; }
+
+/* SIDEBAR */
+.sb { position:fixed; left:0; top:0; width:var(--sw); height:100vh; background:var(--bg2); border-right:1px solid var(--bdr); display:flex; flex-direction:column; z-index:100; }
+.sb-brand { height:60px; display:flex; align-items:center; gap:10px; padding:0 18px; border-bottom:1px solid var(--bdr); flex-shrink:0; }
+.sb-logo { width:30px; height:30px; background:var(--acc); border-radius:7px; display:flex; align-items:center; justify-content:center; font-family:'Syne',sans-serif; font-weight:800; font-size:15px; color:#000; }
+.sb-title { font-family:'Syne',sans-serif; font-size:16px; font-weight:700; }
+.sb-title span { color:var(--t3); font-weight:500; font-size:11px; margin-left:5px; }
+.sb-nav { flex:1; overflow-y:auto; padding:10px 0; }
+.ng { margin-bottom:6px; }
+.ng-t { font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:1.5px; color:var(--t3); padding:10px 18px 5px; }
+.ni { display:flex; align-items:center; gap:9px; padding:7px 14px; margin:1px 7px; border-radius:7px; color:var(--t2); text-decoration:none; font-size:12px; font-weight:500; transition:all .15s; }
+.ni:hover { background:var(--card); color:var(--t1); }
+.ni.active { background:var(--adim); color:var(--acc); }
+.ni .ic { width:18px; text-align:center; font-size:13px; flex-shrink:0; }
+.sb-foot { padding:10px 14px; border-top:1px solid var(--bdr); flex-shrink:0; }
+.sb-admin { display:flex; align-items:center; gap:9px; padding:7px; }
+.sb-av { width:30px; height:30px; background:linear-gradient(135deg,var(--acc),#c98900); border-radius:7px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; color:#000; }
+.sb-ai { flex:1; }
+.sb-ai .nm { font-size:12px; font-weight:600; }
+.sb-ai .rl { font-size:10px; color:var(--t3); }
+.btn-out { background:none; border:none; color:var(--t3); cursor:pointer; font-size:15px; padding:3px; border-radius:5px; }
+.btn-out:hover { color:var(--red); }
+
+/* MAIN */
+.main { margin-left:var(--sw); min-height:100vh; display:flex; flex-direction:column; }
+
+/* TOPBAR */
+.top { height:60px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--bdr); position:sticky; top:0; background:var(--bg); z-index:50; flex-shrink:0; }
+.top h2 { font-family:'Syne',sans-serif; font-size:17px; font-weight:700; display:flex; align-items:center; gap:8px; }
+.top-right { display:flex; gap:8px; align-items:center; }
+
+/* STAT BAR */
+.stat-bar { display:flex; gap:1px; padding:0; border-bottom:1px solid var(--bdr); background:var(--bdr); flex-shrink:0; }
+.stat-item { flex:1; background:var(--bg2); padding:14px 20px; display:flex; flex-direction:column; gap:2px; }
+.stat-item .sv { font-family:'DM Mono',monospace; font-size:22px; font-weight:500; }
+.stat-item .sl { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.8px; color:var(--t3); margin-top:1px; }
+.sv.grn { color:var(--grn); } .sv.yel { color:var(--acc); } .sv.blu { color:var(--blu); } .sv.pur { color:var(--pur); }
+
+/* CONTENT */
+.content { flex:1; display:flex; flex-direction:column; }
+
+/* TOOLBAR */
+.toolbar { padding:16px 24px; border-bottom:1px solid var(--bdr); display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:var(--bg2); flex-shrink:0; }
+.toolbar-group { display:flex; gap:6px; align-items:center; }
+.toolbar-sep { width:1px; height:28px; background:var(--bdr2); }
+
+/* TABS */
+.tabs-wrap { padding:16px 24px 0; flex-shrink:0; }
+.tabs { display:flex; gap:0; border-bottom:1px solid var(--bdr); }
+.tab-btn { padding:10px 20px; font-size:13px; font-weight:600; font-family:'Syne',sans-serif; cursor:pointer; border:none; background:none; color:var(--t2); border-bottom:2px solid transparent; margin-bottom:-1px; transition:all .2s; font-family:inherit; }
+.tab-btn:hover { color:var(--t1); }
+.tab-btn.active { color:var(--acc); border-bottom-color:var(--acc); }
+
+/* PANELS */
+.panel { display:none; flex:1; padding:20px 24px; overflow-y:auto; }
+.panel.active { display:block; }
+
+/* LOAD SECTION */
+.load-section { background:var(--card); border:1px solid var(--bdr); border-radius:12px; padding:20px; margin-bottom:20px; }
+.load-section h3 { font-family:'Syne',sans-serif; font-size:14px; font-weight:700; margin-bottom:4px; }
+.load-section p { font-size:12px; color:var(--t2); margin-bottom:14px; line-height:1.5; }
+.load-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+/* INPUTS & SELECTS */
+select, input[type=text], input[type=search] {
+  padding:8px 12px; border:1px solid var(--bdr2); border-radius:8px;
+  background:var(--bg3); color:var(--t1); font-size:13px; font-family:inherit;
+  outline:none; transition:border-color .15s;
+}
+select:focus, input:focus { border-color:var(--acc); }
+select option { background:var(--card); }
+
+/* BUTTONS */
+.btn { padding:8px 16px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px; transition:all .2s; border:none; }
+.btn-acc { background:var(--acc); color:#000; } .btn-acc:hover { opacity:.9; }
+.btn-acc:disabled { opacity:.4; cursor:not-allowed; }
+.btn-ghost { background:var(--card); border:1px solid var(--bdr2); color:var(--t1); } .btn-ghost:hover { border-color:var(--acc); }
+.btn-grn { background:var(--grn); color:#000; } .btn-grn:hover { opacity:.9; }
+.btn-grn:disabled { opacity:.4; cursor:not-allowed; }
+.btn-red { background:var(--rdim); border:1px solid var(--red); color:var(--red); } .btn-red:hover { background:var(--red); color:#000; }
+.btn-sm { padding:5px 10px; font-size:11px; }
+
+/* LOG BOX */
+.log-box { background:var(--bg); border:1px solid var(--bdr); border-radius:8px; padding:12px; margin-top:12px; max-height:120px; overflow-y:auto; font-family:'DM Mono',monospace; font-size:11px; line-height:1.7; display:none; }
+.log-box.show { display:block; }
+.log-ok { color:var(--grn); } .log-err { color:var(--red); } .log-info { color:var(--blu); } .log-warn { color:var(--acc); }
+
+/* PROGRESS */
+.prog-wrap { margin-top:12px; display:none; }
+.prog-wrap.show { display:block; }
+.prog-bar { height:4px; background:var(--bdr2); border-radius:2px; overflow:hidden; }
+.prog-fill { height:100%; background:linear-gradient(90deg, var(--acc), var(--grn)); width:0%; transition:width .4s; }
+.prog-txt { font-size:11px; color:var(--t2); margin-top:5px; }
+
+/* COUNTRY GROUPS */
+.country-group { margin-bottom:24px; }
+.cg-header { display:flex; align-items:center; gap:10px; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--bdr); }
+.cg-flag { font-size:20px; }
+.cg-name { font-family:'Syne',sans-serif; font-size:15px; font-weight:700; }
+.cg-count { font-size:11px; color:var(--t2); background:var(--bg3); padding:2px 8px; border-radius:10px; }
+.cg-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:10px; }
+
+/* TEAM CARD */
+.team-card {
+  background:var(--card); border:1px solid var(--bdr); border-radius:12px;
+  padding:14px; display:flex; gap:12px; position:relative;
+  transition:border-color .2s;
+}
+.team-card:hover { border-color:var(--bdr2); }
+.team-card.excluded { opacity:.35; }
+
+.tc-esc {
+  width:54px; height:54px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(255,255,255,.04); border-radius:10px;
+}
+.tc-esc img { width:44px; height:44px; object-fit:contain; }
+.tc-esc .no-esc { font-size:24px; }
+
+.tc-body { flex:1; min-width:0; }
+.tc-row1 { display:flex; align-items:flex-start; gap:8px; margin-bottom:6px; }
+.tc-nome { flex:1; }
+.tc-nome input {
+  width:100%; padding:4px 7px; border:1px solid transparent; border-radius:6px;
+  background:transparent; color:var(--t1); font-size:13px; font-weight:600; font-family:inherit;
+}
+.tc-nome input:hover { border-color:var(--bdr2); background:var(--bg3); }
+.tc-nome input:focus { border-color:var(--acc); background:var(--bg3); outline:none; }
+.tc-api { font-family:'DM Mono',monospace; font-size:10px; color:var(--t3); background:var(--bg3); padding:2px 7px; border-radius:5px; white-space:nowrap; }
+
+.tc-row2 { display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+.tc-sigla input {
+  width:52px; padding:4px 6px; border:1px solid var(--bdr2); border-radius:6px;
+  background:var(--bg3); color:var(--acc); font-family:'DM Mono',monospace;
+  font-size:12px; font-weight:500; text-align:center; outline:none;
+}
+.tc-sigla input:focus { border-color:var(--acc); }
+.tc-tipo select {
+  padding:4px 7px; font-size:11px; border-radius:6px;
+  border:1px solid var(--bdr2); background:var(--bg3); color:var(--t2);
+}
+.tc-meta { font-size:10px; color:var(--t3); display:flex; gap:8px; flex-wrap:wrap; }
+.tc-meta span { display:flex; align-items:center; gap:3px; }
+
+.tc-cores { display:flex; gap:6px; align-items:center; margin-top:6px; }
+.tc-cor { display:flex; flex-direction:column; align-items:center; gap:3px; }
+.tc-cor label { font-size:9px; color:var(--t3); text-transform:uppercase; letter-spacing:.5px; }
+.tc-cor input[type=color] { width:28px; height:24px; border:1px solid var(--bdr2); border-radius:5px; cursor:pointer; padding:2px; background:var(--bg3); }
+
+.tc-btn-del {
+  position:absolute; top:10px; right:10px;
+  width:22px; height:22px; border-radius:5px;
+  background:none; border:none; color:var(--t3);
+  cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center;
+}
+.tc-btn-del:hover { color:var(--red); background:var(--rdim); }
+
+.tc-info-extra { margin-top:6px; font-size:10px; color:var(--t3); line-height:1.6; }
+.tc-info-extra span { margin-right:8px; }
+
+/* EXPORT FLOATER */
+.export-bar {
+  position:fixed; bottom:0; left:var(--sw); right:0;
+  background:var(--bg2); border-top:1px solid var(--bdr);
+  padding:12px 24px; display:flex; align-items:center; justify-content:space-between;
+  z-index:80; transition:transform .3s;
+}
+.export-bar.hidden { transform:translateY(100%); }
+.eb-info { display:flex; align-items:center; gap:16px; }
+.eb-count { font-family:'DM Mono',monospace; font-size:20px; font-weight:500; color:var(--acc); }
+.eb-label { font-size:12px; color:var(--t2); }
+.eb-detail { font-size:11px; color:var(--t3); }
+.eb-actions { display:flex; gap:8px; }
+
+/* EMPTY / LOADING */
+.state-empty { text-align:center; padding:60px 20px; color:var(--t3); }
+.state-empty .ico { font-size:48px; margin-bottom:12px; opacity:.4; }
+.state-empty p { font-size:14px; }
+.state-empty small { font-size:12px; opacity:.6; }
+
+/* SEARCH BAR */
+.search-bar { position:relative; }
+.search-bar input { padding-left:34px; min-width:200px; }
+.search-bar::before { content:'🔍'; position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:12px; pointer-events:none; }
+
+/* TOAST */
+.toast { position:fixed; bottom:80px; right:20px; padding:11px 18px; border-radius:9px; background:var(--card2); border:1px solid var(--bdr2); color:var(--t1); font-size:13px; font-weight:500; z-index:999; transform:translateY(20px); opacity:0; transition:all .3s; pointer-events:none; }
+.toast.show { transform:translateY(0); opacity:1; }
+
+/* BADGE */
+.badge { display:inline-flex; padding:2px 8px; border-radius:5px; font-size:10px; font-weight:600; }
+.badge-grn { background:var(--gdim); color:var(--grn); }
+.badge-blu { background:var(--bdim); color:var(--blu); }
+.badge-acc { background:var(--adim); color:var(--acc); }
+
+/* RESPONSIVE */
+@media(max-width:768px) {
+  .sb { display:none; }
+  .main { margin-left:0; }
+  .export-bar { left:0; }
+  .cg-grid { grid-template-columns:1fr; }
+}
+</style>
+</head>
+<body>
+
+<aside class="sb">
+  <div class="sb-brand">
+    <div class="sb-logo">Y</div>
+    <div class="sb-title">Yellup <span>Admin</span></div>
+  </div>
+  <nav class="sb-nav">
+    <div class="ng"><div class="ng-t">Visão Geral</div><a href="dashboard.html" class="ni"><span class="ic">📊</span> Dashboard</a></div>
+    <div class="ng"><div class="ng-t">Conteúdo</div>
+      <a href="jogos.html" class="ni"><span class="ic">🎮</span> Jogos</a>
+      <a href="perguntas.html" class="ni"><span class="ic">❓</span> Perguntas</a>
+      <a href="times.html" class="ni"><span class="ic">⚽</span> Times</a>
+      <a href="times-selecoes.html" class="ni active"><span class="ic">🌍</span> Times & Seleções</a>
+    </div>
+    <div class="ng"><div class="ng-t">Jogadores</div>
+      <a href="usuarios.html" class="ni"><span class="ic">👥</span> Usuários</a>
+      <a href="ranking.html" class="ni"><span class="ic">🏆</span> Rankings</a>
+    </div>
+    <div class="ng"><div class="ng-t">API & Dados</div>
+      <a href="api-football.html" class="ni"><span class="ic">📡</span> API-Football</a>
+    </div>
+    <div class="ng"><div class="ng-t">Sistema</div>
+      <a href="configuracoes.html" class="ni"><span class="ic">⚙️</span> Configurações</a>
+    </div>
+  </nav>
+  <div class="sb-foot">
+    <div class="sb-admin">
+      <div class="sb-av">A</div>
+      <div class="sb-ai"><div class="nm">Admin</div><div class="rl">Administrador</div></div>
+      <button class="btn-out" onclick="sair()">⏻</button>
+    </div>
+  </div>
+</aside>
+
+<div class="main">
+  <div class="top">
+    <h2>🌍 Times &amp; Seleções</h2>
+    <div class="top-right">
+      <button class="btn btn-ghost btn-sm" onclick="limparTudo()">🗑️ Limpar tudo</button>
+    </div>
+  </div>
+
+  <div class="stat-bar">
+    <div class="stat-item"><div class="sv yel" id="stClubes">0</div><div class="sl">Clubes</div></div>
+    <div class="stat-item"><div class="sv blu" id="stSelecoes">0</div><div class="sl">Seleções</div></div>
+    <div class="stat-item"><div class="sv grn" id="stTotal">0</div><div class="sl">Total carregado</div></div>
+    <div class="stat-item"><div class="sv pur" id="stExportar">0</div><div class="sl">Para exportar</div></div>
+  </div>
+
+  <div class="content">
+    <div class="tabs-wrap">
+      <div class="tabs">
+        <button class="tab-btn active" onclick="trocarTab('clubes')">⚽ Clubes</button>
+        <button class="tab-btn" onclick="trocarTab('selecoes')">🏳️ Seleções</button>
+      </div>
+    </div>
+
+    <!-- PAINEL CLUBES -->
+    <div class="panel active" id="panel-clubes">
+      <div class="load-section">
+        <h3>Buscar Clubes da API-Football</h3>
+        <p>Busque por país (retorna todos os clubes cadastrados na API para aquele país) ou pelo nome do time.</p>
+        <div class="load-row">
+          <select id="selectPais" style="min-width:200px">
+            <option value="">-- Selecionar país --</option>
+            <optgroup label="🌎 América do Sul">
+              <option value="Brazil">🇧🇷 Brasil</option>
+              <option value="Argentina">🇦🇷 Argentina</option>
+              <option value="Uruguay">🇺🇾 Uruguai</option>
+              <option value="Chile">🇨🇱 Chile</option>
+              <option value="Colombia">🇨🇴 Colômbia</option>
+              <option value="Peru">🇵🇪 Peru</option>
+              <option value="Ecuador">🇪🇨 Equador</option>
+              <option value="Bolivia">🇧🇴 Bolívia</option>
+              <option value="Paraguay">🇵🇾 Paraguai</option>
+              <option value="Venezuela">🇻🇪 Venezuela</option>
+            </optgroup>
+            <optgroup label="🌍 Europa">
+              <option value="England">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Inglaterra</option>
+              <option value="Spain">🇪🇸 Espanha</option>
+              <option value="Germany">🇩🇪 Alemanha</option>
+              <option value="Italy">🇮🇹 Itália</option>
+              <option value="France">🇫🇷 França</option>
+              <option value="Portugal">🇵🇹 Portugal</option>
+              <option value="Netherlands">🇳🇱 Holanda</option>
+              <option value="Belgium">🇧🇪 Bélgica</option>
+              <option value="Turkey">🇹🇷 Turquia</option>
+              <option value="Russia">🇷🇺 Rússia</option>
+              <option value="Scotland">🏴󠁧󠁢󠁳󠁣󠁴󠁿 Escócia</option>
+              <option value="Greece">🇬🇷 Grécia</option>
+              <option value="Switzerland">🇨🇭 Suíça</option>
+              <option value="Austria">🇦🇹 Áustria</option>
+              <option value="Croatia">🇭🇷 Croácia</option>
+              <option value="Serbia">🇷🇸 Sérvia</option>
+              <option value="Romania">🇷🇴 Romênia</option>
+              <option value="Poland">🇵🇱 Polônia</option>
+              <option value="Czech-Republic">🇨🇿 República Tcheca</option>
+              <option value="Hungary">🇭🇺 Hungria</option>
+              <option value="Ukraine">🇺🇦 Ucrânia</option>
+              <option value="Sweden">🇸🇪 Suécia</option>
+              <option value="Norway">🇳🇴 Noruega</option>
+              <option value="Denmark">🇩🇰 Dinamarca</option>
+            </optgroup>
+            <optgroup label="🌍 África">
+              <option value="Morocco">🇲🇦 Marrocos</option>
+              <option value="Egypt">🇪🇬 Egito</option>
+              <option value="Nigeria">🇳🇬 Nigéria</option>
+              <option value="Senegal">🇸🇳 Senegal</option>
+              <option value="South-Africa">🇿🇦 África do Sul</option>
+              <option value="Ivory-Coast">🇨🇮 Costa do Marfim</option>
+              <option value="Cameroon">🇨🇲 Camarões</option>
+              <option value="Ghana">🇬🇭 Gana</option>
+            </optgroup>
+            <optgroup label="🌏 Ásia / Oceania">
+              <option value="Japan">🇯🇵 Japão</option>
+              <option value="South-Korea">🇰🇷 Coreia do Sul</option>
+              <option value="China">🇨🇳 China</option>
+              <option value="Saudi-Arabia">🇸🇦 Arábia Saudita</option>
+              <option value="Australia">🇦🇺 Austrália</option>
+              <option value="Iran">🇮🇷 Irã</option>
+              <option value="Qatar">🇶🇦 Qatar</option>
+              <option value="UAE">🇦🇪 Emirados</option>
+            </optgroup>
+            <optgroup label="🌎 América do Norte">
+              <option value="USA">🇺🇸 EUA</option>
+              <option value="Mexico">🇲🇽 México</option>
+            </optgroup>
+          </select>
+          <div class="search-bar">
+            <input type="text" id="searchNome" placeholder="Buscar por nome..." style="min-width:180px"
+              onkeydown="if(event.key==='Enter')buscarPorNome()">
+          </div>
+          <button class="btn btn-acc" id="btnCarrPais" onclick="carregarPorPais()">📥 Carregar por País</button>
+          <button class="btn btn-ghost" onclick="buscarPorNome()">🔍 Buscar Nome</button>
+        </div>
+        <div class="prog-wrap" id="progClub">
+          <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+          <div class="prog-txt" id="progTxt">Carregando...</div>
+        </div>
+        <div class="log-box" id="logClub"></div>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="search" id="filterClubes" placeholder="🔍 Filtrar na lista..." style="min-width:200px" oninput="filtrarLista('clubes')">
+          <select id="filterPaisLista" onchange="filtrarLista('clubes')" style="min-width:150px">
+            <option value="">Todos os países</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-ghost btn-sm" onclick="expandirTodos()">Expandir tudo</button>
+          <button class="btn btn-ghost btn-sm" onclick="recolherTodos()">Recolher</button>
+        </div>
+      </div>
+      <div id="listaClubes"><div class="state-empty"><div class="ico">⚽</div><p>Nenhum clube carregado ainda</p><small>Selecione um país ou busque pelo nome</small></div></div>
+    </div>
+
+    <!-- PAINEL SELEÇÕES -->
+    <div class="panel" id="panel-selecoes">
+      <div class="load-section">
+        <h3>Seleções Nacionais</h3>
+        <p>Carrega <strong>todas</strong> as seleções nacionais de uma vez via <code>/teams?national=true</code>. Retorna tipicamente 200+ seleções com escudos e estádios.</p>
+        <div class="load-row">
+          <button class="btn btn-acc" id="btnCarrSel" onclick="carregarSelecoes()">🌍 Carregar Todas as Seleções</button>
+        </div>
+        <div class="log-box" id="logSel"></div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <input type="search" id="filterSelecoes" placeholder="🔍 Filtrar seleções..." style="min-width:220px" oninput="filtrarLista('selecoes')">
+      </div>
+      <div id="listaSelecoes"><div class="state-empty"><div class="ico">🏳️</div><p>Nenhuma seleção carregada ainda</p><small>Clique em "Carregar Todas as Seleções"</small></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- EXPORT BAR -->
+<div class="export-bar hidden" id="exportBar">
+  <div class="eb-info">
+    <div>
+      <div style="display:flex; align-items:baseline; gap:8px;">
+        <span class="eb-count" id="ebCount">0</span>
+        <span class="eb-label">itens para exportar</span>
+      </div>
+      <div class="eb-detail" id="ebDetail">0 clubes • 0 seleções</div>
+    </div>
+  </div>
+  <div class="eb-actions">
+    <button class="btn btn-ghost" onclick="exportarJSON('clubes')">📥 JSON Clubes</button>
+    <button class="btn btn-ghost" onclick="exportarJSON('selecoes')">📥 JSON Seleções</button>
+    <button class="btn btn-grn" onclick="exportarJSON('todos')">📦 Exportar Tudo</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain:"painel-yellup.firebaseapp.com",
+  projectId:"painel-yellup",
+  storageBucket:"painel-yellup.appspot.com",
+  messagingSenderId:"608347210297",
+  appId:"1:608347210297:web:75092713724e617c7203e8"
+});
+const auth = firebase.auth();
+const fnc  = firebase.functions();
+
+auth.onAuthStateChanged(u => {
+  if (!u || u.email !== 'admin@yellup.com') { window.location.href = 'login.html'; }
+});
+function sair() { auth.signOut().then(() => window.location.href = 'login.html'); }
+
+// ==================================================
+// ESTADO GLOBAL
+// ==================================================
+// Armazenamos os dados como objeto: { [apiId]: {...} }
+const db_clubes   = {};   // apiId → dados editáveis do clube
+const db_selecoes = {};   // apiId → dados editáveis da seleção
+const excluidos   = new Set(); // apiIds excluídos da exportação
+
+// ==================================================
+// UTILIDADES
+// ==================================================
+function toast(msg, dur) {
+  dur = dur || 3000;
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+function esc(s) {
+  const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML;
+}
+function log(elId, msg, tipo) {
+  const el = document.getElementById(elId);
+  el.classList.add('show');
+  const cls = { ok:'log-ok', err:'log-err', info:'log-info', warn:'log-warn' }[tipo] || '';
+  el.innerHTML += '<span class="' + cls + '">' + msg + '</span>\n';
+  el.scrollTop = el.scrollHeight;
+}
+function trocarTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + tab).classList.add('active');
+  event.target.classList.add('active');
+}
+function atualizarStats() {
+  const totalC = Object.keys(db_clubes).length;
+  const totalS = Object.keys(db_selecoes).length;
+  const total  = totalC + totalS;
+  const paraExp = total - excluidos.size;
+  document.getElementById('stClubes').textContent   = totalC.toLocaleString();
+  document.getElementById('stSelecoes').textContent = totalS.toLocaleString();
+  document.getElementById('stTotal').textContent    = total.toLocaleString();
+  document.getElementById('stExportar').textContent = paraExp.toLocaleString();
+  // Export bar
+  const bar = document.getElementById('exportBar');
+  if (paraExp > 0) {
+    bar.classList.remove('hidden');
+    document.getElementById('ebCount').textContent = paraExp.toLocaleString();
+    const c = Object.keys(db_clubes).filter(id => !excluidos.has(id)).length;
+    const s = Object.keys(db_selecoes).filter(id => !excluidos.has(id)).length;
+    document.getElementById('ebDetail').textContent = c + ' clubes • ' + s + ' seleções';
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+// ==================================================
+// CARREGAR CLUBES
+// ==================================================
+async function carregarPorPais() {
+  const pais = document.getElementById('selectPais').value;
+  if (!pais) { toast('Selecione um país'); return; }
+  const btn = document.getElementById('btnCarrPais');
+  btn.disabled = true; btn.textContent = 'Carregando...';
+  const logEl = 'logClub';
+  const prog = document.getElementById('progClub');
+  const fill = document.getElementById('progFill');
+  const txt  = document.getElementById('progTxt');
+  prog.classList.add('show');
+  fill.style.width = '20%'; txt.textContent = 'Consultando API...';
+  log(logEl, 'Buscando clubes de: ' + pais, 'info');
+
+  try {
+    fill.style.width = '60%'; txt.textContent = 'Processando resposta...';
+    const result = await fnc.httpsCallable('buscarTimesApi')({ modo: 'pais', pais });
+    const times = result.data.times || [];
+    let novos = 0;
+    for (const t of times) {
+      if (!db_clubes[t.apiId]) {
+        db_clubes[t.apiId] = Object.assign({ abreviacao: (t.nome || '').substring(0,3).toUpperCase(), primaria: '#333333', secundaria: '#FFFFFF', terciaria: '#333333' }, t);
+        novos++;
+      }
+    }
+    fill.style.width = '100%'; txt.textContent = 'Concluído!';
+    log(logEl, times.length + ' times retornados (' + novos + ' novos adicionados) — ' + pais, 'ok');
+    renderClubes(); atualizarStats();
+    toast(times.length + ' times de ' + pais + ' carregados!');
+  } catch(e) {
+    fill.style.background = 'var(--red)'; txt.textContent = 'Erro';
+    log(logEl, 'Erro: ' + e.message, 'err');
+    toast('Erro: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = '📥 Carregar por País';
+}
+
+async function buscarPorNome() {
+  const search = document.getElementById('searchNome').value.trim();
+  if (search.length < 2) { toast('Digite ao menos 2 letras'); return; }
+  log('logClub', 'Buscando: "' + search + '"...', 'info');
+  try {
+    const result = await fnc.httpsCallable('buscarTimesApi')({ modo: 'busca', search });
+    const times = result.data.times || [];
+    let novos = 0;
+    for (const t of times) {
+      if (!db_clubes[t.apiId]) {
+        db_clubes[t.apiId] = Object.assign({ abreviacao: (t.nome||'').substring(0,3).toUpperCase(), primaria: '#333333', secundaria: '#FFFFFF', terciaria: '#333333' }, t);
+        novos++;
+      }
+    }
+    log('logClub', times.length + ' encontrados (' + novos + ' novos) para "' + search + '"', 'ok');
+    renderClubes(); atualizarStats();
+    toast(times.length + ' resultados para "' + search + '"');
+  } catch(e) {
+    log('logClub', 'Erro: ' + e.message, 'err');
+    toast('Erro: ' + e.message);
+  }
+}
+
+// ==================================================
+// CARREGAR SELEÇÕES
+// ==================================================
+async function carregarSelecoes() {
+  const btn = document.getElementById('btnCarrSel');
+  btn.disabled = true; btn.textContent = 'Carregando...';
+  log('logSel', 'Buscando todas as seleções nacionais...', 'info');
+  try {
+    const result = await fnc.httpsCallable('buscarTimesApi')({ modo: 'nacional' });
+    const times = result.data.times || [];
+    let novos = 0;
+    for (const t of times) {
+      if (!db_selecoes[t.apiId]) {
+        db_selecoes[t.apiId] = Object.assign({ abreviacao: (t.pais||t.nome||'').substring(0,3).toUpperCase(), primaria: '#333333', secundaria: '#FFFFFF', terciaria: '#333333' }, t, { tipo: 'selecao' });
+        novos++;
+      }
+    }
+    log('logSel', times.length + ' seleções carregadas (' + novos + ' novas)', 'ok');
+    renderSelecoes(); atualizarStats();
+    toast(times.length + ' seleções carregadas!');
+  } catch(e) {
+    log('logSel', 'Erro: ' + e.message, 'err');
+    toast('Erro: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = '🌍 Carregar Todas as Seleções';
+}
+
+// ==================================================
+// RENDER CLUBES — agrupado por país
+// ==================================================
+function renderClubes(filtro, filtroP) {
+  const container = document.getElementById('listaClubes');
+  const todos = Object.values(db_clubes);
+  const ff = filtro || document.getElementById('filterClubes').value.toLowerCase();
+  const fp = filtroP || document.getElementById('filterPaisLista').value;
+
+  let lista = todos;
+  if (ff) lista = lista.filter(t => (t.nome||'').toLowerCase().includes(ff) || (t.pais||'').toLowerCase().includes(ff));
+  if (fp) lista = lista.filter(t => t.pais === fp);
+
+  if (!lista.length) {
+    container.innerHTML = '<div class="state-empty"><div class="ico">⚽</div><p>Nenhum clube' + (ff||fp ? ' encontrado' : ' carregado ainda') + '</p><small>' + (ff||fp ? 'Tente outro filtro' : 'Selecione um país ou busque pelo nome') + '</small></div>';
+    return;
+  }
+
+  // Agrupar por país
+  const porPais = {};
+  for (const t of lista) {
+    const p = t.pais || 'Outros';
+    if (!porPais[p]) porPais[p] = [];
+    porPais[p].push(t);
+  }
+
+  // Atualizar filtro de países
+  atualizarFiltroPaises(Object.keys(db_clubes).map(id => db_clubes[id].pais).filter(Boolean));
+
+  const paisesOrdenados = Object.keys(porPais).sort();
+  let html = '';
+  for (const p of paisesOrdenados) {
+    const times = porPais[p].sort((a,b) => (a.nome||'').localeCompare(b.nome||''));
+    html += '<div class="country-group" id="cg-' + p.replace(/\s/g,'_') + '">';
+    html += '<div class="cg-header"><span class="cg-name">' + esc(p) + '</span><span class="cg-count">' + times.length + ' times</span></div>';
+    html += '<div class="cg-grid">';
+    for (const t of times) html += renderCard(t, 'clube');
+    html += '</div></div>';
+  }
+  container.innerHTML = html;
+}
+
+function renderSelecoes(filtro) {
+  const container = document.getElementById('listaSelecoes');
+  const todos = Object.values(db_selecoes);
+  const ff = filtro || document.getElementById('filterSelecoes').value.toLowerCase();
+  let lista = todos;
+  if (ff) lista = lista.filter(t => (t.nome||'').toLowerCase().includes(ff) || (t.pais||'').toLowerCase().includes(ff));
+  lista.sort((a,b) => (a.pais||'').localeCompare(b.pais||''));
+
+  if (!lista.length) {
+    container.innerHTML = '<div class="state-empty"><div class="ico">🏳️</div><p>Nenhuma seleção' + (ff ? ' encontrada' : ' carregada') + '</p></div>';
+    return;
+  }
+
+  let html = '<div class="cg-grid">';
+  for (const t of lista) html += renderCard(t, 'selecao');
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderCard(t, dbType) {
+  const excl = excluidos.has(t.apiId);
+  const cardCls = 'team-card' + (excl ? ' excluded' : '');
+  const db = dbType === 'clube' ? db_clubes : db_selecoes;
+
+  const fundacao = t.fundacao ? '📅 ' + t.fundacao : '';
+  const estadio  = t.estadio  ? '🏟️ ' + (t.estadio.length > 22 ? t.estadio.substring(0,22)+'…' : t.estadio) : '';
+  const cap      = t.estadioCapacidade ? ' (' + (t.estadioCapacidade/1000).toFixed(0) + 'k)' : '';
+  const cidade   = t.estadioCidade ? ' · ' + t.estadioCidade : '';
+
+  return '<div class="' + cardCls + '" id="card-' + t.apiId + '">' +
+    '<div class="tc-esc">' +
+      (t.escudo ? '<img src="' + t.escudo + '" alt="" onerror="this.parentElement.innerHTML=\'<span class=\\\'no-esc\\\'>⚽</span>\'">' : '<span class="no-esc">⚽</span>') +
+    '</div>' +
+    '<div class="tc-body">' +
+      '<div class="tc-row1">' +
+        '<div class="tc-nome"><input type="text" value="' + esc(t.nome||'') + '" onchange="atualizarCampo(' + t.apiId + ',\'' + dbType + '\',\'nome\',this.value)"></div>' +
+        '<span class="tc-api">#' + t.apiId + '</span>' +
+      '</div>' +
+      '<div class="tc-row2">' +
+        '<div class="tc-sigla"><input type="text" value="' + esc(t.abreviacao||'') + '" maxlength="4" placeholder="SIG" onchange="atualizarCampo(' + t.apiId + ',\'' + dbType + '\',\'abreviacao\',this.value.toUpperCase())" oninput="this.value=this.value.toUpperCase()"></div>' +
+        '<div class="tc-tipo"><select onchange="atualizarCampo(' + t.apiId + ',\'' + dbType + '\',\'tipo\',this.value)"><option value="clube"' + (t.tipo==='clube'?' selected':'') + '>Clube</option><option value="selecao"' + (t.tipo==='selecao'?' selected':'') + '>Seleção</option></select></div>' +
+        (fundacao ? '<span class="tc-meta"><span>' + fundacao + '</span></span>' : '') +
+      '</div>' +
+      (estadio ? '<div class="tc-info-extra"><span>' + estadio + cap + cidade + '</span></div>' : '') +
+      '<div class="tc-cores">' +
+        '<div class="tc-cor"><label>1ª</label><input type="color" value="' + (t.primaria||'#333333') + '" onchange="atualizarCampo(' + t.apiId + ',\'' + dbType + '\',\'primaria\',this.value)"></div>' +
+        '<div class="tc-cor"><label>2ª</label><input type="color" value="' + (t.secundaria||'#FFFFFF') + '" onchange="atualizarCampo(' + t.apiId + ',\'' + dbType + '\',\'secundaria\',this.value)"></div>' +
+        '<div class="tc-cor"><label>3ª</label><input type="color" value="' + (t.terciaria||'#333333') + '" onchange="atualizarCampo(' + t.apiId + ',\'' + dbType + '\',\'terciaria\',this.value)"></div>' +
+        '<span style="margin-left:6px; font-size:10px; color:var(--t3)">' + (t.pais||'') + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<button class="tc-btn-del" title="Excluir da exportação" onclick="toggleExcluir(' + t.apiId + ',\'' + dbType + '\')">' + (excl ? '↩' : '✕') + '</button>' +
+  '</div>';
+}
+
+// ==================================================
+// EDIÇÃO INLINE
+// ==================================================
+function atualizarCampo(apiId, dbType, campo, valor) {
+  const db = dbType === 'clube' ? db_clubes : db_selecoes;
+  if (db[apiId]) {
+    db[apiId][campo] = valor;
+  }
+}
+
+function toggleExcluir(apiId, dbType) {
+  if (excluidos.has(apiId)) {
+    excluidos.delete(apiId);
+  } else {
+    excluidos.add(apiId);
+  }
+  const card = document.getElementById('card-' + apiId);
+  if (card) {
+    card.classList.toggle('excluded', excluidos.has(apiId));
+    const btn = card.querySelector('.tc-btn-del');
+    if (btn) btn.textContent = excluidos.has(apiId) ? '↩' : '✕';
+  }
+  atualizarStats();
+}
+
+// ==================================================
+// FILTROS
+// ==================================================
+function filtrarLista(tipo) {
+  if (tipo === 'clubes') renderClubes();
+  else renderSelecoes();
+}
+function atualizarFiltroPaises(paises) {
+  const sel = document.getElementById('filterPaisLista');
+  const atual = sel.value;
+  const unicos = [...new Set(paises)].sort();
+  const opts = ['<option value="">Todos os países</option>'];
+  for (const p of unicos) opts.push('<option value="' + esc(p) + '"' + (p===atual?' selected':'') + '>' + esc(p) + '</option>');
+  sel.innerHTML = opts.join('');
+}
+function expandirTodos() { document.querySelectorAll('.cg-grid').forEach(g => g.style.display = 'grid'); }
+function recolherTodos() { document.querySelectorAll('.cg-grid').forEach(g => g.style.display = 'none'); }
+function limparTudo() {
+  if (!confirm('Limpar todos os dados carregados?')) return;
+  for (const k in db_clubes) delete db_clubes[k];
+  for (const k in db_selecoes) delete db_selecoes[k];
+  excluidos.clear();
+  renderClubes(); renderSelecoes(); atualizarStats();
+  toast('Tudo limpo!');
+}
+
+// ==================================================
+// EXPORTAR JSON
+// ==================================================
+function exportarJSON(modo) {
+  const resultado = {};
+
+  function prepararTime(t) {
+    const id = String(t.apiId);
+    return {
+      id,
+      apiFootballId:     t.apiId,
+      nome:              t.nome              || '',
+      abreviacao:        (t.abreviacao       || t.nome || '').substring(0,4).toUpperCase(),
+      tipo:              t.tipo              || 'clube',
+      pais:              t.pais              || '',
+      escudo:            t.escudo            || null,
+      primaria:          t.primaria          || '#333333',
+      secundaria:        t.secundaria        || '#FFFFFF',
+      terciaria:         t.terciaria         || '#333333',
+      fundacao:          t.fundacao          || null,
+      estadio:           t.estadio           || null,
+      estadioCidade:     t.estadioCidade     || null,
+      estadioCapacidade: t.estadioCapacidade || null,
+      estadioSuperficie: t.estadioSuperficie || null,
+      estadioImagem:     t.estadioImagem     || null,
+      nacional:          t.nacional          || false,
+    };
+  }
+
+  if (modo === 'clubes' || modo === 'todos') {
+    const clubesJson = {};
+    for (const id of Object.keys(db_clubes)) {
+      if (!excluidos.has(parseInt(id)) && !excluidos.has(id)) {
+        const t = db_clubes[id];
+        clubesJson[String(t.apiId)] = prepararTime(t);
+      }
+    }
+    if (modo === 'clubes') {
+      baixarJSON(clubesJson, 'times-admin.json');
+      toast('JSON de clubes exportado! (' + Object.keys(clubesJson).length + ' times)');
+      return;
+    }
+    resultado['times-admin'] = clubesJson;
+  }
+
+  if (modo === 'selecoes' || modo === 'todos') {
+    const selecoesJson = {};
+    for (const id of Object.keys(db_selecoes)) {
+      if (!excluidos.has(parseInt(id)) && !excluidos.has(id)) {
+        const t = db_selecoes[id];
+        selecoesJson[String(t.apiId)] = prepararTime(t);
+      }
+    }
+    if (modo === 'selecoes') {
+      baixarJSON(selecoesJson, 'selecoes-admin.json');
+      toast('JSON de seleções exportado! (' + Object.keys(selecoesJson).length + ' seleções)');
+      return;
+    }
+    resultado['selecoes-admin'] = selecoesJson;
+  }
+
+  if (modo === 'todos') {
+    // Baixar um arquivo combinado
+    const tc = Object.keys(resultado['times-admin'] || {}).length;
+    const ts = Object.keys(resultado['selecoes-admin'] || {}).length;
+    baixarJSON(resultado, 'yellup-times-selecoes.json');
+    toast('JSON completo exportado! (' + tc + ' clubes + ' + ts + ' seleções)');
+  }
+}
+
+function baixarJSON(dados, nomeArquivo) {
+  const json = JSON.stringify(dados, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = nomeArquivo;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
