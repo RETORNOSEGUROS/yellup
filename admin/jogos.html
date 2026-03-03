@@ -593,15 +593,23 @@
         // ===== LOAD JOGOS =====
         async function carregarJogos() {
             try {
+                console.log('📋 Carregando jogos...');
                 await carregarContagemTorcedores();
                 const snap = await db.collection('jogos').orderBy('dataInicio', 'desc').get();
                 todosJogos = [];
                 snap.forEach(doc => todosJogos.push({ id: doc.id, ...doc.data() }));
+                console.log('📋 Jogos carregados:', todosJogos.length);
                 await atualizarStatusJogos();
                 atualizarStats();
                 jogosFiltrados = [...todosJogos];
                 renderizarJogos();
-            } catch (e) { console.error('Erro jogos:', e); }
+                // Scroll para o topo da tabela
+                const tabela = document.querySelector('.table-container');
+                if (tabela) tabela.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } catch (e) {
+                console.error('❌ Erro ao carregar jogos:', e);
+                showToast('⚠️ Erro ao carregar lista: ' + e.message);
+            }
         }
 
         function atualizarStats() {
@@ -869,13 +877,22 @@
             const dfVal = document.getElementById('dataFim').value;
             if (!diVal || !dfVal) { showToast('⚠️ Preencha as datas!'); return; }
 
+            console.log('💾 Salvando jogo...', { id, casaId, foraId, diVal, dfVal });
+
             const dataInicio = new Date(diVal), dataFim = new Date(dfVal);
+            
+            // Validar datas
+            if (isNaN(dataInicio.getTime()) || isNaN(dataFim.getTime())) {
+                showToast('⚠️ Datas inválidas!'); return;
+            }
+
             const dados = {
                 timeCasaId: casaId, timeForaId: foraId,
                 status: calcularStatus(dataInicio, dataFim),
                 liga: document.getElementById('liga').value || 'Amistoso',
                 patrocinadores: coletarPatrocinadores(),
-                dataInicio, dataFim
+                dataInicio: firebase.firestore.Timestamp.fromDate(dataInicio),
+                dataFim: firebase.firestore.Timestamp.fromDate(dataFim)
             };
 
             // API-Football
@@ -891,25 +908,56 @@
             if (pf !== '') dados.placarFora = parseInt(pf);
             if (mj !== '') dados.minutosJogo = parseInt(mj);
 
+            // Desabilitar botão enquanto salva
+            const btnSalvar = document.querySelector('.modal-actions .btn-primary');
+            if (btnSalvar) { btnSalvar.disabled = true; btnSalvar.textContent = '⏳ Salvando...'; }
+
             try {
                 if (id) {
                     await db.collection('jogos').doc(id).update(dados);
+                    console.log('✅ Jogo atualizado:', id);
                     showToast('✅ Jogo atualizado!');
                 } else {
                     dados.participantes = 0;
                     dados.dataCriacao = firebase.firestore.FieldValue.serverTimestamp();
                     dados.premiado = false;
-                    await db.collection('jogos').add(dados);
-                    showToast('✅ Jogo criado!');
+                    const docRef = await db.collection('jogos').add(dados);
+                    console.log('✅ Jogo criado:', docRef.id);
+                    showToast('✅ Jogo criado com sucesso! ID: ' + docRef.id);
                 }
-                fecharModal(); carregarJogos();
-            } catch (e) { showToast('❌ ' + e.message); }
+                fecharModal();
+                // Resetar paginação e recarregar
+                paginaAtual = 1;
+                document.getElementById('filtroStatus').value = '';
+                document.getElementById('filtroTime').value = '';
+                document.getElementById('filtroDataInicio').value = '';
+                document.getElementById('filtroDataFim').value = '';
+                try {
+                    await carregarJogos();
+                    console.log('✅ Lista recarregada:', todosJogos.length, 'jogos');
+                } catch (reloadErr) {
+                    console.error('⚠️ Erro ao recarregar lista (jogo foi salvo!):', reloadErr);
+                    showToast('⚠️ Jogo salvo, mas erro ao recarregar lista. Atualize a página.');
+                }
+            } catch (e) {
+                console.error('❌ Erro ao salvar jogo:', e);
+                showToast('❌ Erro ao salvar: ' + e.message);
+            } finally {
+                if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.textContent = '💾 Salvar Jogo'; }
+            }
         }
 
         async function excluirJogo(id) {
             if (!confirm('Excluir este jogo?')) return;
-            try { await db.collection('jogos').doc(id).delete(); showToast('🗑️ Excluído!'); carregarJogos(); }
-            catch (e) { showToast('❌ ' + e.message); }
+            try {
+                await db.collection('jogos').doc(id).delete();
+                showToast('🗑️ Excluído!');
+                paginaAtual = 1;
+                await carregarJogos();
+            } catch (e) {
+                console.error('❌ Erro ao excluir:', e);
+                showToast('❌ ' + e.message);
+            }
         }
 
         // ===== EXPORT =====
