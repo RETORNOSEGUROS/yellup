@@ -124,6 +124,37 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .rel-aprendizado{background:rgba(79,150,244,.07);border:1px solid rgba(79,150,244,.2);border-radius:10px;padding:12px;margin-top:10px;}
 .rel-aprendizado-title{font-size:10px;font-weight:700;color:var(--blu);margin-bottom:6px;}
 .rel-aprendizado-txt{font-size:11px;color:var(--t2);line-height:1.5;}
+/* Fingerprint Comparador */
+.fp-comp-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.fp-team-card{background:var(--c3);border-radius:10px;padding:12px;}
+.fp-team-nome{font-size:11px;font-weight:700;margin-bottom:10px;}
+.fp-stat-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--bd2);}
+.fp-stat-row:last-child{border-bottom:none;}
+.fp-stat-lbl{font-size:10px;color:var(--t3);flex:1;}
+.fp-stat-val{font-family:'DM Mono',monospace;font-size:12px;font-weight:700;text-align:right;min-width:36px;}
+.fp-win-row{display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:12px;}
+.fp-win-seg{transition:width .6s;}
+.fp-faixas-wrap{margin-top:10px;}
+.fp-faixas-title{font-size:9px;color:var(--t3);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px;}
+.fp-faixas{display:flex;gap:2px;align-items:flex-end;height:32px;}
+.fp-faixa{flex:1;border-radius:2px 2px 0 0;min-height:2px;position:relative;}
+.fp-faixa:hover::after{content:attr(data-tip);position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:var(--bg1);color:var(--t1);font-size:9px;padding:2px 6px;border-radius:4px;white-space:nowrap;pointer-events:none;}
+.fp-vazio{font-size:10px;color:var(--t3);text-align:center;padding:20px 0;}
+.fp-insight{font-size:11px;color:var(--t2);padding:8px 10px;border-radius:7px;background:var(--bg3);margin-bottom:6px;border-left:3px solid var(--pur);}
+.fp-insight strong{color:var(--t1);}
+/* 1T vs 2T */
+.halvs-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.halv-card{background:var(--c3);border-radius:10px;padding:12px;}
+.halv-title{font-size:11px;font-weight:800;color:var(--pur);margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+.halv-stat{display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd2);font-size:11px;}
+.halv-stat:last-child{border-bottom:none;}
+.halv-lbl{color:var(--t3);}
+.halv-vals{display:flex;gap:8px;font-family:'DM Mono',monospace;font-weight:700;}
+.halv-delta{font-size:10px;padding:2px 6px;border-radius:5px;margin-left:6px;}
+.halv-delta.up{background:var(--gdim);color:var(--grn);}
+.halv-delta.down{background:var(--rdim);color:var(--red);}
+.halv-delta.eq{background:var(--bg3);color:var(--t3);}
+.halv-conclusao{background:var(--bg3);border-radius:8px;padding:10px;margin-top:10px;font-size:11px;color:var(--t2);line-height:1.5;}
 /* xG Timeline */
 .xg-wrap{background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:14px;}
 .xg-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
@@ -669,6 +700,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
     <button class="algo-tab"    onclick="algoAba(this,'eficiencia')">📐 Ef.</button>
     <button class="algo-tab"    onclick="algoAba(this,'subs')">🔄 Subs</button>
     <button class="algo-tab"    onclick="algoAba(this,'xgtimeline')">📉 xG</button>
+    <button class="algo-tab"    onclick="algoAba(this,'fingerprint')">🧠 Banco</button>
+    <button class="algo-tab"    onclick="algoAba(this,'halvs')">⏱️ 1T/2T</button>
   </div>
 
   <!-- PREVISÕES -->
@@ -789,6 +822,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 
   <div class="algo-panel" id="ap-xgtimeline">
     <div id="xgTimelineEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
+  </div>
+
+  <div class="algo-panel" id="ap-fingerprint">
+    <div id="fpCompEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
+  </div>
+
+  <div class="algo-panel" id="ap-halvs">
+    <div id="halvsEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
   </div>
 
 </div>
@@ -1802,6 +1843,8 @@ function renderAlgo(){
   renderEficiencia();
   renderSubsAnalysis();
   renderXGTimeline();
+  renderFingerprint();
+  renderHalvs();
 }
 
 // ── HELPERS ANALÍTICOS ──
@@ -3033,6 +3076,336 @@ function renderSubsAnalysis() {
   </div>`;
 
   el.innerHTML = cards + resumo;
+}
+
+// ═══════════════════════════════════════════════════════
+// 🧠 COMPARADOR DE FINGERPRINTS
+// Mostra tudo que o banco sabe sobre cada time lado a lado
+// ═══════════════════════════════════════════════════════
+function renderFingerprint() {
+  const el = gc('fpCompEl');
+  if (!el || !DADOS) return;
+  const f = DADOS.fixture;
+
+  if (!FP_CASA && !FP_FORA) {
+    el.innerHTML = `<div class="empty"><div class="ico">🧠</div>
+      <p>Banco de padrões ainda vazio para estes times.<br>
+      <span style="font-size:10px;color:var(--t3)">O banco cresce automaticamente a cada jogo processado pelo algoritmo.</span></p></div>`;
+    return;
+  }
+
+  const FAIXAS_LABEL = ["0-9'","10-19'","20-29'","30-39'","40-49'","50-59'","60-69'","70-79'","80+'"];
+
+  const mkCard = (fp, nome, cor) => {
+    if (!fp) return `<div class="fp-team-card">
+      <div class="fp-team-nome" style="color:${cor}">${nome}</div>
+      <div class="fp-vazio">Nenhum dado no banco ainda</div>
+    </div>`;
+
+    const n = fp.totalJogos || 1;
+    const v = fp.vitorias || 0;
+    const e = fp.empates  || 0;
+    const d = fp.derrotas || 0;
+    const pV = Math.round(v/n*100);
+    const pE = Math.round(e/n*100);
+    const pD = Math.round(d/n*100);
+
+    const jQuente = fp.janelaMaisPerigosa >= 0 ? FAIXAS_LABEL[fp.janelaMaisPerigosa] : '—';
+    const jFragil = fp.janelaMaisFragil  >= 0 ? FAIXAS_LABEL[fp.janelaMaisFragil]  : '—';
+    const taxaResp = fp.pctRespostaAposGol != null ? Math.round(fp.pctRespostaAposGol * 100) : null;
+    const mediaC  = fp.mediaCartoes != null ? fp.mediaCartoes.toFixed(1) : '—';
+
+    // Histograma de gols por faixa (marcados = cor / sofridos = vermelho)
+    const maxGM = Math.max(...(fp.golsMarcadosPorFaixa||[0]), 1);
+    const maxGS = Math.max(...(fp.golsSofridosPorFaixa||[0]), 1);
+    const maxH  = Math.max(maxGM, maxGS, 1);
+
+    const histMarcados = (fp.golsMarcadosPorFaixa || Array(9).fill(0)).map((v, i) => {
+      const h = Math.round((v / maxH) * 28);
+      const isQuente = i === fp.janelaMaisPerigosa;
+      return `<div class="fp-faixa" style="height:${Math.max(h,2)}px;background:${isQuente?cor:'var(--bd2)'};opacity:${isQuente?1:.6}" data-tip="${FAIXAS_LABEL[i]}: ${v} gols"></div>`;
+    }).join('');
+
+    const histSofridos = (fp.golsSofridosPorFaixa || Array(9).fill(0)).map((v, i) => {
+      const h = Math.round((v / maxH) * 28);
+      const isFragil = i === fp.janelaMaisFragil;
+      return `<div class="fp-faixa" style="height:${Math.max(h,2)}px;background:${isFragil?'var(--red)':'var(--bd2)'};opacity:${isFragil?1:.5}" data-tip="${FAIXAS_LABEL[i]}: ${v} gols sofridos"></div>`;
+    }).join('');
+
+    return `<div class="fp-team-card">
+      <div class="fp-team-nome" style="color:${cor}">${nome} <span style="font-size:9px;color:var(--t3);font-weight:400">${n} jogo${n!==1?'s':''} no banco</span></div>
+      
+      <!-- barra V/E/D -->
+      <div style="font-size:9px;color:var(--t3);margin-bottom:3px;">Aproveitamento</div>
+      <div class="fp-win-row" style="margin-bottom:4px;">
+        <div class="fp-win-seg" style="width:${pV}%;background:var(--grn)"></div>
+        <div class="fp-win-seg" style="width:${pE}%;background:var(--acc)"></div>
+        <div class="fp-win-seg" style="width:${pD}%;background:var(--red)"></div>
+      </div>
+      <div style="display:flex;gap:8px;font-size:9px;margin-bottom:10px;">
+        <span style="color:var(--grn)">${pV}% V</span>
+        <span style="color:var(--acc)">${pE}% E</span>
+        <span style="color:var(--red)">${pD}% D</span>
+      </div>
+
+      <!-- stats -->
+      <div class="fp-stat-row">
+        <span class="fp-stat-lbl">Média gols marcados</span>
+        <span class="fp-stat-val" style="color:${cor}">${(fp.mediaGolsMarcados||0).toFixed(2)}</span>
+      </div>
+      <div class="fp-stat-row">
+        <span class="fp-stat-lbl">Média gols sofridos</span>
+        <span class="fp-stat-val" style="color:var(--red)">${(fp.mediaGolsSofridos||0).toFixed(2)}</span>
+      </div>
+      <div class="fp-stat-row">
+        <span class="fp-stat-lbl">Cartões / jogo</span>
+        <span class="fp-stat-val" style="color:var(--acc)">${mediaC}</span>
+      </div>
+      ${taxaResp!==null?`<div class="fp-stat-row">
+        <span class="fp-stat-lbl">Reage após gol sofrido</span>
+        <span class="fp-stat-val" style="color:${taxaResp>=50?'var(--grn)':'var(--t3)'}">${taxaResp}%</span>
+      </div>`:''}
+      <div class="fp-stat-row">
+        <span class="fp-stat-lbl">🔥 Janela quente</span>
+        <span class="fp-stat-val" style="color:${cor}">${jQuente}</span>
+      </div>
+      <div class="fp-stat-row">
+        <span class="fp-stat-lbl">⚠️ Janela frágil</span>
+        <span class="fp-stat-val" style="color:var(--red)">${jFragil}</span>
+      </div>
+
+      <!-- histogramas -->
+      <div class="fp-faixas-wrap">
+        <div class="fp-faixas-title">Gols marcados por período</div>
+        <div class="fp-faixas">${histMarcados}</div>
+        <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--t3);margin-top:1px;"><span>0'</span><span>45'</span><span>90'</span></div>
+      </div>
+      <div class="fp-faixas-wrap" style="margin-top:6px;">
+        <div class="fp-faixas-title">Gols sofridos por período</div>
+        <div class="fp-faixas">${histSofridos}</div>
+      </div>
+    </div>`;
+  };
+
+  // Insights cruzados
+  const insights = [];
+  if (FP_CASA && FP_FORA) {
+    // Janelas que colidem (time A perigoso no mesmo período que time B é frágil)
+    if (FP_CASA.janelaMaisPerigosa === FP_FORA.janelaMaisFragil && FP_CASA.janelaMaisPerigosa >= 0) {
+      insights.push(`🔥 <strong>Colisão perfeita</strong> — janela quente do ${f.timeCasa.nome} (${FAIXAS_LABEL[FP_CASA.janelaMaisPerigosa]}) coincide com a janela frágil do ${f.timeFora.nome}. Alta chance de gol neste período.`);
+    }
+    if (FP_FORA.janelaMaisPerigosa === FP_CASA.janelaMaisFragil && FP_FORA.janelaMaisPerigosa >= 0) {
+      insights.push(`🔥 <strong>Colisão perfeita</strong> — janela quente do ${f.timeFora.nome} (${FAIXAS_LABEL[FP_FORA.janelaMaisPerigosa]}) coincide com a janela frágil do ${f.timeCasa.nome}.`);
+    }
+    // Reação pós-gol
+    const rcC = FP_CASA.pctRespostaAposGol || 0;
+    const rcF = FP_FORA.pctRespostaAposGol || 0;
+    if (rcC >= 0.5) insights.push(`⚡ <strong>${f.timeCasa.nome} resiliente</strong> — responde com gol em ${Math.round(rcC*100)}% das vezes após ser vazado.`);
+    if (rcF >= 0.5) insights.push(`⚡ <strong>${f.timeFora.nome} resiliente</strong> — responde em ${Math.round(rcF*100)}% das vezes após levar gol.`);
+    // Ambos marcam pouco
+    if ((FP_CASA.mediaGolsMarcados||0) < 1.0 && (FP_FORA.mediaGolsMarcados||0) < 1.0) {
+      insights.push(`🔒 <strong>Jogo de baixo scoring</strong> — historicamente ambos marcam menos de 1 gol por jogo. Expectativa: 0-1 gol no placar final.`);
+    }
+    // Ofensivo vs defensivo
+    if ((FP_CASA.mediaGolsMarcados||0) >= 2.0) insights.push(`⚽ <strong>${f.timeCasa.nome} muito ofensivo</strong> — média ${(FP_CASA.mediaGolsMarcados).toFixed(1)} gols marcados por jogo no banco.`);
+    if ((FP_FORA.mediaGolsMarcados||0) >= 2.0) insights.push(`⚽ <strong>${f.timeFora.nome} muito ofensivo</strong> — média ${(FP_FORA.mediaGolsMarcados).toFixed(1)} gols marcados por jogo.`);
+  }
+
+  el.innerHTML = `
+    <div style="font-size:10px;color:var(--t3);margin-bottom:10px;">Dados acumulados pelo algoritmo — cresce a cada jogo processado</div>
+    <div class="fp-comp-wrap">
+      ${mkCard(FP_CASA, f.timeCasa.nome, 'var(--acc)')}
+      ${mkCard(FP_FORA, f.timeFora.nome, 'var(--blu)')}
+    </div>
+    ${insights.length ? `<div style="font-size:11px;font-weight:700;color:var(--t1);margin-bottom:6px;">🔍 Insights Cruzados</div>
+      ${insights.map(i => `<div class="fp-insight">${i}</div>`).join('')}` : ''}`;
+}
+
+// ═══════════════════════════════════════════════════════
+// ⏱️ ANÁLISE 1T vs 2T
+// Compara todas as métricas entre os dois tempos do jogo
+// ═══════════════════════════════════════════════════════
+function renderHalvs() {
+  const el = gc('halvsEl');
+  if (!el || !DADOS) return;
+  const f   = DADOS.fixture;
+  const evs = DADOS.eventos;
+  const sts = DADOS.estatisticas || [];
+  const min = f.status.elapsed || 0;
+
+  // Só faz sentido após o intervalo
+  if (min < 46 && !['FT','AET','PEN'].includes(f.status.short)) {
+    el.innerHTML = '<div class="empty"><div class="ico">⏱️</div><p>Análise disponível a partir do 2º tempo</p></div>';
+    return;
+  }
+
+  // ── Dados via eventos (sempre disponíveis) ──
+  const ev1T = evs.filter(e => (e.minuto||0) <= 45);
+  const ev2T = evs.filter(e => (e.minuto||0) > 45);
+
+  const golsC1 = ev1T.filter(e => e.tipo==='Goal' && e.time.id===f.timeCasa.id).length;
+  const golsF1 = ev1T.filter(e => e.tipo==='Goal' && e.time.id===f.timeFora.id).length;
+  const golsC2 = ev2T.filter(e => e.tipo==='Goal' && e.time.id===f.timeCasa.id).length;
+  const golsF2 = ev2T.filter(e => e.tipo==='Goal' && e.time.id===f.timeFora.id).length;
+
+  const amC1 = ev1T.filter(e => e.tipo==='Card' && e.time.id===f.timeCasa.id).length;
+  const amF1 = ev1T.filter(e => e.tipo==='Card' && e.time.id===f.timeFora.id).length;
+  const amC2 = ev2T.filter(e => e.tipo==='Card' && e.time.id===f.timeCasa.id).length;
+  const amF2 = ev2T.filter(e => e.tipo==='Card' && e.time.id===f.timeFora.id).length;
+
+  const subC1 = ev1T.filter(e => e.tipo==='subst' && e.time.id===f.timeCasa.id).length;
+  const subF1 = ev1T.filter(e => e.tipo==='subst' && e.time.id===f.timeFora.id).length;
+  const subC2 = ev2T.filter(e => e.tipo==='subst' && e.time.id===f.timeCasa.id).length;
+  const subF2 = ev2T.filter(e => e.tipo==='subst' && e.time.id===f.timeFora.id).length;
+
+  // ── Dados via snapshots (pressão + posse por tempo) ──
+  const snp1T = SNAPSHOTS.filter(s => (s.minuto||0) <= 45);
+  const snp2T = SNAPSHOTS.filter(s => (s.minuto||0) > 45);
+
+  const media = (arr, key) => arr.length ? arr.reduce((a,s) => a + (s[key]||0), 0) / arr.length : null;
+
+  const ap1C = media(snp1T, 'ataquesPerigososCasa');
+  const ap2C = media(snp2T, 'ataquesPerigososCasa');
+  const ap1F = media(snp1T, 'ataquesPerigososFora');
+  const ap2F = media(snp2T, 'ataquesPerigososFora');
+  const po1C = media(snp1T, 'posseCasa');
+  const po2C = media(snp2T, 'posseCasa');
+
+  // ── Momentum do intervalo (pressão ao redor do intervalo) ──
+  const momInt1 = momentum(evs, f.timeCasa.id, 38, 45);
+  const momInt2 = momentum(evs, f.timeCasa.id, 46, 55);
+
+  // ── Render ──
+  const mkDelta = (v1, v2, inverso=false) => {
+    if (v1===null || v2===null) return '';
+    const d = v2 - v1;
+    if (Math.abs(d) < 0.5) return '<span class="halv-delta eq">=</span>';
+    const up = inverso ? d < 0 : d > 0;
+    return `<span class="halv-delta ${up?'up':'down'}">${d>0?'+':''}${typeof d==='number'?d.toFixed(d%1===0?0:1):d}</span>`;
+  };
+
+  const mkRow = (lbl, v1C, v1F, v2C, v2F, cor1='var(--acc)', cor2='var(--blu)', inverso=false) => {
+    const dC = v1C!==null&&v2C!==null ? mkDelta(v1C, v2C, inverso) : '';
+    const dF = v1F!==null&&v2F!==null ? mkDelta(v1F, v2F, inverso) : '';
+    const fmt = v => v===null ? '—' : (v%1===0 ? v : v.toFixed(1));
+    return `<div class="halv-stat">
+      <span class="halv-lbl">${lbl}</span>
+      <div class="halv-vals">
+        <span style="color:${cor1}">${fmt(v1C)}→${fmt(v2C)}</span>
+        ${dC}
+        <span style="color:var(--t3)">|</span>
+        <span style="color:${cor2}">${fmt(v1F)}→${fmt(v2F)}</span>
+        ${dF}
+      </div>
+    </div>`;
+  };
+
+  // Conclusão automática
+  const conclusoes = [];
+  if (golsC2 > golsC1 + 1) conclusoes.push(`<strong>${f.timeCasa.nome}</strong> foi muito mais produtivo no 2T (${golsC2} vs ${golsC1} gols).`);
+  if (golsF2 > golsF1 + 1) conclusoes.push(`<strong>${f.timeFora.nome}</strong> cresceu no 2T (${golsF2} vs ${golsF1} gols).`);
+  if (amC2 > amC1 + 1 || amF2 > amF1 + 1) conclusoes.push(`Jogo ficou mais nervoso no 2T — cartões aumentaram de ${amC1+amF1} para ${amC2+amF2}.`);
+  if (ap2C!==null && ap1C!==null && ap2C > ap1C * 1.3) conclusoes.push(`Pressão do ${f.timeCasa.nome} aumentou 30%+ no 2T.`);
+  if (ap2F!==null && ap1F!==null && ap2F > ap1F * 1.3) conclusoes.push(`Pressão do ${f.timeFora.nome} cresceu no 2T.`);
+  if (momInt2 > momInt1 + 1) conclusoes.push(`${f.timeCasa.nome} saiu forte do intervalo — momentum alto nos primeiros 10min do 2T.`);
+  if (!conclusoes.length) conclusoes.push('Jogo equilibrado nos dois tempos — sem dominância clara em nenhum período.');
+
+  el.innerHTML = `
+    <div style="font-size:10px;color:var(--t3);margin-bottom:10px;">
+      Casa = <span style="color:var(--acc)">${f.timeCasa.nome}</span> · Fora = <span style="color:var(--blu)">${f.timeFora.nome}</span>
+      &nbsp;·&nbsp; Formato: <strong>1T → 2T</strong> com variação
+    </div>
+    <div class="halvs-wrap">
+      <div class="halv-card">
+        <div class="halv-title">1⃣ Primeiro Tempo</div>
+        <div class="halv-stat"><span class="halv-lbl">Gols</span>
+          <div class="halv-vals">
+            <span style="color:var(--acc)">${golsC1}</span>
+            <span style="color:var(--t3)">|</span>
+            <span style="color:var(--blu)">${golsF1}</span>
+          </div>
+        </div>
+        <div class="halv-stat"><span class="halv-lbl">Cartões</span>
+          <div class="halv-vals">
+            <span style="color:var(--acc)">${amC1}</span>
+            <span style="color:var(--t3)">|</span>
+            <span style="color:var(--blu)">${amF1}</span>
+          </div>
+        </div>
+        <div class="halv-stat"><span class="halv-lbl">Substituições</span>
+          <div class="halv-vals">
+            <span style="color:var(--acc)">${subC1}</span>
+            <span style="color:var(--t3)">|</span>
+            <span style="color:var(--blu)">${subF1}</span>
+          </div>
+        </div>
+        ${ap1C!==null?`<div class="halv-stat"><span class="halv-lbl">At. Perigosos (média)</span>
+          <div class="halv-vals">
+            <span style="color:var(--acc)">${ap1C.toFixed(1)}</span>
+            <span style="color:var(--t3)">|</span>
+            <span style="color:var(--blu)">${ap1F!==null?ap1F.toFixed(1):'—'}</span>
+          </div>
+        </div>`:''}
+        ${po1C!==null?`<div class="halv-stat"><span class="halv-lbl">Posse média (casa)</span>
+          <div class="halv-vals"><span style="color:var(--acc)">${po1C.toFixed(0)}%</span></div>
+        </div>`:''}
+        <div class="halv-stat"><span class="halv-lbl">Momentum fim 1T (casa)</span>
+          <div class="halv-vals"><span style="color:var(--t2)">${momInt1.toFixed(1)}</span></div>
+        </div>
+      </div>
+      <div class="halv-card">
+        <div class="halv-title">2⃣ Segundo Tempo</div>
+        <div class="halv-stat"><span class="halv-lbl">Gols</span>
+          <div class="halv-vals">
+            <span style="color:var(--acc)">${golsC2}</span>
+            ${mkDelta(golsC1,golsC2)}
+            <span style="color:var(--t3)">|</span>
+            <span style="color:var(--blu)">${golsF2}</span>
+            ${mkDelta(golsF1,golsF2)}
+          </div>
+        </div>
+        <div class="halv-stat"><span class="halv-lbl">Cartões</span>
+          <div class="halv-vals">
+            <span style="color:var(--acc)">${amC2}</span>
+            ${mkDelta(amC1,amC2,true)}
+            <span style="color:var(--t3)">|</span>
+            <span style="color:var(--blu)">${amF2}</span>
+            ${mkDelta(amF1,amF2,true)}
+          </div>
+        </div>
+        <div class="halv-stat"><span class="halv-lbl">Substituições</span>
+          <div class="halv-vals">
+            <span style="color:var(--acc)">${subC2}</span>
+            <span style="color:var(--t3)">|</span>
+            <span style="color:var(--blu)">${subF2}</span>
+          </div>
+        </div>
+        ${ap2C!==null?`<div class="halv-stat"><span class="halv-lbl">At. Perigosos (média)</span>
+          <div class="halv-vals">
+            <span style="color:var(--acc)">${ap2C.toFixed(1)}</span>
+            ${mkDelta(ap1C,ap2C)}
+            <span style="color:var(--t3)">|</span>
+            <span style="color:var(--blu)">${ap2F!==null?ap2F.toFixed(1):'—'}</span>
+            ${mkDelta(ap1F,ap2F)}
+          </div>
+        </div>`:''}
+        ${po2C!==null?`<div class="halv-stat"><span class="halv-lbl">Posse média (casa)</span>
+          <div class="halv-vals">
+            <span style="color:var(--acc)">${po2C.toFixed(0)}%</span>
+            ${mkDelta(po1C,po2C)}
+          </div>
+        </div>`:''}
+        <div class="halv-stat"><span class="halv-lbl">Momentum início 2T (casa)</span>
+          <div class="halv-vals">
+            <span style="color:var(--t2)">${momInt2.toFixed(1)}</span>
+            ${mkDelta(momInt1,momInt2)}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="halv-conclusao">
+      ${conclusoes.map(c => `• ${c}`).join('<br>')}
+    </div>`;
 }
 
 // ── HELPER: render insights ──
