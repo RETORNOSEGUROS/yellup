@@ -102,6 +102,31 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .tl-card{background:var(--c2);border:1px solid var(--bd1);border-radius:12px;padding:16px;margin-bottom:16px;}
 .tl-card h4{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
 .ev-badge{font-size:9px;padding:2px 8px;border-radius:8px;font-weight:700;}
+/* ── Relatório Pós-Jogo ── */
+.relatorio-wrap{background:var(--c2);border:1px solid var(--bd2);border-radius:14px;padding:20px;margin-bottom:20px;}
+.rel-header{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--bd2);}
+.rel-placar{font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--t1);}
+.rel-times{font-size:11px;color:var(--t3);}
+.rel-badge{font-size:10px;padding:3px 9px;border-radius:20px;background:var(--gdim);color:var(--grn);font-weight:700;}
+.rel-section{margin-bottom:14px;}
+.rel-section-title{font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
+.rel-stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.rel-stat{background:var(--bg3);border-radius:8px;padding:8px;text-align:center;}
+.rel-stat-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:800;}
+.rel-stat-lbl{font-size:9px;color:var(--t3);margin-top:2px;}
+.rel-narrativa{font-size:12px;color:var(--t2);line-height:1.7;background:var(--bg3);border-radius:8px;padding:12px;}
+.rel-narrativa strong{color:var(--t1);}
+.rel-insight-list{display:flex;flex-direction:column;gap:6px;}
+.rel-insight{font-size:11px;color:var(--t2);padding:8px 10px;border-radius:7px;background:var(--bg3);border-left:3px solid var(--bd2);line-height:1.5;}
+.rel-insight.destaque{border-left-color:var(--acc);}
+.rel-insight.alerta{border-left-color:var(--red);}
+.rel-insight.positivo{border-left-color:var(--grn);}
+.rel-aprendizado{background:rgba(79,150,244,.07);border:1px solid rgba(79,150,244,.2);border-radius:10px;padding:12px;margin-top:10px;}
+.rel-aprendizado-title{font-size:10px;font-weight:700;color:var(--blu);margin-bottom:6px;}
+.rel-aprendizado-txt{font-size:11px;color:var(--t2);line-height:1.5;}
+/* Linha do tempo preditiva */
+.pred-zone-legend{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--t3);margin-top:6px;}
+.pred-zone-box{width:14px;height:8px;border-radius:2px;background:rgba(157,110,255,.25);border:1px solid rgba(157,110,255,.4);}
 /* ── Índice de Pressão / DNA / Momentum ── */
 .pressao-gauge-wrap{display:flex;gap:10px;margin-bottom:12px;}
 .pg-team{flex:1;background:var(--c3);border-radius:10px;padding:10px;}
@@ -738,6 +763,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
     <span id="histLoadMsg">Buscando histórico dos times...</span>
   </div>
 
+  <!-- Relatório pós-jogo -->
+  <div id="relatorioPanel" style="display:none;"></div>
+
   <!-- Snapshots: posse e pressão ao vivo -->
   <div class="snap-chart" id="snapChart" style="display:none;">
     <h4>📈 Série Temporal ao Vivo — Posse & Pressão por Minuto</h4>
@@ -751,6 +779,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
       <div class="snap-leg"><div class="snap-dot" style="background:var(--acc)"></div><span id="snapNomeCasa">Casa — Posse</span></div>
       <div class="snap-leg"><div class="snap-dot" style="background:var(--blu)"></div><span id="snapNomeFora">Fora — Posse</span></div>
       <div class="snap-leg"><div class="snap-dot" style="background:var(--red)"></div><span>Ataques Perigosos (Casa)</span></div>
+    </div>
+    <div id="snapPredLegend" class="pred-zone-legend" style="display:none;">
+      <div class="pred-zone-box"></div>
+      <span>Zona preditiva — projeção dos próximos 10 minutos</span>
     </div>
     <!-- Mini tabela do último snapshot -->
     <div id="snapLastData" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px;"></div>
@@ -927,7 +959,11 @@ async function registrarSnapshot(fixtureId,docId){
       SNAPSHOTS.push(snapLocal);
       SNAPSHOTS.sort((a,b)=>(a.minuto||0)-(b.minuto||0));
       renderSnapshots();
+    if(['FT','AET','PEN'].includes(DADOS?.fixture?.status?.short)) renderRelatorio();
       gc('snapCount').textContent=SNAPSHOTS.length;
+  const _ftl=['FT','AET','PEN'].includes(DADOS?.fixture?.status?.short);
+  const predLeg=gc('snapPredLegend');
+  if(predLeg) predLeg.style.display=(!_ftl&&SNAPSHOTS.length>=3)?'flex':'none';
     }
     // Tentar gravar no Firestore em background (silencioso se falhar)
     fn({
@@ -2758,6 +2794,7 @@ function renderSnapshots(){
   // Linhas de referência (50%)
   const y50=toY(50,0,100);
 
+  const isFtLocal=['FT','AET','PEN'].includes(f.status.short);
   const svg=`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:8px;background:var(--bg3);">
     <!-- grade -->
     <line x1="10" y1="${y50}" x2="${W-10}" y2="${y50}" stroke="var(--bd2)" stroke-width="1" stroke-dasharray="4,4"/>
@@ -2778,6 +2815,22 @@ function renderSnapshots(){
     ${possF.map(p=>`<circle cx="${toX(p.m)}" cy="${toY(p.v,0,100)}" r="3" fill="var(--blu)" opacity=".8"/>`).join('')}
     <!-- eixo X -->
     ${[0,15,30,45,60,75,90].filter(m=>m<=maxMin).map(m=>`<text x="${toX(m)}" y="${H-1}" text-anchor="middle" fill="var(--t3)" font-size="8" font-family="DM Mono">${m}'</text>`).join('')}
+    <!-- zona preditiva: próximos 10min se jogo ao vivo -->
+    ${isFtLocal?'':(() => {
+      if(SNAPSHOTS.length<3) return '';
+      const predMin=Math.min(minAtual+10,90);
+      const x1=toX(minAtual); const x2=toX(predMin);
+      // Tendência linear dos últimos 3 snapshots para projeção
+      const ult=SNAPSHOTS.slice(-3);
+      const tendAP=(ult[ult.length-1].ataquesPerigososCasa-ult[0].ataquesPerigososCasa)/(ult.length-1||1);
+      const projAP=Math.max(0,ataqPerig[ataqPerig.length-1].v+tendAP*10);
+      const yAtual=toY(ataqPerig[ataqPerig.length-1].v,0,maxAP);
+      const yProj=toY(projAP,0,maxAP);
+      return `<rect x="${x1}" y="5" width="${x2-x1}" height="${H-15}" fill="rgba(157,110,255,.07)" rx="3"/>
+        <line x1="${x1}" y1="5" x2="${x1}" y2="${H-10}" stroke="rgba(157,110,255,.4)" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="${x1+3}" y="14" fill="rgba(157,110,255,.8)" font-size="8" font-family="DM Sans">Projeção</text>
+        <line x1="${x1}" y1="${yAtual}" x2="${x2}" y2="${yProj}" stroke="rgba(157,110,255,.6)" stroke-width="1.5" stroke-dasharray="4,2"/>`;
+    })()}
   </svg>`;
 
   gc('snapSvgWrap').innerHTML=svg;
@@ -2800,6 +2853,246 @@ function renderSnapshots(){
       <div style="font-family:'DM Mono',monospace;font-size:15px;font-weight:700;color:${c.c}">${c.v}</div>
     </div>`).join('');
   }
+}
+
+// ═══ RELATÓRIO PÓS-JOGO AUTOMÁTICO ═══
+function renderRelatorio(){
+  const el=gc('relatorioPanel');
+  if(!el||!DADOS)return;
+  const f=DADOS.fixture;
+  const evs=DADOS.eventos;
+  const sts=DADOS.estatisticas||[];
+  const isFt=['FT','AET','PEN'].includes(f.status.short);
+  if(!isFt){el.style.display='none';return;}
+
+  el.style.display='block';
+
+  const scC=f.placar.casa??0, scF=f.placar.fora??0;
+  const nomC=f.timeCasa.nome, nomF=f.timeFora.nome;
+  const vencedor=scC>scF?nomC:scF>scC?nomF:null;
+
+  // ── Stats chave ──
+  const xgC=parseFloat(getStat(sts,f.timeCasa.id,'expected_goals'))||0;
+  const xgF=parseFloat(getStat(sts,f.timeFora.id,'expected_goals'))||0;
+  const posC=getStat(sts,f.timeCasa.id,'Ball Possession')||50;
+  const shotsC=getStat(sts,f.timeCasa.id,'Total Shots')||0;
+  const shotsF=getStat(sts,f.timeFora.id,'Total Shots')||0;
+  const shotOC=getStat(sts,f.timeCasa.id,'Shots on Goal')||0;
+  const shotOF=getStat(sts,f.timeFora.id,'Shots on Goal')||0;
+  const convC=shotOC>0?Math.round(scC/shotOC*100):0;
+  const convF=shotOF>0?Math.round(scF/shotOF*100):0;
+  const passC=getStat(sts,f.timeCasa.id,'Total passes')||0;
+  const passF=getStat(sts,f.timeFora.id,'Total passes')||0;
+  const passOkC=getStat(sts,f.timeCasa.id,'Passes accurate')||0;
+  const passOkF=getStat(sts,f.timeFora.id,'Passes accurate')||0;
+  const precC=passC>0?Math.round(passOkC/passC*100):0;
+  const precF=passF>0?Math.round(passOkF/passF*100):0;
+  const apC=getStat(sts,f.timeCasa.id,'Dangerous Attacks')||0;
+  const apF=getStat(sts,f.timeFora.id,'Dangerous Attacks')||0;
+  const amC=getStat(sts,f.timeCasa.id,'Yellow Cards')||0;
+  const amF=getStat(sts,f.timeFora.id,'Yellow Cards')||0;
+  const vrC=getStat(sts,f.timeCasa.id,'Red Cards')||0;
+  const vrF=getStat(sts,f.timeFora.id,'Red Cards')||0;
+
+  // ── Narrativa automática ──
+  const narrativa=gerarNarrativaRelatorio({
+    nomC,nomF,scC,scF,vencedor,xgC,xgF,posC,
+    shotsC,shotsF,shotOC,shotOF,convC,convF,
+    passC,passF,precC,precF,apC,apF,evs,sts,f
+  });
+
+  // ── Insights automáticos ──
+  const insights=[];
+
+  // xG vs resultado
+  const xgVencC=xgC>xgF, resultVencC=scC>scF;
+  if(xgVencC!==resultVencC&&(scC!==scF)){
+    const justo=xgVencC?nomC:nomF, injusto=xgVencC?nomF:nomC;
+    insights.push({
+      tipo:'alerta',
+      txt:`<strong>Resultado injusto pelo xG</strong> — ${justo} criou chances de maior qualidade (xG ${xgVencC?xgC.toFixed(2):xgF.toFixed(2)} vs ${xgVencC?xgF.toFixed(2):xgC.toFixed(2)}) mas ${injusto} venceu. Alta probabilidade de resultado diferente em confronto repetido.`
+    });
+  } else if(scC===scF&&Math.abs(xgC-xgF)>0.8){
+    const melhorXG=xgC>xgF?nomC:nomF;
+    insights.push({tipo:'destaque',txt:`<strong>Empate não reflete as chances</strong> — ${melhorXG} dominou em xG mas não converteu. Eficiência dos goleiros ou azar nas finalizações.`});
+  }
+
+  // Conversão
+  if(convC>=50) insights.push({tipo:'positivo',txt:`<strong>${nomC} clínico</strong> — converteu ${convC}% dos chutes no alvo (${scC} gols em ${shotOC} finalizações). Eficiência acima da média.`});
+  if(convF>=50) insights.push({tipo:'positivo',txt:`<strong>${nomF} clínico</strong> — converteu ${convF}% dos chutes no alvo.`});
+  if(scC>0&&convC<20) insights.push({tipo:'destaque',txt:`<strong>${nomC} ineficiente mas venceu</strong> — apenas ${convC}% de conversão. Volume compensou qualidade.`});
+
+  // Domínio sem retorno
+  if(posC>=60&&scC<=scF) insights.push({tipo:'alerta',txt:`<strong>${nomC} dominou mas não venceu</strong> — ${posC}% de posse sem converter o domínio em gols. Clássico caso de posse estéril.`});
+  if(posC<=40&&scC>=scF) insights.push({tipo:'positivo',txt:`<strong>${nomC} venceu sem a bola</strong> — apenas ${posC}% de posse mas mais eficiente. Estilo reativo funcionou.`});
+
+  // Ataques perigosos vs gols
+  const apTotal=apC+apF;
+  if(apTotal>30) insights.push({tipo:'destaque',txt:`Jogo de alta intensidade ofensiva — ${apTotal} ataques perigosos. Muitas transições e pressão em área.`});
+
+  // Cartões
+  const totalCartoes=amC+amF+vrC+vrF;
+  if(totalCartoes>=6) insights.push({tipo:'alerta',txt:`Jogo truncado — ${totalCartoes} cartões distribuídos. Árbitro com trabalho pesado.`});
+
+  // Gol decisivo pelo minuto
+  const golsOrdenados=evs.filter(e=>e.tipo==='Goal').sort((a,b)=>(a.minuto||0)-(b.minuto||0));
+  if(golsOrdenados.length>0){
+    const ultimo=golsOrdenados[golsOrdenados.length-1];
+    if((ultimo.minuto||0)>=85) insights.push({tipo:'alerta',txt:`<strong>Gol nos acréscimos</strong> (${ultimo.minuto}') decidiu — clássico resultado-relâmpago que não refletia o jogo antes disso.`});
+  }
+
+  // ── Aprendizado para o banco ──
+  const aprendizado=gerarAprendizadoRelatorio({nomC,nomF,scC,scF,xgC,xgF,convC,convF,posC,shotsC,shotOC,FP_CASA,FP_FORA});
+
+  // ── Snapshot stats (série temporal) ──
+  let snapStats='';
+  if(SNAPSHOTS.length>=5){
+    const maxAP=Math.max(...SNAPSHOTS.map(s=>s.ataquesPerigososCasa||0));
+    const minAP=SNAPSHOTS.findIndex(s=>(s.ataquesPerigososCasa||0)===maxAP);
+    const minPico=SNAPSHOTS[minAP]?.minuto||'—';
+    snapStats=`<div class="rel-section">
+      <div class="rel-section-title">📈 Série Temporal Própria (${SNAPSHOTS.length} snapshots)</div>
+      <div class="rel-insight-list">
+        <div class="rel-insight">Pico de pressão ${nomC}: minuto <strong>${minPico}'</strong> (${maxAP} ataques perigosos acumulados)</div>
+        ${SNAPSHOTS.length>=10?`<div class="rel-insight positivo">Base de dados rica — ${SNAPSHOTS.length} snapshots capturados neste jogo alimentam o banco de padrões.</div>`:''}
+      </div>
+    </div>`;
+  }
+
+  // ── HTML final ──
+  el.innerHTML=`
+  <div class="relatorio-wrap">
+    <div class="rel-header">
+      <div>
+        <div class="rel-times">${nomC} vs ${nomF}</div>
+        <div class="rel-placar">${scC} — ${scF}</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px;">${vencedor?`Vitória ${vencedor}`:'Empate'} · ${f.liga?.nome||''}</div>
+      </div>
+      <div style="margin-left:auto;display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+        <span class="rel-badge">✅ Relatório Final</span>
+        ${SNAPSHOTS.length>0?`<span style="font-size:10px;color:var(--t3);">${SNAPSHOTS.length} snapshots</span>`:''}
+      </div>
+    </div>
+
+    <div class="rel-section">
+      <div class="rel-section-title">📊 Números do Jogo</div>
+      <div class="rel-stat-grid">
+        <div class="rel-stat">
+          <div class="rel-stat-val" style="color:var(--acc)">${xgC.toFixed(2)}</div>
+          <div class="rel-stat-lbl">xG ${nomC.split(' ')[0]}</div>
+        </div>
+        <div class="rel-stat">
+          <div class="rel-stat-val" style="color:var(--t3)">${posC}%</div>
+          <div class="rel-stat-lbl">Posse Casa</div>
+        </div>
+        <div class="rel-stat">
+          <div class="rel-stat-val" style="color:var(--blu)">${xgF.toFixed(2)}</div>
+          <div class="rel-stat-lbl">xG ${nomF.split(' ')[0]}</div>
+        </div>
+        <div class="rel-stat">
+          <div class="rel-stat-val" style="color:var(--acc)">${shotsC}</div>
+          <div class="rel-stat-lbl">Chutes Casa</div>
+        </div>
+        <div class="rel-stat">
+          <div class="rel-stat-val" style="color:${convC>=50?'var(--grn)':convC>=30?'var(--acc)':'var(--red)'}">${convC}%</div>
+          <div class="rel-stat-lbl">Conversão Casa</div>
+        </div>
+        <div class="rel-stat">
+          <div class="rel-stat-val" style="color:var(--blu)">${shotsF}</div>
+          <div class="rel-stat-lbl">Chutes Fora</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rel-section">
+      <div class="rel-section-title">📝 Análise</div>
+      <div class="rel-narrativa">${narrativa}</div>
+    </div>
+
+    ${insights.length?`<div class="rel-section">
+      <div class="rel-section-title">🔍 Insights</div>
+      <div class="rel-insight-list">${insights.map(i=>`<div class="rel-insight ${i.tipo}">${i.txt}</div>`).join('')}</div>
+    </div>`:''}
+
+    ${snapStats}
+
+    ${aprendizado?`<div class="rel-aprendizado">
+      <div class="rel-aprendizado-title">🧠 Aprendizado para o Banco de Padrões</div>
+      <div class="rel-aprendizado-txt">${aprendizado}</div>
+    </div>`:''}
+  </div>`;
+}
+
+function gerarNarrativaRelatorio({nomC,nomF,scC,scF,vencedor,xgC,xgF,posC,shotsC,shotsF,shotOC,shotOF,convC,convF,passC,passF,precC,precF,apC,apF,evs,sts,f}){
+  const partes=[];
+
+  // Abertura
+  if(vencedor){
+    const dominouPosseCasa=posC>=55;
+    const dominouPosseFora=posC<=45;
+    if(vencedor===nomC&&dominouPosseCasa)
+      partes.push(`<strong>${nomC}</strong> controlou o jogo com ${posC}% de posse e converteu o domínio em vitória por ${scC} a ${scF}.`);
+    else if(vencedor===nomC&&!dominouPosseCasa)
+      partes.push(`<strong>${nomC}</strong> venceu por ${scC} a ${scF} mesmo cedendo a posse (${posC}%), aproveitando as transições.`);
+    else if(vencedor===nomF&&dominouPosseFora)
+      partes.push(`<strong>${nomF}</strong> dominou com ${100-posC}% de posse e saiu com os 3 pontos.`);
+    else
+      partes.push(`<strong>${nomF}</strong> surpreendeu e venceu por ${scF} a ${scC} mesmo com ${posC}% de posse para o adversário.`);
+  } else {
+    partes.push(`<strong>${nomC}</strong> e <strong>${nomF}</strong> ficaram no empate em ${scC} a ${scF}.`);
+  }
+
+  // Volume ofensivo
+  const totalChutes=shotsC+shotsF;
+  if(totalChutes>25) partes.push(`Jogo movimentado com ${totalChutes} finalizações no total — ${shotsC} do ${nomC.split(' ')[0]} e ${shotsF} do ${nomF.split(' ')[0]}.`);
+  else if(totalChutes<12) partes.push(`Jogo estudado, poucas finalizações — apenas ${totalChutes} chutes no total.`);
+
+  // xG narrativo
+  if(Math.abs(xgC-xgF)>0.5){
+    const domXG=xgC>xgF?nomC:nomF;
+    const subXG=xgC>xgF?nomF:nomC;
+    const mx=xgC>xgF?xgC:xgF; const mn=xgC>xgF?xgF:xgC;
+    partes.push(`Em qualidade de chances, <strong>${domXG}</strong> foi superior (xG ${mx.toFixed(2)} vs ${mn.toFixed(2)} de ${subXG}).`);
+  }
+
+  // Gols marcantes
+  const gols=evs.filter(e=>e.tipo==='Goal');
+  if(gols.length>0){
+    const primeiro=gols[0];
+    partes.push(`O primeiro gol saiu aos ${primeiro.minuto}' ${primeiro.jogador?`com <strong>${primeiro.jogador}</strong>`:''}. `);
+    if(gols.length>=3) partes.push(`Partida movimentada com ${gols.length} gols marcados.`);
+  }
+
+  // Eficiência
+  if(convC>0||convF>0){
+    const maisClinico=convC>convF?nomC:nomF;
+    const conv=convC>convF?convC:convF;
+    if(conv>=40) partes.push(`<strong>${maisClinico}</strong> foi o mais eficiente no ataque, convertendo ${conv}% dos chutes no alvo.`);
+  }
+
+  return partes.join(' ');
+}
+
+function gerarAprendizadoRelatorio({nomC,nomF,scC,scF,xgC,xgF,convC,convF,posC,shotsC,shotOC,FP_CASA,FP_FORA}){
+  const linhas=[];
+  const totalFP=(FP_CASA?.totalJogos||0)+(FP_FORA?.totalJogos||0);
+  if(totalFP<4) return null; // banco ainda pequeno, não gerar
+
+  // Padrão de conversão
+  if(scC>0&&convC>=40)
+    linhas.push(`${nomC}: ${shotsC} chutes, ${shotOC} no alvo, ${scC} gols — conversão ${convC}%. Padrão clínico confirmado.`);
+
+  // xG vs gols reais
+  const diffC=+(scC-xgC).toFixed(2);
+  if(Math.abs(diffC)>0.5)
+    linhas.push(`${nomC} ${diffC>0?'superou':'ficou abaixo d'}o xG por ${Math.abs(diffC).toFixed(2)} — ${diffC>0?'alta eficiência':'azar nas finalizações ou goleiro adversário acima da média'}.`);
+
+  // Posse e resultado
+  if(posC>=55&&scC>scF) linhas.push(`Padrão dominante confirmado — ${posC}% posse + vitória.`);
+  if(posC<=40&&scC>=scF) linhas.push(`Padrão reativo confirmado — ${posC}% posse mas resultado positivo.`);
+
+  if(!linhas.length) return null;
+  return linhas.join('<br>');
 }
 
 // ═══ HISTÓRICO ═══
