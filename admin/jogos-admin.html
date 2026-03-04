@@ -9,6 +9,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <style>
 :root{
   --bg:#07080d;--bg2:#0b0d15;--bg3:#0f1119;
@@ -241,6 +242,20 @@ select:focus{border-color:var(--acc);}
 .liga-divider{height:1px;flex:1;background:var(--bd1);}
 
 @media(max-width:900px){.dual{grid-template-columns:1fr;}.panel{border-right:none;border-bottom:1px solid var(--bd1);max-height:50vh;}.sb{display:none;}.main{margin-left:0;}}
+
+/* upload logo patrocinador */
+.upload-zone{border:1px dashed var(--bd3);border-radius:7px;padding:8px 10px;display:flex;align-items:center;gap:8px;cursor:pointer;transition:border-color .15s;background:var(--bg3);}
+.upload-zone:hover{border-color:var(--acc);}
+.upload-zone input[type=file]{display:none;}
+.upload-zone label{font-size:11px;color:var(--t2);cursor:pointer;flex:1;}
+.upload-prog{font-size:10px;color:var(--acc);font-family:'DM Mono',monospace;}
+/* inputs bloqueados quando encerrado */
+.locked input,.locked select,.locked textarea{opacity:.5;pointer-events:none;}
+.locked-badge{font-size:9px;background:var(--gdim);color:var(--grn);padding:2px 7px;border-radius:8px;font-weight:700;}
+/* filtro data painel direito */
+.adm-date-nav{display:flex;align-items:center;gap:5px;}
+.adm-date-nav input[type=date]{padding:5px 8px;border:1px solid var(--bd2);border-radius:7px;background:var(--bg3);color:var(--t1);font-size:11px;font-family:inherit;outline:none;}
+.adm-date-nav input[type=date]:focus{border-color:var(--acc);}
 </style>
 </head>
 <body>
@@ -337,6 +352,12 @@ select:focus{border-color:var(--acc);}
       <div class="ph">
         <h3>🗂️ Yellup — jogos-admin</h3>
         <div class="ph-right">
+          <div class="adm-date-nav">
+            <button class="dn-btn" onclick="mudaDataAdm(-1)">‹</button>
+            <input type="date" id="admData" onchange="renderAdmin()">
+            <button class="dn-btn" onclick="mudaDataAdm(1)">›</button>
+            <button class="btn-sm" onclick="gc('admData').value='';renderAdmin()" title="Ver todos">✕</button>
+          </div>
           <div class="sw"><span>🔍</span><input type="text" id="admQ" placeholder="Time, liga..." oninput="renderAdmin()"></div>
           <select id="admStatus" onchange="renderAdmin()">
             <option value="">Todos</option>
@@ -434,8 +455,9 @@ select:focus{border-color:var(--acc);}
     <!-- flags -->
     <div class="fg3" style="margin-bottom:14px;">
       <div class="ff">
-        <label>Destaque Home</label>
+        <label>Destaque na Home <span title="Jogo aparece em destaque na tela inicial do app" style="cursor:help;color:var(--t3)">ⓘ</span></label>
         <select id="fDestaque"><option value="false">Não</option><option value="true">Sim</option></select>
+        <span class="hint">Exibe este jogo em posição de destaque na tela inicial</span>
       </div>
       <div class="ff">
         <label>Ativo no app</label>
@@ -452,7 +474,7 @@ select:focus{border-color:var(--acc);}
     <!-- patrocinadores -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
       <label style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);">💼 Patrocinadores</label>
-      <small style="font-size:9px;color:var(--t3);">Logo recomendado: 200x80px PNG/SVG transparente</small>
+      <small style="font-size:9px;color:var(--t3);">Logo ideal: 200×80px · PNG/SVG fundo transparente</small>
     </div>
     <div class="spons-list" id="sponsList"></div>
     <button class="add-spons-btn" onclick="addSpons()">+ Adicionar patrocinador</button>
@@ -475,7 +497,7 @@ firebase.initializeApp({
   messagingSenderId:"608347210297",
   appId:"1:608347210297:web:75092713724e617c7203e8"
 });
-const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions();
+const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions(), storage=firebase.storage();
 
 // ─── AUTH ───
 auth.onAuthStateChanged(u=>{
@@ -503,9 +525,18 @@ let syncAtivo=true;      // auto-sync ligado/desligado
 async function init(){
   const hoje=new Date().toISOString().split('T')[0];
   gc('dataApi').value=hoje;
+  gc('admData').value=hoje;
   await Promise.all([carregarAdmin(), carregarTimesCache(), carregarLigasCache()]);
   await buscarAPI();
   iniciarAutoSync();
+}
+
+function mudaDataAdm(d){
+  const cur=gc('admData').value;
+  const dt=cur?new Date(cur+'T12:00:00'):new Date();
+  dt.setDate(dt.getDate()+d);
+  gc('admData').value=dt.toISOString().split('T')[0];
+  renderAdmin();
 }
 
 // ─── AUTO-SYNC ───
@@ -887,17 +918,32 @@ function encontrarLiga(apiLiga){
 function renderAdmin(){
   const q=(gc('admQ').value||'').toLowerCase();
   const st=gc('admStatus').value;
+  const dtFilt=gc('admData').value; // YYYY-MM-DD
   let filt=admJogos.filter(j=>{
     if(q){
       const h=[j.timeCasa?.nome,j.timeFora?.nome,j.liga?.nome].join(' ').toLowerCase();
       if(!h.includes(q))return false;
     }
     if(st&&j.status!==st)return false;
+    if(dtFilt&&j.dataInicio){
+      const jd=j.dataInicio.toDate?j.dataInicio.toDate():new Date(j.dataInicio);
+      // comparar só YYYY-MM-DD no horário local
+      const jds=jd.getFullYear()+'-'+String(jd.getMonth()+1).padStart(2,'0')+'-'+String(jd.getDate()).padStart(2,'0');
+      if(jds!==dtFilt)return false;
+    }
     return true;
+  });
+  // Ordenar: ao_vivo primeiro, depois por dataInicio crescente
+  filt.sort((a,b)=>{
+    const ord={ao_vivo:0,agendado:1,adiado:2,encerrado:3,cancelado:4};
+    if((ord[a.status]??5)!==(ord[b.status]??5)) return (ord[a.status]??5)-(ord[b.status]??5);
+    const da=a.dataInicio?.toDate?a.dataInicio.toDate():new Date(a.dataInicio||0);
+    const db2=b.dataInicio?.toDate?b.dataInicio.toDate():new Date(b.dataInicio||0);
+    return da-db2;
   });
   gc('pillTotal').textContent=admJogos.length+' jogos';
   if(!filt.length){
-    gc('admBody').innerHTML='<div class="empty"><div class="ico">📋</div><p>Nenhum jogo</p><small>Adicione jogos da API ou crie manualmente</small></div>';
+    gc('admBody').innerHTML='<div class="empty"><div class="ico">📋</div><p>Nenhum jogo nesta data</p><small>Adicione jogos da API ou crie manualmente</small></div>';
     return;
   }
   gc('admBody').innerHTML=filt.map(j=>mkAdmCard(j)).join('');
@@ -912,11 +958,17 @@ function mkAdmCard(j){
   const hora=j.dataInicio?fmtHora(j.dataInicio.toDate?.()?.toISOString()||j.dataInicio):'--:--';
   const dataStr=j.dataInicio?fmtData(j.dataInicio.toDate?.()?.toISOString()||j.dataInicio):'';
   const spCt=(j.patrocinadores||[]).length;
-  const placarHtml=isLive||isFt
+  const placarHtml=isLive
     ?`<div class="score-inputs">
         <input type="number" value="${j.placarCasa??''}" min="0" style="width:30px" onchange="updPlacar('${j._id}','placarCasa',this.value)" onclick="event.stopPropagation()">
         <span>–</span>
         <input type="number" value="${j.placarFora??''}" min="0" style="width:30px" onchange="updPlacar('${j._id}','placarFora',this.value)" onclick="event.stopPropagation()">
+      </div>`
+    :isFt
+    ?`<div class="score-inputs" title="Jogo encerrado — placar final">
+        <input type="number" value="${j.placarCasa??''}" min="0" style="width:30px" disabled>
+        <span>–</span>
+        <input type="number" value="${j.placarFora??''}" min="0" style="width:30px" disabled>
       </div>`
     :`<span style="font-family:'DM Mono',monospace;font-size:13px;color:var(--t3)">${hora}</span>`;
 
@@ -1032,7 +1084,7 @@ function abrirEditarJogo(id){
   gc('fPenFora').value=j.placarPenFora??'';
   gc('fApiId').value=j.apiFixtureId||'';
   gc('fRodada').value=j.rodada||'';
-  gc('fLocal').value=j.local||'';
+  gc('fLocal').value=j.local||j.venue||''; // venue vem da API, local é o nome editado
   gc('fCidade').value=j.cidade||'';
   gc('fDestaque').value=j.destaqueHome?'true':'false';
   gc('fAtivo').value=j.ativo!==false?'true':'false';
@@ -1040,7 +1092,9 @@ function abrirEditarJogo(id){
   // data
   if(j.dataInicio){
     const dt=j.dataInicio.toDate?j.dataInicio.toDate():new Date(j.dataInicio);
-    gc('fDataHora').value=dt.toISOString().slice(0,16);
+    // converter para horário local (datetime-local usa local, não UTC)
+    const off=dt.getTimezoneOffset()*60000;
+    gc('fDataHora').value=new Date(dt.getTime()-off).toISOString().slice(0,16);
   }else gc('fDataHora').value='';
   // times e liga: mostrar selecionados
   setTimeSelected('casa',jogoCasa);
@@ -1132,23 +1186,36 @@ function renderSpons(){
   const el=gc('sponsList');
   if(!sponsAtual.length){el.innerHTML='';return;}
   el.innerHTML=sponsAtual.map((s,i)=>`
-    <div class="spons-item">
+    <div class="spons-item" id="spons-item-${i}">
       <div class="spons-item-head">
-        <div class="spons-logo-prev">${s.logo?`<img src="${x(s.logo)}">`:'💼'}</div>
+        <div class="spons-logo-prev" id="spons-prev-${i}">${s.logo?`<img src="${x(s.logo)}">`:'💼'}</div>
         <span class="spons-nome">${x(s.nome||'Patrocinador '+(i+1))}</span>
         <button class="btn-del-spons" onclick="delSpons(${i})">🗑</button>
       </div>
       <div class="fg2">
-        <div class="ff"><label>Nome</label><input type="text" value="${x(s.nome||'')}" onchange="updSpons(${i},'nome',this.value)"></div>
-        <div class="ff"><label>URL (link)</label><input type="text" value="${x(s.url||'')}" onchange="updSpons(${i},'url',this.value)"></div>
-        <div class="ff"><label>URL Logo</label><input type="text" value="${x(s.logo||'')}" placeholder="https://..." onchange="updSpons(${i},'logo',this.value);this.closest('.spons-item').querySelector('.spons-logo-prev').innerHTML=this.value?'<img src='+this.value+'>':'💼'"></div>
+        <div class="ff"><label>Nome</label><input type="text" value="${x(s.nome||'')}" onchange="updSpons(${i},'nome',this.value);gc('spons-item-${i}').querySelector('.spons-nome').textContent=this.value||'Patrocinador ${i+1}'"></div>
+        <div class="ff"><label>URL do site (link)</label><input type="text" value="${x(s.url||'')}" onchange="updSpons(${i},'url',this.value)"></div>
+        <div class="ff full">
+          <label>Logo — URL ou Upload</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" value="${x(s.logo||'')}" placeholder="https://..." style="flex:1"
+              id="spons-url-${i}"
+              onchange="updSpons(${i},'logo',this.value);gc('spons-prev-${i}').innerHTML=this.value?'<img src='+this.value+'>':'💼'">
+            <div class="upload-zone" style="flex-shrink:0;min-width:100px">
+              <input type="file" id="spons-file-${i}" accept="image/png,image/svg+xml,image/jpeg,image/webp"
+                onchange="uploadSponsLogo(${i},this)">
+              <label for="spons-file-${i}">📁 Upload</label>
+              <span class="upload-prog" id="spons-prog-${i}"></span>
+            </div>
+          </div>
+        </div>
         <div class="ff"><label>Valor pago (R$)</label><input type="number" value="${s.valor||''}" onchange="updSpons(${i},'valor',parseFloat(this.value)||0)"></div>
         <div class="ff"><label>Créditos p/ usuário</label><input type="number" value="${s.creditos||''}" placeholder="0" onchange="updSpons(${i},'creditos',parseInt(this.value)||0)"></div>
         <div class="ff"><label>Tamanho banner</label>
           <select onchange="updSpons(${i},'tamanho',this.value)">
-            <option value="pequeno"${s.tamanho==='pequeno'?' selected':''}>Pequeno (320x50)</option>
-            <option value="medio"${s.tamanho==='medio'?' selected':''}>Médio (640x100)</option>
-            <option value="grande"${s.tamanho==='grande'?' selected':''}>Grande (1200x200)</option>
+            <option value="pequeno"${s.tamanho==='pequeno'?' selected':''}>Pequeno (320×50)</option>
+            <option value="medio"${s.tamanho==='medio'?' selected':''}>Médio (640×100)</option>
+            <option value="grande"${s.tamanho==='grande'?' selected':''}>Grande (1200×200)</option>
           </select>
         </div>
         <div class="ff"><label>Formato</label>
@@ -1156,12 +1223,40 @@ function renderSpons(){
             <option value="png"${s.formato==='png'?' selected':''}>PNG (transparente)</option>
             <option value="svg"${s.formato==='svg'?' selected':''}>SVG</option>
             <option value="jpg"${s.formato==='jpg'?' selected':''}>JPG</option>
+            <option value="webp"${s.formato==='webp'?' selected':''}>WebP</option>
           </select>
         </div>
       </div>
-      <div class="ff"><label>Descrição</label><textarea onchange="updSpons(${i},'descricao',this.value)">${x(s.descricao||'')}</textarea></div>
+      <div class="ff"><label>Descrição / Observações</label><textarea onchange="updSpons(${i},'descricao',this.value)">${x(s.descricao||'')}</textarea></div>
     </div>`).join('');
 }
+
+async function uploadSponsLogo(i, input){
+  const file=input.files[0]; if(!file)return;
+  const prog=gc(`spons-prog-${i}`);
+  const ext=file.name.split('.').pop();
+  const path=`patrocinadores/${Date.now()}_${i}.${ext}`;
+  const ref=storage.ref(path);
+  prog.textContent='⏳ 0%';
+  try{
+    const task=ref.put(file);
+    task.on('state_changed',snap=>{
+      prog.textContent='⏳ '+Math.round(snap.bytesTransferred/snap.totalBytes*100)+'%';
+    });
+    await task;
+    const url=await ref.getDownloadURL();
+    updSpons(i,'logo',url);
+    gc(`spons-url-${i}`).value=url;
+    gc(`spons-prev-${i}`).innerHTML=`<img src="${url}">`;
+    prog.textContent='✓';
+    setTimeout(()=>prog.textContent='',2000);
+    toast('✓ Logo enviado!','ok');
+  }catch(e){
+    prog.textContent='✗';
+    toast('Erro upload: '+e.message,'err');
+  }
+}
+
 function addSpons(){
   sponsAtual.push({nome:'',url:'',logo:'',valor:0,creditos:0,tamanho:'medio',formato:'png',descricao:''});
   renderSpons();
