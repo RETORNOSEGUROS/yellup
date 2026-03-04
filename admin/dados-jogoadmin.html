@@ -594,6 +594,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
     <div id="histCruzamentoEl"></div>
   </div>
 
+  <!-- Fingerprint dos times (banco próprio) -->
+  <div class="hist-panel" id="fpPanel" style="display:none;">
+    <h4>🧠 Fingerprint dos Times <span class="hist-badge" style="background:rgba(39,212,155,.15);color:var(--grn);">BANCO PRÓPRIO</span>
+      <span style="font-size:10px;color:var(--t3);font-weight:400;margin-left:6px;">Acumula com cada jogo processado</span>
+    </h4>
+    <div id="fpEl"></div>
+  </div>
+
 </div>
 
 </div><!-- /pgMain -->
@@ -614,6 +622,9 @@ let DADOS=null;
 let scrMin=null;
 let HIST_CASA=null;     // histórico time da casa
 let HIST_FORA=null;     // histórico time de fora
+let FP_CASA=null;       // fingerprint acumulativo casa (nosso banco)
+let FP_FORA=null;       // fingerprint acumulativo fora (nosso banco)
+let PREVISOES_LOG=[];   // log de previsões feitas nesta sessão
 let SNAPSHOTS=[];       // série temporal ao vivo
 let snapTimer=null;     // timer de snapshot
 let CURRENT_DOC_ID=null;
@@ -726,18 +737,25 @@ async function carregarSnapshots(fixtureId){
 
 async function buscarHistoricoBackground(casaId,foraId,temporada){
   gc('histLoadStatus').style.display='flex';
-  gc('histLoadMsg').textContent='Buscando histórico dos últimos 20 jogos de cada time...';
+  gc('histLoadMsg').textContent='Buscando histórico e fingerprints dos times...';
   try{
-    const fn=fns.httpsCallable('buscarHistoricoTime');
-    const [rCasa,rFora]=await Promise.all([
-      fn({teamId:casaId,season:temporada,numJogos:20}),
-      fn({teamId:foraId,season:temporada,numJogos:20}),
+    const fnH=fns.httpsCallable('buscarHistoricoTime');
+    const fnFP=fns.httpsCallable('buscarFingerprint');
+    const [rCasa,rFora,rFP]=await Promise.all([
+      fnH({teamId:casaId,season:temporada,numJogos:20}),
+      fnH({teamId:foraId,season:temporada,numJogos:20}),
+      fnFP({timeCasaId:casaId,timeForaId:foraId}),
     ]);
-    HIST_CASA=rCasa.data;  // {sucesso, jogos, fonte}
-    HIST_FORA=rFora.data;  // {sucesso, jogos, fonte}
+    HIST_CASA=rCasa.data;
+    HIST_FORA=rFora.data;
+    if(rFP.data?.sucesso){
+      FP_CASA=rFP.data.casa;  // fingerprint acumulativo do nosso banco
+      FP_FORA=rFP.data.fora;
+    }
     gc('histLoadStatus').style.display='none';
     renderHistorico();
-    renderAlgo(); // re-render motor com histórico disponível
+    renderFingerprint();
+    renderAlgo(); // re-render com histórico + fingerprint disponíveis
   }catch(e){
     gc('histLoadMsg').textContent='Erro ao buscar histórico: '+e.message;
     console.warn('Histórico:',e);
@@ -1391,6 +1409,34 @@ function algoAba(btn,id){
   gc('ap-'+id).classList.add('on');
 }
 
+// ─── REGISTRAR PREVISÃO (background, não bloqueia UI) ───
+async function registrarPrevisaoFn(tipo, confianca, contexto){
+  if(!DADOS||!DADOS.fixture)return;
+  const f=DADOS.fixture;
+  const isLive=['1H','2H','ET','P','HT','BT'].includes(f.status.short);
+  if(!isLive)return; // só loga ao vivo
+  // evitar spam: só registra se confiança >= 40%
+  if((confianca||0)<40)return;
+  const key=tipo+'_'+Math.floor((f.status.elapsed||0)/5);
+  if(PREVISOES_LOG.includes(key))return;
+  PREVISOES_LOG.push(key);
+  try{
+    const fn=fns.httpsCallable('registrarPrevisao');
+    await fn({
+      fixtureId:f.id,
+      timeCasaId:f.timeCasa.id,
+      timeForaId:f.timeFora.id,
+      ligaId:f.liga?.id,
+      minuto:f.status.elapsed||0,
+      tipo, confianca,
+      contexto:{
+        placar:[f.placar.casa||0,f.placar.fora||0],
+        ...contexto
+      }
+    });
+  }catch(e){ console.warn('Previsão não logada:',e.message); }
+}
+
 function renderAlgo(){
   if(!DADOS)return;
   renderGauges();
@@ -1600,6 +1646,33 @@ xG não convertido: Casa +${xgDefCasa.toFixed(1)} / Fora +${xgDefFora.toFixed(1)
 
   // Ordenar por confiança
   preds.sort((a,b)=>b.conf-a.conf);
+
+  // ── LOG AUTOMÁTICO DAS PREVISÕES DE ALTA CONFIANÇA ──
+  // (background, não bloqueia renderização)
+  if(!isFt){
+    const tiposMap={
+      'Gol nos próximos 15 minutos': probGolCasa>probGolFora?'gol_casa':'gol_fora',
+      'Empate provável': 'virada',
+      'Probabilidade de cartão': 'cartao',
+      'Substituição nos próximos 15 minutos': 'substituicao',
+      'Risco de expulsão': 'expulsao',
+    };
+    preds.forEach(p=>{
+      const tipo=Object.entries(tiposMap).find(([k])=>p.title.startsWith(k))?.[1];
+      if(tipo && p.conf>=45){
+        const ctx={
+          posse:getStat(sts,f.timeCasa.id,'Ball Possession'),
+          xgCasa:getStat(sts,f.timeCasa.id,'expected_goals'),
+          xgFora:getStat(sts,f.timeFora.id,'expected_goals'),
+          apCasa:getStat(sts,f.timeCasa.id,'Dangerous Attacks'),
+          apFora:getStat(sts,f.timeFora.id,'Dangerous Attacks'),
+          minuto:minAtual,
+        };
+        registrarPrevisaoFn(tipo, p.conf, ctx); // fire & forget
+      }
+    });
+  }
+
 
   gc('predList').innerHTML=preds.map(p=>{
     const cor=p.level==='high'?'var(--red)':p.level==='med'?'var(--acc)':'var(--grn)';
@@ -2106,32 +2179,65 @@ function renderHistStats(hist, el, nome, cor){
 function renderHistGolDist(){
   const el=gc('histGolDistEl');
   if(!el)return;
-  const renderDist=(hist,nome,cor)=>{
+  const labels=["0-10'","10-20'","20-30'","30-40'","40-50'","50-60'","60-70'","70-80'","80+'"];
+
+  // Renderiza dois histogramas: marcados e sofridos
+  const renderDual=(hist,nome,corM,corS,fpData)=>{
     if(!hist?.jogos)return '';
-    // Histograma de minutos: janelas de 10min
-    const buckets=Array(9).fill(0); // 0-9,10-19,...,80-89,90+
+    const buckM=Array(9).fill(0);
+    const buckS=Array(9).fill(0);
     hist.jogos.forEach(j=>{
-      (j.golsMinuto||[]).forEach(minGol=>{
-        const b=Math.min(8,Math.floor((minGol||0)/10));
-        buckets[b]++;
-      });
+      (j.golsMinuto||[]).forEach(m=>{ buckM[Math.min(8,Math.floor(m/10))]++; });
+      (j.golsSofridosMinuto||[]).forEach(m=>{ buckS[Math.min(8,Math.floor(m/10))]++; });
     });
-    const maxB=Math.max(...buckets,1);
-    const labels=['0-10\'','10-20\'','20-30\'','30-40\'','40-45\'','45-60\'','60-70\'','70-80\'','80+\''];
-    return `<div style="margin-bottom:14px;">
-      <div style="font-size:11px;font-weight:700;color:${cor};margin-bottom:6px;">${nome}</div>
-      <div class="goal-dist-chart">
-        ${buckets.map((b,i)=>`<div class="gd-bar" style="height:${Math.max(4,b/maxB*100)}%;background:${cor};opacity:${i>=7?.9:.7}" title="${labels[i]}: ${b} gols"></div>`).join('')}
-      </div>
-      <div class="gd-labels">
-        ${labels.map(l=>`<span>${l}</span>`).join('')}
+
+    // Usar fingerprint do nosso banco se tiver mais jogos
+    if(fpData && fpData.totalJogos > hist.jogos.length){
+      fpData.golsMarcadosPorFaixa?.forEach((v,i)=>{ buckM[i]=v; });
+      fpData.golsSofridosPorFaixa?.forEach((v,i)=>{ buckS[i]=v; });
+    }
+
+    const maxM=Math.max(...buckM,1), maxS=Math.max(...buckS,1);
+    const totalM=buckM.reduce((a,b)=>a+b,0)||1;
+    const totalS=buckS.reduce((a,b)=>a+b,0)||1;
+
+    // Janela mais perigosa (mais gols marcados)
+    const janelaPerig=buckM.indexOf(Math.max(...buckM));
+    // Janela mais frágil (mais gols sofridos)
+    const janelaFragil=buckS.indexOf(Math.max(...buckS));
+
+    const mkBars=(buck,max,cor,total,tipo)=>buck.map((b,i)=>{
+      const pct=Math.round(b/total*100);
+      const isDestaque=tipo==='m'?i===janelaPerig:i===janelaFragil;
+      return `<div class="gd-bar ${isDestaque?'gd-bar-hot':''}"
+        style="height:${Math.max(4,b/max*100)}%;background:${cor};opacity:${isDestaque?1:.55}"
+        title="${labels[i]}: ${b} gols (${pct}%)"></div>`;
+    }).join('');
+
+    return `<div style="margin-bottom:20px;">
+      <div style="font-size:12px;font-weight:700;color:var(--t1);margin-bottom:10px;">${nome}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <div style="font-size:10px;color:${corM};font-weight:700;margin-bottom:5px;">⚽ Quando MARCA <span style="color:var(--t3);font-weight:400">(${totalM} gols)</span></div>
+          <div class="goal-dist-chart">${mkBars(buckM,maxM,corM,totalM,'m')}</div>
+          <div class="gd-labels">${labels.map(l=>`<span>${l}</span>`).join('')}</div>
+          ${buckM[janelaPerig]>0?`<div style="font-size:10px;color:${corM};margin-top:5px;">🔥 Janela quente: <strong>${labels[janelaPerig]}</strong> (${Math.round(buckM[janelaPerig]/totalM*100)}% dos gols)</div>`:''}
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--red);font-weight:700;margin-bottom:5px;">🚨 Quando SOFRE <span style="color:var(--t3);font-weight:400">(${totalS} gols)</span></div>
+          <div class="goal-dist-chart">${mkBars(buckS,maxS,'var(--red)',totalS,'s')}</div>
+          <div class="gd-labels">${labels.map(l=>`<span>${l}</span>`).join('')}</div>
+          ${buckS[janelaFragil]>0?`<div style="font-size:10px;color:var(--red);margin-top:5px;">⚠️ Janela frágil: <strong>${labels[janelaFragil]}</strong> (${Math.round(buckS[janelaFragil]/totalS*100)}% dos gols sofridos)</div>`:''}
+        </div>
       </div>
     </div>`;
   };
+
   gc('histGolDist').style.display='block';
+  if(!DADOS)return;
   el.innerHTML=
-    renderDist(HIST_CASA,DADOS.fixture.timeCasa.nome,'var(--acc)')+
-    renderDist(HIST_FORA,DADOS.fixture.timeFora.nome,'var(--blu)');
+    renderDual(HIST_CASA,DADOS.fixture.timeCasa.nome,'var(--acc)','var(--red)',FP_CASA)+
+    renderDual(HIST_FORA,DADOS.fixture.timeFora.nome,'var(--blu)','var(--red)',FP_FORA);
 }
 
 // ═══ ANÁLISES CRUZADAS: HISTÓRICO × JOGO ATUAL ═══
@@ -2276,6 +2382,71 @@ ${Math.abs(tendencia)>8?`<strong>Mudança significativa</strong> no controle do 
       ${ins.conf?`<span class="cross-conf" style="background:var(--pdim);color:var(--pur);">Confiança: ${ins.conf}%</span>`:''}
     </div>
   </div>`).join('')||'<p style="font-size:12px;color:var(--t3)">Dados insuficientes para cruzamento</p>';
+}
+
+// ═══ FINGERPRINT — BANCO PRÓPRIO ═══
+function renderFingerprint(){
+  const el=gc('fpEl');
+  if(!el)return;
+  const labels=["0-10'","10-20'","20-30'","30-40'","40-50'","50-60'","60-70'","70-80'","80+'"];
+
+  if(!FP_CASA && !FP_FORA){
+    el.innerHTML='<p style="font-size:12px;color:var(--t3)">Fingerprint ainda não disponível para estes times. Os dados serão acumulados conforme jogos forem processados.</p>';
+    gc('fpPanel').style.display='block';
+    return;
+  }
+
+  const renderFP=(fp,nome,cor)=>{
+    if(!fp) return `<p style="font-size:11px;color:var(--t3)">${nome}: sem dados no banco ainda.</p>`;
+    const n=fp.totalJogos||1;
+    const pctV=Math.round((fp.vitorias||0)/n*100);
+    const pctE=Math.round((fp.empates||0)/n*100);
+    const pctD=Math.round((fp.derrotas||0)/n*100);
+    const pctResp=Math.round((fp.pctRespostaAposGol||0)*100);
+    const janelaQ=labels[fp.janelaMaisPerigosa??0]||'—';
+    const janelaF=labels[fp.janelaMaisFragil??0]||'—';
+
+    const mkMiniBar=(buckets,cor)=>{
+      const max=Math.max(...buckets,1);
+      return `<div style="display:flex;align-items:flex-end;gap:1px;height:32px;margin-top:4px;">
+        ${buckets.map((b,i)=>`<div style="flex:1;height:${Math.max(8,b/max*100)}%;background:${cor};opacity:${b===Math.max(...buckets)?1:.4};border-radius:2px 2px 0 0;" title="${labels[i]}: ${b}"></div>`).join('')}
+      </div>
+      <div style="display:flex;gap:1px;margin-top:2px;">
+        ${labels.map(l=>`<div style="flex:1;font-size:8px;color:var(--t3);text-align:center;overflow:hidden;">${l.replace("'","")}</div>`).join('')}
+      </div>`;
+    };
+
+    return `<div style="margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:700;color:${cor};margin-bottom:8px;">${nome} <span style="color:var(--t3);font-weight:400;font-size:10px;">${n} jogos no banco</span></div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <div class="hist-stat-row" style="flex:1;min-width:100px;"><span class="hist-stat-lbl">Vitórias</span><span class="hist-stat-val" style="color:var(--grn)">${pctV}%</span></div>
+        <div class="hist-stat-row" style="flex:1;min-width:100px;"><span class="hist-stat-lbl">Empates</span><span class="hist-stat-val">${pctE}%</span></div>
+        <div class="hist-stat-row" style="flex:1;min-width:100px;"><span class="hist-stat-lbl">Derrotas</span><span class="hist-stat-val" style="color:var(--red)">${pctD}%</span></div>
+        <div class="hist-stat-row" style="flex:1;min-width:100px;"><span class="hist-stat-lbl">Gols/jogo</span><span class="hist-stat-val" style="color:${cor}">${(fp.mediaGolsMarcados||0).toFixed(1)}</span></div>
+        <div class="hist-stat-row" style="flex:1;min-width:100px;"><span class="hist-stat-lbl">Sofre/jogo</span><span class="hist-stat-val" style="color:var(--red)">${(fp.mediaGolsSofridos||0).toFixed(1)}</span></div>
+        <div class="hist-stat-row" style="flex:1;min-width:100px;"><span class="hist-stat-lbl">Resp. após gol</span><span class="hist-stat-val" style="color:var(--pur)">${pctResp}%</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-size:10px;font-weight:700;color:${cor};margin-bottom:2px;">⚽ Gols marcados por período</div>
+          ${mkMiniBar(fp.golsMarcadosPorFaixa||Array(9).fill(0),cor)}
+          <div style="font-size:10px;color:${cor};margin-top:4px;">🔥 Janela quente: <strong>${janelaQ}</strong></div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--red);margin-bottom:2px;">🚨 Gols sofridos por período</div>
+          ${mkMiniBar(fp.golsSofridosPorFaixa||Array(9).fill(0),'var(--red)')}
+          <div style="font-size:10px;color:var(--red);margin-top:4px;">⚠️ Janela frágil: <strong>${janelaF}</strong></div>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  if(!DADOS)return;
+  const f=DADOS.fixture;
+  el.innerHTML=renderFP(FP_CASA,f.timeCasa.nome,'var(--acc)')+
+               '<hr style="border:none;border-top:1px solid var(--bd1);margin:12px 0;">'+
+               renderFP(FP_FORA,f.timeFora.nome,'var(--blu)');
+  gc('fpPanel').style.display='block';
 }
 
 // ═══ HELPERS ═══
