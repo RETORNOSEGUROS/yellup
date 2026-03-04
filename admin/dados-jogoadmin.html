@@ -124,6 +124,40 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .rel-aprendizado{background:rgba(79,150,244,.07);border:1px solid rgba(79,150,244,.2);border-radius:10px;padding:12px;margin-top:10px;}
 .rel-aprendizado-title{font-size:10px;font-weight:700;color:var(--blu);margin-bottom:6px;}
 .rel-aprendizado-txt{font-size:11px;color:var(--t2);line-height:1.5;}
+/* xG Timeline */
+.xg-wrap{background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:14px;}
+.xg-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.xg-title{font-size:11px;font-weight:700;color:var(--t1);}
+.xg-legenda{display:flex;gap:12px;}
+.xg-leg{display:flex;align-items:center;gap:5px;font-size:9px;color:var(--t3);}
+.xg-leg-dot{width:10px;height:3px;border-radius:2px;}
+.xg-summary{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-top:10px;}
+.xg-team-sum{display:flex;flex-direction:column;}
+.xg-team-val{font-family:'DM Mono',monospace;font-size:20px;font-weight:800;}
+.xg-team-sub{font-size:9px;color:var(--t3);margin-top:2px;}
+.xg-vs{font-size:11px;color:var(--t3);text-align:center;}
+.xg-diff{font-size:10px;padding:3px 8px;border-radius:6px;margin-top:4px;display:inline-block;}
+.xg-diff.over{background:var(--gdim);color:var(--grn);}
+.xg-diff.under{background:var(--rdim);color:var(--red);}
+.xg-diff.ok{background:var(--adim);color:var(--acc);}
+/* Sub impacto melhorado */
+.sub-card{background:var(--c3);border-radius:10px;padding:12px;margin-bottom:8px;border-left:3px solid var(--bd2);}
+.sub-card.melhora{border-left-color:var(--grn);}
+.sub-card.piora{border-left-color:var(--red);}
+.sub-card.neutro{border-left-color:var(--t3);}
+.sub-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.sub-min{font-family:'DM Mono',monospace;font-size:13px;font-weight:800;color:var(--pur);min-width:32px;}
+.sub-time{font-size:10px;font-weight:700;}
+.sub-placar{font-size:10px;color:var(--t3);margin-left:auto;}
+.sub-jogadores{display:flex;align-items:center;gap:8px;font-size:11px;margin-bottom:8px;}
+.sub-sai{color:var(--red);}
+.sub-entra{color:var(--grn);}
+.sub-arrow{color:var(--t3);}
+.sub-metricas{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.sub-metrica{background:var(--bg3);border-radius:6px;padding:5px 7px;text-align:center;}
+.sub-metrica-val{font-family:'DM Mono',monospace;font-size:13px;font-weight:700;}
+.sub-metrica-lbl{font-size:9px;color:var(--t3);margin-top:1px;}
+.sub-impacto{font-size:11px;margin-top:8px;padding:5px 8px;border-radius:6px;background:var(--bg3);}
 /* Linha do tempo preditiva */
 .pred-zone-legend{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--t3);margin-top:6px;}
 .pred-zone-box{width:14px;height:8px;border-radius:2px;background:rgba(157,110,255,.25);border:1px solid rgba(157,110,255,.4);}
@@ -634,6 +668,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
     <button class="algo-tab"    onclick="algoAba(this,'risco')">⚠️ Risco</button>
     <button class="algo-tab"    onclick="algoAba(this,'eficiencia')">📐 Ef.</button>
     <button class="algo-tab"    onclick="algoAba(this,'subs')">🔄 Subs</button>
+    <button class="algo-tab"    onclick="algoAba(this,'xgtimeline')">📉 xG</button>
   </div>
 
   <!-- PREVISÕES -->
@@ -749,7 +784,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 
   <!-- SUBSTITUIÇÕES -->
   <div class="algo-panel" id="ap-subs">
-    <div class="insight-list" id="subsEl"></div>
+    <div id="subsImpactoEl"></div>
+  </div>
+
+  <div class="algo-panel" id="ap-xgtimeline">
+    <div id="xgTimelineEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
   </div>
 
 </div>
@@ -1762,6 +1801,7 @@ function renderAlgo(){
   renderRisco();
   renderEficiencia();
   renderSubsAnalysis();
+  renderXGTimeline();
 }
 
 // ── HELPERS ANALÍTICOS ──
@@ -2733,6 +2773,266 @@ Placar no momento: ${sc[0]}–${sc[1]} (time ${contexto}). Momentum 5min antes: 
   });
 
   gc('subsEl').innerHTML=mkInsights(insights);
+}
+
+// ═══════════════════════════════════════════════════════
+// 📉 TIMELINE DE xG ACUMULADO
+// Gráfico próprio: xG por evento vs gols reais por minuto
+// ═══════════════════════════════════════════════════════
+function renderXGTimeline() {
+  const el = gc('xgTimelineEl');
+  if (!el || !DADOS) return;
+  const f   = DADOS.fixture;
+  const evs = DADOS.eventos;
+  const sts = DADOS.estatisticas || [];
+
+  // xG total atual da API
+  const xgC = parseFloat(getStat(sts, f.timeCasa.id, 'expected_goals')) || 0;
+  const xgF = parseFloat(getStat(sts, f.timeFora.id, 'expected_goals')) || 0;
+  const scC  = f.placar.casa ?? 0;
+  const scF  = f.placar.fora ?? 0;
+  const minAtual = f.status.elapsed || 90;
+
+  // Construir série temporal de xG por minuto usando eventos + snapshots
+  // xG chega acumulado na API — distribuímos linearmente entre snapshots
+  // e marcamos gols reais como degraus verticais
+  const W = 600, H = 130;
+  const maxMin = Math.max(minAtual, 90);
+  const toX = m => Math.round((m / maxMin) * (W - 20)) + 10;
+  const toY = (v, mx) => H - 10 - Math.round((v / (mx || 1)) * (H - 20));
+
+  // Série xG: interpolar entre snapshots
+  const ptsCasa = [], ptsFora = [];
+  if (SNAPSHOTS.length >= 2) {
+    SNAPSHOTS.forEach(s => {
+      ptsCasa.push({ m: s.minuto, v: s.xgCasa || 0 });
+      ptsFora.push({ m: s.minuto, v: s.xgFora || 0 });
+    });
+  } else {
+    // Sem snapshots: linha reta do xG total
+    ptsCasa.push({ m: 0, v: 0 }, { m: minAtual, v: xgC });
+    ptsFora.push({ m: 0, v: 0 }, { m: minAtual, v: xgF });
+  }
+
+  const maxXG = Math.max(...ptsCasa.map(p => p.v), ...ptsFora.map(p => p.v), xgC, xgF, 1);
+
+  // Gols reais como degraus (linha horizontal até o gol, degrau)
+  const golsC = evs.filter(e => e.tipo === 'Goal' && e.time.id === f.timeCasa.id).sort((a,b) => a.minuto - b.minuto);
+  const golsF = evs.filter(e => e.tipo === 'Goal' && e.time.id === f.timeFora.id).sort((a,b) => a.minuto - b.minuto);
+
+  const mkDegraus = (gols, cor) => {
+    if (!gols.length) return '';
+    let out = '', acum = 0;
+    const step = maxXG / (gols.length + 1) * 0.8;
+    gols.forEach((g, i) => {
+      const y0 = toY(acum, maxXG);
+      acum = (i + 1) * (maxXG / gols.length);
+      const y1 = toY(acum, maxXG);
+      const x  = toX(g.minuto || 0);
+      const x2 = i < gols.length - 1 ? toX(gols[i+1].minuto || minAtual) : toX(maxMin);
+      out += `<line x1="${toX(0)}" y1="${y0}" x2="${x}" y2="${y0}" stroke="${cor}" stroke-width="1.5" opacity=".5"/>`;
+      out += `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" stroke="${cor}" stroke-width="1.5" opacity=".5"/>`;
+      out += `<circle cx="${x}" cy="${y1}" r="4" fill="${cor}" opacity=".9"/>`;
+      out += `<text x="${x+5}" y="${y1-4}" fill="${cor}" font-size="9" font-family="DM Sans">⚽${g.minuto}'</text>`;
+    });
+    // linha final após último gol
+    const yFinal = toY(acum, maxXG);
+    out += `<line x1="${toX(gols[gols.length-1].minuto||0)}" y1="${yFinal}" x2="${toX(maxMin)}" y2="${yFinal}" stroke="${cor}" stroke-width="1.5" opacity=".4" stroke-dasharray="3,2"/>`;
+    return out;
+  };
+
+  const mkPolyXG = (pts, cor) => {
+    if (pts.length < 2) return '';
+    const d = pts.map(p => `${toX(p.m)},${toY(p.v, maxXG)}`).join(' ');
+    const area = `${toX(pts[0].m)},${H-10} ${d} ${toX(pts[pts.length-1].m)},${H-10}`;
+    return `<polygon points="${area}" fill="${cor}" opacity=".08"/>
+      <polyline points="${d}" fill="none" stroke="${cor}" stroke-width="2" stroke-linejoin="round"/>`;
+  };
+
+  // Grades de referência horizontais
+  const grades = [];
+  for (let v = 0.5; v <= maxXG; v += 0.5) {
+    const y = toY(v, maxXG);
+    grades.push(`<line x1="10" y1="${y}" x2="${W-10}" y2="${y}" stroke="var(--bd2)" stroke-width=".5" opacity=".5"/>`);
+    grades.push(`<text x="12" y="${y-2}" fill="var(--t3)" font-size="7" font-family="DM Mono">${v.toFixed(1)}</text>`);
+  }
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:8px;background:var(--bg3);">
+    ${grades.join('')}
+    <!-- xG acumulado -->
+    ${mkPolyXG(ptsCasa, 'var(--acc)')}
+    ${mkPolyXG(ptsFora, 'var(--blu)')}
+    <!-- Gols reais (degraus) -->
+    ${mkDegraus(golsC, 'var(--acc)')}
+    ${mkDegraus(golsF, 'var(--blu)')}
+    <!-- eixo X -->
+    ${[0,15,30,45,60,75,90].filter(m => m <= maxMin).map(m =>
+      `<text x="${toX(m)}" y="${H-1}" text-anchor="middle" fill="var(--t3)" font-size="8" font-family="DM Mono">${m}'</text>`
+    ).join('')}
+  </svg>`;
+
+  // Análise do gap xG vs gols
+  const diffC = +(scC - xgC).toFixed(2);
+  const diffF = +(scF - xgF).toFixed(2);
+  const mkDiff = (nome, sc, xg, diff, cor) => {
+    const cls = diff > 0.3 ? 'over' : diff < -0.3 ? 'under' : 'ok';
+    const txt = diff > 0.3 ? `+${diff.toFixed(2)} acima do xG (sorte ou qualidade acima da média)`
+              : diff < -0.3 ? `${diff.toFixed(2)} abaixo do xG (azar ou goleiro excepcional no adversário)`
+              : 'resultado alinhado com xG';
+    return `<div class="xg-team-sum">
+      <div class="xg-team-val" style="color:${cor}">${xg.toFixed(2)} <span style="font-size:12px;color:var(--t3)">xG</span></div>
+      <div class="xg-team-sub">${sc} gols marcados</div>
+      <span class="xg-diff ${cls}">${txt}</span>
+    </div>`;
+  };
+
+  // Momento do jogo com mais xG gerado (baseado em snapshots)
+  let momentoRico = '';
+  if (SNAPSHOTS.length >= 4) {
+    let maxDelta = 0, minPico = 0;
+    for (let i = 1; i < SNAPSHOTS.length; i++) {
+      const delta = ((SNAPSHOTS[i].xgCasa||0) - (SNAPSHOTS[i-1].xgCasa||0)) +
+                    ((SNAPSHOTS[i].xgFora||0)  - (SNAPSHOTS[i-1].xgFora||0));
+      if (delta > maxDelta) { maxDelta = delta; minPico = SNAPSHOTS[i].minuto; }
+    }
+    if (minPico) momentoRico = `<div style="font-size:11px;color:var(--t2);margin-top:10px;padding:7px 10px;background:var(--bg3);border-radius:7px;">
+      ⚡ Maior geração de xG registrada no minuto <strong>${minPico}'</strong> — momento de maior intensidade ofensiva do jogo.
+    </div>`;
+  }
+
+  el.innerHTML = `
+    <div class="xg-wrap">
+      <div class="xg-header">
+        <span class="xg-title">📉 xG Acumulado vs Gols Reais</span>
+        <div class="xg-legenda">
+          <div class="xg-leg"><div class="xg-leg-dot" style="background:var(--acc)"></div>${f.timeCasa.nome.split(' ')[0]} xG</div>
+          <div class="xg-leg"><div class="xg-leg-dot" style="background:var(--blu)"></div>${f.timeFora.nome.split(' ')[0]} xG</div>
+          <div class="xg-leg"><div class="xg-leg-dot" style="background:var(--acc);opacity:.5;height:2px;width:14px;border-top:2px dashed var(--acc)"></div>Gols</div>
+        </div>
+      </div>
+      ${svg}
+      <div class="xg-summary" style="margin-top:10px;">
+        ${mkDiff(f.timeCasa.nome, scC, xgC, diffC, 'var(--acc)')}
+        <div class="xg-vs">vs</div>
+        ${mkDiff(f.timeFora.nome, scF, xgF, diffF, 'var(--blu)')}
+      </div>
+      ${momentoRico}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════
+// 🔄 ANÁLISE DE SUBSTITUIÇÕES COM IMPACTO (versão melhorada)
+// Compara snapshots antes/depois de cada substituição
+// ═══════════════════════════════════════════════════════
+function renderSubsAnalysis() {
+  const el = gc('subsImpactoEl');
+  if (!el || !DADOS) return;
+  const f   = DADOS.fixture;
+  const evs = DADOS.eventos;
+  const subs = evs.filter(e => e.tipo === 'subst').sort((a,b) => (a.minuto||0) - (b.minuto||0));
+
+  if (!subs.length) {
+    el.innerHTML = '<div class="empty"><div class="ico">🔄</div><p>Sem substituições registradas</p></div>';
+    return;
+  }
+
+  const JANELA = 5; // minutos antes/depois para comparar
+
+  const cards = subs.map(s => {
+    const isCasa = s.time.id === f.timeCasa.id;
+    const nomTime = s.time.nome || (isCasa ? f.timeCasa.nome : f.timeFora.nome);
+    const sc = placarAteMin(evs, f, s.minuto || 0);
+    const diff = isCasa ? sc[0] - sc[1] : sc[1] - sc[0];
+    const placarStr = `${sc[0]}–${sc[1]}`;
+    const contexto = diff > 0 ? 'vencendo' : diff < 0 ? 'perdendo' : 'empatando';
+
+    // Momentum via eventos (sempre disponível)
+    const momAntes = momentum(evs, s.time.id, Math.max(0, (s.minuto||0) - JANELA), s.minuto||0);
+    const momApos  = momentum(evs, s.time.id, s.minuto||0, (s.minuto||0) + JANELA);
+    const deltaMom = momApos - momAntes;
+
+    // Snapshots antes/depois (nossos dados proprietários)
+    const snpAntes = SNAPSHOTS.filter(sn => sn.minuto >= (s.minuto||0) - JANELA && sn.minuto < (s.minuto||0));
+    const snpApos  = SNAPSHOTS.filter(sn => sn.minuto > (s.minuto||0) && sn.minuto <= (s.minuto||0) + JANELA);
+
+    let apDelta = null, posseDelta = null, hasSnap = false;
+    if (snpAntes.length && snpApos.length) {
+      hasSnap = true;
+      const apKey  = isCasa ? 'ataquesPerigososCasa' : 'ataquesPerigososFora';
+      const posKey = isCasa ? 'posseCasa' : 'posseFora';
+      const mediaAntes = arr => arr.reduce((a,sn) => a + (sn[apKey]||0), 0) / arr.length;
+      const mediaApos  = arr => arr.reduce((a,sn) => a + (sn[apKey]||0), 0) / arr.length;
+      const posAntes   = arr => arr.reduce((a,sn) => a + (sn[posKey]||50), 0) / arr.length;
+      const posApos    = arr => arr.reduce((a,sn) => a + (sn[posKey]||50), 0) / arr.length;
+      apDelta    = +(mediaApos(snpApos) - mediaAntes(snpAntes)).toFixed(1);
+      posseDelta = +(posApos(snpApos)  - posAntes(snpAntes)).toFixed(1);
+    }
+
+    // Classificação do impacto
+    const impactoScore = (deltaMom * 2) + (apDelta || 0);
+    const cls   = impactoScore > 1.5 ? 'melhora' : impactoScore < -1.5 ? 'piora' : 'neutro';
+    const emoji = cls === 'melhora' ? '⬆️' : cls === 'piora' ? '⬇️' : '➡️';
+    const impactoTxt = cls === 'melhora'
+      ? `Time melhorou após a troca — momentum +${deltaMom.toFixed(1)}${apDelta!==null?`, ataques perigosos ${apDelta>0?'+':''}${apDelta}`:''}.`
+      : cls === 'piora'
+      ? `Troca não surtiu efeito esperado — momentum ${deltaMom.toFixed(1)}${apDelta!==null?`, ataques perigosos ${apDelta>0?'+':''}${apDelta}`:''}.`
+      : `Impacto neutro — equilíbrio mantido após a substituição.`;
+
+    // Gol nos 10min após sub?
+    const golApos = evs.find(e =>
+      e.tipo === 'Goal' &&
+      (e.minuto||0) > (s.minuto||0) &&
+      (e.minuto||0) <= (s.minuto||0) + 10
+    );
+
+    return `<div class="sub-card ${cls}">
+      <div class="sub-header">
+        <span class="sub-min">${s.minuto}'</span>
+        <span class="sub-time" style="color:${isCasa?'var(--acc)':'var(--blu)'}">${nomTime}</span>
+        <span class="sub-placar">${placarStr} (${contexto})</span>
+      </div>
+      <div class="sub-jogadores">
+        <span class="sub-sai">⬇ ${s.assistente?.nome || '?'}</span>
+        <span class="sub-arrow">→</span>
+        <span class="sub-entra">⬆ ${s.jogador?.nome || '?'}</span>
+      </div>
+      <div class="sub-metricas">
+        <div class="sub-metrica">
+          <div class="sub-metrica-val" style="color:${deltaMom>0?'var(--grn)':deltaMom<0?'var(--red)':'var(--t2)'}">${deltaMom>=0?'+':''}${deltaMom.toFixed(1)}</div>
+          <div class="sub-metrica-lbl">Momentum</div>
+        </div>
+        ${apDelta!==null?`<div class="sub-metrica">
+          <div class="sub-metrica-val" style="color:${apDelta>0?'var(--grn)':apDelta<0?'var(--red)':'var(--t2)'}">${apDelta>=0?'+':''}${apDelta}</div>
+          <div class="sub-metrica-lbl">At. Perigosos</div>
+        </div>`:`<div class="sub-metrica">
+          <div class="sub-metrica-val" style="color:var(--t3)">—</div>
+          <div class="sub-metrica-lbl">At. Perigosos</div>
+        </div>`}
+        ${posseDelta!==null?`<div class="sub-metrica">
+          <div class="sub-metrica-val" style="color:${posseDelta>2?'var(--grn)':posseDelta<-2?'var(--red)':'var(--t2)'}">${posseDelta>=0?'+':''}${posseDelta}%</div>
+          <div class="sub-metrica-lbl">Posse</div>
+        </div>`:`<div class="sub-metrica">
+          <div class="sub-metrica-val" style="color:var(--t3)">—</div>
+          <div class="sub-metrica-lbl">Posse</div>
+        </div>`}
+      </div>
+      <div class="sub-impacto">${emoji} ${impactoTxt}${hasSnap?' <span style="font-size:9px;color:var(--t3)">(dados da série temporal própria)</span>':''}</div>
+      ${golApos?`<div style="margin-top:6px;font-size:11px;padding:5px 8px;border-radius:6px;background:var(--gdim);color:var(--grn);">⚽ Gol ${golApos.minuto}' nos 10 minutos após a substituição</div>`:''}
+    </div>`;
+  }).join('');
+
+  // Resumo final
+  const melhorou = subs.filter(s => {
+    const mom = momentum(evs, s.time.id, s.minuto||0, (s.minuto||0)+5);
+    const ant  = momentum(evs, s.time.id, Math.max(0,(s.minuto||0)-5), s.minuto||0);
+    return mom > ant + 0.5;
+  }).length;
+
+  const resumo = `<div style="font-size:11px;color:var(--t2);padding:8px 10px;background:var(--bg3);border-radius:8px;margin-top:4px;">
+    📊 ${subs.length} substituições — ${melhorou} melhoraram o time imediatamente · ${subs.length - melhorou} neutras/negativas
+  </div>`;
+
+  el.innerHTML = cards + resumo;
 }
 
 // ── HELPER: render insights ──
