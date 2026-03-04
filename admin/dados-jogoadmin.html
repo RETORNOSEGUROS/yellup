@@ -773,8 +773,9 @@ async function load(fId,dId){
 
     // Ao vivo: snapshot players a cada 2min + odds a cada 3min
     if(isLive){
-      setTimeout(()=>registrarSnapshotPlayers(parseInt(fixtureId)),5000);
-      setInterval(()=>registrarSnapshotPlayers(parseInt(fixtureId)),120000);
+      // Players snapshot — fire & forget (função pode ainda não estar deployed)
+      setTimeout(()=>registrarSnapshotPlayers(parseInt(fixtureId)).catch(()=>{}),8000);
+      setInterval(()=>registrarSnapshotPlayers(parseInt(fixtureId)).catch(()=>{}),120000);
       buscarOddsLiveLoop(parseInt(fixtureId));
     }
 
@@ -870,12 +871,34 @@ function errPage(m){
 // ═══ RENDER ALL ═══
 function renderAll(){
   renderHero();
+  atualizarScrubberLive(); // atualiza max sem resetar posição do usuário
   renderTimeline();
   renderMomentum();
   renderCampo();
   renderStats();
   renderJogadores();
   renderAlgo();
+}
+
+function atualizarScrubberLive(){
+  const f=DADOS?.fixture;
+  if(!f||gc('scrCard').style.display==='none')return;
+  const evs=DADOS.eventos||[];
+  const minAtual=f.status.elapsed||0;
+  if(!minAtual)return;
+  const novoMax=Math.max(...evs.map(e=>e.minuto||0),minAtual);
+  const inp=gc('scrInput');
+  const maxAtual=parseInt(inp.max)||90;
+  if(novoMax<=maxAtual)return; // nada novo
+  // Atualizar max
+  inp.max=novoMax;
+  gc('scrMaxLbl').textContent=novoMax+"'";
+  buildRangeMarks(novoMax);
+  // Se estava travado no live (scrMin===null), avançar junto
+  if(scrMin===null){
+    inp.value=novoMax;
+    updateScrDisplay(novoMax);
+  }
 }
 
 // ═══ HERO ═══
@@ -912,7 +935,7 @@ function renderHero(){
 function initScrubber(){
   const f=DADOS.fixture;
   const evs=DADOS.eventos;
-  if(!evs.length||f.placar.casa==null){return;}
+  if(!evs.length&&!(f.status.elapsed>0))return;
   const maxM=Math.max(...evs.map(e=>e.minuto||0),f.status.elapsed||90);
   const inp=gc('scrInput');
   inp.max=maxM; inp.value=maxM;
@@ -994,6 +1017,9 @@ function renderTimeline(maxMin=null){
 
   // iniciar scrubber na primeira chamada
   if(maxMin===null&&gc('scrCard').style.display==='none') initScrubber();
+  
+  // Guardar tlMode para evitar flickering visual
+  const modoAtual=tlMode;
 
   if(!evs.length){
     el.innerHTML='<div class="empty"><div class="ico">📋</div><p>Sem eventos registrados</p></div>';
@@ -1381,7 +1407,15 @@ const STAT_LABELS={
 function renderStats(){
   const sts=DADOS.estatisticas||[];
   const el=gc('statsEl');
-  if(sts.length<2){el.innerHTML='<div class="empty"><div class="ico">📊</div><p>Estatísticas não disponíveis para este jogo</p></div>';return;}
+  if(sts.length<2){
+    const temSnaps=SNAPSHOTS&&SNAPSHOTS.length>0;
+    el.innerHTML=`<div class="empty"><div class="ico">📊</div>
+      <p>Estatísticas ao vivo não disponíveis</p>
+      <p style="font-size:11px;color:var(--t3);margin-top:4px;">A API não fornece stats para esta liga/jogo.</p>
+      ${temSnaps?`<p style="font-size:11px;color:var(--grn);margin-top:4px;">✅ ${SNAPSHOTS.length} snapshots próprios gravados — veja Histórico.</p>`:''}
+    </div>`;
+    return;
+  }
   const casa=sts[0],fora=sts[1];
   gc('stNomeCasa').textContent=casa.time.nome;
   gc('stNomeFora').textContent=fora.time.nome;
@@ -2141,17 +2175,22 @@ function renderSnapshots(){
   const f=DADOS.fixture;
   gc('snapChart').style.display='block';
   gc('snapCount').textContent=SNAPSHOTS.length;
-  gc('snapNomeCasa').textContent=f.timeCasa.nome+' — Posse';
-  gc('snapNomeFora').textContent=f.timeFora.nome+' — Posse';
+
+  // Verificar se há dados reais de posse (API pode não ter stats para esta liga)
+  const temPosse=SNAPSHOTS.some(s=>(s.posseCasa||0)>0||(s.posseFora||0)>0);
+  gc('snapNomeCasa').textContent=temPosse?(f.timeCasa.nome+' — Posse'):'Sem dados de posse';
+  gc('snapNomeFora').textContent=temPosse?(f.timeFora.nome+' — Posse'):'';
 
   const W=600,H=120;
-  const maxMin=Math.max(...SNAPSHOTS.map(s=>s.minuto||0),90);
+  const minAtual=DADOS?.fixture?.status?.elapsed||0;
+  const maxMin=Math.max(...SNAPSHOTS.map(s=>s.minuto||0),minAtual>0?minAtual:90);
   const toX=m=>Math.round((m/maxMin)*(W-20))+10;
   const toY=(v,mn,mx)=>H-10-Math.round(((v-mn)/(mx-mn||1))*(H-20));
 
   // Dados para o SVG
-  const possC=SNAPSHOTS.map(s=>({m:s.minuto,v:s.posseCasa??50}));
-  const possF=SNAPSHOTS.map(s=>({m:s.minuto,v:s.posseFora??(100-(s.posseCasa??50))}));
+  const temPosse2=SNAPSHOTS.some(s=>(s.posseCasa||0)>0);
+  const possC=temPosse2?SNAPSHOTS.map(s=>({m:s.minuto,v:s.posseCasa??50})):[];
+  const possF=temPosse2?SNAPSHOTS.map(s=>({m:s.minuto,v:s.posseFora??(100-(s.posseCasa??50))})):[];
   const ataqPerig=SNAPSHOTS.map(s=>({m:s.minuto,v:s.ataquesPerigososCasa??0}));
   const maxAP=Math.max(...ataqPerig.map(s=>s.v),1);
 
@@ -2523,8 +2562,20 @@ async function buscarPredictionsContexto(fixtureId, casaId, foraId){
     if(rC.data?.sucesso) CONTEXTO=rC.data.dados;
     renderPredictions();
     renderContexto();
+    // Esconder loading se ao menos um dado chegou
+    if(PREDICTIONS||CONTEXTO){
+      const emp=gc('mercadoEmpty');
+      if(emp) emp.style.display='none';
+    } else {
+      const emp=gc('mercadoEmpty');
+      if(emp) emp.textContent='Dados de mercado não disponíveis para este jogo.';
+    }
     renderAlgo(); // re-render com predictions disponíveis
-  }catch(e){console.warn('predictionsContexto:',e.message);}
+  }catch(e){
+    console.warn('predictionsContexto:',e.message);
+    const emp=gc('mercadoEmpty');
+    if(emp) emp.textContent='Dados de mercado não disponíveis para este jogo.';
+  }
 }
 
 // ═══ ODDS AO VIVO ═══
@@ -2538,7 +2589,10 @@ async function buscarOddsLiveLoop(fixtureId){
         renderOdds();
         renderAlgo(); // re-render com odds disponíveis
       }
-    }catch(e){console.warn('oddsLive:',e.message);}
+    }catch(e){
+    console.warn('oddsLive:',e.message);
+    // Odds indisponíveis é normal para muitos jogos — não bloqueia UI
+  }
   };
   buscar(); // imediato
   oddsTimer=setInterval(buscar,180000); // a cada 3min
@@ -2634,7 +2688,16 @@ function calcAlgoPct(lado){
 // ═══ RENDER ODDS ═══
 function renderOdds(){
   const el=gc('oddsLiveEl');
-  if(!el||!ODDS_LIVE||!DADOS)return;
+  if(!el||!DADOS)return;
+  if(!ODDS_LIVE){
+    // Odds não disponíveis para esta liga/jogo
+    const panel=gc('oddsLivePanel');
+    if(panel){
+      panel.style.display='block';
+      el.innerHTML='<p style="font-size:11px;color:var(--t3);padding:8px 0;">Odds ao vivo não disponíveis para este jogo.</p>';
+    }
+    return;
+  }
   const o=ODDS_LIVE;
   const f=DADOS.fixture;
 
