@@ -789,37 +789,69 @@ async function registrarSnapshot(fixtureId,docId){
     const minuto=f.status.elapsed||0;
     if(!minuto)return;
     const fn=fns.httpsCallable('registrarSnapshotLive');
-    const r=await fn({
-      fixtureId:parseInt(fixtureId),
+    // ── Snapshot local: sempre gravar independente da CF ──
+    const sts=DADOS.estatisticas||[];
+    const getSL=(tid,key)=>{
+      const t=sts.find(t=>t.time.id===tid);
+      if(!t)return null;
+      const v=t.stats?.[key];
+      return v!=null?parseFloat(String(v).replace('%','').trim())||null:null;
+    };
+    const snapLocal={
       minuto,
-      estatisticas:DADOS.estatisticas||[],
-      timeCasaId:f.timeCasa.id,
-      timeForaId:f.timeFora.id
-    });
-    if(r.data.sucesso){
-      // Montar snapshot local com os dados atuais
-      const sts=DADOS.estatisticas||[];
-      const getSL=(tid,key)=>{const t=sts.find(t=>t.time.id===tid);if(!t)return null;const v=t.stats?.[key];return v!=null?parseFloat(String(v).replace('%','')):null;};
-      const snap={
-        minuto,
-        posseCasa: getSL(f.timeCasa.id,'Ball Possession')||50,
-        posseFora: getSL(f.timeFora.id,'Ball Possession')||50,
-        ataquesPerigososCasa: getSL(f.timeCasa.id,'Dangerous Attacks')||0,
-        ataquesPerigososFora: getSL(f.timeFora.id,'Dangerous Attacks')||0,
-        chutesAlvoCasa: getSL(f.timeCasa.id,'Shots on Goal')||0,
-        chutesAlvoFora: getSL(f.timeFora.id,'Shots on Goal')||0,
-        escanteiosCasa: getSL(f.timeCasa.id,'Corner Kicks')||0,
-        escanteiosFora: getSL(f.timeFora.id,'Corner Kicks')||0,
-        xgCasa: getSL(f.timeCasa.id,'expected_goals')||0,
-        xgFora: getSL(f.timeFora.id,'expected_goals')||0,
-      };
-      // evitar duplicatas
-      if(!SNAPSHOTS.find(s=>s.minuto===minuto)) SNAPSHOTS.push(snap);
+      posseCasa:           getSL(f.timeCasa.id,'Ball Possession'),  // null se indisponível
+      posseFora:           getSL(f.timeFora.id,'Ball Possession'),
+      ataquesPerigososCasa:getSL(f.timeCasa.id,'Dangerous Attacks')??0,
+      ataquesPerigososFora:getSL(f.timeFora.id,'Dangerous Attacks')??0,
+      chutesAlvoCasa:      getSL(f.timeCasa.id,'Shots on Goal')??0,
+      chutesAlvoFora:      getSL(f.timeFora.id,'Shots on Goal')??0,
+      escanteiosCasa:      getSL(f.timeCasa.id,'Corner Kicks')??0,
+      escanteiosFora:      getSL(f.timeFora.id,'Corner Kicks')??0,
+      xgCasa:              getSL(f.timeCasa.id,'expected_goals')??0,
+      xgFora:              getSL(f.timeFora.id,'expected_goals')??0,
+      ataquesCasa:         getSL(f.timeCasa.id,'Attacks')??0,
+      faltasCasa:          getSL(f.timeCasa.id,'Fouls')??0,
+    };
+    // Adicionar localmente (evitar duplicata)
+    if(!SNAPSHOTS.find(s=>s.minuto===minuto)){
+      SNAPSHOTS.push(snapLocal);
       SNAPSHOTS.sort((a,b)=>(a.minuto||0)-(b.minuto||0));
       renderSnapshots();
       gc('snapCount').textContent=SNAPSHOTS.length;
     }
-  }catch(e){ console.warn('Snapshot falhou:',e.message); }
+    // Tentar gravar no Firestore em background (silencioso se falhar)
+    fn({
+      fixtureId:parseInt(fixtureId),
+      minuto,
+      estatisticas:sts,
+      timeCasaId:f.timeCasa.id,
+      timeForaId:f.timeFora.id
+    }).catch(e=>console.warn('CF snapshot:',e.message));
+  }catch(e){ console.warn('Snapshot local falhou:',e.message); }
+}
+
+function normalizarSnapshot(s){
+  // Cloud Function grava formato aninhado: s.posse.casa
+  // HTML usa formato flat: s.posseCasa
+  // Esta função converte ambos os formatos para flat
+  if(s.posseCasa!==undefined) return s; // já está flat
+  return {
+    minuto:              s.minuto||0,
+    posseCasa:           s.posse?.casa ?? s.posseCasa ?? null, // null = sem dado real
+    posseFora:           s.posse?.fora ?? s.posseFora ?? null,
+    ataquesPerigososCasa:s.ataquePerigoso?.casa ?? (s.ataquesPerigososCasa??0),
+    ataquesPerigososFora:s.ataquePerigoso?.fora ?? (s.ataquesPerigososFora??0),
+    chutesAlvoCasa:      s.chutesAlvo?.casa ?? (s.chutesAlvoCasa??0),
+    chutesAlvoFora:      s.chutesAlvo?.fora ?? (s.chutesAlvoFora??0),
+    escanteiosCasa:      s.escanteios?.casa ?? (s.escanteiosCasa??0),
+    escanteiosFora:      s.escanteios?.fora ?? (s.escanteiosFora??0),
+    xgCasa:              s.xg?.casa ?? (s.xgCasa??0),
+    xgFora:              s.xg?.fora ?? (s.xgFora??0),
+    ataquesCasa:         s.ataques?.casa ?? 0,
+    ataquesFora:         s.ataques?.fora ?? 0,
+    faltasCasa:          s.faltas?.casa ?? 0,
+    faltasFora:          s.faltas?.fora ?? 0,
+  };
 }
 
 async function carregarSnapshots(fixtureId){
@@ -827,7 +859,7 @@ async function carregarSnapshots(fixtureId){
     const fn=fns.httpsCallable('buscarSnapshotsPartida');
     const r=await fn({fixtureId:parseInt(fixtureId)});
     if(r.data.sucesso){
-      SNAPSHOTS=r.data.snapshots||[];
+      SNAPSHOTS=(r.data.snapshots||[]).map(normalizarSnapshot);
       if(SNAPSHOTS.length){
         gc('snapChart').style.display='block';
         renderSnapshots();
@@ -2238,10 +2270,10 @@ function renderSnapshots(){
   const last=SNAPSHOTS[SNAPSHOTS.length-1];
   if(last){
     const campos=[
-      {l:'Posse Casa',v:(last.posseCasa??'—')+(last.posseCasa!=null?'%':''),c:'var(--acc)'},
-      {l:'Posse Fora',v:(last.posseFora??'—')+(last.posseFora!=null?'%':''),c:'var(--blu)'},
-      {l:'Chutes a Gol C',v:last.chutesGolCasa??'—',c:'var(--acc)'},
-      {l:'Chutes a Gol F',v:last.chutesGolFora??'—',c:'var(--blu)'},
+      {l:'Posse Casa',v:last.posseCasa!=null?last.posseCasa+'%':'—',c:'var(--acc)'},
+      {l:'Posse Fora',v:last.posseFora!=null?last.posseFora+'%':'—',c:'var(--blu)'},
+      {l:'Chutes a Gol C',v:last.chutesAlvoCasa??'—',c:'var(--acc)'},
+      {l:'Chutes a Gol F',v:last.chutesAlvoFora??'—',c:'var(--blu)'},
       {l:'At. Perigosos C',v:last.ataquesPerigososCasa??'—',c:'var(--red)'},
       {l:'At. Perigosos F',v:last.ataquesPerigososFora??'—',c:'var(--red)'},
       {l:'Escanteios C',v:last.escanteiosCasa??'—',c:'var(--t2)'},
