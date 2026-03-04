@@ -303,7 +303,10 @@ select:focus{border-color:var(--acc);}
             <button class="dn-btn" onclick="mudaData(1)">›</button>
           </div>
           <button class="btn-sm" onclick="toggleAmanha()">+amanhã</button>
+          <button class="btn-sm" id="syncBtn" onclick="toggleSync()" style="color:var(--grn);border-color:var(--grn);">🔄 Sync ON</button>
+          <button class="btn-acc" onclick="sincronizarComAPI(false)" style="background:var(--blu)">⚡ Sincronizar</button>
           <button class="btn-sm" onclick="buscarAPI()">↺</button>
+          <span id="syncAgo" style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;white-space:nowrap;"></span>
         </div>
       </div>
 
@@ -492,14 +495,83 @@ let todasLigasCache=[];  // cache de ligas para busca
 let incluirAmanha=false;
 let statusAtual='agendado';
 let sponsAtual=[];       // patrocinadores do jogo em edição
+let autoSyncTimer=null;  // timer de auto-sync
+let lastSyncAt=null;     // timestamp do último sync
+let syncAtivo=true;      // auto-sync ligado/desligado
 
 // ─── INIT ───
 async function init(){
-  // definir data de hoje no input
   const hoje=new Date().toISOString().split('T')[0];
   gc('dataApi').value=hoje;
   await Promise.all([carregarAdmin(), carregarTimesCache(), carregarLigasCache()]);
-  buscarAPI();
+  await buscarAPI();
+  iniciarAutoSync();
+}
+
+// ─── AUTO-SYNC ───
+function iniciarAutoSync(){
+  pararAutoSync();
+  autoSyncTimer=setInterval(async()=>{
+    if(!syncAtivo)return;
+    const temAoVivo=admJogos.some(j=>j.status==='ao_vivo');
+    const temAgendadoProximo=admJogos.some(j=>{
+      if(j.status!=='agendado'||!j.dataInicio)return false;
+      const dt=j.dataInicio.toDate?.()?.getTime()||new Date(j.dataInicio).getTime();
+      return dt - Date.now() < 30*60*1000; // começa em menos de 30min
+    });
+    if(temAoVivo||temAgendadoProximo){
+      await sincronizarComAPI(true); // silencioso
+    }
+  }, 60000); // a cada 60s
+  atuSyncUI();
+}
+
+function pararAutoSync(){
+  if(autoSyncTimer)clearInterval(autoSyncTimer);
+  autoSyncTimer=null;
+}
+
+function toggleSync(){
+  syncAtivo=!syncAtivo;
+  atuSyncUI();
+  toast(syncAtivo?'🔄 Auto-sync ativado':'⏸ Auto-sync pausado', syncAtivo?'ok':'');
+}
+
+function atuSyncUI(){
+  const btn=gc('syncBtn');
+  if(!btn)return;
+  btn.textContent=syncAtivo?'🔄 Sync ON':'⏸ Sync OFF';
+  btn.style.color=syncAtivo?'var(--grn)':'var(--t3)';
+  btn.style.borderColor=syncAtivo?'var(--grn)':'var(--bd2)';
+  if(lastSyncAt){
+    const ago=Math.round((Date.now()-lastSyncAt)/1000);
+    gc('syncAgo').textContent=ago<60?ago+'s atrás':Math.floor(ago/60)+'min atrás';
+  }
+}
+
+// ─── SINCRONIZAR COM API (compara e atualiza Firestore) ───
+async function sincronizarComAPI(silencioso=false){
+  const data=gc('dataApi').value;
+  if(!data)return;
+  const btn=gc('syncBtn');
+  if(!silencioso&&btn){btn.textContent='⏳ Sincronizando...';}
+  try{
+    const fn2=fns.httpsCallable('buscarJogosData');
+    const r=await fn2({data:data, amanha:incluirAmanha});
+    const jogosApi=r.data.jogos||[];
+    // atualizar apiJogos com dados frescos e re-renderizar
+    apiJogos=jogosApi;
+    renderAPI();
+    lastSyncAt=Date.now();
+    const atualizados=await _syncAdmComApiJogos(jogosApi, false);
+    if(!silencioso) toast(`✓ Sincronizado — ${atualizados} atualização(ões)`,'ok');
+    else if(atualizados===0) toast('✓ Tudo atualizado','ok');
+  }catch(e){
+    if(!silencioso)toast('Erro sync: '+e.message,'err');
+    console.error('Sync error:',e);
+  }finally{
+    atuSyncUI();
+  }
 }
 
 // ─── CARREGAR ADMIN ───
@@ -544,16 +616,56 @@ async function buscarAPI(){
   gc('apiBody').innerHTML='<div class="empty"><div class="ld"></div><p>Buscando jogos...</p></div>';
   selApi.clear(); atuSelBar();
   try{
-    const fn=fns.httpsCallable('buscarJogosData');
-    const r=await fn({data:data, amanha:incluirAmanha});
+    const fn2=fns.httpsCallable('buscarJogosData');
+    const r=await fn2({data:data, amanha:incluirAmanha});
     apiJogos=r.data.jogos||[];
     populaFiltrosPais();
     renderAPI();
+    lastSyncAt=Date.now();
+    atuSyncUI();
+    // sincronizar automaticamente jogos já adicionados
+    await _syncAdmComApiJogos(apiJogos, false);
     toast(`✓ ${apiJogos.length} jogos encontrados`,'ok');
   }catch(e){
     gc('apiBody').innerHTML=`<div class="empty"><div class="ico">⚠️</div><p>Erro na API</p><small>${e.message}</small></div>`;
     toast('Erro API: '+e.message,'err');
   }
+}
+
+// Sincroniza admJogos com uma lista de jogos da API já carregada
+async function _syncAdmComApiJogos(jogosApi, silencioso=true){
+  const batch=db.batch();
+  let atualizados=0;
+  const atuLocal=[];
+
+  for(const adm of admJogos){
+    if(!adm.apiFixtureId)continue;
+    const api=jogosApi.find(j=>String(j.id)===String(adm.apiFixtureId));
+    if(!api)continue;
+    const novoStatus=mapStatus(api.statusCode);
+    const novoCasa=api.placar.casa;
+    const novaFora=api.placar.fora;
+    const novoMin=api.minutos||null;
+    const mudou=novoStatus!==adm.status||novoCasa!==adm.placarCasa||novaFora!==adm.placarFora;
+    if(mudou){
+      const ref=db.collection('jogos-admin').doc(adm._id);
+      const upd={status:novoStatus,placarCasa:novoCasa,placarFora:novaFora,minuto:novoMin,atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()};
+      batch.update(ref,upd);
+      atuLocal.push({id:adm._id,...upd});
+      atualizados++;
+    }
+  }
+  if(atualizados>0){
+    await batch.commit();
+    atuLocal.forEach(u=>{
+      const j=admJogos.find(t=>t._id===u.id);
+      if(j){j.status=u.status;j.placarCasa=u.placarCasa;j.placarFora=u.placarFora;j.minuto=u.minuto;}
+    });
+    atuStats(); renderAdmin();
+    if(!silencioso) toast(`🔄 ${atualizados} jogo(s) atualizado(s)`,'ok');
+    else toast(`🔄 Sync: ${atualizados} atualização(ões) automática(s)`,'ok');
+  }
+  return atualizados;
 }
 
 function toggleAmanha(){
