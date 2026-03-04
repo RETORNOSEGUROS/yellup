@@ -124,6 +124,35 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .rel-aprendizado{background:rgba(79,150,244,.07);border:1px solid rgba(79,150,244,.2);border-radius:10px;padding:12px;margin-top:10px;}
 .rel-aprendizado-title{font-size:10px;font-weight:700;color:var(--blu);margin-bottom:6px;}
 .rel-aprendizado-txt{font-size:11px;color:var(--t2);line-height:1.5;}
+/* Radar */
+.radar-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:14px;}
+.radar-labels{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+.radar-leg{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--t2);}
+.radar-leg-dot{width:10px;height:10px;border-radius:50%;}
+.radar-dims{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;width:100%;margin-top:6px;}
+.radar-dim{background:var(--bg3);border-radius:7px;padding:6px 8px;text-align:center;}
+.radar-dim-lbl{font-size:9px;color:var(--t3);margin-bottom:4px;}
+.radar-dim-bars{display:flex;gap:3px;align-items:flex-end;height:20px;}
+.radar-dim-bar{flex:1;border-radius:2px 2px 0 0;min-height:2px;transition:height .5s;}
+.radar-dim-vals{display:flex;justify-content:space-between;font-size:9px;font-family:'DM Mono',monospace;margin-top:2px;}
+/* Tracker cartão */
+.cartao-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.cartao-team{background:var(--c3);border-radius:10px;padding:12px;}
+.cartao-team-nome{font-size:11px;font-weight:700;margin-bottom:8px;}
+.cartao-jogador{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd2);}
+.cartao-jogador:last-child{border-bottom:none;}
+.cartao-risco{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.cartao-risco.alto{background:var(--red);}
+.cartao-risco.medio{background:var(--acc);}
+.cartao-risco.baixo{background:var(--grn);}
+.cartao-nome{font-size:11px;flex:1;}
+.cartao-badges{display:flex;gap:4px;align-items:center;}
+.cartao-badge{font-size:10px;padding:2px 6px;border-radius:4px;}
+.cartao-badge.amarelo{background:rgba(245,213,36,.2);color:#f5d524;border:1px solid rgba(245,213,36,.3);}
+.cartao-badge.falta{background:var(--bg3);color:var(--t3);}
+.cartao-badge.risco{background:var(--rdim);color:var(--red);font-weight:700;}
+.cartao-empty{font-size:11px;color:var(--t3);text-align:center;padding:12px 0;}
+.cartao-alerta{background:var(--rdim);border:1px solid rgba(255,77,77,.3);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:var(--red);}
 /* Fingerprint Comparador */
 .fp-comp-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
 .fp-team-card{background:var(--c3);border-radius:10px;padding:12px;}
@@ -702,6 +731,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
     <button class="algo-tab"    onclick="algoAba(this,'xgtimeline')">📉 xG</button>
     <button class="algo-tab"    onclick="algoAba(this,'fingerprint')">🧠 Banco</button>
     <button class="algo-tab"    onclick="algoAba(this,'halvs')">⏱️ 1T/2T</button>
+    <button class="algo-tab"    onclick="algoAba(this,'radar')">🕸️ Radar</button>
+    <button class="algo-tab"    onclick="algoAba(this,'cartoes')">🟨 Cartões</button>
   </div>
 
   <!-- PREVISÕES -->
@@ -830,6 +861,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 
   <div class="algo-panel" id="ap-halvs">
     <div id="halvsEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
+  </div>
+
+  <div class="algo-panel" id="ap-radar">
+    <div id="radarEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
+  </div>
+
+  <div class="algo-panel" id="ap-cartoes">
+    <div id="cartoesEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
   </div>
 
 </div>
@@ -1845,6 +1884,8 @@ function renderAlgo(){
   renderXGTimeline();
   renderFingerprint();
   renderHalvs();
+  renderRadar();
+  renderCartoes();
 }
 
 // ── HELPERS ANALÍTICOS ──
@@ -3405,6 +3446,285 @@ function renderHalvs() {
     </div>
     <div class="halv-conclusao">
       ${conclusoes.map(c => `• ${c}`).join('<br>')}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════
+// 🕸️ RADAR DE COMPARAÇÃO (Spider Chart SVG)
+// 6 dimensões táticas dos dois times em gráfico aranha
+// ═══════════════════════════════════════════════════════
+function renderRadar() {
+  const el = gc('radarEl');
+  if (!el || !DADOS) return;
+  const f   = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+  const evs = DADOS.eventos;
+  const min = Math.max(f.status.elapsed || 0, 1);
+
+  if (!sts.length) {
+    el.innerHTML = '<div class="empty"><div class="ico">🕸️</div><p>Sem estatísticas para gerar radar</p></div>';
+    return;
+  }
+
+  const gs  = (id, k) => getStat(sts, id, k) || 0;
+  const idC = f.timeCasa.id, idF = f.timeFora.id;
+
+  // 6 dimensões — cada uma normalizada 0-100
+  const dims = [
+    {
+      label: 'Ataque',
+      vC: Math.min(100, Math.round((gs(idC,'Shots on Goal')*3 + gs(idC,'Dangerous Attacks')*0.8))),
+      vF: Math.min(100, Math.round((gs(idF,'Shots on Goal')*3 + gs(idF,'Dangerous Attacks')*0.8))),
+    },
+    {
+      label: 'Posse',
+      vC: gs(idC,'Ball Possession') || 50,
+      vF: gs(idF,'Ball Possession') || 50,
+    },
+    {
+      label: 'Precisão',
+      vC: (() => { const p=gs(idC,'Total passes'); return p>0?Math.round(gs(idC,'Passes accurate')/p*100):50; })(),
+      vF: (() => { const p=gs(idF,'Total passes'); return p>0?Math.round(gs(idF,'Passes accurate')/p*100):50; })(),
+    },
+    {
+      label: 'Pressing',
+      vC: Math.min(100, Math.round(momentum(evs, idC, 0, min) * 8)),
+      vF: Math.min(100, Math.round(momentum(evs, idF, 0, min) * 8)),
+    },
+    {
+      label: 'xG Qualidade',
+      vC: Math.min(100, Math.round(parseFloat(gs(idC,'expected_goals')||0) * 30)),
+      vF: Math.min(100, Math.round(parseFloat(gs(idF,'expected_goals')||0) * 30)),
+    },
+    {
+      label: 'Eficiência',
+      vC: (() => { const s=gs(idC,'Shots on Goal'); return s>0?Math.min(100,Math.round((f.placar.casa??0)/s*100*2)):20; })(),
+      vF: (() => { const s=gs(idF,'Shots on Goal'); return s>0?Math.min(100,Math.round((f.placar.fora??0)/s*100*2)):20; })(),
+    },
+  ];
+
+  // ── SVG do radar ──
+  const CX=160, CY=160, R=120, N=dims.length;
+  const angle = i => (Math.PI*2/N)*i - Math.PI/2;
+  const pt    = (r, i) => [CX + r*Math.cos(angle(i)), CY + r*Math.sin(angle(i))];
+
+  // Grades concêntricas
+  const gradesSVG = [0.25,0.5,0.75,1].map(frac => {
+    const pts = dims.map((_,i) => pt(R*frac, i));
+    return `<polygon points="${pts.map(p=>p.join(',')).join(' ')}" fill="none" stroke="var(--bd2)" stroke-width="${frac===1?1:.5}" opacity=".6"/>`;
+  }).join('');
+
+  // Eixos
+  const eixosSVG = dims.map((_,i) => {
+    const [x,y] = pt(R, i);
+    return `<line x1="${CX}" y1="${CY}" x2="${x}" y2="${y}" stroke="var(--bd2)" stroke-width=".5" opacity=".5"/>`;
+  }).join('');
+
+  // Labels
+  const labelsSVG = dims.map((d,i) => {
+    const [x,y] = pt(R+18, i);
+    const anchor = x < CX-5 ? 'end' : x > CX+5 ? 'start' : 'middle';
+    return `<text x="${x.toFixed(1)}" y="${(y+4).toFixed(1)}" text-anchor="${anchor}" fill="var(--t2)" font-size="11" font-family="DM Sans" font-weight="600">${d.label}</text>`;
+  }).join('');
+
+  // Polígono casa
+  const ptsCasa = dims.map((d,i) => pt(R*(d.vC/100), i));
+  const polyCasa = `<polygon points="${ptsCasa.map(p=>p.join(',')).join(' ')}" fill="rgba(245,165,36,.15)" stroke="var(--acc)" stroke-width="2" stroke-linejoin="round"/>`;
+  const dotsCasa = ptsCasa.map(([x,y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="var(--acc)"/>`).join('');
+
+  // Polígono fora
+  const ptsFora = dims.map((d,i) => pt(R*(d.vF/100), i));
+  const polyFora = `<polygon points="${ptsFora.map(p=>p.join(',')).join(' ')}" fill="rgba(79,150,244,.12)" stroke="var(--blu)" stroke-width="2" stroke-linejoin="round"/>`;
+  const dotsFora = ptsFora.map(([x,y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="var(--blu)"/>`).join('');
+
+  // Valores no centro para referência 25/50/75/100
+  const refLabels = [0.25,0.5,0.75,1].map(f => {
+    const [x,y] = pt(R*f, 0);
+    return `<text x="${(x+4).toFixed(1)}" y="${(y).toFixed(1)}" fill="var(--t3)" font-size="7" font-family="DM Mono">${Math.round(f*100)}</text>`;
+  }).join('');
+
+  const svgSize = (CX + R + 30) * 2;
+  const svg = `<svg viewBox="0 0 ${svgSize} ${svgSize}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:360px;">
+    ${gradesSVG}${eixosSVG}${refLabels}${labelsSVG}
+    ${polyCasa}${dotsCasa}
+    ${polyFora}${dotsFora}
+  </svg>`;
+
+  // Mini tabela de valores por dimensão
+  const dimsHtml = dims.map(d => {
+    const vencC = d.vC > d.vF;
+    const vencF = d.vF > d.vC;
+    const hMax = 20;
+    return `<div class="radar-dim">
+      <div class="radar-dim-lbl">${d.label}</div>
+      <div class="radar-dim-bars">
+        <div class="radar-dim-bar" style="height:${Math.max(2,Math.round(d.vC/100*hMax))}px;background:${vencC?'var(--acc)':'rgba(245,165,36,.3)'}"></div>
+        <div class="radar-dim-bar" style="height:${Math.max(2,Math.round(d.vF/100*hMax))}px;background:${vencF?'var(--blu)':'rgba(79,150,244,.3)'}"></div>
+      </div>
+      <div class="radar-dim-vals">
+        <span style="color:${vencC?'var(--acc)':'var(--t3)'}">${d.vC}</span>
+        <span style="color:${vencF?'var(--blu)':'var(--t3)'}">${d.vF}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Score global (média ponderada)
+  const pesoAtaque=2, pesoPosse=1, pesoPrecisao=1, pesoPressing=1.5, pesoXG=2, pesoEfic=2;
+  const totalPeso = pesoAtaque+pesoPosse+pesoPrecisao+pesoPressing+pesoXG+pesoEfic;
+  const scoreC = Math.round((dims[0].vC*pesoAtaque+dims[1].vC*pesoPosse+dims[2].vC*pesoPrecisao+dims[3].vC*pesoPressing+dims[4].vC*pesoXG+dims[5].vC*pesoEfic)/totalPeso);
+  const scoreF = Math.round((dims[0].vF*pesoAtaque+dims[1].vF*pesoPosse+dims[2].vF*pesoPrecisao+dims[3].vF*pesoPressing+dims[4].vF*pesoXG+dims[5].vF*pesoEfic)/totalPeso);
+
+  el.innerHTML = `
+    <div class="radar-wrap">
+      ${svg}
+      <div class="radar-labels">
+        <div class="radar-leg"><div class="radar-leg-dot" style="background:var(--acc)"></div>${f.timeCasa.nome} <strong style="color:var(--acc);margin-left:4px;">${scoreC}</strong></div>
+        <div class="radar-leg"><div class="radar-leg-dot" style="background:var(--blu)"></div>${f.timeFora.nome} <strong style="color:var(--blu);margin-left:4px;">${scoreF}</strong></div>
+      </div>
+    </div>
+    <div class="radar-dims">${dimsHtml}</div>
+    <div style="font-size:10px;color:var(--t3);margin-top:8px;text-align:center;">Score geral ponderado: ${f.timeCasa.nome} <strong style="color:var(--acc)">${scoreC}/100</strong> · ${f.timeFora.nome} <strong style="color:var(--blu)">${scoreF}/100</strong></div>`;
+}
+
+// ═══════════════════════════════════════════════════════
+// 🟨 TRACKER DE CARTÃO AMARELO
+// Quem está perto do segundo amarelo — risco por jogador
+// ═══════════════════════════════════════════════════════
+function renderCartoes() {
+  const el = gc('cartoesEl');
+  if (!el || !DADOS) return;
+  const f   = DADOS.fixture;
+  const evs = DADOS.eventos;
+  const sts = DADOS.estatisticas || [];
+  const min = f.status.elapsed || 0;
+
+  // Coletar todos os eventos de cartão por jogador
+  const cartoes = evs.filter(e => e.tipo === 'Card');
+  const faltas  = {};  // falta por time para risco difuso
+
+  const foulsC = getStat(sts, f.timeCasa.id, 'Fouls') || 0;
+  const foulsF = getStat(sts, f.timeFora.id, 'Fouls') || 0;
+
+  // Agrupar cartões por jogador
+  const porJogador = {};
+  cartoes.forEach(c => {
+    const id  = c.jogadorId || c.jogador || 'desconhecido';
+    const nom = c.jogador || 'Desconhecido';
+    if (!porJogador[id]) {
+      porJogador[id] = {
+        nome: nom, timeId: c.time?.id, timeNome: c.time?.nome,
+        amarelos: 0, vermelhos: 0, minutos: []
+      };
+    }
+    if (c.detalhe === 'Yellow Card')      porJogador[id].amarelos++;
+    if (c.detalhe === 'Red Card' ||
+        c.detalhe === 'Second Yellow card') porJogador[id].vermelhos++;
+    porJogador[id].minutos.push(c.minuto || 0);
+  });
+
+  const jogadores = Object.values(porJogador);
+
+  // Jogadores com amarelo (risco de segundo)
+  const emRisco = jogadores.filter(j => j.amarelos >= 1 && j.vermelhos === 0);
+  const expulsos = jogadores.filter(j => j.vermelhos >= 1);
+
+  // Calcular nível de risco por fator: minuto + faltas do time + contexto
+  const calcRisco = (j) => {
+    let score = j.amarelos * 40; // base: 40pts por amarelo
+    // Quanto mais tarde no jogo, mais fácil levar segundo
+    if (min >= 70) score += 20;
+    else if (min >= 55) score += 10;
+    // Time com muitas faltas = mais chance de cometer outra
+    const foulTime = j.timeId === f.timeCasa.id ? foulsC : foulsF;
+    if (foulTime >= 12) score += 15;
+    else if (foulTime >= 8)  score += 8;
+    // Amarelo no 2T tem mais peso (árbitro já está de olho)
+    if (j.minutos.some(m => m > 45)) score += 10;
+    return Math.min(99, score);
+  };
+
+  // Montar lista por time
+  const mkJogadores = (timeId, timeNome, cor) => {
+    const lista = emRisco.filter(j => j.timeId === timeId)
+      .map(j => ({ ...j, risco: calcRisco(j) }))
+      .sort((a,b) => b.risco - a.risco);
+
+    const expListaTime = expulsos.filter(j => j.timeId === timeId);
+
+    if (!lista.length && !expListaTime.length) {
+      return `<div class="cartao-team">
+        <div class="cartao-team-nome" style="color:${cor}">${timeNome}</div>
+        <div class="cartao-empty">✅ Nenhum jogador em risco</div>
+      </div>`;
+    }
+
+    const rows = lista.map(j => {
+      const nivelCls = j.risco >= 70 ? 'alto' : j.risco >= 45 ? 'medio' : 'baixo';
+      const nivelTxt = j.risco >= 70 ? 'ALTO' : j.risco >= 45 ? 'Médio' : 'Baixo';
+      return `<div class="cartao-jogador">
+        <div class="cartao-risco ${nivelCls}"></div>
+        <span class="cartao-nome">${j.nome}</span>
+        <div class="cartao-badges">
+          <span class="cartao-badge amarelo">🟨 ${j.amarelos}</span>
+          ${j.risco>=70?`<span class="cartao-badge risco">${nivelTxt}</span>`:`<span class="cartao-badge falta">${nivelTxt}</span>`}
+        </div>
+      </div>`;
+    }).join('');
+
+    const expRows = expListaTime.map(j =>
+      `<div class="cartao-jogador">
+        <div class="cartao-risco alto"></div>
+        <span class="cartao-nome" style="text-decoration:line-through;color:var(--t3)">${j.nome}</span>
+        <span class="cartao-badge" style="background:var(--rdim);color:var(--red)">🟥 Expulso</span>
+      </div>`
+    ).join('');
+
+    return `<div class="cartao-team">
+      <div class="cartao-team-nome" style="color:${cor}">${timeNome}</div>
+      ${rows}${expRows}
+    </div>`;
+  };
+
+  // Alertas globais
+  const alertas = [];
+  const altissimo = emRisco
+    .map(j => ({ ...j, risco: calcRisco(j) }))
+    .filter(j => j.risco >= 70);
+  if (altissimo.length) {
+    const nomes = altissimo.map(j => j.nome.split(' ').pop()).join(', ');
+    alertas.push(`🚨 Risco altíssimo de expulsão: <strong>${nomes}</strong> — qualquer falta pode resultar em segundo amarelo.`);
+  }
+  if (foulsC + foulsF >= 25) {
+    alertas.push(`⚡ Jogo muito faltoso (${foulsC+foulsF} faltas) — árbitro em alerta máximo.`);
+  }
+
+  // Histórico do árbitro (se disponível)
+  let arbInfo = '';
+  if (ARBITRO_PERFIL?.totalJogos >= 3) {
+    const pctExp = Math.round((ARBITRO_PERFIL.pctJogosComExpulsao||0)*100);
+    arbInfo = `<div style="font-size:11px;color:var(--t2);padding:8px 10px;background:var(--bg3);border-radius:8px;margin-bottom:10px;">
+      👤 Árbitro <strong>${ARBITRO_PERFIL.nome?.split(',')[0]||'—'}</strong> — 
+      média <strong>${ARBITRO_PERFIL.mediaAmarelos?.toFixed(1)}</strong> amarelos/jogo · 
+      expulsão em <strong>${pctExp}%</strong> dos jogos
+      ${ARBITRO_PERFIL.amarelos2T > ARBITRO_PERFIL.amarelos1T*1.6 ? ' · <span style="color:var(--red)">⚠️ Mais rígido no 2T</span>' : ''}
+    </div>`;
+  }
+
+  // Sem cartões no jogo
+  if (!cartoes.length) {
+    el.innerHTML = `${arbInfo}<div class="empty"><div class="ico">🟩</div><p>Nenhum cartão distribuído até o momento</p></div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    ${alertas.map(a => `<div class="cartao-alerta">${a}</div>`).join('')}
+    ${arbInfo}
+    <div class="cartao-wrap">
+      ${mkJogadores(f.timeCasa.id, f.timeCasa.nome, 'var(--acc)')}
+      ${mkJogadores(f.timeFora.id, f.timeFora.nome, 'var(--blu)')}
+    </div>
+    <div style="font-size:10px;color:var(--t3);text-align:center;margin-top:4px;">
+      🟨 = amarelos no jogo · ⚫ Alto = risco de segundo amarelo baseado em minuto + faltas do time + padrão do árbitro
     </div>`;
 }
 
