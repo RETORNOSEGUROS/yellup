@@ -157,6 +157,20 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .corner-pred-val{font-size:18px;font-weight:800;font-family:'DM Mono',monospace;}
 .corner-hist{display:flex;gap:3px;align-items:flex-end;height:28px;margin-top:6px;}
 .corner-hist-bar{flex:1;border-radius:2px 2px 0 0;min-height:2px;}
+/* Movimento de Odds */
+.odd-mov-wrap{margin-top:10px;background:var(--c3);border-radius:10px;padding:12px;}
+.odd-mov-title{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+.odd-sharp{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;background:var(--rdim);color:var(--red);font-size:10px;font-weight:700;animation:pulse 1.5s infinite;}
+.odd-chart-row{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+.odd-chart-lbl{font-size:9px;color:var(--t3);width:60px;flex-shrink:0;}
+.odd-chart-bar-wrap{flex:1;height:20px;background:var(--bg3);border-radius:4px;position:relative;overflow:visible;}
+.odd-chart-bar{height:100%;border-radius:4px;transition:width .4s;}
+.odd-chart-val{font-family:'DM Mono',monospace;font-size:10px;font-weight:700;width:40px;text-align:right;flex-shrink:0;}
+.odd-chart-delta{font-size:9px;font-weight:700;width:36px;text-align:right;flex-shrink:0;}
+.odd-snap-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-top:8px;}
+.odd-snap{background:var(--bg3);border-radius:6px;padding:6px 8px;flex-shrink:0;min-width:70px;}
+.odd-snap-ts{font-size:8px;color:var(--t3);margin-bottom:3px;}
+.odd-snap-vals{font-family:'DM Mono',monospace;font-size:10px;}
 /* Export */
 .export-bar{display:flex;gap:6px;margin-top:10px;}
 .export-btn{flex:1;padding:8px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid;display:flex;align-items:center;justify-content:center;gap:5px;}
@@ -5127,7 +5141,92 @@ function renderOddsPrejogo() {
     </div>
     ${fpInsights.length ? `<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px;">
       ${fpInsights.map(i => `<div class="rel-insight destaque" style="font-size:11px;">${i}</div>`).join('')}
-    </div>` : ''}`;
+    </div>` : ''}`
+    + mkMovimentoOddsHtml(ODDS_PREJOGO && ODDS_PREJOGO.movimento);
+}
+
+// ══════════════════════════════════════════════════════════════
+// 📊 MOVIMENTO DE ODDS — helper de render
+// ══════════════════════════════════════════════════════════════
+function mkMovimentoOddsHtml(mov) {
+  if (!mov || !mov.historico || mov.historico.length < 2) {
+    return '<div style="font-size:10px;color:var(--t3);padding:8px 0;">⏳ Aguardando mais capturas para mostrar movimento...</div>';
+  }
+  const hist   = mov.historico;
+  const ultimo = mov.ultimoMovimento;
+  const sharp  = mov.sinalSharp;
+  const primeiro = hist[0];
+  const atual    = hist[hist.length - 1];
+
+  const dt1   = atual.odd1   && primeiro.odd1   ? (atual.odd1   - primeiro.odd1  ).toFixed(3) : null;
+  const dtX   = atual.oddX   && primeiro.oddX   ? (atual.oddX   - primeiro.oddX  ).toFixed(3) : null;
+  const dt2   = atual.odd2   && primeiro.odd2   ? (atual.odd2   - primeiro.odd2  ).toFixed(3) : null;
+  const dtO25 = atual.oddO25 && primeiro.oddO25 ? (atual.oddO25 - primeiro.oddO25).toFixed(3) : null;
+
+  const corD = function(v) {
+    if (!v || v == 0) return 'var(--t3)';
+    return parseFloat(v) < 0 ? 'var(--grn)' : 'var(--red)';
+  };
+  const fmtD = function(v) {
+    if (!v || parseFloat(v) === 0) return '—';
+    return (parseFloat(v) > 0 ? '+' : '') + v;
+  };
+  const fmtTs = function(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return ('0'+d.getHours()).slice(-2) + ':' + ('0'+d.getMinutes()).slice(-2);
+  };
+
+  // Sparkline SVG
+  const mkSpark = function(campo, cor) {
+    const vals = hist.map(function(h){ return h[campo]; }).filter(function(v){ return v != null; });
+    if (vals.length < 2) return '';
+    const mn = Math.min.apply(null, vals) - 0.05;
+    const mx = Math.max.apply(null, vals) + 0.05;
+    const W = 100, H = 26;
+    const px = function(i){ return Math.round(i / (vals.length-1) * W); };
+    const py = function(v){ return Math.round(H - ((v-mn)/(mx-mn)) * H); };
+    const pts = vals.map(function(v,i){ return px(i)+','+py(v); }).join(' ');
+    return '<svg width="'+W+'" height="'+H+'" style="overflow:visible">'
+      + '<polyline points="'+pts+'" fill="none" stroke="'+cor+'" stroke-width="2" stroke-linejoin="round"/>'
+      + vals.map(function(v,i){ return '<circle cx="'+px(i)+'" cy="'+py(v)+'" r="2.5" fill="'+cor+'"/>'; }).join('')
+      + '</svg>';
+  };
+
+  const lbls = ['Casa (1)','Empate (X)','Fora (2)','Over 2.5'];
+  const deltas = [dt1, dtX, dt2, dtO25];
+  const atuais = [atual.odd1, atual.oddX, atual.odd2, atual.oddO25];
+
+  const grid = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px;">'
+    + lbls.map(function(lbl,i){
+      return '<div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center;">'
+        + '<div style="font-size:8px;color:var(--t3)">'+lbl+'</div>'
+        + '<div style="font-family:monospace;font-weight:700;font-size:13px;margin:3px 0">'+(atuais[i]?atuais[i].toFixed(2):'-')+'</div>'
+        + '<div style="font-size:10px;font-weight:700;color:'+corD(deltas[i])+'">'+fmtD(deltas[i])+'</div>'
+        + '</div>';
+    }).join('') + '</div>';
+
+  const sparks = '<div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap;">'
+    + '<div><div style="font-size:9px;color:var(--t3);margin-bottom:4px;">Casa (1)</div>' + mkSpark('odd1','var(--acc)') + '</div>'
+    + '<div><div style="font-size:9px;color:var(--t3);margin-bottom:4px;">Fora (2)</div>'  + mkSpark('odd2','var(--blu)') + '</div>'
+    + '<div><div style="font-size:9px;color:var(--t3);margin-bottom:4px;">Over 2.5</div>'  + mkSpark('oddO25','var(--pur)') + '</div>'
+    + '</div>';
+
+  const sharpHtml = sharp
+    ? '<div style="background:var(--rdim);border:1px solid var(--red);border-radius:8px;padding:10px;font-size:11px;">'
+      + '<strong style="color:var(--red)">🚨 Sinal Sharp detectado</strong><br>'
+      + '<span style="color:var(--t2)">Movimento brusco — possível notícia de escalação, lesão de última hora ou informação privilegiada. Reavalie o contexto.</span>'
+      + (ultimo ? '<div style="margin-top:6px;font-family:monospace;font-size:10px;color:var(--t3);">D Casa: '+fmtD(ultimo.deltaOdd1)+'  D Fora: '+fmtD(ultimo.deltaOdd2)+'  D O2.5: '+fmtD(ultimo.deltaO25)+'</div>' : '')
+      + '</div>'
+    : '<div style="font-size:10px;color:var(--t3);">✅ Odds estáveis — sem movimentos bruscos detectados</div>';
+
+  return '<div class="odd-mov-wrap">'
+    + '<div class="odd-mov-title">📈 Movimento de Odds'
+    + (sharp ? ' <span class="odd-sharp">🚨 SINAL SHARP</span>' : '')
+    + '<span style="font-size:9px;color:var(--t3);margin-left:auto;">'+hist.length+' capturas · '+fmtTs(primeiro.ts)+' → '+fmtTs(atual.ts)+'</span>'
+    + '</div>'
+    + grid + sparks + sharpHtml
+    + '</div>';
 }
 
 // ══════════════════════════════════════════════════════════════
