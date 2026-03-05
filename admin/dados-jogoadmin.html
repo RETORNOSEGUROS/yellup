@@ -1186,6 +1186,7 @@ async function load(fId,dId){
     buscarPredictionsContexto(parseInt(fixtureId), casaId, foraId);
     buscarPerfilArbitro();
     buscarFingerprintOddsFn();
+    carregarSugestaoPesos();
 
     // Buscar snapshots de players existentes
     carregarSnapshotsPlayers(parseInt(fixtureId));
@@ -2151,6 +2152,28 @@ function renderGauges(){
   }).join('');
 }
 
+// Helper: ajuste de confiança baseado em odds pré-jogo
+function ajusteOdds(tipo) {
+  if (!ODDS_PREJOGO?.odds) return 0;
+  const o  = ODDS_PREJOGO.odds;
+  const fp = ODDS_PREJOGO.fingerprint?.porBucket;
+  let adj  = 0;
+  if ((tipo === 'gol_casa' || tipo === 'gol_fora' || tipo === 'gol') && o.overUnder?.over25) {
+    const odd25 = o.overUnder.over25;
+    if      (odd25 < 1.70) adj += 8;
+    else if (odd25 < 1.90) adj += 4;
+    else if (odd25 > 2.20) adj -= 5;
+    else if (odd25 > 2.50) adj -= 10;
+    if (fp?.pctOver25 >= 60) adj += 5;
+    if (fp?.pctOver25 <= 35) adj -= 5;
+  }
+  if (tipo === 'cartao' || tipo === 'expulsao') {
+    const r = o.resultados;
+    if (r?.odd1 && r?.odd2 && Math.abs(r.odd1 - r.odd2) < 0.3) adj += 5;
+  }
+  return Math.min(15, Math.max(-15, adj));
+}
+
 // ── PREVISÕES ──
 function renderPrevisoes(){
   const f=DADOS.fixture;
@@ -2212,12 +2235,18 @@ function renderPrevisoes(){
     if(minAtual>=jaMin && minAtual<jaMin+10)
       sinaisGol.push({label:`${f.timeFora.nome} em janela histórica quente (${FP_FORA.janelaMaisPerigosa}')`,pp:12});
   }
+  // Ajuste por odds pré-jogo
+  const _oddsAdj = ajusteOdds('gol');
+  if (_oddsAdj !== 0 && ODDS_PREJOGO?.odds) {
+    sinaisGol.push({ label: _oddsAdj > 0 ? `Odds pré-jogo: jogo aberto (+${_oddsAdj}pp)` : `Odds pré-jogo: jogo fechado (${_oddsAdj}pp)`, pp: _oddsAdj });
+  }
   sinaisGol.sort((a,b)=>b.pp-a.pp);
+  const probGolComOdds = Math.min(95, probGol + _oddsAdj);
 
   if(!isFt) preds.push({
     ico:'⚽', title:`Gol nos próximos 15 minutos`,
-    desc:`${f.timeCasa.nome}: ${probGolCasa}% · ${f.timeFora.nome}: ${probGolFora}%`,
-    conf:probGol, level:probGol>60?'high':probGol>35?'med':'low', cor:'var(--acc)',
+    desc:`${f.timeCasa.nome}: ${probGolCasa}% · ${f.timeFora.nome}: ${probGolFora}%${_oddsAdj!==0&&ODDS_PREJOGO?` · Odds ajustaram ${_oddsAdj>0?'+':''}${_oddsAdj}pp`:''}`,
+    conf:probGolComOdds, level:probGol>60?'high':probGol>35?'med':'low', cor:'var(--acc)',
     sinais:sinaisGol,
     historico: FP_CASA||FP_FORA ? `Fingerprint: ${FP_CASA?.totalJogos||0} jogos ${f.timeCasa.nome} / ${FP_FORA?.totalJogos||0} ${f.timeFora.nome} no banco` : null
   });
@@ -3921,6 +3950,48 @@ function salvarPesos() {
   localStorage.setItem('yellup_pesos', JSON.stringify(PESOS));
 }
 
+let SUGESTAO_PESOS = null;
+
+function mkSugestaoPesosHtml() {
+  if (!SUGESTAO_PESOS?.calibracao) {
+    return '<button class="calib-reset" style="margin-top:6px;" onclick="carregarSugestaoPesos()">📊 Carregar análise automática</button>';
+  }
+  const cal  = SUGESTAO_PESOS.calibracao;
+  const sug  = cal.sugestaoPesos || {};
+  const n    = cal.totalPrevisoes || 0;
+  const pct  = cal.acuraciaAtual || '—';
+  const falta = Math.max(0, 500 - n);
+  const diffs = Object.entries(sug).map(([k, v]) => {
+    const base = PESOS_DEFAULT[k]?.val;
+    if (!base || v === base) return null;
+    const cor = v > base ? 'var(--grn)' : 'var(--red)';
+    return '<span style="font-size:10px;color:'+cor+'">'+k+': '+base+'→<strong>'+v+'</strong></span>';
+  }).filter(Boolean);
+  return '<div style="margin-top:10px;background:var(--c3);border-radius:9px;padding:10px;">'
+    + '<div style="font-size:10px;font-weight:700;color:var(--t1);margin-bottom:6px;">🤖 Sugestão Automática</div>'
+    + '<div style="font-size:10px;color:var(--t2);">Baseado em <strong>'+n+'</strong> previsões — acurácia <strong style="color:var(--acc)">'+pct+'%</strong>.</div>'
+    + (diffs.length
+        ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;">'+diffs.join('')+'</div>'
+          + '<button class="calib-reset" style="background:var(--gdim);color:var(--grn);border-color:var(--grn);"'
+          + ' onclick="PESOS=Object.assign({},SUGESTAO_PESOS.calibracao.sugestaoPesos);salvarPesos();renderCalib();renderAlgo();">'
+          + '✓ Aplicar sugestão do algoritmo</button>'
+        : '<div style="font-size:10px;color:var(--t3);">Nenhuma alteração sugerida.</div>'
+      )
+    + (falta > 0 ? '<div style="font-size:9px;color:var(--t3);margin-top:4px;">Auto-aplicação com 500 previsões ('+falta+' faltando).</div>' : '')
+    + '</div>';
+}
+
+async function carregarSugestaoPesos() {
+  try {
+    const fn = fns.httpsCallable('buscarSugestaoPesos');
+    const r  = await fn({});
+    if (r.data?.sucesso) {
+      SUGESTAO_PESOS = r.data;
+      renderCalib();
+    }
+  } catch(e) { console.warn('SugestaoPesos:', e.message); }
+}
+
 function renderCalib() {
   const el = gc('calibEl');
   if (!el) return;
@@ -3959,7 +4030,9 @@ function renderCalib() {
     </div>
     <button class="calib-reset" style="margin-top:10px;" onclick="PESOS=Object.fromEntries(Object.entries(PESOS_DEFAULT).map(([k,v])=>[k,v.val]));salvarPesos();renderCalib();renderAlgo();">
       🔄 Restaurar padrão
-    </button>`;
+    </button>
+
+    ${mkSugestaoPesosHtml()}`;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -5767,7 +5840,7 @@ async function buscarPerfilArbitro() {
   if (!arbitro) return;
   try {
     const fn = fns.httpsCallable('buscarPerfilArbitro');
-    const r = await fn({ nomeArbitro: arbitro });
+    const r = await fn({ nomeArbitro: arbitro, ligaId: DADOS?.fixture?.liga?.id });
     if (r.data?.sucesso && r.data.dados) {
       ARBITRO_PERFIL = r.data.dados;
       renderArbitro();
