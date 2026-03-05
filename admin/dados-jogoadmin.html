@@ -905,7 +905,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
     <div class="coment-title">
       <span class="coment-live" id="comentaristaLive" style="display:none;"></span>
       🎙️ Comentarista Yellup
-      <span id="comentaristaStatus" style="font-size:9px;color:var(--t3);margin-left:auto;">aguardando jogo ao vivo...</span>
+      <span id="comentaristaStatus" style="font-size:9px;color:var(--t3);margin-left:auto;">carregando análise...</span>
     </div>
     <div class="coment-feed" id="comentaristaFeed">
       <div class="coment-loading">
@@ -6431,7 +6431,14 @@ async function gerarComentario(forcado) {
   const contexto = {
     jogo: nomC + ' vs ' + nomF,
     placar: (sc.casa??0) + '-' + (sc.fora??0),
-    minuto: min, status: f.status?.short,
+    minuto: min,
+    status: f.status?.short,
+    statusDescricao: f.status?.short === 'NS' ? 'Jogo ainda não começou'
+      : f.status?.short === '1H' ? 'Primeiro tempo'
+      : f.status?.short === 'HT' ? 'Intervalo'
+      : f.status?.short === '2H' ? 'Segundo tempo'
+      : ['FT','AET','PEN'].includes(f.status?.short) ? 'Jogo encerrado'
+      : f.status?.short,
     liga: f.liga?.nome,
     stats: {
       posseCasa: getST(idC,'Ball Possession'), posseFora: getST(idF,'Ball Possession'),
@@ -6479,6 +6486,7 @@ REGRAS DE COMPORTAMENTO:
 - Quando um jogador está muito abaixo da média histórica → sugira substituição com dados
 - Quando há padrão histórico relevante (fingerprint/janela) → mencione
 - Quando termômetro está subindo → alerte
+- Se o jogo ainda não começou (status NS/TBD): faça análise pré-jogo com odds, lesões, H2H, forma e diga o que esperar — fale como se estivesse preparando o usuário para o jogo
 - NÃO repita insights que já aparecem no feedAnterior
 - Responda em JSON: {"texto": "...", "tipo": "alerta|destaque|jogador|tatica|previsao"}`,
         messages: [{
@@ -6542,15 +6550,25 @@ function iniciarComentarista() {
   const f = DADOS?.fixture;
   if (!f) return;
   const isLive = ['1H','2H','ET','P','HT'].includes(f.status?.short);
+  const isFT   = ['FT','AET','PEN'].includes(f.status?.short);
+  const isPreJogo = f.status?.short === 'NS' || f.status?.short === 'TBD';
 
   // Mostrar indicador ao vivo
   const liveEl = gc('comentaristaLive');
   if (liveEl) liveEl.style.display = isLive ? 'block' : 'none';
 
-  // Primeira análise imediata
+  // Atualizar label do status
+  const statusEl = gc('comentaristaStatus');
+  if (statusEl) {
+    if (isLive)    statusEl.textContent = 'ao vivo · atualiza a cada 3min';
+    if (isFT)      statusEl.textContent = 'análise final';
+    if (isPreJogo) statusEl.textContent = 'análise pré-jogo';
+  }
+
+  // Gerar análise imediata (funciona para ao vivo, encerrado e pré-jogo)
   gerarComentario(true);
 
-  // Se ao vivo, repetir a cada 3 minutos
+  // Ao vivo: repetir a cada 3 minutos
   if (isLive) {
     clearInterval(COMENTARISTA_TIMER);
     COMENTARISTA_TIMER = setInterval(() => gerarComentario(false), 3 * 60 * 1000);
