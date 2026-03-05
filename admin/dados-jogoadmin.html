@@ -1517,14 +1517,14 @@ function renderMomentum(){
   const mx=Math.max(...buckets.map(b=>Math.max(b.c,b.fo)),1);
   gc('momNomeCasa').textContent=f.timeCasa.nome;
   gc('momNomeFora').textContent=f.timeFora.nome;
-  gc('momL1').textContent=f.timeCasa.nome.split(' ')[0];
-  gc('momL2').textContent=f.timeFora.nome.split(' ')[0];
+  gc('momL1').textContent=nomePrimeiro(f.timeCasa.nome);
+  gc('momL2').textContent=nomePrimeiro(f.timeFora.nome);
 
   // desc: quem dominou mais
   const totC=buckets.reduce((a,b)=>a+b.c,0);
   const totF=buckets.reduce((a,b)=>a+b.fo,0);
   const totGeral=totC+totF||1;
-  gc('momDesc').textContent=`${f.timeCasa.nome.split(' ')[0]} ${Math.round(totC/totGeral*100)}% · ${f.timeFora.nome.split(' ')[0]} ${Math.round(totF/totGeral*100)}%`;
+  gc('momDesc').textContent=`${nomePrimeiro(f.timeCasa.nome)} ${Math.round(totC/totGeral*100)}% · ${nomePrimeiro(f.timeFora.nome)} ${Math.round(totF/totGeral*100)}%`;
 
   gc('momChart').innerHTML=buckets.map(b=>{
     const hC=Math.round(b.c/mx*100);
@@ -1592,7 +1592,7 @@ function mkField(esc,idx){
       const r=ratingMap[p.id]||0;
       const rColor=r>=8?'#27d49b':r>=6.5?'#f5a524':r>0?'#ef5f5f':'#41456a';
       const cor=isSub?'#41456a':idx===0?'#f5a524':'#4f96f4';
-      const nomeCurto=p.nome.split(' ').pop();
+      const nomeCurto=nomeCurto(p.nome);
 
       // foto do jogador se existir
       const jogInfo=jogStats.find(j=>j.nome===p.nome);
@@ -1678,7 +1678,7 @@ function mkField(esc,idx){
       <div class="bench-list">
         ${(esc.reservas||[]).map(p=>`<div class="bench-p">
           <span class="bench-num">${p.numero||'—'}</span>
-          <span>${x(p.nome.split(' ').pop())}</span>
+          <span>${x(nomeCurto(p.nome))}</span>
           <span style="font-size:9px;color:var(--t3)">${p.posicao||''}</span>
         </div>`).join('')}
       </div>
@@ -1889,6 +1889,10 @@ function renderAlgo(){
 }
 
 // ── HELPERS ANALÍTICOS ──
+// Safe string: garante string antes de qualquer operação
+function ss(v){ return (v!=null&&typeof v==='object'&&v.nome)?String(v.nome):String(v||''); }
+function nomeCurto(v){ return ss(v).split(' ').pop()||ss(v); }
+function nomePrimeiro(v){ return ss(v).split(' ')[0]||ss(v); }
 function getStat(statsArr, teamId, key){
   const t=statsArr.find(t=>t.time.id===teamId);
   if(!t)return null;
@@ -1955,9 +1959,9 @@ function renderGauges(){
   const tensao=Math.min(100,Math.round((foulsC+foulsF)*2.5));
 
   const gauges=[
-    {label:'Domínio', val:domPct, sub:f.timeCasa.nome.split(' ')[0]+' '+domPct+'%', cor:'var(--acc)'},
-    {label:'Momentum (15min)', val:momPct, sub:momLider.nome.split(' ')[0], cor:'var(--pur)'},
-    {label:'Pressão xG', val:xgPressao, sub:xgLider.split(' ')[0]+' deve mais', cor:'var(--blu)'},
+    {label:'Domínio', val:domPct, sub:nomePrimeiro(f.timeCasa.nome)+' '+domPct+'%', cor:'var(--acc)'},
+    {label:'Momentum (15min)', val:momPct, sub:nomePrimeiro(momLider.nome), cor:'var(--pur)'},
+    {label:'Pressão xG', val:xgPressao, sub:nomePrimeiro(xgLider)+' deve mais', cor:'var(--blu)'},
     {label:'Tensão do Jogo', val:tensao, sub:tensao>70?'🔴 Alta':tensao>40?'🟡 Média':'🟢 Baixa', cor:tensao>70?'var(--red)':tensao>40?'var(--acc)':'var(--grn)'},
   ];
   const r=32,circ=2*Math.PI*r;
@@ -2029,12 +2033,12 @@ function renderPrevisoes(){
   }
   // Ajuste das fingerprints
   if(FP_CASA?.janelaMaisPerigosa){
-    const [jaMin]=FP_CASA.janelaMaisPerigosa.split('-').map(Number);
+    const _jc=FP_CASA.janelaMaisPerigosa; const [jaMin]=typeof _jc==='string'?_jc.split('-').map(Number):[_jc*10];
     if(minAtual>=jaMin && minAtual<jaMin+10)
       sinaisGol.push({label:`${f.timeCasa.nome} em janela histórica quente (${FP_CASA.janelaMaisPerigosa}')`,pp:12});
   }
   if(FP_FORA?.janelaMaisPerigosa){
-    const [jaMin]=FP_FORA.janelaMaisPerigosa.split('-').map(Number);
+    const _jf=FP_FORA.janelaMaisPerigosa; const [jaMin]=typeof _jf==='string'?_jf.split('-').map(Number):[_jf*10];
     if(minAtual>=jaMin && minAtual<jaMin+10)
       sinaisGol.push({label:`${f.timeFora.nome} em janela histórica quente (${FP_FORA.janelaMaisPerigosa}')`,pp:12});
   }
@@ -2108,7 +2112,7 @@ function renderPrevisoes(){
     const probExp=Math.min(75,jogComAmarelo.length*18+(foulsC+foulsF>20?10:0));
     preds.push({
       ico:'🟥', title:`Risco de expulsão`,
-      desc:`${jogComAmarelo.length} jogador(es) com amarelo em campo. Taxa de faltas elevada. Qualquer falta de ${jogComAmarelo.map(p=>p.nome.split(' ').pop()).join(', ')} pode resultar em segundo amarelo.`,
+      desc:`${jogComAmarelo.length} jogador(es) com amarelo em campo. Taxa de faltas elevada. Qualquer falta de ${jogComAmarelo.map(p=>nomeCurto(p.nome)).join(', ')} pode resultar em segundo amarelo.`,
       conf:probExp, level:probExp>50?'high':probExp>25?'med':'low', cor:'var(--red)'
     });
   }
@@ -2428,7 +2432,7 @@ function renderPressao() {
           <br>${ms.eventoExplicativo}
         </div>
         <div class="ms-sinais">
-          <span class="ms-tag pos">+${ms.intensidade.toFixed(0)} domínio ${ms.quemGanhou.split(' ')[0]}</span>
+          <span class="ms-tag pos">+${ms.intensidade.toFixed(0)} domínio ${nomePrimeiro(ms.quemGanhou)}</span>
           ${ms.nivel === 'alerta' ? '<span class="ms-tag neg">Shift abrupto</span>' : '<span class="ms-tag">Shift gradual</span>'}
         </div>
       </div>`).join('');
@@ -2768,7 +2772,7 @@ function renderRisco(){
   gc('riscoEl').innerHTML=cards.length?cards.map(c=>`<div class="risk-card ${c.danger?'danger':c.warn?'warning':''}">
     ${c.foto?`<img src="${x(c.foto)}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">`:''}
     <div>
-      <div class="risk-name">${x(c.nome.split(' ').pop())}</div>
+      <div class="risk-name">${x(nomeCurto(c.nome))}</div>
       <div class="risk-team">${x(c.time)}${c.rating?` · ${c.rating.toFixed(1)}`:''}</div>
       <div class="risk-badges">${c.risks.map(r=>`<span class="rb2">${r}</span>`).join('')}</div>
     </div>
@@ -2989,8 +2993,8 @@ function renderXGTimeline() {
       <div class="xg-header">
         <span class="xg-title">📉 xG Acumulado vs Gols Reais</span>
         <div class="xg-legenda">
-          <div class="xg-leg"><div class="xg-leg-dot" style="background:var(--acc)"></div>${f.timeCasa.nome.split(' ')[0]} xG</div>
-          <div class="xg-leg"><div class="xg-leg-dot" style="background:var(--blu)"></div>${f.timeFora.nome.split(' ')[0]} xG</div>
+          <div class="xg-leg"><div class="xg-leg-dot" style="background:var(--acc)"></div>${nomePrimeiro(f.timeCasa.nome)} xG</div>
+          <div class="xg-leg"><div class="xg-leg-dot" style="background:var(--blu)"></div>${nomePrimeiro(f.timeFora.nome)} xG</div>
           <div class="xg-leg"><div class="xg-leg-dot" style="background:var(--acc);opacity:.5;height:2px;width:14px;border-top:2px dashed var(--acc)"></div>Gols</div>
         </div>
       </div>
@@ -3691,7 +3695,7 @@ function renderCartoes() {
     .map(j => ({ ...j, risco: calcRisco(j) }))
     .filter(j => j.risco >= 70);
   if (altissimo.length) {
-    const nomes = altissimo.map(j => j.nome.split(' ').pop()).join(', ');
+    const nomes = altissimo.map(j => nomeCurto(j.nome)).join(', ');
     alertas.push(`🚨 Risco altíssimo de expulsão: <strong>${nomes}</strong> — qualquer falta pode resultar em segundo amarelo.`);
   }
   if (foulsC + foulsF >= 25) {
@@ -3703,7 +3707,7 @@ function renderCartoes() {
   if (ARBITRO_PERFIL?.totalJogos >= 3) {
     const pctExp = Math.round((ARBITRO_PERFIL.pctJogosComExpulsao||0)*100);
     arbInfo = `<div style="font-size:11px;color:var(--t2);padding:8px 10px;background:var(--bg3);border-radius:8px;margin-bottom:10px;">
-      👤 Árbitro <strong>${ARBITRO_PERFIL.nome?.split(',')[0]||'—'}</strong> — 
+      👤 Árbitro <strong>${(ARBITRO_PERFIL.nome?nomePrimeiro(ARBITRO_PERFIL.nome):'—')}</strong> — 
       média <strong>${ARBITRO_PERFIL.mediaAmarelos?.toFixed(1)}</strong> amarelos/jogo · 
       expulsão em <strong>${pctExp}%</strong> dos jogos
       ${ARBITRO_PERFIL.amarelos2T > ARBITRO_PERFIL.amarelos1T*1.6 ? ' · <span style="color:var(--red)">⚠️ Mais rígido no 2T</span>' : ''}
@@ -3972,7 +3976,7 @@ function renderRelatorio(){
       <div class="rel-stat-grid">
         <div class="rel-stat">
           <div class="rel-stat-val" style="color:var(--acc)">${xgC.toFixed(2)}</div>
-          <div class="rel-stat-lbl">xG ${nomC.split(' ')[0]}</div>
+          <div class="rel-stat-lbl">xG ${nomePrimeiro(nomC)}</div>
         </div>
         <div class="rel-stat">
           <div class="rel-stat-val" style="color:var(--t3)">${posC}%</div>
@@ -3980,7 +3984,7 @@ function renderRelatorio(){
         </div>
         <div class="rel-stat">
           <div class="rel-stat-val" style="color:var(--blu)">${xgF.toFixed(2)}</div>
-          <div class="rel-stat-lbl">xG ${nomF.split(' ')[0]}</div>
+          <div class="rel-stat-lbl">xG ${nomePrimeiro(nomF)}</div>
         </div>
         <div class="rel-stat">
           <div class="rel-stat-val" style="color:var(--acc)">${shotsC}</div>
@@ -4037,7 +4041,7 @@ function gerarNarrativaRelatorio({nomC,nomF,scC,scF,vencedor,xgC,xgF,posC,shotsC
 
   // Volume ofensivo
   const totalChutes=shotsC+shotsF;
-  if(totalChutes>25) partes.push(`Jogo movimentado com ${totalChutes} finalizações no total — ${shotsC} do ${nomC.split(' ')[0]} e ${shotsF} do ${nomF.split(' ')[0]}.`);
+  if(totalChutes>25) partes.push(`Jogo movimentado com ${totalChutes} finalizações no total — ${shotsC} do ${nomePrimeiro(nomC)} e ${shotsF} do ${nomePrimeiro(nomF)}.`);
   else if(totalChutes<12) partes.push(`Jogo estudado, poucas finalizações — apenas ${totalChutes} chutes no total.`);
 
   // xG narrativo
@@ -4406,7 +4410,7 @@ function detectarJanelaCritica(preds, minAtual, f, sts) {
   const janelaQuente = (() => {
     for (const fp of [FP_CASA, FP_FORA]) {
       if (!fp?.janelaMaisPerigosa) continue;
-      const [jMin] = fp.janelaMaisPerigosa.split('-').map(Number);
+      const _jp=fp.janelaMaisPerigosa; const [jMin]=typeof _jp==='string'?_jp.split('-').map(Number):[_jp*10];
       if (minAtual >= jMin && minAtual < jMin + 10) return true;
     }
     return false;
@@ -4766,11 +4770,11 @@ function renderContexto(){
     <div style="margin-bottom:10px;">
       <div style="font-size:11px;font-weight:700;color:var(--t1);margin-bottom:6px;">⚔️ Confronto direto (últimos ${c.h2h.length} jogos)</div>
       <div style="display:flex;gap:6px;margin-bottom:6px;">
-        <div class="h2h-box acc">${r.vCasa}<span>V ${f.timeCasa.nome.split(' ')[0]}</span></div>
+        <div class="h2h-box acc">${r.vCasa}<span>V ${nomePrimeiro(f.timeCasa.nome)}</span></div>
         <div class="h2h-box">${r.emp}<span>Empates</span></div>
-        <div class="h2h-box blu">${r.vFora}<span>V ${f.timeFora.nome.split(' ')[0]}</span></div>
+        <div class="h2h-box blu">${r.vFora}<span>V ${nomePrimeiro(f.timeFora.nome)}</span></div>
       </div>
-      <div style="font-size:10px;color:var(--t3)">Média gols: ${f.timeCasa.nome.split(' ')[0]} ${r.mediaGolsCasa} × ${r.mediaGolsFora} ${f.timeFora.nome.split(' ')[0]}</div>
+      <div style="font-size:10px;color:var(--t3)">Média gols: ${nomePrimeiro(f.timeCasa.nome)} ${r.mediaGolsCasa} × ${r.mediaGolsFora} ${nomePrimeiro(f.timeFora.nome)}</div>
     </div>` : '';
 
   // Lesões
@@ -4815,7 +4819,7 @@ function renderPlayersSnapshot(){
           const d=diffs[j.id];
           const atividadeStr=d?Object.entries(d).filter(([k,v])=>v>0).map(([k,v])=>`+${v} ${k}`).join(' '):'' ;
           return `<div class="snap-player-row ${abaixo?'snap-abaixo':''} ${destaque?'snap-destaque':''}">
-            <span class="snap-player-nome">${j.nome.split(' ').pop()}</span>
+            <span class="snap-player-nome">${nomeCurto(j.nome)}</span>
             ${nota?`<span class="snap-player-nota" style="color:${nota>=8?'var(--grn)':nota>=7?'var(--acc)':nota>=6?'var(--t2)':'var(--red)'}">${nota.toFixed(1)}</span>`:'<span class="snap-player-nota" style="color:var(--t3)">—</span>'}
             ${abaixo?'<span class="snap-flag abaixo">▼ abaixo da média</span>':''}
             ${destaque?'<span class="snap-flag destaque">⭐ destaque</span>':''}
