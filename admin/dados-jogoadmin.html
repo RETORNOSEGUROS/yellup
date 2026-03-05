@@ -6468,46 +6468,17 @@ async function gerarComentario(forcado) {
   };
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 400,
-        system: `Você é o comentarista esportivo da plataforma Yellup Analytics. Analisa jogos de futebol em tempo real com base em dados estatísticos avançados.
-
-REGRAS DE COMPORTAMENTO:
-- Fale diretamente ao usuário, como um comentarista experiente e analítico
-- Use os dados para dizer algo INTELIGENTE e NÃO ÓBVIO — não repita o placar, não diga "o jogo está em andamento"
-- Cada comentário deve trazer UMA insight específica e acionável
-- Varie entre: análise tática, alerta de jogador, previsão baseada em padrão, insight de odds, aviso de risco
-- Seja conciso: 2-3 frases no máximo
-- Use nomes dos times e jogadores quando relevante
-- Quando um jogador está muito abaixo da média histórica → sugira substituição com dados
-- Quando há padrão histórico relevante (fingerprint/janela) → mencione
-- Quando termômetro está subindo → alerte
-- Se o jogo ainda não começou (status NS/TBD): faça análise pré-jogo com odds, lesões, H2H, forma e diga o que esperar — fale como se estivesse preparando o usuário para o jogo
-- NÃO repita insights que já aparecem no feedAnterior
-- Responda em JSON: {"texto": "...", "tipo": "alerta|destaque|jogador|tatica|previsao"}`,
-        messages: [{
-          role: 'user',
-          content: 'Dados do jogo agora: ' + JSON.stringify(contexto, null, 1)
-        }]
-      })
-    });
-
-    const data = await resp.json();
-    const txt  = data.content?.[0]?.text || '';
+    // Chamar via Cloud Function (evita CORS — API Anthropic não aceita calls diretos do browser)
+    const cfComent = fns.httpsCallable('gerarComentarioYellup');
+    const resp = await cfComent({ contexto });
 
     // Remover loading
     const loadNode = gc(loadId);
     if (loadNode) loadNode.remove();
 
-    let parsed;
-    try { parsed = JSON.parse(txt.replace(/```json|```/g,'')); }
-    catch { parsed = { texto: txt.trim(), tipo: 'destaque' }; }
-
-    if (!parsed.texto || parsed.texto.length < 10) return;
+    if (!resp.data?.sucesso) return;
+    const parsed = resp.data.comentario;
+    if (!parsed?.texto || parsed.texto.length < 10) return;
 
     // Adicionar ao feed
     const item = {
