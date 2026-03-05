@@ -245,6 +245,17 @@ select:focus{border-color:var(--acc);}
 .liga-chips{display:flex;gap:4px;flex-wrap:wrap;}
 .liga-chip{padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;cursor:pointer;border:1px solid var(--bd2);color:var(--t3);background:var(--c3);transition:all .15s;}
 .liga-chip.on{border-color:var(--acc);color:var(--acc);background:var(--adim);}
+/* Dashboard Saúde */
+.saude-wrap{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;}
+.saude-card{background:var(--c3);border-radius:10px;padding:12px;}
+.saude-val{font-family:'DM Mono',monospace;font-size:22px;font-weight:800;}
+.saude-lbl{font-size:9px;color:var(--t3);margin-top:2px;}
+.saude-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bd2);font-size:11px;}
+.saude-row:last-child{border-bottom:none;}
+.saude-ok{color:var(--grn);}
+.saude-warn{color:var(--acc);}
+.saude-err{color:var(--red);}
+.saude-badge{font-size:9px;padding:2px 7px;border-radius:8px;font-weight:700;}
 /* status selector */
 .status-pills{display:flex;gap:5px;flex-wrap:wrap;}
 .sp{padding:4px 10px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid var(--bd2);color:var(--t3);transition:all .15s;}
@@ -401,6 +412,20 @@ select:focus{border-color:var(--acc);}
       <div class="panel-body" id="admBody">
         <div class="empty"><div class="ld"></div><p>Carregando...</p></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL SAÚDE DO SISTEMA -->
+<div class="ov" id="modSaude" onclick="if(event.target===this)this.style.display='none'" style="display:none;">
+  <div class="modal" style="max-width:460px;">
+    <div class="mh">
+      <span style="font-size:20px;">📊</span>
+      <h3>Saúde do Sistema</h3>
+      <button class="b-mcl" onclick="gc('modSaude').style.display='none'">✕</button>
+    </div>
+    <div class="mb" id="saudeBody" style="padding:16px;">
+      <div class="empty"><div class="ld"></div><p>Carregando...</p></div>
     </div>
   </div>
 </div>
@@ -1383,6 +1408,97 @@ async function excluirJogo(id){
     atuStats(); renderAdmin(); renderAPI();
     toast('Jogo excluído','ok');
   }catch(e){toast('Erro: '+e.message,'err');}
+}
+
+// ─── SAÚDE DO SISTEMA ───
+async function abrirSaude() {
+  gc('modSaude').style.display = 'flex';
+  const el = gc('saudeBody');
+  el.innerHTML = '<div class="empty"><div class="ld"></div><p>Consultando banco...</p></div>';
+  try {
+    const fn = fns.httpsCallable('buscarSaudeSistema');
+    const r  = await fn({});
+    if (!r.data?.sucesso) throw new Error('Falha ao buscar dados');
+    const d  = r.data.dados;
+    const c  = d.colecoes;
+    const p  = d.previsoes;
+    const cal = d.calibracao;
+    const lim = d.ultimaLimpeza;
+
+    const pctProcessadas = p.total > 0 ? Math.round(p.processadas / p.total * 100) : 0;
+    const corPct = pctProcessadas >= 80 ? 'saude-ok' : pctProcessadas >= 50 ? 'saude-warn' : 'saude-err';
+
+    const fmtData = (ts) => {
+      if (!ts) return '—';
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    };
+
+    el.innerHTML = `
+      <div class="saude-wrap">
+        <div class="saude-card">
+          <div class="saude-val">${p.total.toLocaleString()}</div>
+          <div class="saude-lbl">Previsões totais</div>
+        </div>
+        <div class="saude-card">
+          <div class="saude-val" style="color:var(--acc)">${p.ultimas24h}</div>
+          <div class="saude-lbl">Últimas 24h</div>
+        </div>
+        <div class="saude-card">
+          <div class="saude-val" style="color:${p.pendentes>50?'var(--red)':'var(--grn)'}">${p.pendentes}</div>
+          <div class="saude-lbl">Pendentes de verificação</div>
+        </div>
+        <div class="saude-card">
+          <div class="saude-val" style="color:var(--pur)">${c.arbitros}</div>
+          <div class="saude-lbl">Árbitros no banco</div>
+        </div>
+      </div>
+
+      <div style="background:var(--c3);border-radius:10px;padding:12px;margin-bottom:10px;">
+        <div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;margin-bottom:8px;">Coleções Firestore</div>
+        <div class="saude-row"><span>🔮 Previsões</span><span class="saude-ok">${p.total.toLocaleString()}</span></div>
+        <div class="saude-row"><span>🧬 Fingerprints</span><span>${c.fingerprints.toLocaleString()}</span></div>
+        <div class="saude-row"><span>🏦 Odds pré-jogo</span><span>${c.oddsPrejogo.toLocaleString()}</span></div>
+        <div class="saude-row"><span>📋 Relatórios salvos</span><span>${c.relatorios.toLocaleString()}</span></div>
+        <div class="saude-row"><span>👤 Perfis árbitros</span><span>${c.arbitros.toLocaleString()}</span></div>
+        <div class="saude-row"><span>⚽ Jogos ao vivo</span>
+          <span class="${d.jogoAoVivo>0?'saude-ok':'saude-warn'}">${d.jogoAoVivo}</span>
+        </div>
+      </div>
+
+      <div style="background:var(--c3);border-radius:10px;padding:12px;margin-bottom:10px;">
+        <div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;margin-bottom:8px;">Algoritmo</div>
+        <div class="saude-row">
+          <span>Verificação de previsões</span>
+          <span class="${corPct}">${pctProcessadas}% processadas</span>
+        </div>
+        ${cal ? `
+        <div class="saude-row"><span>Acurácia atual</span>
+          <span class="${cal.acuraciaAtual>=60?'saude-ok':cal.acuraciaAtual>=45?'saude-warn':'saude-err'} saude-badge">
+            ${cal.acuraciaAtual}%
+          </span>
+        </div>
+        <div class="saude-row"><span>Calibração automática</span>
+          <span class="${cal.aplicadoAuto?'saude-ok':'saude-warn'}">${cal.aplicadoAuto?'✓ Aplicada':'Aguardando 500 previsões'}</span>
+        </div>` : '<div class="saude-row"><span>Calibração</span><span class="saude-warn">Ainda sem dados</span></div>'}
+      </div>
+
+      <div style="background:var(--c3);border-radius:10px;padding:12px;">
+        <div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;margin-bottom:8px;">Manutenção Automática</div>
+        ${lim ? `
+        <div class="saude-row"><span>Última limpeza</span><span style="font-size:10px">${fmtData(lim.rodarEm)}</span></div>
+        <div class="saude-row"><span>Documentos removidos</span><span class="saude-ok">${lim.totalRemovidos.toLocaleString()}</span></div>`
+        : '<div class="saude-row"><span>Limpeza</span><span class="saude-warn">Ainda não rodou (domingo 04:00)</span></div>'}
+        <div class="saude-row"><span>Próxima limpeza</span><span style="color:var(--t3)">Domingo 04:00 BRT</span></div>
+        <div class="saude-row"><span>Calibração auto</span><span style="color:var(--t3)">Diária 03:30 BRT</span></div>
+      </div>
+
+      <button onclick="abrirSaude()" style="margin-top:10px;width:100%;padding:8px;border-radius:8px;background:var(--c3);border:1px solid var(--bd2);color:var(--t2);font-size:11px;cursor:pointer;">
+        ↺ Atualizar
+      </button>`;
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);font-size:12px;padding:12px">Erro: ${e.message}</div>`;
+  }
 }
 
 // ─── ABRIR DADOS DO JOGO ───
