@@ -2840,7 +2840,7 @@ function calcularDNA(teamId, teamNome, sts, evs, minAtual, fp) {
   const organizacao  = Math.min(100, Math.round(precisao));
   const agressividade= Math.min(100, Math.round((faltas / (minAtual||90)) * 600));
   const conversao    = chutesAlvo > 0
-    ? Math.min(100, Math.round((evs.filter(e => e.tipo==='Goal' && e.time.id===teamId).length / chutesAlvo) * 100 * 2))
+    ? Math.min(100, Math.round(((evs||[]).filter(e => e.tipo==='Goal' && e.time&&e.time.id===teamId).length / chutesAlvo) * 100 * 2))
     : 20;
 
   // Determinar arquétipo principal
@@ -2913,8 +2913,8 @@ function renderDNA() {
   if (!el || !DADOS) return;
   const f   = DADOS.fixture;
   const sts = DADOS.estatisticas || [];
-  const evs = DADOS.eventos;
-  const min = f.status.elapsed || Math.max(...evs.map(e => e.minuto||0), 0) || 90;
+  const evs = DADOS.eventos || [];
+  const min = f.status.elapsed || (evs.length ? Math.max(...evs.map(e => e.minuto||0)) : 0) || 90;
 
   if (!sts.length) {
     el.innerHTML = '<div class="empty"><div class="ico">🧬</div><p>Estatísticas não disponíveis para calcular DNA tático</p></div>';
@@ -6632,7 +6632,7 @@ function gerarInsightLocal(f, isLive, isFT) {
     }
 
     // DNA vs pressão
-    const dnaC = calcularDNA(idC), dnaF = calcularDNA(idF);
+    const dnaC = calcularDNATexto(idC), dnaF = calcularDNATexto(idF);
     if (dnaC === 'Posse Dominante' && xgC < 0.5 && min > 30 && !jaFalou('estéril')) {
       add(nomC + ' com DNA de "Posse Dominante" mas apenas ' + xgC.toFixed(2) + ' xG. Controle de bola sem profundidade — posse estéril que não vai decidir o jogo sozinha.', 'tatica', 7);
     }
@@ -6985,7 +6985,8 @@ function gerarResumaoPosJogo() {
 }
 
 // Helper: calcularDNA simplificado para contexto do comentarista
-function calcularDNA(teamId) {
+// calcularDNA — usa a função principal (linha ~2820) renomeando o helper local
+function calcularDNATexto(teamId) {
   const sts = DADOS?.estatisticas || [];
   const posse    = parseFloat(getStat(sts,teamId,'Ball Possession')) || 50;
   const ataques  = parseFloat(getStat(sts,teamId,'Dangerous Attacks')) || 0;
