@@ -6419,15 +6419,15 @@ function renderComentaristaFeed() {
 function iniciarComentarista() {
   const f = DADOS?.fixture;
   if (!f) return;
-  const isLive = ['1H','2H','ET','P','HT'].includes(f.status?.short);
-  const isFT   = ['FT','AET','PEN'].includes(f.status?.short);
+  const isLive    = ['1H','2H','ET','P','HT'].includes(f.status?.short);
+  const isFT      = ['FT','AET','PEN'].includes(f.status?.short);
   const isPreJogo = f.status?.short === 'NS' || f.status?.short === 'TBD';
 
   // Mostrar indicador ao vivo
   const liveEl = gc('comentaristaLive');
   if (liveEl) liveEl.style.display = isLive ? 'block' : 'none';
 
-  // Atualizar label do status
+  // Atualizar label
   const statusEl = gc('comentaristaStatus');
   if (statusEl) {
     if (isLive)    statusEl.textContent = 'ao vivo · atualiza a cada 3min';
@@ -6435,14 +6435,22 @@ function iniciarComentarista() {
     if (isPreJogo) statusEl.textContent = 'análise pré-jogo';
   }
 
-  // Gerar análise imediata (funciona para ao vivo, encerrado e pré-jogo)
-  gerarComentario(true);
-
-  // Ao vivo: repetir a cada 3 minutos
-  if (isLive) {
-    clearInterval(COMENTARISTA_TIMER);
-    COMENTARISTA_TIMER = setInterval(() => gerarComentario(false), 3 * 60 * 1000);
+  // Pré-jogo → introdução completa (vários cards de uma vez)
+  if (isPreJogo) {
+    gerarIntroPreJogo();
+    return;
   }
+
+  // Pós-jogo → resumão completo
+  if (isFT) {
+    gerarResumaoPosJogo();
+    return;
+  }
+
+  // Ao vivo → insight único imediato + loop a cada 3min
+  gerarComentario(true);
+  clearInterval(COMENTARISTA_TIMER);
+  COMENTARISTA_TIMER = setInterval(() => gerarComentario(false), 3 * 60 * 1000);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -6689,6 +6697,239 @@ function calcularTermometro() {
   return Math.min(99, Math.round(
     (apC+apF)*0.5 + (xgC+xgF)*15 + gols*10 + latebonus
   ));
+}
+
+// ══════════════════════════════════════════════════════════════
+// 🎙️ INTRODUÇÃO PRÉ-JOGO — vários cards de análise
+// ══════════════════════════════════════════════════════════════
+function gerarIntroPreJogo() {
+  if (!DADOS) return;
+  const f    = DADOS.fixture;
+  const nomC = f.timeCasa.nome, nomF = f.timeFora.nome;
+  const liga = f.liga?.nome || '';
+  const items = [];
+
+  const odds  = ODDS_PREJOGO?.odds;
+  const o1    = odds?.resultados?.odd1;
+  const o2    = odds?.resultados?.odd2;
+  const oX    = odds?.resultados?.oddX;
+  const oO25  = odds?.overUnder?.over25;
+  const prob  = odds?.probImplicitas || {};
+  const xGols = odds?.xGolsOdds;
+  const tipoJogo = odds?.tipoJogo || '';
+
+  const lesoesCasa = (CONTEXTO?.lesoes||[]).filter(l=>l.time===nomC||l.timeCasaId===f.timeCasa.id);
+  const lesoesFora = (CONTEXTO?.lesoes||[]).filter(l=>l.time===nomF||l.timeCasaId===f.timeFora.id);
+  const h2h = CONTEXTO?.h2h || {};
+  const mediaGolsH2h = h2h.mediaGols;
+  const h2hTotal = (h2h.vitoriasCasa||0) + (h2h.empates||0) + (h2h.vitoriasFora||0);
+
+  // Card 1 — Apresentação da partida
+  let intro = liga ? liga + ' — ' : '';
+  intro += nomC + ' recebe ' + nomF + '.';
+  if (o1 && o2) {
+    const fav = o1 < o2 ? nomC : nomF;
+    const oddFav = Math.min(o1,o2).toFixed(2);
+    const diff = Math.abs(o1 - o2);
+    if (diff < 0.25) {
+      intro += ' O mercado vê um duelo equilibrado: ' + o1.toFixed(2) + ' / ' + (oX||'—') + ' / ' + o2.toFixed(2) + '. Qualquer resultado é plausível.';
+    } else if (diff > 0.8) {
+      intro += ' ' + fav + ' entra como favorito claro (odd ' + oddFav + '). Superação será necessária do outro lado.';
+    } else {
+      intro += ' ' + fav + ' é levemente favorito nas odds (' + oddFav + ' vs ' + Math.max(o1,o2).toFixed(2) + ').';
+    }
+  }
+  if (xGols) intro += ' Modelo de gols esperados pelas odds: ' + xGols + ' gols na partida.';
+  items.push({ texto: intro, tipo: 'destaque' });
+
+  // Card 2 — Desfalques
+  if (lesoesCasa.length > 0 || lesoesFora.length > 0) {
+    let txt = 'Desfalques confirmados: ';
+    const partes = [];
+    if (lesoesCasa.length > 0) partes.push(nomC + ' sem ' + lesoesCasa.slice(0,3).map(l=>l.nome||l.player).join(', ') + (lesoesCasa.length > 3 ? ' e mais ' + (lesoesCasa.length-3) : ''));
+    if (lesoesFora.length > 0) partes.push(nomF + ' sem ' + lesoesFora.slice(0,3).map(l=>l.nome||l.player).join(', ') + (lesoesFora.length > 3 ? ' e mais ' + (lesoesFora.length-3) : ''));
+    txt += partes.join('. ') + '.';
+    if (lesoesCasa.length >= 4) txt += ' Volume alto de ausências em ' + nomC + ' pode comprometer o esquema titular.';
+    if (lesoesFora.length >= 4) txt += ' ' + nomF + ' com elenco desfalcado tende a recuar e buscar o contra-ataque.';
+    items.push({ texto: txt, tipo: 'alerta' });
+  }
+
+  // Card 3 — H2H
+  if (h2hTotal >= 3) {
+    let txt = 'Histórico direto (' + h2hTotal + ' jogos): ' + nomC + ' venceu ' + (h2h.vitoriasCasa||0) + ' vezes, ' + (h2h.empates||0) + ' empates, ' + nomF + ' venceu ' + (h2h.vitoriasFora||0) + '.';
+    if (mediaGolsH2h) {
+      txt += ' Média de ' + mediaGolsH2h.toFixed(1) + ' gols por confronto — ';
+      txt += mediaGolsH2h >= 3.0 ? 'confronto historicamente aberto.' : mediaGolsH2h >= 2.0 ? 'volume moderado de gols.' : 'duelo equilibrado e fechado.';
+    }
+    items.push({ texto: txt, tipo: 'tatica' });
+  }
+
+  // Card 4 — Fingerprint e padrões
+  const fpTextos = [];
+  if (FP_CASA && FP_CASA.totalJogos >= 5) {
+    if (FP_CASA.janelaMaisPerigosa) fpTextos.push(nomC + ' marca mais entre os minutos ' + FP_CASA.janelaMaisPerigosa[0] + '-' + FP_CASA.janelaMaisPerigosa[1] + ' historicamente');
+    if (FP_CASA.mediaGolsMarcados) fpTextos.push('média de ' + FP_CASA.mediaGolsMarcados.toFixed(1) + ' gols marcados por jogo em casa');
+  }
+  if (FP_FORA && FP_FORA.totalJogos >= 5) {
+    if (FP_FORA.janelaMaisPerigosa) fpTextos.push(nomF + ' tem janela perigosa entre ' + FP_FORA.janelaMaisPerigosa[0] + '-' + FP_FORA.janelaMaisPerigosa[1] + ' minutos');
+    if (FP_FORA.mediaGolsMarcados) fpTextos.push('média de ' + FP_FORA.mediaGolsMarcados.toFixed(1) + ' gols marcados por jogo fora');
+  }
+  if (fpTextos.length > 0) {
+    items.push({ texto: 'Padrões do banco de dados: ' + fpTextos.join('; ') + '. Esses números vão pesar nas previsões ao vivo.', tipo: 'previsao' });
+  }
+
+  // Card 5 — Árbitro
+  if (ARBITRO_PERFIL) {
+    const arb = ARBITRO_PERFIL;
+    let txt = 'Árbitro: ' + (arb.nome||'Não identificado') + '.';
+    if (arb.mediaAmarelos) txt += ' Média de ' + arb.mediaAmarelos.toFixed(1) + ' cartões amarelos por jogo.';
+    if (arb.perfil === 'rigoroso') txt += ' Perfil rigoroso — faltas são punidas com frequência. Cuidado com jogadores já no limite.';
+    else if (arb.perfil === 'permissivo') txt += ' Perfil permissivo — jogo pode ficar mais físico sem punições.';
+    else txt += ' Perfil neutro.';
+    items.push({ texto: txt, tipo: 'tatica' });
+  }
+
+  // Card 6 — Sinal sharp
+  if (ODDS_PREJOGO?.movimento?.sinalSharp) {
+    items.push({ texto: '🚨 Sinal sharp detectado nas odds antes do jogo. Movimento brusco pode indicar informação de escalação ou lesão de última hora não pública. Reavalie o contexto quando as escalações saírem.', tipo: 'alerta' });
+  }
+
+  // Publicar todos os cards de uma vez (em ordem reversa para mostrar o 1 no topo)
+  const tsBase = Date.now();
+  [...items].reverse().forEach((item, i) => {
+    COMENTARISTA_FEED.unshift({ texto: item.texto, tipo: item.tipo, minuto: 0, ts: tsBase + i });
+  });
+  if (COMENTARISTA_FEED.length > 20) COMENTARISTA_FEED.length = 20;
+  renderComentaristaFeed();
+
+  const statusEl = gc('comentaristaStatus');
+  if (statusEl) statusEl.textContent = 'análise pré-jogo · ' + items.length + ' cards';
+}
+
+// ══════════════════════════════════════════════════════════════
+// 🏁 RESUMÃO PÓS-JOGO — análise narrativa completa
+// ══════════════════════════════════════════════════════════════
+function gerarResumaoPosJogo() {
+  if (!DADOS) return;
+  const f    = DADOS.fixture;
+  const sts  = DADOS.estatisticas || [];
+  const idC  = f.timeCasa.id, idF = f.timeFora.id;
+  const nomC = f.timeCasa.nome, nomF = f.timeFora.nome;
+  const scC  = f.placar?.casa ?? 0, scF = f.placar?.fora ?? 0;
+  const G    = (id,k) => getStat(sts,id,k) || 0;
+  const items = [];
+
+  const xgC = G(idC,'expected_goals'), xgF = G(idF,'expected_goals');
+  const apC = G(idC,'Dangerous Attacks'), apF = G(idF,'Dangerous Attacks');
+  const possC = G(idC,'Ball Possession');
+  const shotsC = G(idC,'Shots on Goal'), shotsF = G(idF,'Shots on Goal');
+  const faltasC = G(idC,'Fouls'), faltasF = G(idF,'Fouls');
+  const amC = G(idC,'Yellow Cards'), amF = G(idF,'Yellow Cards');
+
+  // Card 1 — Placar final + contexto
+  let veredito = '';
+  if      (scC > scF + 1) veredito = nomC + ' venceu com autoridade.';
+  else if (scF > scC + 1) veredito = nomF + ' venceu de forma convincente.';
+  else if (scC > scF)     veredito = 'Vitória sofrida de ' + nomC + ' por 1 gol de diferença.';
+  else if (scF > scC)     veredito = 'Vitória do visitante ' + nomF + ' fora de casa.';
+  else                    veredito = 'Empate no placar final.';
+
+  let txt1 = 'Fim de jogo: ' + nomC + ' ' + scC + ' x ' + scF + ' ' + nomF + '. ' + veredito;
+  if (xgC > 0 || xgF > 0) {
+    txt1 += ' xG da partida: ' + xgC.toFixed(2) + ' x ' + xgF.toFixed(2) + '.';
+    const xgVencedor = xgC > xgF ? nomC : nomF;
+    const xgPerdedor = xgC > xgF ? nomF : nomC;
+    if ((xgC > xgF && scF >= scC) || (xgF > xgC && scC >= scF)) {
+      txt1 += ' ' + xgVencedor + ' criou mais mas o placar não refletiu — resultado pode ser considerado injusto pelo volume de jogo.';
+    } else if (Math.abs(xgC - xgF) > 0.8) {
+      txt1 += ' Dominância de ' + xgVencedor + ' em qualidade de chances — resultado dentro do esperado pelo xG.';
+    }
+  }
+  items.push({ texto: txt1, tipo: 'destaque' });
+
+  // Card 2 — Domínio e controle
+  let txt2 = 'Domínio: ';
+  if (possC >= 55) txt2 += nomC + ' controlou a posse (' + possC + '%) ';
+  else if (possC <= 45) txt2 += nomF + ' ficou com a posse (' + (100-possC) + '%) ';
+  else txt2 += 'Posse equilibrada (' + possC + '% x ' + (100-possC) + '%) ';
+  txt2 += 'mas pressão real foi de ';
+  if (apC > apF * 1.4) txt2 += nomC + ' (' + apC + ' vs ' + apF + ' ataques perigosos).';
+  else if (apF > apC * 1.4) txt2 += nomF + ' (' + apF + ' vs ' + apC + ' ataques perigosos).';
+  else txt2 += 'ambos os times de forma equilibrada (' + apC + ' x ' + apF + ').';
+  if (shotsC > 0 || shotsF > 0) txt2 += ' Chutes no alvo: ' + shotsC + ' x ' + shotsF + '.';
+  items.push({ texto: txt2, tipo: 'tatica' });
+
+  // Card 3 — Destaque positivo da partida
+  const jogDestaque = [];
+  if (DADOS.jogadoresStats) {
+    DADOS.jogadoresStats.forEach(time => {
+      time.jogadores.forEach(p => {
+        const r = parseFloat(p.stats.games?.rating) || 0;
+        if (r >= 7.5) jogDestaque.push({ nome: p.nome, time: time.time.nome, r, gols: p.stats.goals?.total||0 });
+      });
+    });
+  }
+  jogDestaque.sort((a,b) => b.r - a.r);
+  if (jogDestaque.length > 0) {
+    const top = jogDestaque.slice(0,2);
+    let txt3 = 'Destaques da partida: ';
+    txt3 += top.map(j => j.nome + ' (' + j.time + ', ' + j.r.toFixed(1) + (j.gols ? ', ' + j.gols + ' gol' + (j.gols>1?'s':'') : '') + ')').join(' e ') + '.';
+    const hist0 = HISTORICO_JOGADORES[top[0]?.id];
+    if (hist0?.medias?.rating && top[0].r > hist0.medias.rating + 0.5) {
+      txt3 += ' ' + top[0].nome + ' esteve acima da sua média histórica de ' + hist0.medias.rating.toFixed(1) + ' — atuação acima do esperado.';
+    }
+    items.push({ texto: txt3, tipo: 'jogador' });
+  }
+
+  // Card 4 — Disciplina
+  if (amC + amF > 0 || faltasC + faltasF > 20) {
+    let txt4 = 'Disciplina: ' + (amC+amF) + ' cartões amarelos na partida (' + nomC + ': ' + amC + ', ' + nomF + ': ' + amF + '). ';
+    txt4 += 'Total de faltas: ' + (faltasC+faltasF) + '. ';
+    if (amC + amF >= 5) txt4 += 'Jogo nervoso — árbitro teve muito trabalho.';
+    else if (amC + amF <= 1) txt4 += 'Partida limpa, poucas interrupções disciplinares.';
+    else txt4 += 'Volume de faltas dentro do esperado para a intensidade do jogo.';
+    items.push({ texto: txt4, tipo: 'tatica' });
+  }
+
+  // Card 5 — Algoritmo vs resultado
+  const prevsVerif = PREV_HISTORICO.filter(p => p.resultado !== null);
+  if (prevsVerif.length >= 2) {
+    const acertos = prevsVerif.filter(p => p.resultado === true).length;
+    const pct = Math.round(acertos / prevsVerif.length * 100);
+    let txt5 = 'Algoritmo nesta partida: ' + acertos + ' de ' + prevsVerif.length + ' previsões corretas (' + pct + '%). ';
+    if (pct >= 65) txt5 += 'Excelente leitura do jogo — padrões foram bem capturados.';
+    else if (pct >= 45) txt5 += 'Aproveitamento regular. Jogo teve variáveis difíceis de prever.';
+    else txt5 += 'Sessão difícil para o algoritmo — comportamento atípico na partida. Os dados desta sessão vão ajudar a calibrar os pesos futuros.';
+    items.push({ texto: txt5, tipo: 'previsao' });
+  }
+
+  // Card 6 — Veredito final
+  const veredictoFinal = (() => {
+    if (scC === scF) {
+      if (xgC > xgF + 0.6) return nomC + ' foi o melhor time em campo mas não conseguiu converter. Empate que soa a derrota para o time da casa.';
+      if (xgF > xgC + 0.6) return nomF + ' dominou mas parou nas defesas ou na falta de pontaria. Empate com sabor amargo para o visitante.';
+      return 'Empate justo — os dois times se equivaleram durante a partida.';
+    }
+    const vencedor = scC > scF ? nomC : nomF;
+    const perdedor = scC > scF ? nomF : nomC;
+    const xgVenc = scC > scF ? xgC : xgF;
+    const xgPerd = scC > scF ? xgF : xgC;
+    if (xgVenc < xgPerd - 0.5) return vencedor + ' venceu sem merecer pelo volume — resultado de eficiência clínica ou goleiro excepcional do lado perdedor. ' + perdedor + ' vai sair frustrado.';
+    if (xgVenc > xgPerd + 0.5) return vencedor + ' venceu com merecimento. O xG confirma a superioridade — resultado justo pela qualidade de jogo apresentada.';
+    return 'Resultado equilibrado — ambos os times tiveram suas chances. A diferença foi feita nos detalhes.';
+  })();
+  items.push({ texto: veredictoFinal, tipo: 'destaque' });
+
+  // Publicar todos os cards
+  const tsBase = Date.now();
+  [...items].reverse().forEach((item, i) => {
+    COMENTARISTA_FEED.unshift({ texto: item.texto, tipo: item.tipo, minuto: 90, ts: tsBase + i });
+  });
+  if (COMENTARISTA_FEED.length > 25) COMENTARISTA_FEED.length = 25;
+  renderComentaristaFeed();
+
+  const statusEl = gc('comentaristaStatus');
+  if (statusEl) statusEl.textContent = 'resumão final · ' + items.length + ' análises';
 }
 
 // Helper: calcularDNA simplificado para contexto do comentarista
