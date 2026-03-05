@@ -1163,6 +1163,7 @@ async function load(fId,dId){
     const r=await fn({fixtureId:parseInt(fixtureId)});
     DADOS=r.data;
     renderAll();
+    verificarGolParaSnapshot();
     gc('pgLoad').style.display='none';
     gc('pgMain').style.display='block';
 
@@ -1340,7 +1341,6 @@ function renderAll(){
   renderStats();
   renderJogadores();
   renderAlgo();
-  verificarGolParaSnapshot();
   verificarAlertas();
 }
 
@@ -2158,6 +2158,60 @@ function renderGauges(){
       <div class="gauge-sub">${g.sub}</div>
     </div>`;
   }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+// ⚽ SNAPSHOT AUTOMÁTICO NA DETECÇÃO DE GOL
+// ══════════════════════════════════════════════════════════════
+let _ultimoPlacarRegistrado = [-1, -1];
+let _ultimoGolSnapshotMin   = -1;
+
+function verificarGolParaSnapshot() {
+  if (!DADOS) return;
+  const f   = DADOS.fixture;
+  const isLive = ['1H','2H','ET','P','HT'].includes(f.status && f.status.short);
+  if (!isLive) return;
+  const scC = (f.placar && f.placar.casa != null) ? f.placar.casa : 0;
+  const scF = (f.placar && f.placar.fora != null) ? f.placar.fora : 0;
+  const min = (f.status && f.status.elapsed) || 0;
+  if (_ultimoPlacarRegistrado[0] === -1) { _ultimoPlacarRegistrado = [scC, scF]; return; }
+  const golNovo = scC !== _ultimoPlacarRegistrado[0] || scF !== _ultimoPlacarRegistrado[1];
+  if (golNovo && min !== _ultimoGolSnapshotMin && min > 0) {
+    const quemMarcou = scC > _ultimoPlacarRegistrado[0] ? f.timeCasa.nome : f.timeFora.nome;
+    _ultimoGolSnapshotMin = min;
+    _ultimoPlacarRegistrado = [scC, scF];
+    const docId = new URLSearchParams(window.location.search).get('doc');
+    const fxId  = new URLSearchParams(window.location.search).get('id');
+    if (!docId || !fxId) return;
+    const sts = DADOS.estatisticas || [];
+    const getSL = function(tid, key) {
+      const t = sts.find(function(t){ return t.time.id === tid; });
+      if (!t) return null;
+      const v = t.stats && t.stats[key];
+      return v != null ? parseFloat(String(v).replace('%','').trim()) || null : null;
+    };
+    const snapGol = {
+      minuto: min, tipo: 'gol', quemMarcou: quemMarcou,
+      placarCasa: scC, placarFora: scF,
+      ataquesPerigososCasa: getSL(f.timeCasa.id, 'Dangerous Attacks') || 0,
+      ataquesPerigososFora: getSL(f.timeFora.id, 'Dangerous Attacks') || 0,
+      xgCasa: getSL(f.timeCasa.id, 'expected_goals') || 0,
+      xgFora: getSL(f.timeFora.id, 'expected_goals') || 0,
+    };
+    const idx = SNAPSHOTS.findIndex(function(s){ return s.minuto === min; });
+    if (idx >= 0) { SNAPSHOTS[idx] = Object.assign({}, SNAPSHOTS[idx], snapGol); }
+    else { SNAPSHOTS.push(snapGol); SNAPSHOTS.sort(function(a,b){ return (a.minuto||0)-(b.minuto||0); }); }
+    renderSnapshots();
+    if(gc('snapCount')) gc('snapCount').textContent = SNAPSHOTS.length;
+    fns.httpsCallable('registrarSnapshotLive')({
+      fixtureId: parseInt(fxId), minuto: min, estatisticas: sts,
+      timeCasaId: f.timeCasa.id, timeForaId: f.timeFora.id,
+      tipoEvento: 'gol', placarCasa: scC, placarFora: scF,
+    }).catch(function(e){ console.warn('snapshot-gol:', e.message); });
+    toast('Gol! ' + quemMarcou + ' (' + scC + 'x' + scF + ') — snapshot capturado', 'ok');
+  } else {
+    _ultimoPlacarRegistrado = [scC, scF];
+  }
 }
 
 // Helper: ajuste de confiança baseado em odds pré-jogo
