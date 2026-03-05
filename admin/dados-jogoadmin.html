@@ -157,6 +157,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .corner-pred-val{font-size:18px;font-weight:800;font-family:'DM Mono',monospace;}
 .corner-hist{display:flex;gap:3px;align-items:flex-end;height:28px;margin-top:6px;}
 .corner-hist-bar{flex:1;border-radius:2px 2px 0 0;min-height:2px;}
+/* Export */
+.export-bar{display:flex;gap:6px;margin-top:10px;}
+.export-btn{flex:1;padding:8px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid;display:flex;align-items:center;justify-content:center;gap:5px;}
+.export-btn.json{background:var(--pdim);border-color:var(--pur);color:var(--pur);}
+.export-btn.pdf{background:var(--rdim);border-color:var(--red);color:var(--red);}
+.export-btn.copy{background:var(--gdim);border-color:var(--grn);color:var(--grn);}
 /* Termômetro */
 .termometro-wrap{background:var(--c2);border:1px solid var(--bd2);border-radius:14px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:16px;}
 .termo-gauge{position:relative;width:72px;height:72px;flex-shrink:0;}
@@ -5068,6 +5074,285 @@ function renderOddsPrejogo() {
     </div>` : ''}`;
 }
 
+// ══════════════════════════════════════════════════════════════
+// 📤 EXPORT — JSON, PDF e Clipboard
+// ══════════════════════════════════════════════════════════════
+function montarDadosExport() {
+  if (!DADOS) return null;
+  const f   = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+  const evs = DADOS.eventos;
+
+  const getST = (id, k) => getStat(sts, id, k);
+  const idC = f.timeCasa.id, idF = f.timeFora.id;
+
+  return {
+    meta: {
+      exportadoEm: new Date().toISOString(),
+      plataforma:  'Yellup Analytics',
+      versao:      '1.0',
+    },
+    jogo: {
+      id:      f.id,
+      data:    f.data,
+      liga:    f.liga?.nome,
+      ligaId:  f.liga?.id,
+      pais:    f.liga?.pais,
+      rodada:  f.rodada,
+      arbitro: f.arbitro,
+      estadio: f.estadio,
+      status:  f.status?.short,
+    },
+    times: {
+      casa: { id: idC, nome: f.timeCasa.nome },
+      fora: { id: idF, nome: f.timeFora.nome },
+    },
+    placar: {
+      casa: f.placar.casa ?? 0,
+      fora: f.placar.fora ?? 0,
+    },
+    estatisticas: {
+      casa: {
+        posse:          getST(idC, 'Ball Possession'),
+        chutes:         getST(idC, 'Total Shots'),
+        chutesAlvo:     getST(idC, 'Shots on Goal'),
+        escanteios:     getST(idC, 'Corner Kicks'),
+        faltas:         getST(idC, 'Fouls'),
+        amarelos:       getST(idC, 'Yellow Cards'),
+        vermelhos:      getST(idC, 'Red Cards'),
+        passes:         getST(idC, 'Total passes'),
+        passesAcc:      getST(idC, 'Passes accurate'),
+        ataquesPerig:   getST(idC, 'Dangerous Attacks'),
+        xG:             getST(idC, 'expected_goals'),
+        impedimentos:   getST(idC, 'Offsides'),
+        defesas:        getST(idC, 'Goalkeeper Saves'),
+      },
+      fora: {
+        posse:          getST(idF, 'Ball Possession'),
+        chutes:         getST(idF, 'Total Shots'),
+        chutesAlvo:     getST(idF, 'Shots on Goal'),
+        escanteios:     getST(idF, 'Corner Kicks'),
+        faltas:         getST(idF, 'Fouls'),
+        amarelos:       getST(idF, 'Yellow Cards'),
+        vermelhos:      getST(idF, 'Red Cards'),
+        passes:         getST(idF, 'Total passes'),
+        passesAcc:      getST(idF, 'Passes accurate'),
+        ataquesPerig:   getST(idF, 'Dangerous Attacks'),
+        xG:             getST(idF, 'expected_goals'),
+        impedimentos:   getST(idF, 'Offsides'),
+        defesas:        getST(idF, 'Goalkeeper Saves'),
+      },
+    },
+    eventos: evs.map(e => ({
+      minuto:   e.minuto,
+      tipo:     e.tipo,
+      detalhe:  e.detalhe,
+      time:     e.time?.nome,
+      jogador:  e.jogador?.nome,
+      assiste:  e.assistente?.nome,
+    })),
+    snapshots: SNAPSHOTS.map(s => ({
+      minuto:               s.minuto,
+      ataquesPerigososCasa: s.ataquesPerigososCasa,
+      ataquesPerigososFora: s.ataquesPerigososFora,
+      posseCasa:            s.posseCasa,
+      posseFora:            s.posseFora,
+      placarCasa:           s.placarCasa,
+      placarFora:           s.placarFora,
+    })),
+    previsoes: {
+      total:       PREV_HISTORICO.length,
+      acertos:     PREV_HISTORICO.filter(p => p.resultado === 'acerto').length,
+      erros:       PREV_HISTORICO.filter(p => p.resultado === 'erro').length,
+      aproveitamento: (() => {
+        const a = PREV_HISTORICO.filter(p => p.resultado === 'acerto').length;
+        const e = PREV_HISTORICO.filter(p => p.resultado === 'erro').length;
+        return (a + e) > 0 ? Math.round(a / (a + e) * 100) : null;
+      })(),
+      detalhes: PREV_HISTORICO,
+    },
+    oddsPrejogo: ODDS_PREJOGO?.odds || null,
+    arbitroPerfil: ARBITRO_PERFIL ? {
+      nome:           ARBITRO_PERFIL.nome,
+      totalJogos:     ARBITRO_PERFIL.totalJogos,
+      mediaAmarelos:  ARBITRO_PERFIL.mediaAmarelos,
+      pctExpulsao:    ARBITRO_PERFIL.pctJogosComExpulsao,
+      perfil:         ARBITRO_PERFIL.perfil,
+    } : null,
+    fingerprint: {
+      casa: FP_CASA ? { totalJogos: FP_CASA.totalJogos, mediaGolsMarcados: FP_CASA.mediaGolsMarcados, janelaMaisPerigosa: FP_CASA.janelaMaisPerigosa } : null,
+      fora: FP_FORA ? { totalJogos: FP_FORA.totalJogos, mediaGolsMarcados: FP_FORA.mediaGolsMarcados, janelaMaisPerigosa: FP_FORA.janelaMaisPerigosa } : null,
+    },
+    pesos: { ...PESOS },
+  };
+}
+
+function exportarJSON() {
+  const dados = montarDadosExport();
+  if (!dados) return;
+  const f    = DADOS.fixture;
+  const nome = `yellup_${_nPrimeiro(f.timeCasa.nome)}_vs_${_nPrimeiro(f.timeFora.nome)}_${(f.data||'').slice(0,10)}.json`;
+  const blob = new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = nome; a.click();
+  URL.revokeObjectURL(url);
+  toast('✓ JSON exportado', 'ok');
+}
+
+function exportarClipboard() {
+  const dados = montarDadosExport();
+  if (!dados) return;
+  const f  = DADOS.fixture;
+  const sc = dados.placar;
+  const st = dados.estatisticas;
+  const pr = dados.previsoes;
+
+  // Texto formatado para colar em qualquer lugar
+  const txt = [
+    `📊 YELLUP — RELATÓRIO DE JOGO`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `${f.timeCasa.nome} ${sc.casa} × ${sc.fora} ${f.timeFora.nome}`,
+    `${dados.jogo.liga} · ${dados.jogo.data?.slice(0,10)}`,
+    ``,
+    `📈 ESTATÍSTICAS`,
+    `Posse:        ${st.casa.posse||'?'}% × ${st.fora.posse||'?'}%`,
+    `Chutes:       ${st.casa.chutes||0} × ${st.fora.chutes||0}`,
+    `Chutes alvo:  ${st.casa.chutesAlvo||0} × ${st.fora.chutesAlvo||0}`,
+    `xG:           ${parseFloat(st.casa.xG||0).toFixed(2)} × ${parseFloat(st.fora.xG||0).toFixed(2)}`,
+    `Escanteios:   ${st.casa.escanteios||0} × ${st.fora.escanteios||0}`,
+    `Faltas:       ${st.casa.faltas||0} × ${st.fora.faltas||0}`,
+    `Amarelos:     ${st.casa.amarelos||0} × ${st.fora.amarelos||0}`,
+    ``,
+    `🔮 PREVISÕES DO ALGORITMO`,
+    `Total: ${pr.total} · Acertos: ${pr.acertos} · Erros: ${pr.erros} · Aproveit: ${pr.aproveitamento??'—'}%`,
+    ``,
+    `🔬 Gerado por Yellup Analytics — yellup.vercel.app`,
+  ].join('\n');
+
+  navigator.clipboard.writeText(txt).then(() => toast('✓ Copiado!', 'ok')).catch(() => toast('Erro ao copiar', 'err'));
+}
+
+function exportarPDF() {
+  const dados = montarDadosExport();
+  if (!dados) return;
+  const f  = DADOS.fixture;
+  const sc = dados.placar;
+  const st = dados.estatisticas;
+  const pr = dados.previsoes;
+  const ev = dados.eventos;
+
+  const gols = ev.filter(e => e.tipo === 'Goal');
+  const cartoes = ev.filter(e => e.tipo === 'Card');
+
+  const mkRow = (lbl, vC, vF) =>
+    `<tr><td style="color:#888;font-size:11px">${lbl}</td><td style="text-align:right;font-weight:700;color:#f5a524">${vC??'—'}</td><td style="text-align:right;font-weight:700;color:#4f96f4">${vF??'—'}</td></tr>`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Yellup — ${f.timeCasa.nome} vs ${f.timeFora.nome}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Segoe UI', sans-serif; background:#fff; color:#111; padding:24px; max-width:700px; margin:0 auto; }
+  h1 { font-size:22px; font-weight:800; margin-bottom:4px; }
+  .sub { font-size:12px; color:#666; margin-bottom:20px; }
+  .placar { font-size:48px; font-weight:900; text-align:center; margin:16px 0; letter-spacing:-2px; }
+  .times { display:flex; justify-content:space-between; font-size:13px; font-weight:700; margin-bottom:20px; }
+  .sec { margin-bottom:20px; }
+  .sec h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#888; border-bottom:1px solid #eee; padding-bottom:4px; margin-bottom:10px; }
+  table { width:100%; border-collapse:collapse; }
+  tr td { padding:4px 6px; border-bottom:1px solid #f0f0f0; }
+  .ev { font-size:11px; padding:3px 0; }
+  .badge { display:inline-block; background:#f0f0f0; border-radius:4px; padding:1px 6px; font-size:10px; margin-right:4px; }
+  .footer { font-size:10px; color:#aaa; text-align:center; margin-top:24px; padding-top:12px; border-top:1px solid #eee; }
+  @media print { body { padding:0; } }
+</style>
+</head>
+<body>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+  <div>
+    <h1>Yellup Analytics</h1>
+    <div class="sub">${dados.jogo.liga} · ${dados.jogo.data?.slice(0,10)} · Árbitro: ${dados.jogo.arbitro||'—'}</div>
+  </div>
+  <img src="https://yellup.vercel.app/logo.png" style="height:36px;opacity:.7" onerror="this.style.display='none'">
+</div>
+
+<div class="times">
+  <span style="color:#f5a524">${f.timeCasa.nome}</span>
+  <span style="color:#888;font-size:11px">${dados.jogo.rodada||''}</span>
+  <span style="color:#4f96f4">${f.timeFora.nome}</span>
+</div>
+<div class="placar">${sc.casa} <span style="color:#ccc">—</span> ${sc.fora}</div>
+
+<div class="sec">
+  <h2>📊 Estatísticas</h2>
+  <table>
+    <thead><tr><td></td><td style="text-align:right;font-size:10px;color:#f5a524;font-weight:700">CASA</td><td style="text-align:right;font-size:10px;color:#4f96f4;font-weight:700">FORA</td></tr></thead>
+    <tbody>
+      ${mkRow('Posse (%)', st.casa.posse, st.fora.posse)}
+      ${mkRow('xG', parseFloat(st.casa.xG||0).toFixed(2), parseFloat(st.fora.xG||0).toFixed(2))}
+      ${mkRow('Chutes', st.casa.chutes, st.fora.chutes)}
+      ${mkRow('Chutes no alvo', st.casa.chutesAlvo, st.fora.chutesAlvo)}
+      ${mkRow('Escanteios', st.casa.escanteios, st.fora.escanteios)}
+      ${mkRow('Faltas', st.casa.faltas, st.fora.faltas)}
+      ${mkRow('Amarelos', st.casa.amarelos, st.fora.amarelos)}
+      ${mkRow('Precisão passes (%)', st.casa.passesAcc&&st.casa.passes?Math.round(st.casa.passesAcc/st.casa.passes*100):'—', st.fora.passesAcc&&st.fora.passes?Math.round(st.fora.passesAcc/st.fora.passes*100):'—')}
+    </tbody>
+  </table>
+</div>
+
+${gols.length ? `<div class="sec">
+  <h2>⚽ Gols</h2>
+  ${gols.map(g=>`<div class="ev"><span class="badge">${g.minuto}'</span><strong>${g.time}</strong> — ${g.jogador||'?'}${g.assiste?' (assist: '+g.assiste+')':''} <span style="color:#888">${g.detalhe||''}</span></div>`).join('')}
+</div>` : ''}
+
+${cartoes.length ? `<div class="sec">
+  <h2>🟨 Cartões</h2>
+  ${cartoes.map(c=>`<div class="ev"><span class="badge">${c.minuto}'</span>${c.detalhe==='Yellow Card'?'🟨':'🟥'} <strong>${c.jogador||'?'}</strong> (${c.time})</div>`).join('')}
+</div>` : ''}
+
+<div class="sec">
+  <h2>🔮 Previsões do Algoritmo</h2>
+  <table>
+    <tbody>
+      ${mkRow('Total geradas', pr.total, '')}
+      ${mkRow('Acertos verificados', pr.acertos, '')}
+      ${mkRow('Erros verificados', pr.erros, '')}
+      ${mkRow('Aproveitamento', pr.aproveitamento !== null ? pr.aproveitamento + '%' : '—', '')}
+    </tbody>
+  </table>
+  ${pr.detalhes.length ? `<div style="margin-top:8px">
+    ${pr.detalhes.slice(0,10).map(p=>`<div class="ev">
+      <span class="badge">${p.minuto}'</span>
+      ${p.tipo.replace(/_/g,' ')} — confiança ${p.conf}%
+      <span style="color:${p.resultado==='acerto'?'green':p.resultado==='erro'?'red':'#aaa'}">${p.resultado==='acerto'?'✓ Acerto':p.resultado==='erro'?'✗ Erro':'Pendente'}</span>
+    </div>`).join('')}
+  </div>` : ''}
+</div>
+
+${dados.oddsPrejogo ? `<div class="sec">
+  <h2>🏦 Odds Pré-Jogo</h2>
+  <table><tbody>
+    ${mkRow('1 (Casa)', dados.oddsPrejogo.resultados?.odd1?.toFixed(2), '')}
+    ${mkRow('X (Empate)', dados.oddsPrejogo.resultados?.oddX?.toFixed(2), '')}
+    ${mkRow('2 (Fora)', dados.oddsPrejogo.resultados?.odd2?.toFixed(2), '')}
+    ${mkRow('Over 2.5', dados.oddsPrejogo.overUnder?.over25?.toFixed(2), '')}
+    ${mkRow('Ambas marcam', dados.oddsPrejogo.ambasMarcam?.sim?.toFixed(2), '')}
+  </tbody></table>
+</div>` : ''}
+
+<div class="footer">Relatório gerado por Yellup Analytics · ${new Date().toLocaleString('pt-BR')}</div>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 500);
+}
+
 // ── HELPER: render insights ──
 function mkInsights(list){
   if(!list.length)return '<div class="empty"><div class="ico">🔍</div><p>Dados insuficientes para análise</p></div>';
@@ -5305,6 +5590,11 @@ function renderRelatorio(){
       <div style="margin-left:auto;display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
         <span class="rel-badge">✅ Relatório Final</span>
         ${SNAPSHOTS.length>0?`<span style="font-size:10px;color:var(--t3);">${SNAPSHOTS.length} snapshots</span>`:''}
+        <div class="export-bar">
+          <button class="export-btn json" onclick="exportarJSON()">📄 JSON</button>
+          <button class="export-btn pdf"  onclick="exportarPDF()">🖨️ PDF</button>
+          <button class="export-btn copy" onclick="exportarClipboard()">📋 Copiar</button>
+        </div>
       </div>
     </div>
 
