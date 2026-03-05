@@ -918,6 +918,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
       <div id="contextoEl"></div>
     </div>
 
+    <!-- Odds pré-jogo -->
+    <div id="oddsPrejogoPainel" style="display:none;margin-bottom:12px;">
+      <div id="oddsPrejogEl"></div>
+    </div>
     <div id="mercadoEmpty" style="font-size:12px;color:var(--t3);padding:20px;text-align:center;">
       Carregando dados de mercado...
     </div>
@@ -1122,6 +1126,8 @@ let PREVISOES_LOG=[];   // log de previsões feitas nesta sessão
 let SNAP_PLAYERS=[];    // série temporal de stats de jogadores
 let PREDICTIONS=null;   // predictions da API-Football
 let ODDS_LIVE=null;     // odds ao vivo
+let ODDS_PREJOGO=null;  // odds pré-jogo + fingerprint de odds
+let RELATORIO_SALVO=false; // evitar salvar duas vezes
 let CONTEXTO=null;      // lesões + h2h
 let oddsTimer=null;     // intervalo de busca de odds
 let SNAPSHOTS=[];       // série temporal ao vivo
@@ -1179,6 +1185,7 @@ async function load(fId,dId){
     // Buscar predictions + contexto + perfil árbitro — 1x
     buscarPredictionsContexto(parseInt(fixtureId), casaId, foraId);
     buscarPerfilArbitro();
+    buscarFingerprintOddsFn();
 
     // Buscar snapshots de players existentes
     carregarSnapshotsPlayers(parseInt(fixtureId));
@@ -2045,6 +2052,7 @@ function renderAlgo(){
   renderTermometro();
   renderDesemp();
   renderNotif();
+  renderOddsPrejogo();
   renderCampoPressao();
   renderFases();
   renderCorners();
@@ -4910,6 +4918,83 @@ function renderCorners() {
     </div>` : ''}`;
 }
 
+// ── Render odds pré-jogo + fingerprint de odds ──
+function renderOddsPrejogo() {
+  const painel = gc('oddsPrejogoPainel');
+  const el     = gc('oddsPrejogEl');
+  if (!painel || !el) return;
+  if (!ODDS_PREJOGO?.odds) { painel.style.display = 'none'; return; }
+
+  painel.style.display = 'block';
+  const o  = ODDS_PREJOGO.odds;
+  const fp = ODDS_PREJOGO.fingerprint;
+  const f  = DADOS?.fixture;
+  if (!f) return;
+
+  const prob = o.probImplicitas || {};
+  const r    = o.resultados    || {};
+  const ou   = o.overUnder     || {};
+  const am   = o.ambasMarcam   || {};
+
+  // Função: odd → badge colorido por probabilidade implícita
+  const mkOdd = (odd, prob) => {
+    if (!odd) return '<span style="color:var(--t3)">—</span>';
+    const cor = prob >= 65 ? 'var(--grn)' : prob >= 45 ? 'var(--acc)' : 'var(--t3)';
+    return `<span style="font-family:'DM Mono',monospace;font-weight:700;color:${cor}">${odd.toFixed(2)}</span>
+      ${prob ? `<span style="font-size:9px;color:var(--t3);margin-left:3px;">(${prob}%)</span>` : ''}`;
+  };
+
+  // Fingerprint insights
+  const fpInsights = [];
+  if (fp?.porTipo?.total >= 10) {
+    const ft = fp.porTipo;
+    fpInsights.push(`📊 <strong>${ft.total}</strong> jogos similares no banco — over 2.5 aconteceu em <strong style="color:var(--acc)">${ft.pctOver25}%</strong>, média <strong>${ft.mediaGols}</strong> gols.`);
+    if (ft.pctAmbasMarcam) fpInsights.push(`Ambas marcam em ${ft.pctAmbasMarcam}% dos jogos deste perfil.`);
+  }
+  if (fp?.porBucket?.total >= 5) {
+    const fb = fp.porBucket;
+    fpInsights.push(`🎯 Quando over 2.5 está em ~${fb.bucket} nas odds, over 2.5 saiu em <strong>${fb.pctOver25}%</strong> dos casos (${fb.total} jogos).`);
+  }
+  if (o.xGolsOdds) fpInsights.push(`⚡ Estimativa de gols pelas odds: <strong style="color:var(--pur)">${o.xGolsOdds}</strong> gols esperados.`);
+
+  el.innerHTML = `
+    <div style="background:var(--c3);border-radius:10px;padding:12px;margin-bottom:8px;">
+      <div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;margin-bottom:8px;">
+        🏦 Odds Pré-Jogo ${o.casasUsadas?.length ? '('+o.casasUsadas.slice(0,2).join(', ')+')' : ''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
+        <div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center;">
+          <div style="font-size:9px;color:var(--t3)">Casa (1)</div>
+          <div style="margin-top:2px;">${mkOdd(r.odd1, prob.casa)}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center;">
+          <div style="font-size:9px;color:var(--t3)">Empate (X)</div>
+          <div style="margin-top:2px;">${mkOdd(r.oddX, prob.empate)}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center;">
+          <div style="font-size:9px;color:var(--t3)">Fora (2)</div>
+          <div style="margin-top:2px;">${mkOdd(r.odd2, prob.fora)}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center;">
+          <div style="font-size:9px;color:var(--t3)">Over 1.5</div>
+          <div style="margin-top:2px;">${mkOdd(ou.over15, null)}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center;">
+          <div style="font-size:9px;color:var(--t3)">Over 2.5</div>
+          <div style="margin-top:2px;">${mkOdd(ou.over25, prob.over25)}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center;">
+          <div style="font-size:9px;color:var(--t3)">Ambas marcam</div>
+          <div style="margin-top:2px;">${mkOdd(am.sim, prob.ambasMarcam)}</div>
+        </div>
+      </div>
+      ${o.tipoJogo ? `<div style="font-size:10px;color:var(--t3);">Perfil: <strong style="color:var(--pur)">${o.tipoJogo.replace(/_/g,' ')}</strong></div>` : ''}
+    </div>
+    ${fpInsights.length ? `<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px;">
+      ${fpInsights.map(i => `<div class="rel-insight destaque" style="font-size:11px;">${i}</div>`).join('')}
+    </div>` : ''}`;
+}
+
 // ── HELPER: render insights ──
 function mkInsights(list){
   if(!list.length)return '<div class="empty"><div class="ico">🔍</div><p>Dados insuficientes para análise</p></div>';
@@ -5041,6 +5126,7 @@ function renderRelatorio(){
   if(!isFt){el.style.display='none';return;}
 
   el.style.display='block';
+  salvarRelatorioFn(); // persiste no Firestore (fire & forget)
 
   const scC=f.placar.casa??0, scF=f.placar.fora??0;
   const nomC=f.timeCasa.nome, nomF=f.timeFora.nome;
@@ -5627,6 +5713,55 @@ function detectarJanelaCritica(preds, minAtual, f, sts) {
 }
 
 // ═══ BUSCAR E RENDERIZAR PERFIL DO ÁRBITRO ═══
+// ── Buscar odds pré-jogo e fingerprint de odds ──
+async function buscarFingerprintOddsFn() {
+  if (!DADOS) return;
+  try {
+    const fn = fns.httpsCallable('buscarFingerprintOdds');
+    const r  = await fn({ fixtureId: DADOS.fixture.id });
+    if (r.data?.sucesso && r.data.odds) {
+      ODDS_PREJOGO = r.data;
+      renderAlgo(); // re-render com odds pré-jogo disponíveis
+    }
+  } catch(e) { console.warn('FingerprintOdds:', e.message); }
+}
+
+// ── Salvar relatório pós-jogo no Firestore ──
+async function salvarRelatorioFn() {
+  if (!DADOS || RELATORIO_SALVO) return;
+  const f  = DADOS.fixture;
+  const sts= DADOS.estatisticas || [];
+  const isFt = ['FT','AET','PEN'].includes(f.status.short);
+  if (!isFt) return;
+
+  try {
+    const fn = fns.httpsCallable('salvarRelatorioJogo');
+    await fn({
+      fixtureId:   f.id,
+      timeCasaId:  f.timeCasa.id,
+      timeForaId:  f.timeFora.id,
+      ligaId:      f.liga?.id,
+      placarCasa:  f.placar.casa ?? 0,
+      placarFora:  f.placar.fora ?? 0,
+      xgCasa:      parseFloat(getStat(sts, f.timeCasa.id, 'expected_goals')) || 0,
+      xgFora:      parseFloat(getStat(sts, f.timeFora.id, 'expected_goals')) || 0,
+      posseCasa:   getStat(sts, f.timeCasa.id, 'Ball Possession') || 50,
+      chutesAlvoCasa:  getStat(sts, f.timeCasa.id, 'Shots on Goal') || 0,
+      chutesAlvoFora:  getStat(sts, f.timeFora.id, 'Shots on Goal') || 0,
+      escanteiosCasa:  getStat(sts, f.timeCasa.id, 'Corner Kicks')  || 0,
+      escanteiosFora:  getStat(sts, f.timeFora.id, 'Corner Kicks')  || 0,
+      cartoesCasa:     getStat(sts, f.timeCasa.id, 'Yellow Cards')  || 0,
+      cartoesFora:     getStat(sts, f.timeFora.id, 'Yellow Cards')  || 0,
+      faultasCasa:     getStat(sts, f.timeCasa.id, 'Fouls')         || 0,
+      faultasFora:     getStat(sts, f.timeFora.id, 'Fouls')         || 0,
+      totalSnapshots: SNAPSHOTS.length,
+      previsoesSessao: PREV_HISTORICO.slice(0, 50),
+    });
+    RELATORIO_SALVO = true;
+    console.log('✅ Relatório salvo no Firestore');
+  } catch(e) { console.warn('salvarRelatorio:', e.message); }
+}
+
 async function buscarPerfilArbitro() {
   const arbitro = DADOS?.fixture?.arbitro;
   if (!arbitro) return;
