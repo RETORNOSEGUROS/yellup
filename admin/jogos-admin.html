@@ -219,6 +219,32 @@ select:focus{border-color:var(--acc);}
 .add-spons-btn{width:100%;padding:9px;border-radius:8px;border:1px dashed var(--bd3);background:none;color:var(--t3);font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s;}
 .add-spons-btn:hover{border-color:var(--acc);color:var(--acc);}
 
+/* Quick access bar */
+.qb-bar{display:flex;gap:5px;padding:8px 10px;background:var(--bg3);border-top:1px solid var(--bd1);}
+.qb-btn{flex:1;padding:5px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;border:none;display:flex;align-items:center;justify-content:center;gap:3px;transition:opacity .2s;}
+.qb-btn:hover{opacity:.8;}
+.qb-btn.raio{background:var(--pdim);color:var(--pur);}
+.qb-btn.snap{background:var(--bdim2);color:var(--blu);}
+.qb-btn.rel{background:var(--gdim);color:var(--grn);}
+/* Termômetro mini */
+.termo-mini{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;}
+.termo-mini.frio{background:var(--gdim);color:var(--grn);}
+.termo-mini.morno{background:var(--adim);color:var(--acc);}
+.termo-mini.quente{background:var(--rdim);color:var(--red);}
+/* Painel lateral de jogo selecionado */
+.live-panel{position:fixed;right:0;top:0;width:300px;height:100vh;background:var(--bg2);border-left:1px solid var(--bd1);display:none;flex-direction:column;z-index:50;transition:width .2s;}
+.live-panel.open{display:flex;}
+.live-panel-header{padding:14px 16px;border-bottom:1px solid var(--bd1);display:flex;align-items:center;gap:8px;}
+.live-panel-body{flex:1;overflow-y:auto;padding:12px;}
+.live-mini-stat{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bd2);font-size:11px;}
+.live-mini-stat:last-child{border-bottom:none;}
+.live-mini-lbl{color:var(--t3);}
+.live-mini-val{font-family:'DM Mono',monospace;font-weight:700;}
+/* Filtro de liga */
+.liga-filter-wrap{padding:6px 12px;border-bottom:1px solid var(--bd1);}
+.liga-chips{display:flex;gap:4px;flex-wrap:wrap;}
+.liga-chip{padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;cursor:pointer;border:1px solid var(--bd2);color:var(--t3);background:var(--c3);transition:all .15s;}
+.liga-chip.on{border-color:var(--acc);color:var(--acc);background:var(--adim);}
 /* status selector */
 .status-pills{display:flex;gap:5px;flex-wrap:wrap;}
 .sp{padding:4px 10px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid var(--bd2);color:var(--t3);transition:all .15s;}
@@ -367,6 +393,10 @@ select:focus{border-color:var(--acc);}
             <option value="adiado">Adiados</option>
           </select>
         </div>
+      </div>
+      <!-- Filtro de liga dinâmico -->
+      <div class="liga-filter-wrap" id="ligaFilterWrap" style="display:none;">
+        <div class="liga-chips" id="ligaChips"></div>
       </div>
       <div class="panel-body" id="admBody">
         <div class="empty"><div class="ld"></div><p>Carregando...</p></div>
@@ -925,6 +955,7 @@ function renderAdmin(){
       if(!h.includes(q))return false;
     }
     if(st&&j.status!==st)return false;
+    if(ligaFiltroAtual&&j.liga?.nome!==ligaFiltroAtual)return false;
     if(dtFilt&&j.dataInicio){
       const jd=j.dataInicio.toDate?j.dataInicio.toDate():new Date(j.dataInicio);
       // comparar só YYYY-MM-DD no horário local
@@ -947,6 +978,7 @@ function renderAdmin(){
     return;
   }
   gc('admBody').innerHTML=filt.map(j=>mkAdmCard(j)).join('');
+  atualizarLigaFilter();
 }
 
 function mkAdmCard(j){
@@ -1002,6 +1034,7 @@ function mkAdmCard(j){
     <div class="adm-card-footer">
       ${j.local?`<span class="lbl">🏟</span><span class="val">${x(j.local)}</span>`:''}
       ${j.apiFixtureId?`<span class="lbl">API</span><span class="val">${j.apiFixtureId}</span>`:''}
+      ${isLive&&j.minutosJogo?`<span class="lbl" style="color:var(--red);font-weight:700;">⏱ ${j.minutosJogo}'</span>`:''}
       <div class="adm-actions">
         ${spCt>0?`<span class="spons-count" onclick="abrirSpons('${j._id}')">💼 ${spCt}</span>`:''}
         ${j.apiFixtureId?`<button class="btn-sm" style="color:var(--pur);border-color:var(--pur)" onclick="abrirDados('${j._id}','${j.apiFixtureId}')" title="Raio-X do jogo">🔬</button>`:''}
@@ -1372,7 +1405,150 @@ function toast(msg,tipo){
   const t=gc('toast');t.textContent=msg;t.className='toast show'+(tipo?' '+tipo:'');
   clearTimeout(t._t);t._t=setTimeout(()=>t.className='toast',3500);
 }
-document.addEventListener('keydown',e=>{if(e.key==='Escape')fecharJogo();});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ fecharJogo(); fecharLivePainel(); }
+});
+
+// ─── FILTRO DE LIGA ───
+let ligaFiltroAtual = '';
+function atualizarLigaFilter() {
+  const ligas = [...new Set(admJogos.map(j => j.liga?.nome).filter(Boolean))].sort();
+  if (ligas.length < 2) { gc('ligaFilterWrap').style.display='none'; return; }
+  gc('ligaFilterWrap').style.display = 'block';
+  gc('ligaChips').innerHTML = [
+    `<span class="liga-chip ${ligaFiltroAtual===''?'on':''}" onclick="filtrarLiga('')">Todas</span>`,
+    ...ligas.map(l => `<span class="liga-chip ${ligaFiltroAtual===l?'on':''}" onclick="filtrarLiga('${l.replace(/'/g,'\x27')}')">${x(l)}</span>`)
+  ].join('');
+}
+function filtrarLiga(liga) {
+  ligaFiltroAtual = liga;
+  atualizarLigaFilter();
+  renderAdmin();
+}
+
+// ─── PAINEL LATERAL AO VIVO ───
+let livePainelTimer = null;
+
+function abrirLivePainel(docId, fixtureId, nomeC, nomeF, placarC, placarF) {
+  gc('livePainel').classList.add('open');
+  gc('livePainelTitulo').textContent = `${nomeC} vs ${nomeF}`;
+  gc('livePainelSub').textContent    = `${placarC} — ${placarF} · ao vivo`;
+  gc('livePainelLink').href          = `dados-jogoadmin.html?doc=${docId}&id=${fixtureId}`;
+  carregarLivePainel(docId, fixtureId);
+  clearInterval(livePainelTimer);
+  livePainelTimer = setInterval(() => carregarLivePainel(docId, fixtureId), 30000);
+}
+
+function fecharLivePainel() {
+  gc('livePainel').classList.remove('open');
+  clearInterval(livePainelTimer);
+}
+
+async function carregarLivePainel(docId, fixtureId) {
+  const el = gc('livePainelBody');
+  if (!el) return;
+  try {
+    const snap = await db.collection('jogos-admin').doc(docId).get();
+    if (!snap.exists) { el.innerHTML = '<div class="empty">Não encontrado</div>'; return; }
+    const j = snap.data();
+    const sts = j.estatisticasPartida || {};
+    const casa = sts.casa || {}, fora = sts.fora || {};
+    const evs  = j.eventosJogo || [];
+
+    const gols = evs.filter(e => e.tipo === 'Goal' || e.type === 'Goal');
+    const cartoes = evs.filter(e => e.tipo === 'Card' || e.type === 'Card');
+    const subs = evs.filter(e => e.tipo === 'subst' || e.type === 'subst');
+
+    const mkStat = (lbl, vC, vF) => `
+      <div class="live-mini-stat">
+        <span class="live-mini-lbl">${lbl}</span>
+        <div style="display:flex;gap:8px;">
+          <span class="live-mini-val" style="color:var(--acc)">${vC??'—'}</span>
+          <span style="font-size:10px;color:var(--t3)">×</span>
+          <span class="live-mini-val" style="color:var(--blu)">${vF??'—'}</span>
+        </div>
+      </div>`;
+
+    const golsHtml = gols.slice(0, 8).map(g => {
+      const min = g.tempo || g.time?.elapsed || '?';
+      const jog = g.jogador || g.player?.name || '?';
+      const tm  = g.timeId || g.team?.id;
+      const isCasa = tm === j.timeCasaId;
+      return `<div style="font-size:10px;padding:3px 0;border-bottom:1px solid var(--bd2);">
+        <span style="color:var(--t3);margin-right:4px">${min}'</span>
+        <span style="color:${isCasa?'var(--acc)':'var(--blu)'};font-weight:700">${x(jog)}</span>
+        <span style="color:var(--t3);font-size:9px;margin-left:4px">${g.detalhe||g.detail||''}</span>
+      </div>`;
+    }).join('');
+
+    // Score termômetro (simplificado sem JS do dados-jogoadmin)
+    const apC = parseInt(casa['Dangerous Attacks']) || 0;
+    const apF = parseInt(fora['Dangerous Attacks']) || 0;
+    const xgC = parseFloat(casa['expected_goals']) || 0;
+    const xgF = parseFloat(fora['expected_goals']) || 0;
+    const minJogo = j.minutosJogo || 0;
+    const scoreBruto = Math.min(90, Math.round((apC+apF)*0.5 + (xgC+xgF)*15 + (minJogo>80?20:minJogo>70?12:0)));
+    const termoCls = scoreBruto >= 65 ? 'quente' : scoreBruto >= 40 ? 'morno' : 'frio';
+    const termoIco = scoreBruto >= 65 ? '🔴' : scoreBruto >= 40 ? '🟠' : '🟢';
+
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div>
+          <div style="font-family:'DM Mono',monospace;font-size:28px;font-weight:900">${j.placarCasa??'?'} — ${j.placarFora??'?'}</div>
+          <div style="font-size:10px;color:var(--t3)">${j.minutosJogo||0}' · ${j.liga?.nome||''}</div>
+        </div>
+        <span class="termo-mini ${termoCls}">${termoIco} ${scoreBruto}</span>
+      </div>
+
+      ${Object.keys(casa).length ? `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;margin-bottom:4px;">Estatísticas</div>
+        ${mkStat('Posse', casa['Ball Possession']+'%'||'—', fora['Ball Possession']+'%'||'—')}
+        ${mkStat('xG', parseFloat(casa['expected_goals']||0).toFixed(2), parseFloat(fora['expected_goals']||0).toFixed(2))}
+        ${mkStat('Chutes', casa['Total Shots'], fora['Total Shots'])}
+        ${mkStat('Chutes alvo', casa['Shots on Goal'], fora['Shots on Goal'])}
+        ${mkStat('Ataques perigo', casa['Dangerous Attacks'], fora['Dangerous Attacks'])}
+        ${mkStat('Faltas', casa['Fouls'], fora['Fouls'])}
+      </div>` : '<div style="font-size:10px;color:var(--t3);margin-bottom:10px;">Stats ainda não disponíveis</div>'}
+
+      ${gols.length ? `
+      <div style="margin-bottom:10px;">
+        <div style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;margin-bottom:4px;">⚽ Gols</div>
+        ${golsHtml}
+      </div>` : ''}
+
+      <div style="display:flex;gap:5px;font-size:10px;color:var(--t2);">
+        <span>🟨 ${cartoes.length} cartões</span>
+        <span>·</span>
+        <span>🔄 ${subs.length} subs</span>
+      </div>
+
+      <a href="dados-jogoadmin.html?doc=${docId}&id=${fixtureId}" target="_blank"
+        style="display:block;margin-top:12px;padding:8px;text-align:center;background:var(--pdim);color:var(--pur);border-radius:8px;font-size:11px;font-weight:700;text-decoration:none;">
+        🔬 Abrir Raio-X Completo
+      </a>`;
+  } catch(e) { el.innerHTML = `<div style="font-size:10px;color:var(--red);padding:10px">Erro: ${e.message}</div>`; }
+}
+
+// Painel lateral HTML
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ fecharJogo(); fecharLivePainel(); }
+});
 </script>
+
+<!-- Painel lateral: stats rápidas do jogo ao vivo -->
+<div class="live-panel" id="livePainel">
+  <div class="live-panel-header">
+    <button onclick="fecharLivePainel()" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:16px;">✕</button>
+    <div style="flex:1">
+      <div id="livePainelTitulo" style="font-size:12px;font-weight:700;"></div>
+      <div id="livePainelSub" style="font-size:10px;color:var(--t3);"></div>
+    </div>
+    <a id="livePainelLink" href="#" target="_blank" style="font-size:10px;padding:4px 10px;background:var(--pdim);color:var(--pur);border-radius:6px;text-decoration:none;font-weight:700;">🔬 Raio-X</a>
+  </div>
+  <div class="live-panel-body" id="livePainelBody">
+    <div class="empty"><div class="ld" style="width:16px;height:16px;"></div></div>
+  </div>
+</div>
 </body>
 </html>
