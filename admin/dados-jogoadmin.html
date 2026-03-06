@@ -3061,26 +3061,70 @@ function renderPrevisoes(){
   const momCasa10=momentum(evs,f.timeCasa.id,Math.max(0,minAtual-10),minAtual);
   const momFora10=momentum(evs,f.timeFora.id,Math.max(0,minAtual-10),minAtual);
 
-  // xG não convertido gera pressão
-  const xgDefCasa=Math.max(0,xgC-sc[0]);
-  const xgDefFora=Math.max(0,xgF-sc[1]);
+  // xG não convertido — CORRIGIDO: usa xG total, não descontando gols já marcados
+  // (o Bayern com xG 0.54 e 1 gol NÃO tem pressão represada negativa — continua criando)
+  const xgDefCasa=Math.max(0, xgC - Math.max(0, sc[0]-0.3));  // desconta só gols acima do esperado
+  const xgDefFora=Math.max(0, xgF - Math.max(0, sc[1]-0.3));
+
+  // Ataques perigosos acumulados (sinal mais forte de pressão ofensiva real)
+  const apC=getStat(sts,f.timeCasa.id,'Dangerous Attacks')||0;
+  const apF=getStat(sts,f.timeFora.id,'Dangerous Attacks')||0;
+  const apRatC=minAtual>0?apC/minAtual:0;   // ataques perigosos por minuto
+  const apRatF=minAtual>0?apF/minAtual:0;
+  const ppApC=Math.min(20,Math.round(apRatC*18));   // até +20pp
+  const ppApF=Math.min(20,Math.round(apRatF*18));
+
+  // Aceleração de pressão via snapshots (últimos 10min)
+  let aceleracaoC=0, aceleracaoF=0;
+  if(SNAPSHOTS.length>=3){
+    const snapsR=SNAPSHOTS.slice(-Math.min(10,SNAPSHOTS.length));
+    const sA=snapsR[0], sZ=snapsR[snapsR.length-1];
+    const minDelta=Math.max(1,(sZ.minuto||0)-(sA.minuto||0));
+    aceleracaoC=Math.max(0,((sZ.ataquesPerigososCasa||0)-(sA.ataquesPerigososCasa||0))/minDelta*10);
+    aceleracaoF=Math.max(0,((sZ.ataquesPerigososFora||0)-(sA.ataquesPerigososFora||0))/minDelta*10);
+  }
+  const ppAcelC=Math.min(15,Math.round(aceleracaoC*3));
+  const ppAcelF=Math.min(15,Math.round(aceleracaoF*3));
+
+  // xG absoluto (não relativo a gols) — pressão real acumulada
+  const ppXgAbsC=Math.min(15,Math.round(xgC*8));
+  const ppXgAbsF=Math.min(15,Math.round(xgF*8));
 
   // fase de jogo (minutos finais = mais gols)
   const fataseBonus=minAtual>=80?15:minAtual>=70?8:minAtual>=40&&minAtual<=45?10:0;
 
   let probGolCasa=Math.min(95,Math.round(
-    (shotsOnC/totalShotsC)*20 + xgDefCasa*12 + momCasa10*4 + fataseBonus
+    (shotsOnC/totalShotsC)*15      // precisão de chutes
+    + xgDefCasa*8                  // xG represado
+    + ppXgAbsC                     // xG absoluto acumulado
+    + ppApC                        // taxa ataques perigosos/min
+    + ppAcelC                      // aceleração recente
+    + momCasa10*3                  // momentum por eventos
+    + fataseBonus
   ));
   let probGolFora=Math.min(95,Math.round(
-    (shotsOnF/totalShotsF)*20 + xgDefFora*12 + momFora10*4 + fataseBonus
+    (shotsOnF/totalShotsF)*15
+    + xgDefFora*8
+    + ppXgAbsF
+    + ppApF
+    + ppAcelF
+    + momFora10*3
+    + fataseBonus
   ));
-  const probGol=Math.min(95,Math.round(1-(1-probGolCasa/100)*(1-probGolFora/100))*100);
+  const probGol=Math.min(95,Math.round((1-(1-probGolCasa/100)*(1-probGolFora/100))*100));
 
   const sinaisGol=[];
-  const ppXgCasa=Math.round(xgDefCasa*PESOS.xgDef); if(ppXgCasa) sinaisGol.push({label:`xG não convertido ${f.timeCasa.nome} (+${xgDefCasa.toFixed(1)})`,pp:ppXgCasa});
-  const ppXgFora=Math.round(xgDefFora*PESOS.xgDef); if(ppXgFora) sinaisGol.push({label:`xG não convertido ${f.timeFora.nome} (+${xgDefFora.toFixed(1)})`,pp:ppXgFora});
-  const ppAccC=Math.round((shotsOnC/totalShotsC)*PESOS.precisaoTiro); if(ppAccC>2) sinaisGol.push({label:`Precisão finalizações ${f.timeCasa.nome} (${shotsOnC}/${totalShotsC})`,pp:ppAccC});
-  const ppAccF=Math.round((shotsOnF/totalShotsF)*PESOS.precisaoTiro); if(ppAccF>2) sinaisGol.push({label:`Precisão finalizações ${f.timeFora.nome} (${shotsOnF}/${totalShotsF})`,pp:ppAccF});
+  // Sinais por ordem de impacto
+  if(ppApC>5)   sinaisGol.push({label:`Pressão ofensiva ${f.timeCasa.nome}: ${apC} AP (${apRatC.toFixed(1)}/min)`,pp:ppApC});
+  if(ppApF>5)   sinaisGol.push({label:`Pressão ofensiva ${f.timeFora.nome}: ${apF} AP (${apRatF.toFixed(1)}/min)`,pp:ppApF});
+  if(ppAcelC>3) sinaisGol.push({label:`${f.timeCasa.nome} acelerando: +${aceleracaoC.toFixed(1)} AP nos últimos 10min`,pp:ppAcelC});
+  if(ppAcelF>3) sinaisGol.push({label:`${f.timeFora.nome} acelerando: +${aceleracaoF.toFixed(1)} AP nos últimos 10min`,pp:ppAcelF});
+  const ppXgCasa=Math.round(xgDefCasa*PESOS.xgDef); if(ppXgCasa>2) sinaisGol.push({label:`xG não convertido ${f.timeCasa.nome} (+${xgDefCasa.toFixed(1)})`,pp:ppXgCasa});
+  const ppXgFora=Math.round(xgDefFora*PESOS.xgDef); if(ppXgFora>2) sinaisGol.push({label:`xG não convertido ${f.timeFora.nome} (+${xgDefFora.toFixed(1)})`,pp:ppXgFora});
+  if(ppXgAbsC>5) sinaisGol.push({label:`xG acumulado ${f.timeCasa.nome}: ${xgC.toFixed(2)}`,pp:ppXgAbsC});
+  if(ppXgAbsF>5) sinaisGol.push({label:`xG acumulado ${f.timeFora.nome}: ${xgF.toFixed(2)}`,pp:ppXgAbsF});
+  const ppAccC=Math.round((shotsOnC/totalShotsC)*PESOS.precisaoTiro); if(ppAccC>2) sinaisGol.push({label:`Finalização precisa ${f.timeCasa.nome} (${shotsOnC}/${totalShotsC})`,pp:ppAccC});
+  const ppAccF=Math.round((shotsOnF/totalShotsF)*PESOS.precisaoTiro); if(ppAccF>2) sinaisGol.push({label:`Finalização precisa ${f.timeFora.nome} (${shotsOnF}/${totalShotsF})`,pp:ppAccF});
   const ppMomC=Math.round(momCasa10*PESOS.momentum); if(ppMomC>2) sinaisGol.push({label:`Momentum ${f.timeCasa.nome} últimos 10min`,pp:ppMomC});
   const ppMomF=Math.round(momFora10*PESOS.momentum); if(ppMomF>2) sinaisGol.push({label:`Momentum ${f.timeFora.nome} últimos 10min`,pp:ppMomF});
   if(fataseBonus) sinaisGol.push({label:`Fase crítica do jogo (${minAtual}')`,pp:Math.min(PESOS.faseJogo,fataseBonus+5)});
@@ -3207,7 +3251,7 @@ function renderPrevisoes(){
     };
     preds.forEach(p=>{
       const tipo=Object.entries(tiposMap).find(([k])=>p.title.startsWith(k))?.[1];
-      if(tipo && p.conf>=45){
+      if(tipo && p.conf>=40){
         const ctx={
           posse:getStat(sts,f.timeCasa.id,'Ball Possession'),
           xgCasa:getStat(sts,f.timeCasa.id,'expected_goals'),
@@ -4800,13 +4844,16 @@ function renderCartoes() {
 // ⚙️ PESOS DO ALGORITMO — editáveis em tempo real
 // ══════════════════════════════════════════════════════════════
 const PESOS_DEFAULT = {
-  xgDef:      { label: 'xG não convertido (pressão represada)', val: 12, min: 0, max: 30, step: 1 },
-  precisaoTiro:{ label: 'Precisão de finalização (chutes/alvo)', val: 20, min: 0, max: 40, step: 1 },
-  momentum:   { label: 'Momentum últimos 10min', val: 4,  min: 0, max: 15, step: 1 },
-  faseJogo:   { label: "Bonus fase critica (70-80-90min)",  val: 15, min: 0, max: 30, step: 1 },
-  janelaFP:   { label: 'Janela histórica fingerprint',   val: 12, min: 0, max: 25, step: 1 },
-  faultaCartao:{ label: 'Faltas para probabilidade cartao', val: 8,  min: 0, max: 20, step: 1 },
-  amareloPeso:{ label: 'Peso por amarelo já distribuído', val: 7,  min: 0, max: 15, step: 1 },
+  xgDef:        { label: 'xG não convertido (pressão represada)', val: 8,  min: 0, max: 20, step: 1 },
+  precisaoTiro: { label: 'Precisão de finalização (chutes/alvo)',  val: 15, min: 0, max: 30, step: 1 },
+  ataquePerig:  { label: 'Taxa ataques perigosos/min',             val: 18, min: 0, max: 30, step: 1 },
+  aceleracao:   { label: 'Aceleração de ataques (últimos 10min)',  val: 3,  min: 0, max: 10, step: 1 },
+  xgAbsoluto:   { label: 'xG absoluto acumulado',                  val: 8,  min: 0, max: 20, step: 1 },
+  momentum:     { label: 'Momentum últimos 10min (por eventos)',   val: 3,  min: 0, max: 10, step: 1 },
+  faseJogo:     { label: 'Bônus fase crítica (70-80-90min)',       val: 15, min: 0, max: 30, step: 1 },
+  janelaFP:     { label: 'Janela histórica fingerprint',           val: 12, min: 0, max: 25, step: 1 },
+  faultaCartao: { label: 'Faltas para probabilidade cartão',       val: 8,  min: 0, max: 20, step: 1 },
+  amareloPeso:  { label: 'Peso por amarelo já distribuído',        val: 7,  min: 0, max: 15, step: 1 },
 };
 let PESOS = JSON.parse(localStorage.getItem('yellup_pesos') || 'null') || 
   Object.fromEntries(Object.entries(PESOS_DEFAULT).map(([k,v]) => [k, v.val]));
