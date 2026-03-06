@@ -851,7 +851,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 </div>
 
 <!-- ── TIMELINE ── -->
-<div id="sec-aovivo" class="sec on">
+<div id="sec-aovivo" style="display:block">
 
   <!-- Scrubber -->
   <div class="scrubber-card" id="scrCard" style="display:none;">
@@ -909,13 +909,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 </div>
 
 <!-- ── NÚMEROS ── -->
-<div id="sec-numeros" class="sec">
+<div id="sec-numeros" style="display:none">
 
 <!-- conteúdo injetado via sub-abas -->
 <div id="sec-numeros-body">
 
 <!-- Stats -->
-<div id="sec-stats" class="subsec on">
+<div id="sec-stats" class="subsec" style="display:block">
   <div class="stats-header">
     <div class="stats-teams">
       <div class="st-team-info"><div class="st-team-dot" style="background:var(--acc)"></div><span id="stNomeCasa">Casa</span></div>
@@ -928,12 +928,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 
 <!-- ── JOGADORES ── -->
 </div><!-- /subsec stats -->
-<div id="sec-jogadores" class="subsec">
+<div id="sec-jogadores" class="subsec" style="display:block">
   <div id="jogsEl"><div class="empty"><div class="ld" style="width:24px;height:24px;"></div></div></div>
 </div>
 
 <!-- ── ANÁLISE ── -->
-<div id="sec-analise" class="sec">
+<div id="sec-analise" style="display:none">
 
   <!-- Termômetro do Jogo -->
   <div id="termometroWrap" style="display:none;">
@@ -1192,9 +1192,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 </div>
 
 <!-- ── INTELIGÊNCIA ── -->
-<div id="sec-inteligencia" class="sec">
+<div id="sec-inteligencia" style="display:none">
 
-<div id="sec-historico" class="subsec on">
+<div id="sec-historico" class="subsec" style="display:block">
 
   <!-- Status do carregamento -->
   <div id="histLoadStatus" class="hist-loading" style="display:none;">
@@ -5714,51 +5714,65 @@ function mkInsights(list){
 }
 
 // ═══ TABS ═══
+// IDs de todas as seções gerenciadas
+const TODAS_SECS = ['sec-aovivo','sec-campo','sec-numeros','sec-analise','sec-inteligencia'];
+
 function aba(id){
+  // 1. Atualizar tab ativa
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
   const btnIdx = {'aovivo':0,'analise':1,'numeros':2,'inteligencia':3,'sistema':4};
   const tabs = document.querySelectorAll('.tab');
   if(btnIdx[id]!==undefined && tabs[btnIdx[id]]) tabs[btnIdx[id]].classList.add('on');
-  document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
-  // Cada tab top → sua própria seção
-  const secMap={
-    'aovivo':       'sec-aovivo',
-    'analise':      'sec-analise',
-    'numeros':      'sec-numeros',
-    'inteligencia': 'sec-inteligencia',
-    'sistema':      'sec-analise',
+
+  // 2. Esconder TODAS as seções via style.display (mais confiável que classes)
+  TODAS_SECS.forEach(sid=>{
+    const el = document.getElementById(sid);
+    if(el) el.style.display = 'none';
+  });
+  // Também esconder subsecs de forma explícita
+  document.querySelectorAll('.subsec').forEach(s=>s.style.display='none');
+
+  // 3. Mostrar a seção correta
+  const secMap = {
+    'aovivo':       ['sec-aovivo','sec-campo'],
+    'analise':      ['sec-analise'],
+    'numeros':      ['sec-numeros'],
+    'inteligencia': ['sec-inteligencia'],
+    'sistema':      ['sec-analise'],
     // compat. links antigos
-    'timeline':'sec-aovivo', 'campo':'sec-aovivo',
+    'timeline':'sec-aovivo', 'campo':['sec-aovivo','sec-campo'],
     'stats':'sec-numeros',   'jogadores':'sec-numeros',
     'ia':'sec-analise',      'historico':'sec-inteligencia',
   };
-  const secId = secMap[id] || 'sec-analise';
-  const secEl = gc(secId);
-  if(secEl) secEl.classList.add('on');
-  // Campo aparece junto com Ao Vivo
-  const mainWrap = gc('pgMain');
-  if(mainWrap){
-    mainWrap.classList.toggle('sec-aovivo-ativo', id==='aovivo'||id==='campo'||id==='timeline');
+  const alvo = secMap[id] || ['sec-analise'];
+  const alvos = Array.isArray(alvo) ? alvo : [alvo];
+  alvos.forEach(sid=>{
+    const el = document.getElementById(sid);
+    if(el) el.style.display = 'block';
+  });
+
+  // 4. Para Números e Inteligência: mostrar todas as subsecs dentro delas
+  if(id==='numeros'||id==='stats'||id==='jogadores'){
+    const numEl = document.getElementById('sec-numeros');
+    if(numEl) numEl.querySelectorAll('.subsec').forEach(s=>s.style.display='block');
+  }
+  if(id==='inteligencia'||id==='historico'){
+    const intEl = document.getElementById('sec-inteligencia');
+    if(intEl) intEl.querySelectorAll('.subsec').forEach(s=>s.style.display='block');
   }
 
-  // Quando vai para Números, garantir que stats aparece
-  if(id === 'numeros' || id === 'stats' || id === 'jogadores'){
-    document.querySelectorAll('#sec-numeros .subsec').forEach(s=>s.style.display='block');
-  }
-  // Quando vai para Inteligência, mostrar historico
-  if(id === 'inteligencia' || id === 'historico'){
-    document.querySelectorAll('#sec-inteligencia .subsec').forEach(s=>s.style.display='block');
-  }
-  // Quando vai para Sistema, ativar grupo sistema nos algo-tabs
-  if(id === 'sistema'){
-    const primeiroSistema = document.querySelector('.grupo-sistema .algo-tab');
-    if(primeiroSistema) primeiroSistema.click();
+  // 5. Para Sistema: mostrar sec-analise e rolar ao grupo sistema
+  if(id==='sistema'){
     setTimeout(()=>{
       const g = document.querySelector('.grupo-sistema');
       if(g) g.scrollIntoView({behavior:'smooth',block:'nearest'});
-    }, 100);
+      // Ativar primeiro tab do grupo sistema
+      const firstTab = g && g.querySelector('.algo-tab');
+      if(firstTab && !g.querySelector('.algo-tab.on')) firstTab.click();
+    }, 80);
   }
 }
+
 
 // ═══ SNAPSHOTS: SÉRIE TEMPORAL ═══
 function renderSnapshots(){
