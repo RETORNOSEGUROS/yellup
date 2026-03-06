@@ -738,6 +738,31 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .gauge-val{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:16px;font-weight:700;}
 .gauge-sub{font-size:10px;color:var(--t2);}
 
+/* ── NOVO LAYOUT PREDICTIONS ── */
+.pred-fonte-wrap{display:flex;flex-direction:column;gap:10px;margin-bottom:10px;}
+.pred-fonte{border-radius:10px;padding:12px 14px;border:1px solid rgba(255,255,255,.07);}
+.pred-fonte.modelo{background:rgba(124,92,252,.05);border-color:rgba(124,92,252,.15);}
+.pred-fonte.mercado{background:rgba(79,150,244,.05);border-color:rgba(79,150,244,.15);}
+.pred-fonte-titulo{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px;}
+.pred-fonte.modelo .pred-fonte-titulo{color:rgba(124,92,252,.8);}
+.pred-fonte.mercado .pred-fonte-titulo{color:rgba(79,150,244,.8);}
+.pred-3cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
+.pred-col{text-align:center;}
+.pred-col-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:700;}
+.pred-col-lbl{font-size:10px;color:var(--t3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pred-col.dom .pred-col-val{color:var(--acc);}
+.pred-col.emp .pred-col-val{color:var(--t2);}
+.pred-col.vis .pred-col-val{color:var(--blu);}
+.pred-diverg{border-radius:8px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;}
+.pred-diverg.ok{background:rgba(62,207,116,.07);border:1px solid rgba(62,207,116,.15);}
+.pred-diverg.warn{background:rgba(245,197,66,.07);border:1px solid rgba(245,197,66,.2);}
+.pred-diverg.fire{background:rgba(240,79,90,.07);border:1px solid rgba(240,79,90,.2);}
+.pred-diverg-ico{font-size:16px;flex-shrink:0;}
+.pred-diverg-corpo{flex:1;}
+.pred-diverg-titulo{font-size:11px;font-weight:700;color:var(--t1);margin-bottom:2px;}
+.pred-diverg-txt{font-size:11px;color:var(--t2);line-height:1.5;}
+.pred-mercado-fonte{font-size:9px;color:var(--t3);margin-top:6px;}
+
 /* predictions */
 .pred-list{display:flex;flex-direction:column;gap:8px;}
 .pred-item{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--c2);border:1px solid var(--bd1);border-radius:10px;transition:border-color .15s;}
@@ -8020,46 +8045,123 @@ function renderPredictions(){
   const p=PREDICTIONS;
   const f=DADOS.fixture;
   const pct=(s)=>s?parseInt(s):0;
-  const pCasa=pct(p.percentuais?.casa);
-  const pEmp=pct(p.percentuais?.empate);
-  const pFora=pct(p.percentuais?.fora);
 
-  // Comparar com nosso algoritmo
-  let convergencia='';
-  if(DADOS.estatisticas?.length){
-    const algoCasa=calcAlgoPct('casa');
-    const algoFora=calcAlgoPct('fora');
-    if(algoCasa!==null){
-      const diffC=Math.abs(pCasa-algoCasa);
-      if(diffC<=10) convergencia=`<div class="pred-convergencia ok">✅ Alta convergência com nosso algoritmo (diff ${diffC}pp)</div>`;
-      else if(diffC<=20) convergencia=`<div class="pred-convergencia warn">⚠️ Leve divergência com nosso algoritmo (diff ${diffC}pp)</div>`;
-      else convergencia=`<div class="pred-convergencia fire">🔴 Divergência alta (${diffC}pp) — analisar</div>`;
+  // ── Modelo estatístico (API-Football) ──
+  const mCasa=pct(p.percentuais?.casa);
+  const mEmp =pct(p.percentuais?.empate);
+  const mFora=pct(p.percentuais?.fora);
+
+  // ── Mercado: converter odds para probabilidade implícita (sem margem) ──
+  const odds = ODDS_PREJOGO?.odds?.resultados;
+  let mkCasa=null,mkEmp=null,mkFora=null,mkFonte='';
+  if(odds?.odd1 && odds?.oddX && odds?.odd2){
+    const o1=parseFloat(odds.odd1), oX=parseFloat(odds.oddX), o2=parseFloat(odds.odd2);
+    if(o1>1&&oX>1&&o2>1){
+      const imp1=1/o1, impX=1/oX, imp2=1/o2;
+      const soma=imp1+impX+imp2; // soma > 1 por causa da margem
+      mkCasa=Math.round(imp1/soma*100);
+      mkEmp =Math.round(impX/soma*100);
+      mkFora=Math.round(imp2/soma*100);
+      mkFonte=`Bet365 (${o1} / ${oX} / ${o2})`;
     }
   }
 
+  // ── Calcular divergência ──
+  let divergHtml='';
+  if(mkCasa!==null){
+    const diffCasa=Math.abs(mCasa-mkCasa);
+    const diffEmp =Math.abs(mEmp-mkEmp);
+    const maxDiff=Math.max(diffCasa,diffEmp);
+    const quemModelo=mCasa>mEmp&&mCasa>mFora?f.timeCasa.nome:mFora>mEmp?f.timeFora.nome:'Empate';
+    const quemMercado=mkCasa>mkEmp&&mkCasa>mkFora?f.timeCasa.nome:mkFora>mkEmp?f.timeFora.nome:'Empate';
+    const mesmoFavorito=quemModelo===quemMercado;
+
+    if(maxDiff<=10){
+      divergHtml=`<div class="pred-diverg ok">
+        <div class="pred-diverg-ico">✅</div>
+        <div class="pred-diverg-corpo">
+          <div class="pred-diverg-titulo">Modelo e mercado convergem</div>
+          <div class="pred-diverg-txt">Diferença de ${maxDiff}pp — ambos apontam <b>${quemMercado}</b> como favorito.</div>
+        </div>
+      </div>`;
+    } else if(maxDiff<=25){
+      divergHtml=`<div class="pred-diverg warn">
+        <div class="pred-diverg-ico">⚠️</div>
+        <div class="pred-diverg-corpo">
+          <div class="pred-diverg-titulo">Divergência moderada (${maxDiff}pp)</div>
+          <div class="pred-diverg-txt">${mesmoFavorito
+            ?`Ambos favoritam <b>${quemMercado}</b>, mas o modelo vê maior equilíbrio que o mercado.`
+            :`Modelo aponta <b>${quemModelo}</b>, mercado aponta <b>${quemMercado}</b>. Analisar com cautela.`
+          }</div>
+        </div>
+      </div>`;
+    } else {
+      divergHtml=`<div class="pred-diverg fire">
+        <div class="pred-diverg-ico">🔴</div>
+        <div class="pred-diverg-corpo">
+          <div class="pred-diverg-titulo">Divergência alta (${maxDiff}pp) — mercado discorda do modelo</div>
+          <div class="pred-diverg-txt">${mesmoFavorito
+            ?`Mesmo favorito (<b>${quemMercado}</b>), mas o mercado é muito mais convicto. O modelo estatístico subestima o favoritismo.`
+            :`Modelo favorita <b>${quemModelo}</b>, mercado favorita fortemente <b>${quemMercado}</b>. <b>Confiar no mercado</b> — ele captura informações que o modelo não vê.`
+          }<br><span style="font-size:10px;color:var(--t3);margin-top:4px;display:block">Este padrão é registrado no sistema de aprendizado de odds.</span></div>
+        </div>
+      </div>`;
+    }
+  }
+
+  const nomC=f.timeCasa.nome, nomF=f.timeFora.nome;
+  const short=(n)=>n.length>12?n.split(' ')[0]:n;
+
   el.innerHTML=`
-    <div class="pred-api-card">
-      <div class="pred-api-conselho">${p.conselho||''}</div>
-      <div class="pred-api-pcts">
-        <div class="pred-api-pct" style="color:var(--acc)">
-          <span class="pred-api-val">${pCasa}%</span>
-          <span class="pred-api-lbl">${f.timeCasa.nome}</span>
+    <div class="pred-fonte-wrap">
+
+      <div class="pred-fonte modelo">
+        <div class="pred-fonte-titulo">📊 Modelo Estatístico · API-Football</div>
+        <div class="pred-3cols">
+          <div class="pred-col dom">
+            <div class="pred-col-val">${mCasa}%</div>
+            <div class="pred-col-lbl" title="${nomC}">${short(nomC)}</div>
+          </div>
+          <div class="pred-col emp">
+            <div class="pred-col-val">${mEmp}%</div>
+            <div class="pred-col-lbl">Empate</div>
+          </div>
+          <div class="pred-col vis">
+            <div class="pred-col-val">${mFora}%</div>
+            <div class="pred-col-lbl" title="${nomF}">${short(nomF)}</div>
+          </div>
         </div>
-        <div class="pred-api-pct" style="color:var(--t3)">
-          <span class="pred-api-val">${pEmp}%</span>
-          <span class="pred-api-lbl">Empate</span>
-        </div>
-        <div class="pred-api-pct" style="color:var(--blu)">
-          <span class="pred-api-val">${pFora}%</span>
-          <span class="pred-api-lbl">${f.timeFora.nome}</span>
-        </div>
+        ${p.gols?.casa!=null?`<div style="font-size:10px;color:var(--t3);text-align:center;margin-top:8px">Gols esperados: <b>${p.gols.casa}</b> × <b>${p.gols.fora}</b></div>`:''}
       </div>
-      ${convergencia}
-      <div class="pred-api-comp">
-        ${renderComparacao(p.comparacao, f)}
-      </div>
-      ${p.gols?.casa!=null?`<div style="font-size:11px;color:var(--t3);margin-top:8px;text-align:center">Gols esperados: <strong>${p.gols.casa}</strong> × <strong>${p.gols.fora}</strong></div>`:''}
-    </div>`;
+
+      ${mkCasa!==null?`
+      <div class="pred-fonte mercado">
+        <div class="pred-fonte-titulo">💰 Probabilidade de Mercado</div>
+        <div class="pred-3cols">
+          <div class="pred-col dom">
+            <div class="pred-col-val">${mkCasa}%</div>
+            <div class="pred-col-lbl" title="${nomC}">${short(nomC)}</div>
+          </div>
+          <div class="pred-col emp">
+            <div class="pred-col-val">${mkEmp}%</div>
+            <div class="pred-col-lbl">Empate</div>
+          </div>
+          <div class="pred-col vis">
+            <div class="pred-col-val">${mkFora}%</div>
+            <div class="pred-col-lbl" title="${nomF}">${short(nomF)}</div>
+          </div>
+        </div>
+        <div class="pred-mercado-fonte">${mkFonte}</div>
+      </div>`:''}
+
+    </div>
+
+    ${divergHtml}
+
+    <div style="font-size:10px;color:var(--t3);margin-bottom:8px;font-weight:600;letter-spacing:1px;text-transform:uppercase">Comparativo por critério</div>
+    <div class="pred-api-comp">${renderComparacao(p.comparacao, f)}</div>
+    ${p.conselho?`<div class="pred-api-conselho" style="margin-top:10px">${p.conselho}</div>`:''}
+  `;
   gc('predApiPanel').style.display='block';
 }
 
