@@ -559,6 +559,30 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .tl-tog-btn.on{background:var(--c2);color:var(--t1);box-shadow:0 1px 4px rgba(0,0,0,.3);}
 /* item de narração */
 .narr-item{display:flex;gap:10px;padding:8px 10px;border-radius:9px;transition:background .1s;position:relative;}
+
+/* ── FEED DE TRANSMISSÃO ── */
+.tx-feed{display:flex;flex-direction:column;gap:0;}
+.tx-entry{display:flex;gap:10px;padding:9px 4px;border-bottom:1px solid rgba(255,255,255,.04);animation:fadeUp .3s ease both;}
+.tx-entry:last-child{border-bottom:none;}
+.tx-min{font-family:'DM Mono',monospace;font-size:10px;color:var(--t3);width:30px;flex-shrink:0;padding-top:3px;text-align:right;}
+.tx-ico{font-size:14px;width:22px;text-align:center;flex-shrink:0;}
+.tx-body{flex:1;font-size:12px;line-height:1.55;color:var(--t2);}
+.tx-body b{color:var(--t1);}
+.tx-body .tx-score{display:inline-block;background:var(--acc);color:#fff;font-family:'DM Mono',monospace;font-size:11px;font-weight:700;padding:1px 7px;border-radius:5px;margin-left:6px;}
+
+/* tipos */
+.tx-entry.tx-gol{background:rgba(124,92,252,.08);border-radius:8px;border:1px solid rgba(124,92,252,.2);padding:10px 10px;margin:6px 0;}
+.tx-entry.tx-gol .tx-body{font-size:13px;font-weight:600;color:var(--t1);}
+.tx-entry.tx-cartao-a .tx-ico::after,.tx-entry.tx-cartao-v .tx-ico::after{content:'';}
+.tx-entry.tx-alerta{background:rgba(240,79,90,.06);border-radius:8px;border-left:2px solid var(--red);padding:8px 10px;}
+.tx-entry.tx-alerta .tx-body{color:#f08090;}
+.tx-entry.tx-cenario{background:rgba(245,197,66,.05);border-radius:8px;border-left:2px solid #f5c542;padding:8px 10px;}
+.tx-entry.tx-cenario .tx-body{color:#d4aa30;}
+.tx-entry.tx-snap{opacity:.8;}
+.tx-entry.tx-inicio{background:rgba(62,207,116,.05);border-radius:8px;padding:8px 10px;}
+.tx-divider{text-align:center;font-size:10px;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase;padding:10px 0 8px;display:flex;align-items:center;gap:8px;}
+.tx-divider::before,.tx-divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.06);}
+
 .narr-item:hover{background:var(--c3);}
 .narr-item.dimmed{opacity:.15;}
 .narr-item.narr-goal{background:var(--adim);border:1px solid var(--acc);border-left:3px solid var(--acc);margin:6px 0;animation:fadeIn .3s ease;}
@@ -1635,6 +1659,181 @@ function updateScrDisplay(v){
 }
 
 // ═══ TIMELINE ═══
+// ══════════════════════════════════════════════════
+// 🎙️ MOTOR DE TRANSMISSÃO — feed ao vivo completo
+// ══════════════════════════════════════════════════
+
+function fraseMomento(min, snap, snapAnterior, f, sts) {
+  const nomC = f.timeCasa.nome, nomF = f.timeFora.nome;
+  const scC  = f.placar?.casa ?? 0, scF = f.placar?.fora ?? 0;
+  const idC  = f.timeCasa.id,   idF  = f.timeFora.id;
+  const G    = (id,k) => getStat(sts,id,k)||0;
+
+  const apC  = snap.ataquesPerigososCasa || G(idC,'Dangerous Attacks');
+  const apF  = snap.ataquesPerigososFora || G(idF,'Dangerous Attacks');
+  const posC = snap.posseCasa || G(idC,'Ball Possession') || 50;
+  const shtC = snap.chutesAlvoCasa || G(idC,'Shots on Goal');
+  const shtF = snap.chutesAlvoFora || G(idF,'Shots on Goal');
+  const xgC  = snap.xgCasa || G(idC,'expected_goals');
+  const xgF  = snap.xgFora || G(idF,'expected_goals');
+  const termo= calcularTermometro();
+
+  const apPrev = snapAnterior?.ataquesPerigososCasa || 0;
+  const apFPrev= snapAnterior?.ataquesPerigososFora || 0;
+  const deltaC = apC - apPrev, deltaF = apF - apFPrev;
+
+  const frases = [];
+
+  // Abertura do jogo
+  if(min <= 5) return {
+    ico:'🏁', tipo:'tx-inicio',
+    txt:`A bola rola! <b>${nomC}</b> recebe o <b>${nomF}</b>. Jogo em andamento.`
+  };
+
+  // Gol recente — contexto pós-gol
+  const ultimoGol = (DADOS.eventos||[]).filter(e=>e.tipo==='Goal').sort((a,b)=>b.minuto-a.minuto)[0];
+  if(ultimoGol && Math.abs(min - (ultimoGol.minuto||0)) <= 4) {
+    const isCasa = ultimoGol.time?.id === idC;
+    const nomGol = ultimoGol.time?.nome;
+    frases.push({p:10, ico:'📊', tipo:'tx-snap',
+      txt:`Após o gol do <b>${nomGol}</b>, o jogo recalibra. ${isCasa?nomF:nomC} precisará responder.`});
+  }
+
+  // Alta pressão
+  if(termo >= 75) frases.push({p:9, ico:'🔥', tipo:'tx-alerta',
+    txt:`Temperatura alta! Termômetro em <b>${termo}/100</b>. ${apC>apF?nomC:nomF} empurra com força total.`});
+
+  // xG desigual sem gol
+  if(Math.abs(xgC-xgF) > 0.8 && scC===scF && min > 20)
+    frases.push({p:8, ico:'📉', tipo:'tx-snap',
+      txt:`xG fala mais alto: <b>${nomC} ${xgC.toFixed(1)}</b> vs <b>${nomF} ${xgF.toFixed(1)}</b>. Um dos times cria mais do que o placar mostra.`});
+
+  // Aceleração de ataques
+  if(deltaC >= 3) frases.push({p:7, ico:'⚡', tipo:'tx-snap',
+    txt:`<b>${nomC}</b> acelerou: +${deltaC} ataques perigosos nos últimos minutos. Pressão real.`});
+  if(deltaF >= 3) frases.push({p:7, ico:'⚡', tipo:'tx-snap',
+    txt:`<b>${nomF}</b> cresceu na partida: +${deltaF} ataques perigosos. Time diferente agora.`});
+
+  // Posse dominante sem criar
+  if(posC > 62 && shtC <= 2 && min > 25) frases.push({p:5, ico:'📊', tipo:'tx-snap',
+    txt:`<b>${nomC}</b> domina a posse (<b>${posC}%</b>) mas converte pouco — apenas ${shtC} chutes no alvo. Bola circulando sem perigo.`});
+  if(posC < 38 && shtF <= 2 && min > 25) frases.push({p:5, ico:'📊', tipo:'tx-snap',
+    txt:`<b>${nomF}</b> fica com a bola (<b>${100-posC}%</b>) mas não ameaça — apenas ${shtF} chutes certeiros.`});
+
+  // Jogo equilibrado
+  if(Math.abs(apC-apF) <= 2 && Math.abs(posC-50) < 8 && scC===scF && min > 20)
+    frases.push({p:4, ico:'⚖️', tipo:'tx-snap',
+      txt:`Jogo equilibrado. Nenhum time se impõe — pressão semelhante dos dois lados.`});
+
+  // Jogo travado fim de partida
+  if(min >= 70 && scC===scF && apC+apF < 8)
+    frases.push({p:6, ico:'🔒', tipo:'tx-snap',
+      txt:`Jogo fechado nos ${min} minutos. Poucos ataques, tensão de empate. Quem quer mais?`});
+
+  // Reta final perdendo
+  if(min >= 75 && scC !== scF) {
+    const perd = scC<scF ? nomC : nomF;
+    const apP  = scC<scF ? apC  : apF;
+    frases.push({p:8, ico:'⏰', tipo:'tx-snap',
+      txt:`Relógio correndo. <b>${perd}</b> precisa do empate — ${apP} ataques perigosos. O desespero pode abrir espaços.`});
+  }
+
+  // Frases ambientes genéricas por fase
+  const ambiente = min < 20  ? [`<b>${nomC}</b> e <b>${nomF}</b> se estudam no início da partida.`,
+                                  `Ritmo de abertura. Os times testam espaços sem se expor.`]
+                : min < 45  ? [`Partida entrando em ritmo de 1º tempo. Os detalhes vão definir.`,
+                                `Meio-campo disputado. Quem errar menos sairá na frente.`]
+                : min < 70  ? [`2º tempo. Treinadores avaliam as peças que têm no banco.`,
+                                `Jogo aberto. Qualquer lance pode mudar tudo agora.`]
+                : [`Reta final. O cansaço e a pressão começam a cobrar seu preço.`,
+                   `Últimos momentos. Cada jogada pesa mais.`];
+  frases.push({p:1, ico:'📡', tipo:'tx-snap',
+    txt: ambiente[Math.floor(min/5)%ambiente.length]});
+
+  frases.sort((a,b)=>b.p-a.p);
+  return frases[0] || {ico:'📡', tipo:'tx-snap', txt:ambiente[0]};
+}
+
+function construirFeedNarracao(maxMin) {
+  if(!DADOS?.fixture) return [];
+  const f   = DADOS.fixture;
+  const evs = (DADOS.eventos||[]).sort((a,b)=>(a.minuto||0)-(b.minuto||0));
+  const sts = DADOS.estatisticas||[];
+  const min = maxMin ?? (f.status?.elapsed||90);
+  const entries = [];
+
+  // 1. Eventos reais da API
+  let sc=[0,0], goalIdx=0;
+  const scoremap={};
+  evs.filter(e=>e.tipo==='Goal').sort((a,b)=>(a.minuto||0)-(b.minuto||0)).forEach((e,i)=>{
+    const own=e.detalhe==='Own Goal', isCasa=e.time.id===f.timeCasa.id;
+    if(own){isCasa?sc[1]++:sc[0]++;}else{isCasa?sc[0]++:sc[1]++;}
+    scoremap[e.minuto+'_'+i]=`${sc[0]}–${sc[1]}`;
+  });
+  sc=[0,0]; goalIdx=0;
+  evs.filter(e=>(e.minuto||0)<=min).forEach(e=>{
+    const isCasa=e.time.id===f.timeCasa.id;
+    const isGol=e.tipo==='Goal';
+    let tipo='tx-ev';
+    if(isGol) tipo='tx-gol';
+    else if(e.tipo==='Card'&&e.detalhe?.includes('Red')) tipo='tx-alerta';
+    else if(e.tipo==='Var') tipo='tx-cenario';
+    let scoreStr='';
+    if(isGol){const k=e.minuto+'_'+goalIdx; scoreStr=scoremap[k]||''; goalIdx++;}
+    const {ico}=mkIco(e);
+    entries.push({
+      min:e.minuto||0,
+      ico, tipo,
+      txt: narrar(e) + (scoreStr?`<span class="tx-score">${scoreStr}</span>`:''),
+      logo:e.time.logo,
+      isCasa,
+      real:true,
+    });
+  });
+
+  // 2. Frases de momento dos snapshots (a cada 5 min de jogo)
+  if(SNAPSHOTS.length >= 2){
+    const snap5 = [];
+    SNAPSHOTS.forEach((s,i)=>{
+      if(i===0) return;
+      const m = s.minuto||0;
+      if(m > min) return;
+      // Pega só um snapshot a cada ~5 minutos de jogo
+      if(snap5.some(x=>Math.abs(x-m)<5)) return;
+      // Não gera frase no mesmo minuto de um evento real
+      if(entries.some(e=>e.real&&Math.abs(e.min-m)<=2)) return;
+      snap5.push(m);
+      const frase = fraseMomento(m, s, SNAPSHOTS[i-1]||s, f, sts);
+      entries.push({min:m, ico:frase.ico, tipo:frase.tipo, txt:frase.txt});
+    });
+  }
+
+  // 3. Insights do comentarista (do COMENTARISTA_FEED)
+  (COMENTARISTA_FEED||[]).slice(0,5).forEach((item,i)=>{
+    if(!item?.texto) return;
+    const m = f.status?.elapsed || min;
+    const mAdj = Math.max(1, m - i*3); // espaçar no tempo
+    if(entries.some(e=>e.real&&Math.abs(e.min-mAdj)<=1)) return;
+    entries.push({
+      min: mAdj, ico:'🧠', tipo:'tx-snap',
+      txt: item.texto,
+    });
+  });
+
+  // 4. Cenários ativos como entradas especiais
+  const cens = calcularCenarios();
+  cens.filter(c=>c.pct>=80).forEach(c=>{
+    const m = f.status?.elapsed || min;
+    if(entries.some(e=>e.tipo==='tx-cenario'&&Math.abs(e.min-m)<=2)) return;
+    entries.push({
+      min: m, ico: c.pct>=90?'🔴':'🟠', tipo:'tx-cenario',
+      txt:`<b>${c.nome}</b> — ${c.pct}% completo. ${c.historico}% de chance histórica de ${c.gatilho}.`,
+    });
+  });
+
+  return entries.sort((a,b)=>a.min-b.min);
+}
+
 let tlMode='narr'; // 'narr' | 'evs'
 function setTLMode(m){
   tlMode=m;
@@ -1662,42 +1861,46 @@ function renderTimeline(maxMin=null){
   const maxM=Math.max(...evs.map(e=>e.minuto||0),f.status.elapsed||90);
   const limMin=maxMin??maxM;
 
-  // ── Eventos sintéticos de posse (dos snapshots gravados) ──
-  const snapEvs=[];
-  if(SNAPSHOTS.length>=2){
-    let lastPosse=null;
-    SNAPSHOTS.forEach((s,i)=>{
-      if(i===0){lastPosse={c:s.posseCasa||50,f:s.posseFora||50};return;}
-      const curr={c:s.posseCasa||50,f:s.posseFora||50};
-      const diffC=curr.c-(lastPosse?.c||50);
-      // Só narra se houve variação ≥ 5% e a cada 5 min
-      if(Math.abs(diffC)>=5&&(s.minuto||0)%5===0){
-        const quemSobe=diffC>0?f.timeCasa:f.timeFora;
-        const quemPerde=diffC>0?f.timeFora:f.timeCasa;
-        snapEvs.push({
-          tipo:'_posse', minuto:s.minuto||0,
-          posseCasa:curr.c, posseFora:curr.f,
-          time:quemSobe,
-          txt:`${quemSobe.nome} aumenta a posse para <b>${diffC>0?curr.c:curr.f}%/${diffC>0?curr.f:curr.c}%</b> — ${quemPerde.nome} em ${diffC>0?curr.f:curr.c}%.`
-        });
-      }
-      // Narrar ataques perigosos altos (≥ 10 ataques no minuto)
-      if((s.ataquesPerigososCasa||0)>=10&&(lastPosse?.apC||0)<10){
-        snapEvs.push({tipo:'_press',minuto:s.minuto||0,time:f.timeCasa,
-          txt:`${f.timeCasa.nome} acumula <b>${s.ataquesPerigososCasa} ataques perigosos</b> — pressão intensa no campo adversário.`});
-      }
-      if((s.ataquesPerigososFora||0)>=10&&(lastPosse?.apF||0)<10){
-        snapEvs.push({tipo:'_press',minuto:s.minuto||0,time:f.timeFora,
-          txt:`${f.timeFora.nome} acumula <b>${s.ataquesPerigososFora} ataques perigosos</b> — pressão crescente.`});
-      }
-      lastPosse={c:curr.c,f:curr.f,apC:s.ataquesPerigososCasa||0,apF:s.ataquesPerigososFora||0};
-    });
+  // ── MODO NARRAÇÃO: usa o novo feed de transmissão ──
+  if(modoAtual==='narr'){
+    const feed = construirFeedNarracao(limMin);
+    if(!feed.length){
+      el.innerHTML='<div class="empty"><div class="ico">🎙️</div><p>Narração disponível assim que o jogo começar.</p></div>';
+      return;
+    }
+    const g1=feed.filter(e=>e.min<=45);
+    const g2=feed.filter(e=>e.min>45&&e.min<=90);
+    const gE=feed.filter(e=>e.min>90);
+    const mkTxGroup=(list,label)=>{
+      if(!list.length) return '';
+      let h=`<div class="tx-divider">${label}</div><div class="tx-feed">`;
+      list.forEach(e=>{
+        const logoHtml = e.logo
+          ? `<img src="${x(e.logo)}" style="width:14px;height:14px;border-radius:3px;object-fit:contain;flex-shrink:0;margin-top:2px;" onerror="this.style.display='none'">`
+          : '';
+        h+=`<div class="tx-entry ${e.tipo||''}">
+          <div class="tx-min">${e.min}'</div>
+          <div class="tx-ico">${e.ico}</div>
+          ${logoHtml}
+          <div class="tx-body">${e.txt}</div>
+        </div>`;
+      });
+      h+='</div>';
+      return h;
+    };
+    let html2='';
+    html2+=mkTxGroup(g1,'1º Tempo');
+    if(f.placarIntervalo?.casa!=null)
+      html2+=`<div class="tx-divider">Intervalo · ${f.placarIntervalo.casa}–${f.placarIntervalo.fora}</div>`;
+    html2+=mkTxGroup(g2,'2º Tempo');
+    if(gE.length) html2+=mkTxGroup(gE,'Prorrogação');
+    el.innerHTML=html2;
+    gc('evCt').textContent=evs.filter(e=>(e.minuto||0)<=limMin).length;
+    return;
   }
 
-  // Misturar eventos reais + eventos de posse em ordem cronológica
-  const todasEvs=[...evs,...snapEvs].sort((a,b)=>(a.minuto||0)-(b.minuto||0));
-
-  // agrupar 1T / 2T / ET
+  // ── MODO EVENTOS: lista limpa da API ──
+  const todasEvs=evs.sort((a,b)=>(a.minuto||0)-(b.minuto||0));
   const g1=todasEvs.filter(e=>(e.minuto||0)<=45);
   const g2=todasEvs.filter(e=>(e.minuto||0)>45&&(e.minuto||0)<=90);
   const gE=todasEvs.filter(e=>(e.minuto||0)>90);
@@ -1786,42 +1989,76 @@ function mkIco(e){
 }
 // ── NARRAÇÃO REAL baseada em eventos da API ──
 function narrar(e){
-  const j=e.jogador?.nome||'Jogador';
-  const a=e.assistente?.nome;
-  const time=e.time?.nome||'';
-  const d=e.detalhe||'';
+  const j = e.jogador?.nome || 'Jogador';
+  const a = e.assistente?.nome;
+  const t = e.time?.nome || '';
+  const d = e.detalhe || '';
+  const pick = arr => arr[Math.floor((e.minuto||0) % arr.length)];
 
   if(e.tipo==='Goal'){
-    if(d==='Own Goal')       return `${j} marca contra! Gol contra do ${time}.`;
-    if(d==='Penalty')        return `${j} converte o pênalti${a?` após passe de ${a}`:''}! ⚽`;
-    if(d==='Header')         return `${j} cabeceia para o fundo das redes${a?`, cruzamento de ${a}`:''}!`;
-    if(d==='Normal Goal'&&a) return `${j} finaliza e marca! Assistência de ${a}.`;
-    if(d==='Normal Goal')    return `${j} finaliza e marca para o ${time}!`;
-    return `${j} marca para o ${time}${a?`, passe de ${a}`:''}!`;
+    if(d==='Own Goal') return pick([
+      `Que azar! <b>${j}</b> desvia para o próprio gol. Gol contra do ${t}.`,
+      `Tragédia para o ${t}! <b>${j}</b> manda para a própria rede.`,
+      `Infeliz! <b>${j}</b> desvia e marca contra. Gol contra.`,
+    ]);
+    if(d==='Penalty') return pick([
+      `Pênalti convertido! <b>${j}</b> bate forte e não perdoa.${a?` Falta sofrida por ${a}.`:''}`,
+      `<b>${j}</b> vai para a bola. Chuta. GOL! Pênalti convertido.`,
+      `Cobrança perfeita de <b>${j}</b>! O goleiro foi para o lado errado.`,
+    ]);
+    if(d==='Header') return pick([
+      `De cabeça! <b>${j}</b> sobe mais que todos e manda para o fundo das redes.${a?` Cruzamento preciso de ${a}.`:''}`,
+      `${a?`${a} cruza, `:''}${j} cabeceia — GOL!`,
+      `Bola na área, <b>${j}</b> domina o alto e cabecea. É gol!`,
+    ]);
+    if(a) return pick([
+      `<b>${j}</b> recebe de ${a} e finaliza — GOL! ${t} abre o placar.`,
+      `Jogada de classe! ${a} lança, <b>${j}</b> domina e chuta sem chances para o goleiro.`,
+      `<b>${j}</b> aparece na pequena área. Chute certeiro. GOL!${a?` Assistência de ${a}.`:''}`,
+      `Que golaço! <b>${j}</b> recebe de ${a} e não desperdiça a oportunidade.`,
+    ]);
+    return pick([
+      `<b>${j}</b> recebe, gira e chuta. GOL do ${t}!`,
+      `Individual! <b>${j}</b> arrisca de fora da área e acerta o ângulo.`,
+      `<b>${j}</b> aparece livre e não perdoa. GOL para o ${t}!`,
+      `Chute cruzado de <b>${j}</b>, sem chances para o goleiro. É gol!`,
+    ]);
   }
 
   if(e.tipo==='Card'){
-    if(d==='Yellow Card')      return `Cartão amarelo para ${j} (${time}).`;
-    if(d==='Second Yellow Card')return `${j} recebe o segundo amarelo e está expulso!`;
-    if(d.includes('Red'))      return `Cartão vermelho direto para ${j}! ${time} fica com um a menos.`;
-    return `Cartão para ${j} (${time}).`;
+    if(d==='Yellow Card') return pick([
+      `Falta dura. Árbitro não perdoa — cartão amarelo para <b>${j}</b> (${t}).`,
+      `<b>${j}</b> para o contra-ataque e leva o amarelo. Atenção: mais uma e está fora.`,
+      `Cartão amarelo mostrado para <b>${j}</b> (${t}).`,
+    ]);
+    if(d==='Second Yellow Card'||d==='Yellow Red Card') return pick([
+      `Segundo amarelo! <b>${j}</b> está expulso — ${t} vai terminar com dez.`,
+      `<b>${j}</b> não aprendeu! Segundo amarelo e está eliminado. ${t} em desvantagem numérica.`,
+    ]);
+    if(d?.includes('Red')) return pick([
+      `Cartão VERMELHO direto para <b>${j}</b>! Falta gravíssima. ${t} fica com um a menos.`,
+      `Expulsão! <b>${j}</b> vê o vermelho diretamente. ${t} vai precisar se reorganizar.`,
+    ]);
+    return `Cartão para <b>${j}</b> (${t}).`;
   }
 
   if(e.tipo==='subst'){
-    const sai=a||'?';
-    return `Substituição — entra <b>${x(j)}</b>, sai ${x(sai)} (${time}).`;
+    const sai = a || '?';
+    return pick([
+      `Mudança no ${t}: entra <b>${x(j)}</b>, sai <b>${x(sai)}</b>. Treinador mexe no time.`,
+      `Substituição — <b>${x(j)}</b> em campo pelo ${t}. <b>${x(sai)}</b> deixa o jogo.`,
+      `Alteração: <b>${x(j)}</b> ganha chance no ${t}. ${x(sai)} encerra sua participação.`,
+    ]);
   }
 
   if(e.tipo==='Var'){
-    if(d==='Goal Cancelled')      return `VAR cancela o gol! Lance revisado e anulado.`;
-    if(d==='Penalty Confirmed')   return `VAR confirma o pênalti!`;
-    if(d==='Penalty Cancelled')   return `VAR cancela o pênalti!`;
-    if(d==='Card Upgrade')        return `VAR solicita revisão — cartão pode ser agravado.`;
-    if(d==='Card Downgrade')      return `VAR revisa — cartão pode ser reduzido.`;
-    return `VAR em ação: ${d||'lance sendo revisado'}.`;
+    if(d==='Goal Cancelled') return `🖥️ VAR revisa e cancela o gol! Lance invalidado após análise de imagens.`;
+    if(d==='Penalty Confirmed') return `🖥️ VAR confirma! Pênalti mantido após revisão.`;
+    if(d==='Penalty Cancelled') return `🖥️ VAR cancela o pênalti! Decisão revertida.`;
+    if(d==='Card Upgrade') return `🖥️ VAR solicita revisão de cartão — pode ser agravado para vermelho.`;
+    return `🖥️ VAR em análise: ${d || 'lance sob revisão'}.`;
   }
-
-  return d||e.tipo||'';
+  return d || e.tipo || '';
 }
 
 function ev_label(e){ return narrar(e); }
