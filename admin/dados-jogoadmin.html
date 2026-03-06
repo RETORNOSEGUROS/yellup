@@ -1612,7 +1612,7 @@ function renderAll(){
   renderTimeline();
   renderMomentum();
   renderCampo();
-  renderStats();
+  if(STS_MODO_LIVE!==false) renderStats(); // não sobrescreve snapshot
   if(SNAPSHOTS.length) stsInicializar();
   renderJogadores();
   renderAlgo();
@@ -2503,6 +2503,7 @@ function stsSetLive() {
   if (title) title.textContent = 'Stats em tempo real';
   const btnLive = gc('stsBtnLive');
   if (btnLive) btnLive.style.display = 'none';
+  renderStats(); // restaurar stats ao vivo
 }
 
 function stsBuscarSnap(minAlvo) {
@@ -2516,73 +2517,27 @@ function stsBuscarSnap(minAlvo) {
 function renderStatsSnap(snap) {
   const el = gc('statsEl');
   if (!el || !DADOS) return;
-  const f   = DADOS.fixture;
-  const sts = DADOS.estatisticas || [];
-  const liveSnap = SNAPSHOTS[SNAPSHOTS.length-1];
+  const f        = DADOS.fixture;
+  const sts      = DADOS.estatisticas || [];
+  const liveSnap = SNAPSHOTS[SNAPSHOTS.length - 1];
+  const apiC     = sts[0]?.stats || {};
+  const apiF     = sts[1]?.stats || {};
 
-  // ── Todos os campos do snapshot mapeados ──
-  const camposSnap = [
-    // Nossos snapshots
-    { l:'Posse de Bola',        cK:'posseCasa',             fK:'posseFora',             pct:true,  grupo:'🔵 Posse & Passes' },
-    { l:'Ataques Perigosos',    cK:'ataquesPerigososCasa',  fK:'ataquesPerigososFora',             grupo:'⚽ Ataque' },
-    { l:'Chutes a Gol',         cK:'chutesAlvoCasa',        fK:'chutesAlvoFora',                   grupo:'⚽ Ataque' },
-    { l:'Escanteios',           cK:'escanteiosCasa',        fK:'escanteiosFora',                   grupo:'⚽ Ataque' },
-    { l:'xG (Gols Esperados)',  cK:'xgCasa',                fK:'xgFora',                           grupo:'⚽ Ataque' },
-    { l:'Pressão (idx)',        cK:'pressaoCasa',           fK:'pressaoFora',                      grupo:'💥 Pressão' },
-    { l:'Termômetro',           cK:'termometro',            fK:null,       single:true,             grupo:'💥 Pressão' },
-    { l:'Placar',               cK:'placarCasa',            fK:'placarFora', special:'score',      grupo:'📋 Contexto' },
-  ];
-
-  // Stats da API para complementar (enriquece com o que o snapshot não tem)
-  const apiC = sts[0]?.stats || {};
-  const apiF = sts[1]?.stats || {};
-  const camposApi = [
-    { l:'Total Chutes',      ak:'Total Shots',          grupo:'⚽ Ataque' },
-    { l:'Chutes Fora',       ak:'Shots off Goal',       grupo:'⚽ Ataque' },
-    { l:'Chutes Bloqueados', ak:'Blocked Shots',        grupo:'⚽ Ataque' },
-    { l:'Total Passes',      ak:'Total passes',         grupo:'🔵 Posse & Passes' },
-    { l:'Passes Certos',     ak:'Passes accurate',      grupo:'🔵 Posse & Passes' },
-    { l:'Faltas',            ak:'Fouls',                grupo:'🟨 Disciplina' },
-    { l:'Cartões Amarelos',  ak:'Yellow Cards',         grupo:'🟨 Disciplina' },
-    { l:'Impedimentos',      ak:'Offsides',             grupo:'📋 Contexto' },
-    { l:'Defesas Goleiro',   ak:'Goalkeeper Saves',     grupo:'💥 Pressão' },
-    { l:'Duelos Ganhos',     ak:'Ball Safe',            grupo:'💥 Pressão' },
-  ];
-
-  // Montar cabeçalho
-  let html = `
-    <div style="display:flex;align-items:center;gap:8px;padding:8px 4px 12px;">
-      <div style="flex:1;">
-        <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:var(--acc)">📸 Minuto ${snap.minuto}'</div>
-        <div style="font-size:11px;color:var(--t3);margin-top:2px">
-          Placar: <b style="color:var(--t1)">${snap.placarCasa??'?'}–${snap.placarFora??'?'}</b>
-          ${liveSnap&&snap.minuto<(liveSnap.minuto||0)?`· <span style="color:var(--t3)">agora ${liveSnap.minuto}'</span>`:''}
-        </div>
-      </div>
-      ${liveSnap&&snap.minuto<(liveSnap.minuto||0)?`<div style="font-size:10px;color:var(--t3);text-align:right">
-        Diff = variação<br>do minuto ${snap.minuto}' até agora
-      </div>`:''}
-    </div>`;
-
-  // Agrupar campos
-  const grupos = {};
-  const fmtD = (d) => {
-    if(d===0||d===null||isNaN(d)) return '';
-    const cls = d>0?'stat-diff-pos':'stat-diff-neg';
+  const fmtD = d => {
+    if (!d || isNaN(d)) return '';
+    const cls = d > 0 ? 'stat-diff-pos' : 'stat-diff-neg';
     return `<span class="${cls}" style="margin-left:4px">${d>0?'+':''}${d}</span>`;
   };
 
-  const mkRow = (l, vc, vf, isPct, diffC, diffF) => {
-    if((vc===null||vc===undefined)&&(vf===null||vf===undefined)) return '';
-    vc = vc??0; vf = vf??0;
-    const total = isPct ? 100 : (vc+vf)||1;
-    const pC = Math.round(vc/total*100);
-    const pF = isPct ? 100-pC : Math.round(vf/total*100);
+  const mkRow = (l, vc, vf, isPct, dC, dF) => {
+    if (vc == null && vf == null) return '';
+    vc = vc ?? 0; vf = vf ?? 0;
+    const total = isPct ? 100 : (vc + vf) || 1;
+    const pC = Math.round(vc / total * 100);
+    const pF = isPct ? 100 - pC : Math.round(vf / total * 100);
     const domC = vc > vf;
-    const dCH = (diffC!==null&&diffC!==undefined&&diffC!==0) ? fmtD(diffC) : '';
-    const dFH = (diffF!==null&&diffF!==undefined&&diffF!==0) ? fmtD(diffF) : '';
     return `<div class="stat-row">
-      <span class="sv ${domC?'acc':''}">${isPct?vc+'%':vc}${dCH}</span>
+      <span class="sv ${domC?'acc':''}">${isPct?vc+'%':vc}${dC&&dC!==0?fmtD(dC):''}</span>
       <div class="sb-wrap">
         <div class="sb-bars">
           <div class="sb-l" style="width:${pC/2}%"></div>
@@ -2590,45 +2545,91 @@ function renderStatsSnap(snap) {
         </div>
         <div class="sb-lbl">${l}</div>
       </div>
-      <span class="sv away ${!domC&&vf>vc?'blu':''}">${isPct?vf+'%':vf}${dFH}</span>
+      <span class="sv away ${!domC&&vf>vc?'blu':''}">${isPct?vf+'%':vf}${dF&&dF!==0?fmtD(dF):''}</span>
     </div>`;
   };
 
-  // Campos do snapshot
-  camposSnap.forEach(cam => {
-    if(cam.single||cam.special) return;
-    const vc = snap[cam.cK], vf = snap[cam.fK];
-    if((vc===null||vc===undefined)&&(vf===null||vf===undefined)) return;
-    // Diff vs live
-    let dC=null, dF=null;
-    if(liveSnap&&snap.minuto<(liveSnap.minuto||0)){
-      const lC=liveSnap[cam.cK], lF=liveSnap[cam.fK];
-      if(lC!==null&&lC!==undefined) dC=Math.round((lC-vc)*10)/10;
-      if(lF!==null&&lF!==undefined) dF=Math.round((lF-vf)*10)/10;
-    }
-    if(!grupos[cam.grupo]) grupos[cam.grupo]=[];
-    const row = mkRow(cam.l, vc, vf, cam.pct||false, dC, dF);
-    if(row) grupos[cam.grupo].push(row);
-  });
+  // diff helper
+  const diff = (key) => {
+    if (!liveSnap || snap.minuto >= (liveSnap.minuto||0)) return [null,null];
+    return [
+      Math.round(((liveSnap[key+'Casa']??0) - (snap[key+'Casa']??0))*10)/10,
+      Math.round(((liveSnap[key+'Fora']??0) - (snap[key+'Fora']??0))*10)/10,
+    ];
+  };
 
-  // Campos da API (proportional — sem diff exato, mas mostra estado atual da API como referência)
-  camposApi.forEach(cam => {
-    const vc = parseNum(apiC[cam.ak]), vf = parseNum(apiF[cam.ak]);
-    if(vc===null&&vf===null) return;
-    if(!grupos[cam.grupo]) grupos[cam.grupo]=[];
-    const row = mkRow(cam.l+'*', vc, vf, false, null, null);
-    if(row) grupos[cam.grupo].push(row);
-  });
+  // cabeçalho
+  let html = `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px 12px;">
+    <div style="flex:1">
+      <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:var(--acc)">📸 ${snap.minuto}'</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:2px">
+        Placar: <b style="color:var(--t1)">${snap.placarCasa??'?'}–${snap.placarFora??'?'}</b>
+        ${liveSnap&&snap.minuto<(liveSnap.minuto||0)?`· agora ${liveSnap.minuto}'`:''}
+      </div>
+    </div>
+    ${liveSnap&&snap.minuto<(liveSnap.minuto||0)?
+      `<div style="font-size:9px;color:var(--t3);text-align:right;line-height:1.5">
+        <span class="stat-diff-pos">+N</span> cresceu desde ${snap.minuto}'<br>
+        <span class="stat-diff-neg">−N</span> caiu desde ${snap.minuto}'
+      </div>`:''}
+  </div>`;
 
-  Object.entries(grupos).forEach(([titulo, rows]) => {
-    if(!rows.length) return;
-    html += `<div class="stat-block"><div class="stat-block-title">${titulo}</div>${rows.join('')}</div>`;
-  });
+  // ── GRUPO 1: ATAQUE (snapshot) ──
+  const [dApC,dApF]   = diff('ataquesPerigosos');
+  const [dShtC,dShtF] = diff('chutesAlvo');
+  const [dEscC,dEscF] = diff('escanteios');
+  const [dXgC,dXgF]   = [
+    liveSnap&&snap.minuto<(liveSnap.minuto||0)?Math.round(((liveSnap.xgCasa??0)-(snap.xgCasa??0))*100)/100:null,
+    liveSnap&&snap.minuto<(liveSnap.minuto||0)?Math.round(((liveSnap.xgFora??0)-(snap.xgFora??0))*100)/100:null,
+  ];
 
-  if(Object.keys(grupos).length===0)
-    html += '<div class="empty"><div class="ico">📸</div><p>Snapshot sem dados suficientes</p></div>';
+  const rowsAtaque = [
+    mkRow('Ataques Perigosos', snap.ataquesPerigososCasa, snap.ataquesPerigososFora, false, dApC, dApF),
+    mkRow('Chutes a Gol',      snap.chutesAlvoCasa,      snap.chutesAlvoFora,      false, dShtC, dShtF),
+    mkRow('Escanteios',        snap.escanteiosCasa,      snap.escanteiosFora,      false, dEscC, dEscF),
+    mkRow('xG',                snap.xgCasa,              snap.xgFora,              false, dXgC,  dXgF),
+    // Total chutes da API (momento atual como ref)
+    mkRow('Total Chutes*',     parseNum(apiC['Total Shots']),   parseNum(apiF['Total Shots']),   false, null, null),
+    mkRow('Chutes Bloq.*',     parseNum(apiC['Blocked Shots']), parseNum(apiF['Blocked Shots']), false, null, null),
+  ].filter(Boolean);
 
-  html += `<div style="font-size:9px;color:var(--t3);padding:8px 4px">* Campos marcados com * são do momento atual da API (não variam com o slider).</div>`;
+  if (rowsAtaque.length)
+    html += `<div class="stat-block"><div class="stat-block-title">⚽ Ataque</div>${rowsAtaque.join('')}</div>`;
+
+  // ── GRUPO 2: POSSE & PASSES (snapshot) ──
+  const [dPosC,dPosF] = diff('posse');
+  const rowsPosse = [
+    mkRow('Posse de Bola',  snap.posseCasa,           snap.posseFora,           true,  dPosC, dPosF),
+    mkRow('Total Passes*',  parseNum(apiC['Total passes']),     parseNum(apiF['Total passes']),     false, null, null),
+    mkRow('Passes Certos*', parseNum(apiC['Passes accurate']),  parseNum(apiF['Passes accurate']),  false, null, null),
+  ].filter(Boolean);
+
+  if (rowsPosse.length)
+    html += `<div class="stat-block"><div class="stat-block-title">🔵 Posse & Passes</div>${rowsPosse.join('')}</div>`;
+
+  // ── GRUPO 3: PRESSÃO (snapshot) ──
+  const rowsPressao = [
+    mkRow('Pressão (idx)',  snap.pressaoCasa, snap.pressaoFora, false, null, null),
+    mkRow('Salvadas*',      parseNum(apiC['Goalkeeper Saves']), parseNum(apiF['Goalkeeper Saves']), false, null, null),
+  ].filter(Boolean);
+
+  if (rowsPressao.length)
+    html += `<div class="stat-block"><div class="stat-block-title">💥 Pressão</div>${rowsPressao.join('')}</div>`;
+
+  // ── GRUPO 4: DISCIPLINA (API) ──
+  const rowsDisc = [
+    mkRow('Faltas*',         parseNum(apiC['Fouls']),        parseNum(apiF['Fouls']),        false, null, null),
+    mkRow('Cartões Amar.*',  parseNum(apiC['Yellow Cards']), parseNum(apiF['Yellow Cards']), false, null, null),
+    mkRow('Impedimentos*',   parseNum(apiC['Offsides']),     parseNum(apiF['Offsides']),     false, null, null),
+  ].filter(Boolean);
+
+  if (rowsDisc.length)
+    html += `<div class="stat-block"><div class="stat-block-title">🟨 Disciplina</div>${rowsDisc.join('')}</div>`;
+
+  if (!rowsAtaque.length && !rowsPosse.length)
+    html += `<div class="empty"><div class="ico">📸</div><p>Snapshot ${snap.minuto}' sem dados</p></div>`;
+
+  html += `<div style="font-size:9px;color:var(--t3);padding:8px 4px">* = dado atual da API (não varia com slider)</div>`;
 
   el.innerHTML = html;
 }
