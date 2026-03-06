@@ -553,6 +553,28 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .snap-flag.abaixo{background:var(--rdim);color:var(--red);}
 .snap-flag.destaque{background:rgba(39,212,155,.15);color:var(--grn);}
 .snap-flag.ativo{background:var(--adim);color:var(--acc);}
+/* ── SLIDER TEMPO NAS STATS ── */
+.stats-time-slider{padding:10px 4px 14px;border-bottom:1px solid rgba(255,255,255,.05);margin-bottom:4px;}
+.sts-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.sts-badge{font-family:'DM Mono',monospace;font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;white-space:nowrap;}
+.sts-badge.ao-vivo{background:rgba(240,79,90,.15);color:var(--red);border:1px solid rgba(240,79,90,.3);}
+.sts-badge.historico{background:rgba(124,92,252,.12);color:var(--acc);border:1px solid rgba(124,92,252,.25);}
+.sts-title{font-size:11px;color:var(--t2);flex:1;}
+.sts-btn-live{font-size:10px;padding:3px 10px;border-radius:6px;border:1px solid rgba(240,79,90,.4);background:transparent;color:var(--red);cursor:pointer;display:none;}
+.sts-btn-live:hover{background:rgba(240,79,90,.1);}
+.sts-slider-wrap{position:relative;}
+input.sts-range{width:100%;-webkit-appearance:none;height:4px;border-radius:2px;background:rgba(255,255,255,.1);outline:none;cursor:pointer;}
+input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--acc);cursor:pointer;border:2px solid var(--bg1);}
+.sts-marks{display:flex;justify-content:space-between;margin-top:4px;}
+.sts-mark{font-family:'DM Mono',monospace;font-size:9px;color:var(--t3);}
+.sts-gol-mark{position:absolute;top:-8px;transform:translateX(-50%);font-size:10px;cursor:pointer;z-index:2;}
+.sts-evento-mark{position:absolute;top:-6px;transform:translateX(-50%);width:3px;height:10px;border-radius:2px;background:var(--acc);opacity:.6;z-index:1;}
+
+/* ── DIFF DE STATS (comparação entre dois momentos) ── */
+.stat-diff-pos{color:var(--grn);font-size:10px;font-weight:700;}
+.stat-diff-neg{color:var(--red);font-size:10px;font-weight:700;}
+.stat-diff-zero{color:var(--t3);font-size:10px;}
+
 /* toggle narração */
 .tl-toggle{display:flex;gap:4px;margin-bottom:14px;background:var(--bg3);border:1px solid var(--bd2);border-radius:8px;padding:3px;}
 .tl-tog-btn{flex:1;padding:5px 10px;border-radius:6px;border:none;background:none;color:var(--t3);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;}
@@ -976,6 +998,30 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
       <div class="st-team-info"><div class="st-team-dot" style="background:var(--blu)"></div><span id="stNomeFora">Fora</span></div>
     </div>
   </div>
+
+  <!-- ── SLIDER DE TEMPO ── -->
+  <div class="stats-time-slider" id="statsSliderWrap" style="display:none;">
+    <div class="sts-header">
+      <span class="sts-badge ao-vivo" id="stsBadge">⏱ Ao vivo</span>
+      <span class="sts-title" id="stsTitle">Stats em tempo real</span>
+      <button class="sts-btn-live" id="stsBtnLive" onclick="stsVoltar()">⬤ Ao vivo</button>
+    </div>
+    <div class="sts-slider-wrap">
+      <div id="stsGolMarks"></div>
+      <input type="range" class="sts-range" id="stsRange" min="0" max="90" value="90"
+        oninput="stsAtualizar(this.value)" onchange="stsAtualizar(this.value)">
+    </div>
+    <div class="sts-marks">
+      <span class="sts-mark">0'</span>
+      <span class="sts-mark">15'</span>
+      <span class="sts-mark">30'</span>
+      <span class="sts-mark" id="stsMarkHT">45' ½</span>
+      <span class="sts-mark">60'</span>
+      <span class="sts-mark">75'</span>
+      <span class="sts-mark" id="stsMarkMax">90'</span>
+    </div>
+  </div>
+
   <div id="statsEl"><div class="empty"><div class="ld" style="width:24px;height:24px;"></div></div></div>
 </div>
 
@@ -1220,7 +1266,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
   </div>
 
   <div class="algo-panel" id="ap-desemp">
-    <div id="desempEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
+    <div id="desempEl"><div class="empty"><div class="ico">📈</div><p style="font-size:11px;color:var(--t3)">Clique em Desempenho para carregar</p></div></div>
   </div>
 
   <div class="algo-panel" id="ap-notif">
@@ -1376,8 +1422,18 @@ async function load(fId,dId){
 
     const isLive=['1H','2H','ET','P','HT','BT'].includes(DADOS.fixture.status.short);
 
-    // Auto-refresh dados ao vivo
-    if(isLive) setInterval(()=>load(fixtureId,dId),60000);
+    // Auto-refresh: ao vivo a cada 60s, NS a cada 30s (detectar início)
+    if(isLive){
+      setInterval(()=>load(fixtureId,dId),60000);
+    } else if(['NS','TBD'].includes(DADOS.fixture.status.short)){
+      // Verifica a cada 30s se o jogo começou
+      const nsTimer = setInterval(()=>{
+        load(fixtureId,dId).then(()=>{
+          const s=DADOS?.fixture?.status?.short;
+          if(s&&!['NS','TBD'].includes(s)) clearInterval(nsTimer);
+        });
+      }, 30000);
+    }
 
     // Carregar snapshots existentes
     carregarSnapshots(fixtureId); // busca snapshots históricos desta partida
@@ -1557,6 +1613,7 @@ function renderAll(){
   renderMomentum();
   renderCampo();
   renderStats();
+  if(SNAPSHOTS.length) stsInicializar();
   renderJogadores();
   renderAlgo();
   verificarAlertas();
@@ -1787,6 +1844,45 @@ function construirFeedNarracao(maxMin) {
   const min = maxMin ?? (f.status?.elapsed||90);
   const entries = [];
 
+  // ── Jogo não iniciado: mostrar intro pré-jogo no feed ──
+  const isNS = ['NS','TBD'].includes(f.status?.short);
+  if(isNS){
+    const nomC=f.timeCasa.nome, nomF=f.timeFora.nome;
+    const o1=ODDS_PREJOGO?.odds?.resultados?.odd1||0;
+    const o2=ODDS_PREJOGO?.odds?.resultados?.odd2||0;
+    const oX=ODDS_PREJOGO?.odds?.resultados?.oddX||0;
+    // Card de abertura
+    entries.push({min:0,ico:'🏟️',tipo:'tx-inicio',
+      txt:`<b>${nomC}</b> recebe o <b>${nomF}</b>. Jogo marcado para ${f.horario||'hoje'}. Acompanhe tudo aqui.`});
+    // Odds
+    if(o1>0) entries.push({min:0,ico:'💰',tipo:'tx-snap',
+      txt:`Mercado: <b>${nomC} ${o1}</b> · Empate ${oX} · <b>${nomF} ${o2}</b>. ${
+        o1<1.7?`${nomC} é grande favorito.`:o2<1.7?`${nomF} é favorito mesmo fora de casa.`:`Jogo equilibrado nas odds.`}`});
+    // Predictions se disponível
+    const p=PREDICTIONS;
+    if(p?.percentuais?.casa){
+      const pC=parseInt(p.percentuais.casa||0), pE=parseInt(p.percentuais.empate||0), pF=parseInt(p.percentuais.fora||0);
+      entries.push({min:0,ico:'📊',tipo:'tx-snap',
+        txt:`Modelo estatístico: <b>${nomC} ${pC}%</b> · Empate ${pE}% · <b>${nomF} ${pF}%</b>.${
+          p.gols?.casa?` Gols esperados: ${p.gols.casa} × ${p.gols.fora}.`:''}`});
+    }
+    // Lesões se houver
+    const lesC=(CONTEXTO?.lesoes||[]).filter(l=>l.timeId===f.timeCasa.id);
+    const lesF=(CONTEXTO?.lesoes||[]).filter(l=>l.timeId===f.timeFora.id);
+    if(lesC.length||lesF.length) entries.push({min:0,ico:'🏥',tipo:'tx-snap',
+      txt:`Desfalques: ${lesC.length?`<b>${nomC}</b> sem ${lesC.map(l=>l.jogador?.nome||'jogador').slice(0,2).join(', ')}`:''
+           }${lesC.length&&lesF.length?' · ':''}${lesF.length?`<b>${nomF}</b> sem ${lesF.map(l=>l.jogador?.nome||'jogador').slice(0,2).join(', ')}`:''}.`});
+    // Árbitro
+    const arb=CONTEXTO?.arbitro;
+    if(arb?.nome) entries.push({min:0,ico:'🟨',tipo:'tx-snap',
+      txt:`Árbitro: <b>${arb.nome}</b>. Média ${arb.mediaAmarelos||'?'} cartões/jogo — perfil ${
+        (arb.mediaAmarelos||0)>=5?'rigoroso':'moderado'}.`});
+    // Sinal sharp
+    if(ODDS_PREJOGO?.sinalSharp) entries.push({min:0,ico:'⚡',tipo:'tx-alerta',
+      txt:`Sinal sharp detectado! Odds se moveram acima do normal — dinheiro inteligente pode estar entrando em um dos lados.`});
+    return entries;
+  }
+
   // 1. Eventos reais da API
   let sc=[0,0], goalIdx=0;
   const scoremap={};
@@ -1816,16 +1912,35 @@ function construirFeedNarracao(maxMin) {
     });
   });
 
-  // 2. Frases de momento dos snapshots (a cada 5 min de jogo)
+  // 2. Frases de momento + detecção de escanteios dos snapshots
   if(SNAPSHOTS.length >= 2){
     const snap5 = [];
+    let escAnteriorC=0, escAnteriorF=0;
     SNAPSHOTS.forEach((s,i)=>{
-      if(i===0) return;
+      if(i===0){
+        escAnteriorC=s.escanteiosCasa||0;
+        escAnteriorF=s.escanteiosFora||0;
+        return;
+      }
       const m = s.minuto||0;
       if(m > min) return;
-      // Pega só um snapshot a cada ~5 minutos de jogo
+
+      // Detectar novo escanteio por delta nos snapshots
+      const escAtualC=s.escanteiosCasa||0, escAtualF=s.escanteiosFora||0;
+      if(escAtualC > escAnteriorC){
+        const n=escAtualC-escAnteriorC;
+        entries.push({min:m, ico:'🚩', tipo:'tx-snap',
+          txt:`${n>1?n+' escanteios':'Escanteio'} para o <b>${f.timeCasa.nome}</b>. Total: ${escAtualC}.`});
+      }
+      if(escAtualF > escAnteriorF){
+        const n=escAtualF-escAnteriorF;
+        entries.push({min:m, ico:'🚩', tipo:'tx-snap',
+          txt:`${n>1?n+' escanteios':'Escanteio'} para o <b>${f.timeFora.nome}</b>. Total: ${escAtualF}.`});
+      }
+      escAnteriorC=escAtualC; escAnteriorF=escAtualF;
+
+      // Frases de momento a cada ~5 min
       if(snap5.some(x=>Math.abs(x-m)<5)) return;
-      // Não gera frase no mesmo minuto de um evento real
       if(entries.some(e=>e.real&&Math.abs(e.min-m)<=2)) return;
       snap5.push(m);
       const frase = fraseMomento(m, s, SNAPSHOTS[i-1]||s, f, sts);
@@ -1878,7 +1993,9 @@ function renderTimeline(maxMin=null){
   // Guardar tlMode para evitar flickering visual
   const modoAtual=tlMode;
 
-  if(!evs.length){
+  // Pré-jogo: mostra intro no feed de narração mesmo sem eventos
+  const isNS=['NS','TBD'].includes(f.status?.short);
+  if(!evs.length && !isNS){
     el.innerHTML='<div class="empty"><div class="ico">📋</div><p>Sem eventos registrados</p></div>';
     gc('evCt').textContent='0'; return;
   }
@@ -2298,6 +2415,210 @@ const STAT_LABELS={
   'Passes accurate':'Passes Certos','Passes %':'Precisão Passes','Fouls':'Faltas',
   'Yellow Cards':'Cartões Amarelos','Red Cards':'Cartões Vermelhos','Goalkeeper Saves':'Defesas do Goleiro',
 };
+
+// ══════════════════════════════════════════════
+// ⏱ SLIDER DE TEMPO NAS ESTATÍSTICAS
+// ══════════════════════════════════════════════
+let STS_MIN_ATUAL = null;   // null = ao vivo
+let STS_MODO_LIVE = true;
+
+function stsInicializar() {
+  if (!SNAPSHOTS.length) return;
+  const wrap = gc('statsSliderWrap');
+  if (!wrap) return;
+  wrap.style.display = 'block';
+
+  const minMax = Math.max(...SNAPSHOTS.map(s=>s.minuto||0), DADOS?.fixture?.status?.elapsed||90);
+  const range  = gc('stsRange');
+  range.max    = minMax;
+  range.value  = minMax;
+
+  gc('stsMarkMax').textContent = minMax + "'";
+
+  // Marcar gols na linha
+  const gols = (DADOS?.eventos||[]).filter(e=>e.tipo==='Goal');
+  const golMarksEl = gc('stsGolMarks');
+  if (golMarksEl && gols.length) {
+    golMarksEl.innerHTML = gols.map(g => {
+      const pct = Math.min(100, ((g.minuto||0) / minMax) * 100);
+      return `<span class="sts-gol-mark" title="Gol ${g.minuto}' — ${g.time?.nome||''}"
+        onclick="stsAtualizar(${g.minuto})"
+        style="left:${pct}%">⚽</span>`;
+    }).join('');
+  }
+
+  if (STS_MODO_LIVE) {
+    range.value = minMax;
+    stsSetLive();
+  }
+}
+
+function stsAtualizar(min) {
+  const minNum = parseInt(min);
+  const range  = gc('stsRange');
+  const minMax = parseInt(range.max);
+  if (range.value !== String(minNum)) range.value = minNum;
+
+  const isLive = minNum >= minMax;
+  if (isLive) {
+    stsSetLive();
+    return;
+  }
+
+  STS_MIN_ATUAL  = minNum;
+  STS_MODO_LIVE  = false;
+
+  // Encontrar snapshot mais próximo
+  const snap = stsBuscarSnap(minNum);
+  if (!snap) return;
+
+  // Mostrar badge histórico
+  const badge = gc('stsBadge');
+  if (badge) {
+    badge.textContent = `⏪ ${minNum}'`;
+    badge.className   = 'sts-badge historico';
+  }
+  const title = gc('stsTitle');
+  if (title) title.textContent = `Stats no minuto ${minNum} · snapshot ${snap.minuto}'`;
+
+  const btnLive = gc('stsBtnLive');
+  if (btnLive) btnLive.style.display = 'block';
+
+  renderStatsSnap(snap);
+}
+
+function stsVoltar() {
+  const range  = gc('stsRange');
+  range.value  = range.max;
+  stsSetLive();
+  renderStats();
+}
+
+function stsSetLive() {
+  STS_MIN_ATUAL = null;
+  STS_MODO_LIVE = true;
+  const badge = gc('stsBadge');
+  if (badge) { badge.textContent='⏱ Ao vivo'; badge.className='sts-badge ao-vivo'; }
+  const title = gc('stsTitle');
+  if (title) title.textContent = 'Stats em tempo real';
+  const btnLive = gc('stsBtnLive');
+  if (btnLive) btnLive.style.display = 'none';
+}
+
+function stsBuscarSnap(minAlvo) {
+  if (!SNAPSHOTS.length) return null;
+  // Pegar o snapshot mais próximo do minuto alvo (sem passar)
+  const candidatos = SNAPSHOTS.filter(s => (s.minuto||0) <= minAlvo);
+  if (!candidatos.length) return SNAPSHOTS[0];
+  return candidatos.reduce((a,b) => (b.minuto||0) > (a.minuto||0) ? b : a);
+}
+
+function renderStatsSnap(snap) {
+  const el = gc('statsEl');
+  if (!el || !DADOS) return;
+  const f   = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+
+  // Montar objeto de stats sintético a partir do snapshot
+  const snapStats = {
+    [f.timeCasa.id]: {
+      'Ball Possession':    snap.posseCasa ?? null,
+      'Dangerous Attacks':  snap.ataquesPerigososCasa ?? null,
+      'Shots on Goal':      snap.chutesAlvoCasa ?? null,
+      'Corner Kicks':       snap.escanteiosCasa ?? null,
+      'expected_goals':     snap.xgCasa ?? null,
+    },
+    [f.timeFora.id]: {
+      'Ball Possession':    snap.posseFora ?? null,
+      'Dangerous Attacks':  snap.ataquesPerigososFora ?? null,
+      'Shots on Goal':      snap.chutesAlvoFora ?? null,
+      'Corner Kicks':       snap.escanteiosFora ?? null,
+      'expected_goals':     snap.xgFora ?? null,
+    }
+  };
+
+  // Pegar snapshot live para comparação de diff
+  const snapLive = SNAPSHOTS[SNAPSHOTS.length-1];
+  const snapAtual = snap;
+
+  const grupos = [
+    { title: '⚽ Ataque', keys: ['Shots on Goal','Dangerous Attacks','Corner Kicks','expected_goals'] },
+    { title: '⚽ Posse', keys: ['Ball Possession'] },
+  ];
+
+  // Se temos stats reais da API, usá-las como referência de nomes e enriquecer
+  const statsApiCasa = sts[0]?.stats || {};
+  const statsApiFora = sts[1]?.stats || {};
+
+  let html = `<div style="font-size:10px;color:var(--t3);padding:6px 4px 10px;font-family:'DM Mono',monospace">
+    📸 Snapshot do minuto <b style="color:var(--acc)">${snap.minuto}'</b>
+    · Placar neste momento: <b>${snap.placarCasa??'?'}–${snap.placarFora??'?'}</b>
+  </div>`;
+
+  // Stats do snapshot
+  const rows = [
+    { l:'Posse de Bola',     c:snap.posseCasa,              f:snap.posseFora,              pct:true },
+    { l:'Ataques Perigosos', c:snap.ataquesPerigososCasa,   f:snap.ataquesPerigososFora },
+    { l:'Chutes a Gol',      c:snap.chutesAlvoCasa,         f:snap.chutesAlvoFora },
+    { l:'Escanteios',        c:snap.escanteiosCasa,         f:snap.escanteiosFora },
+    { l:'xG',                c:snap.xgCasa,                 f:snap.xgFora },
+    { l:'Pressão Casa',      c:snap.pressaoCasa,            f:snap.pressaoFora },
+  ].filter(r => r.c !== undefined && r.c !== null && r.f !== null && r.f !== undefined);
+
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty"><div class="ico">📸</div><p>Snapshot ${snap.minuto}' não tem stats suficientes</p></div>`;
+    return;
+  }
+
+  // Snap live para diff
+  const liveSnap = SNAPSHOTS[SNAPSHOTS.length-1];
+  const snapFields = {
+    'Posse de Bola': ['posseCasa','posseFora'],
+    'Ataques Perigosos': ['ataquesPerigososCasa','ataquesPerigososFora'],
+    'Chutes a Gol': ['chutesAlvoCasa','chutesAlvoFora'],
+    'Escanteios': ['escanteiosCasa','escanteiosFora'],
+    'xG': ['xgCasa','xgFora'],
+  };
+
+  html += '<div class="stat-block"><div class="stat-block-title">📸 Stats neste minuto vs agora</div>';
+  rows.forEach(r => {
+    const vc = r.c ?? 0, vf = r.f ?? 0;
+    const isPct = r.pct;
+    const total = isPct ? 100 : (vc+vf)||1;
+    const pC = Math.round(vc/total*100);
+    const pF = isPct ? 100-pC : Math.round(vf/total*100);
+    const domCasa = vc > vf;
+
+    // Calcular diff vs live
+    const fields = snapFields[r.l];
+    let diffHtml = '';
+    if (fields && liveSnap && snap.minuto < (liveSnap.minuto||0)) {
+      const liveC = liveSnap[fields[0]] ?? vc;
+      const liveF = liveSnap[fields[1]] ?? vf;
+      const dC = Math.round((liveC - vc)*10)/10;
+      const dF = Math.round((liveF - vf)*10)/10;
+      if (dC !== 0 || dF !== 0) {
+        const fmtD = (d) => d>0?`<span class="stat-diff-pos">+${d}</span>`:d<0?`<span class="stat-diff-neg">${d}</span>`:`<span class="stat-diff-zero">—</span>`;
+        diffHtml = `<div style="font-size:9px;color:var(--t3);text-align:center;margin-top:2px">${fmtD(dC)} até agora ${fmtD(dF)}</div>`;
+      }
+    }
+
+    html += `<div class="stat-row">
+      <span class="sv ${domCasa?'acc':''}">${isPct?vc+'%':vc}</span>
+      <div class="sb-wrap">
+        <div class="sb-bars">
+          <div class="sb-l" style="width:${pC/2}%"></div>
+          <div class="sb-r" style="width:${pF/2}%"></div>
+        </div>
+        <div class="sb-lbl">${r.l}</div>
+        ${diffHtml}
+      </div>
+      <span class="sv away ${!domCasa&&vf>vc?'blu':''}">${isPct?vf+'%':vf}</span>
+    </div>`;
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
 
 function renderStats(){
   const sts=DADOS.estatisticas||[];
@@ -4929,8 +5250,9 @@ async function carregarDesempenho() {
   if (!DADOS) return null;
   const f = DADOS.fixture;
   try {
+    const withTimeout=(p,ms)=>Promise.race([p,new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),ms))]);
     const fn = fns.httpsCallable('buscarCalibracaoAlgoritmo');
-    const r  = await fn({ ligaId: f.liga?.id, timeCasaId: f.timeCasa.id, timeForaId: f.timeFora.id });
+    const r  = await withTimeout(fn({ ligaId: f.liga?.id, timeCasaId: f.timeCasa.id, timeForaId: f.timeFora.id }), 8000);
     if (r.data?.sucesso) {
       DESEMP_CACHE = r.data;
       return DESEMP_CACHE;
