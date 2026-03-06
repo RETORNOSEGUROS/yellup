@@ -284,12 +284,29 @@ function chaveAmigavel(chave){
 
 // ── CARREGAR CALIBRAÇÃO (buscarCalibracaoAlgoritmo) ──
 async function carregarCalibracao(){
+  console.log('carregarCalibracao: iniciando...');
   try {
-    const r = await fns.httpsCallable('buscarCalibracaoAlgoritmo')({});
-    const d = r.data?.dados;
-    if(!d) return;
+    // Timeout de 10s para não ficar pendurado
+    const withTimeout = (promise, ms) => Promise.race([
+      promise,
+      new Promise((_,rej) => setTimeout(()=>rej(new Error('timeout após '+ms+'ms')), ms))
+    ]);
 
-    // Visão geral
+    const r = await withTimeout(
+      fns.httpsCallable('buscarCalibracaoAlgoritmo')({}),
+      10000
+    );
+    console.log('buscarCalibracaoAlgoritmo resposta:', r.data);
+    const d = r.data?.dados;
+    if(!d){
+      console.warn('dados null — sem previsões processadas ainda');
+      gc('cardTipos').innerHTML = `<div class="empty-state"><div class="ico">📭</div><p>Sem previsões processadas ainda. O sistema processa automaticamente todo dia às 02h.</p></div>`;
+      gc('calibGrid').innerHTML = `<div class="empty-state"><div class="ico">⚖️</div><p>Aguardando previsões processadas.</p></div>`;
+      gc('valTotal').textContent = '0';
+      gc('subPct').textContent = 'sem dados processados';
+      return;
+    }
+
     gc('valTotal').textContent = d.total?.toLocaleString('pt-BR') || '0';
     if(d.pct !== null){
       gc('valPct').textContent = d.pct + '%';
@@ -301,32 +318,27 @@ async function carregarCalibracao(){
       gc('subMelhor').textContent = `${d.melhorTipo.pct}% de acerto`;
     }
 
-    // Acerto por tipo
     const tipos = Object.entries(d.porTipo||{})
       .filter(([,v])=>v.total>=3)
       .sort((a,b)=>(b[1].pct||0)-(a[1].pct||0));
     if(tipos.length){
-      const maxTotal = Math.max(...tipos.map(([,v])=>v.total));
       gc('cardTipos').innerHTML = tipos.map(([tipo,v])=>`
         <div class="bar-row">
           <div class="bar-label">${nomeAmigavel(tipo)}</div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width:${v.pct||0}%;background:${barColor(v.pct||0)}"></div>
-          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:${v.pct||0}%;background:${barColor(v.pct||0)}"></div></div>
           <div class="bar-pct" style="color:${corPct(v.pct)}">${v.pct!==null?v.pct+'%':'—'}</div>
           <div style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;width:50px;text-align:right">${v.total}×</div>
         </div>`).join('');
     } else {
-      gc('cardTipos').innerHTML = `<div class="empty-state"><div class="ico">📭</div><p>Dados insuficientes — mínimo 3 previsões por tipo.</p></div>`;
+      gc('cardTipos').innerHTML = `<div class="empty-state"><div class="ico">📭</div><p>Mínimo 3 previsões por tipo para exibir.</p></div>`;
     }
 
-    // Calibração
     const calib = d.calibracaoConfianca||[];
     if(calib.length){
       gc('calibGrid').innerHTML = calib.map(f=>{
-        const gap = f.gap;
-        const gapCls = gap===null?'gap-ok':gap>5?'gap-pos':gap<-5?'gap-neg':'gap-ok';
-        const gapTxt = gap===null?'—':gap>0?'+'+gap+'%':gap+'%';
+        const gap=f.gap;
+        const gapCls=gap===null?'gap-ok':gap>5?'gap-pos':gap<-5?'gap-neg':'gap-ok';
+        const gapTxt=gap===null?'—':gap>0?'+'+gap+'%':gap+'%';
         return `<div class="calib-cell">
           <div class="calib-faixa">${f.faixa}</div>
           <div class="calib-pct" style="color:${corPct(f.pct)}">${f.pct!==null?f.pct+'%':'—'}</div>
@@ -337,21 +349,17 @@ async function carregarCalibracao(){
     } else {
       gc('calibGrid').innerHTML = `<div class="empty-state"><div class="ico">⚖️</div><p>Aguardando previsões processadas.</p></div>`;
     }
-
   } catch(e) {
-    console.warn('calibracao:', e.message);
-    const msg = e.message?.includes('index')||e.message?.includes('requires an index')
-      ? 'Índice do Firestore pendente — rode o link do console Firebase para criar.'
-      : e.message?.includes('permission')
-      ? 'Sem permissão — verifique regras do Firestore.'
-      : 'Aguardando previsões processadas pelo sistema.';
-    gc('cardTipos').innerHTML = `<div class="empty-state"><div class="ico">📭</div><p>${msg}</p></div>`;
-    gc('calibGrid').innerHTML = `<div class="empty-state"><div class="ico">⚖️</div><p>${msg}</p></div>`;
-    gc('valTotal').textContent = '0';
-    gc('subPct').textContent = 'sem dados processados';
+    console.error('carregarCalibracao ERRO:', e.message);
+    const msg = e.message.includes('timeout') ? 'Tempo esgotado — a Cloud Function demorou demais. Tente novamente.' :
+                e.message.includes('index')   ? 'Índice do Firestore ainda construindo. Aguarde 5 min.' :
+                'Erro: ' + e.message;
+    gc('cardTipos').innerHTML = `<div class="empty-state"><div class="ico">⚠️</div><p>${msg}</p></div>`;
+    gc('calibGrid').innerHTML = `<div class="empty-state"><div class="ico">⚠️</div><p>${msg}</p></div>`;
+    gc('valTotal').textContent = '—';
+    gc('subPct').textContent = msg;
   }
 }
-
 // ── CARREGAR BANCO DE PADRÕES ──
 // ── DADOS DO CÉREBRO (via Cloud Function — contorna regras Firestore) ──
 async function carregarDadosCerebro(){
