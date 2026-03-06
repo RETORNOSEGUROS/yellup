@@ -553,6 +553,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .snap-flag.abaixo{background:var(--rdim);color:var(--red);}
 .snap-flag.destaque{background:rgba(39,212,155,.15);color:var(--grn);}
 .snap-flag.ativo{background:var(--adim);color:var(--acc);}
+/* ── MINI CHART NO SLIDER ── */
+.sts-minichart{margin:10px 0 4px;position:relative;height:48px;}
+.sts-minichart svg{width:100%;height:48px;overflow:visible;}
+.sts-mc-label{font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;position:absolute;left:0;top:-2px;}
+.sts-mc-line-casa{stroke:var(--acc);stroke-width:2;fill:none;}
+.sts-mc-line-fora{stroke:var(--blu);stroke-width:2;fill:none;}
+.sts-mc-cursor{stroke:rgba(255,255,255,.3);stroke-width:1;stroke-dasharray:3 2;}
+
 /* ── SLIDER TEMPO NAS STATS ── */
 .stats-time-slider{padding:10px 4px 14px;border-bottom:1px solid rgba(255,255,255,.05);margin-bottom:4px;}
 .sts-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
@@ -1019,6 +1027,16 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
       <span class="sts-mark">60'</span>
       <span class="sts-mark">75'</span>
       <span class="sts-mark" id="stsMarkMax">90'</span>
+    </div>
+    <!-- mini gráfico xG -->
+    <div class="sts-minichart" id="stsMiniChart">
+      <span class="sts-mc-label">xG acumulado</span>
+      <svg id="stsMiniSvg" viewBox="0 0 100 48" preserveAspectRatio="none"></svg>
+    </div>
+    <!-- mini gráfico AP -->
+    <div class="sts-minichart" id="stsMiniChartAP">
+      <span class="sts-mc-label">Ataques Perigosos</span>
+      <svg id="stsMiniSvgAP" viewBox="0 0 100 48" preserveAspectRatio="none"></svg>
     </div>
   </div>
 
@@ -1530,7 +1548,40 @@ async function registrarSnapshot(fixtureId,docId){
       timeCasaId:f.timeCasa.id, timeForaId:f.timeFora.id,
       placarCasa:f.placar?.casa||0, placarFora:f.placar?.fora||0,
     }).catch(e=>console.warn('snapshot enriquecido:',e.message));
+  // Log automático de previsões a cada snapshot (não depende da aba estar aberta)
+  try { if(DADOS) _logPrevisoesBackground(); } catch(_e){}
   }catch(e){ console.warn('Snapshot local falhou:',e.message); }
+}
+
+function _logPrevisoesBackground() {
+  const f   = DADOS?.fixture;
+  const sts = DADOS?.estatisticas||[];
+  if(!f||!['1H','2H','ET','P'].includes(f.status?.short)) return;
+  const minAtual = f.status?.elapsed||0;
+  const getSt = (id,k)=>getStat(sts,id,k)||0;
+  const apC = getSt(f.timeCasa.id,'Dangerous Attacks');
+  const apF = getSt(f.timeFora.id,'Dangerous Attacks');
+  const xgC = parseFloat(getSt(f.timeCasa.id,'expected_goals'))||0;
+  const xgF = parseFloat(getSt(f.timeFora.id,'expected_goals'))||0;
+  const shotsOnC = Math.max(1,getSt(f.timeCasa.id,'Shots on Goal'));
+  const totalShotsC = Math.max(1,getSt(f.timeCasa.id,'Total Shots'));
+  const shotsOnF = Math.max(1,getSt(f.timeFora.id,'Shots on Goal'));
+  const totalShotsF = Math.max(1,getSt(f.timeFora.id,'Total Shots'));
+  const sc = [f.placar?.casa??0, f.placar?.fora??0];
+  const xgDefC = Math.max(0, xgC - Math.max(0, sc[0]-0.3));
+  const xgDefF = Math.max(0, xgF - Math.max(0, sc[1]-0.3));
+  const apRatC = minAtual>0 ? apC/minAtual : 0;
+  const apRatF = minAtual>0 ? apF/minAtual : 0;
+  const fase = minAtual>=80?15:minAtual>=70?8:minAtual>=40&&minAtual<=45?10:0;
+  const pGC = Math.min(95,Math.round((shotsOnC/totalShotsC)*15+xgDefC*8+Math.min(20,apRatC*18)+fase));
+  const pGF = Math.min(95,Math.round((shotsOnF/totalShotsF)*15+xgDefF*8+Math.min(20,apRatF*18)+fase));
+  const pGol = Math.min(95,Math.round((1-(1-pGC/100)*(1-pGF/100))*100));
+  if(pGol>=40){
+    const tipo = pGC>=pGF?'gol_casa':'gol_fora';
+    const ctx  = {posse:getSt(f.timeCasa.id,'Ball Possession'),xgCasa:xgC,xgFora:xgF,apCasa:apC,apFora:apF,minuto:minAtual};
+    logPrevisaoLocal(tipo, pGol, minAtual, sc[0], sc[1]);
+    registrarPrevisaoFn(tipo, pGol, ctx);
+  }
 }
 
 function normalizarSnapshot(s){
@@ -1594,7 +1645,7 @@ async function buscarHistoricoBackground(casaId,foraId,temporada){
     renderFingerprint();
     renderAlgo(); // re-render com histórico + fingerprint disponíveis
     // Comentarista aguardou os dados — agora pode gerar análise rica
-    setTimeout(()=>{ iniciarComentarista(); renderCenarios(); }, 500);
+    setTimeout(()=>{ iniciarComentarista(); renderCenarios(); }, 300);
   }catch(e){
     gc('histLoadMsg').textContent='Erro ao buscar histórico: '+e.message;
     console.warn('Histórico:',e);
@@ -2042,6 +2093,25 @@ function renderTimeline(maxMin=null){
   }
 
   // ── MODO EVENTOS: lista limpa da API ──
+  // Fallback: se sem eventos mas com snapshots, mostrar resumo de snapshots
+  if(!evs.length && SNAPSHOTS.length){
+    let snapHtml='<div style="padding:8px 4px;font-size:11px;color:var(--t3)">Sem eventos registrados pela API. Dados dos snapshots:</div>';
+    snapHtml+='<div class="stat-block" style="margin:4px 0">';
+    SNAPSHOTS.slice(-5).forEach(s=>{
+      snapHtml+=`<div class="stat-row" style="font-size:11px;">
+        <span class="sv" style="font-family:'DM Mono',monospace">${s.minuto}'</span>
+        <div class="sb-wrap"><div class="sb-lbl">
+          AP: ${s.ataquesPerigososCasa||0}×${s.ataquesPerigososFora||0} &nbsp;
+          Chutes: ${s.chutesAlvoCasa||0}×${s.chutesAlvoFora||0} &nbsp;
+          xG: ${(s.xgCasa||0).toFixed(2)}×${(s.xgFora||0).toFixed(2)}
+        </div></div>
+      </div>`;
+    });
+    snapHtml+='</div>';
+    el.innerHTML=snapHtml;
+    gc('evCt').textContent='0';
+    return;
+  }
   const todasEvs=evs.sort((a,b)=>(a.minuto||0)-(b.minuto||0));
   const g1=todasEvs.filter(e=>(e.minuto||0)<=45);
   const g2=todasEvs.filter(e=>(e.minuto||0)>45&&(e.minuto||0)<=90);
@@ -2451,6 +2521,54 @@ function stsInicializar() {
     range.value = minMax;
     stsSetLive();
   }
+  stsRenderMiniChart();
+}
+
+function _stsMkPolyline(pts, maxX, maxY, className){
+  if(pts.length<2) return '';
+  const W=100, H=44, pad=2;
+  const xs = pts.map(p=>(p.x/maxX)*(W-pad*2)+pad);
+  const ys = pts.map(p=>H-pad-((p.y/maxY)*(H-pad*2)));
+  const d  = xs.map((x,i)=>`${i===0?'M':'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
+  return `<polyline points="${xs.map((x,i)=>x.toFixed(1)+','+ys[i].toFixed(1)).join(' ')}" class="${className}" style="fill:none"/>`;
+}
+
+function stsRenderMiniChart() {
+  if(!SNAPSHOTS.length) return;
+  const svgXg = gc('stsMiniSvg');
+  const svgAP = gc('stsMiniSvgAP');
+  if(!svgXg||!svgAP) return;
+
+  const snaps = SNAPSHOTS.filter(s=>(s.minuto||0)>0);
+  if(snaps.length<2){ svgXg.innerHTML=''; svgAP.innerHTML=''; return; }
+
+  const maxMin = Math.max(...snaps.map(s=>s.minuto||0));
+  const maxXg  = Math.max(0.1, ...snaps.map(s=>Math.max(s.xgCasa||0, s.xgFora||0)));
+  const maxAP  = Math.max(1,   ...snaps.map(s=>Math.max(s.ataquesPerigososCasa||0, s.ataquesPerigososFora||0)));
+
+  const ptsXgC = snaps.map(s=>({x:s.minuto, y:s.xgCasa||0}));
+  const ptsXgF = snaps.map(s=>({x:s.minuto, y:s.xgFora||0}));
+  const ptsAPC = snaps.map(s=>({x:s.minuto, y:s.ataquesPerigososCasa||0}));
+  const ptsAPF = snaps.map(s=>({x:s.minuto, y:s.ataquesPerigososFora||0}));
+
+  // Linha do cursor
+  const curMin = STS_MIN_ATUAL ?? maxMin;
+  const curPct = Math.min(100, (curMin/maxMin)*100);
+  const cursorLine = `<line x1="${curPct}" y1="0" x2="${curPct}" y2="48" class="sts-mc-cursor"/>`;
+
+  // Gols como pontos
+  const golDots = (DADOS?.eventos||[]).filter(e=>e.tipo==='Goal').map(e=>{
+    const x = Math.min(100,(e.minuto||0)/maxMin*100);
+    return `<circle cx="${x}" cy="4" r="2.5" fill="rgba(255,255,255,.6)" title="Gol ${e.minuto}'"/>`;
+  }).join('');
+
+  svgXg.innerHTML = _stsMkPolyline(ptsXgC,maxMin,maxXg,'sts-mc-line-casa')
+    + _stsMkPolyline(ptsXgF,maxMin,maxXg,'sts-mc-line-fora')
+    + cursorLine + golDots;
+
+  svgAP.innerHTML = _stsMkPolyline(ptsAPC,maxMin,maxAP,'sts-mc-line-casa')
+    + _stsMkPolyline(ptsAPF,maxMin,maxAP,'sts-mc-line-fora')
+    + cursorLine;
 }
 
 function stsAtualizar(min) {
@@ -2485,6 +2603,7 @@ function stsAtualizar(min) {
   if (btnLive) btnLive.style.display = 'block';
 
   renderStatsSnap(snap);
+  stsRenderMiniChart(); // atualiza cursor
 }
 
 function stsVoltar() {
@@ -3613,6 +3732,23 @@ function calcularDNA(teamId, teamNome, sts, evs, minAtual, fp) {
   } else if (intensidade >= 50 && dominancia >= 45) {
     arquetipo = 'Equilibrado'; emoji = '⚖️';
     desc = 'Adapta o estilo conforme o jogo. Sem padrão fixo — difícil de antecipar.';
+  } else if (fp?.totalJogos >= 5) {
+    // Indefinido nos dados do jogo → usar fingerprint histórico como base
+    const taxaGolsFP = fp.mediaGolsMarcados || 0;
+    const taxaGolsSofFP = fp.mediaGolsSofridos || 0;
+    if (taxaGolsFP >= 2.0) {
+      arquetipo = 'Ofensivo (hist.)'; emoji = '🔥';
+      desc = `Historicamente ofensivo: ${taxaGolsFP.toFixed(1)} gols/jogo em ${fp.totalJogos} partidas no banco. Aguardando mais dados deste jogo.`;
+    } else if (taxaGolsSofFP <= 0.7) {
+      arquetipo = 'Defensivo (hist.)'; emoji = '🏰';
+      desc = `Histórico defensivo sólido: sofre apenas ${taxaGolsSofFP.toFixed(1)} gols/jogo. Costuma jogar com bloco baixo.`;
+    } else if (taxaGolsFP <= 0.8) {
+      arquetipo = 'Cauteloso (hist.)'; emoji = '⚖️';
+      desc = `Historicamente cauteloso: ${taxaGolsFP.toFixed(1)} gols/jogo. Jogo tende a ser de poucas chances.`;
+    } else {
+      arquetipo = 'Indefinido'; emoji = '❓';
+      desc = `${fp.totalJogos} jogos no banco. Aguardando dados suficientes nesta partida para classificar.`;
+    }
   } else {
     arquetipo = 'Indefinido'; emoji = '❓';
     desc = 'Poucos dados ainda para classificar o estilo neste jogo.';
@@ -3623,8 +3759,8 @@ function calcularDNA(teamId, teamNome, sts, evs, minAtual, fp) {
   if (fp?.totalJogos >= 5) {
     const taxaGolsFP = fp.mediaGolsMarcados || 0;
     if (taxaGolsFP >= 2.0)      fpInsight = `Historicamente ofensivo: média ${taxaGolsFP.toFixed(1)} gols/jogo em ${fp.totalJogos} jogos.`;
-    else if (taxaGolsFP <= 0.8) fpInsight = `Historicamente cauteloso: média ${taxaGolsFP.toFixed(1)} gols/jogo. Jogo tende a ser de poucas chances.`;
-    if (fp.janelaMaisPerigosa)  fpInsight = (fpInsight||'') + ` Janela quente histórica: ${fp.janelaMaisPerigosa}'.`;
+    else if (taxaGolsFP <= 0.8) fpInsight = `Historicamente cauteloso: média ${taxaGolsFP.toFixed(1)} gols/jogo.`;
+    if (fp.janelaMaisPerigosa)  fpInsight = (fpInsight||'') + ` Janela quente: ${fp.janelaMaisPerigosa}'.`;
   }
 
   return {
@@ -7081,9 +7217,30 @@ async function buscarFingerprintOddsFn() {
     const r  = await fn({ fixtureId: DADOS.fixture.id });
     if (r.data?.sucesso && r.data.odds) {
       ODDS_PREJOGO = r.data;
-      renderAlgo(); // re-render com odds pré-jogo disponíveis
+      renderAlgo();
+      // re-iniciar comentarista com odds disponíveis
+      if(HIST_CASA) iniciarComentarista();
+    } else {
+      // Fallback: buscar odds direto da API-Football on-demand
+      buscarOddsOnDemand();
     }
-  } catch(e) { console.warn('FingerprintOdds:', e.message); }
+  } catch(e) {
+    console.warn('FingerprintOdds:', e.message);
+    buscarOddsOnDemand();
+  }
+}
+
+async function buscarOddsOnDemand() {
+  if (!DADOS || ODDS_PREJOGO) return;
+  try {
+    const fn = fns.httpsCallable('buscarOddsJogo');
+    const r  = await fn({ fixtureId: DADOS.fixture.id });
+    if (r.data?.sucesso && r.data.odds) {
+      ODDS_PREJOGO = r.data;
+      renderAlgo();
+      if(HIST_CASA) iniciarComentarista();
+    }
+  } catch(e) { console.warn('OddsOnDemand:', e.message); }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -7493,7 +7650,6 @@ function renderCenarios() {
       `<span class="cen-cond ${cd.ok?'ok':'falta'}">${cd.ok?'✓':''} ${cd.label}</span>`
     ).join('');
 
-    // Só mostra condições pendentes se laranja ou vermelho
     const mostrarConds = c.pct >= 70;
     const pendentes = c.condicoes.filter(cd => !cd.ok);
     const faltaHtml = (c.pct >= 70 && pendentes.length)
@@ -7517,11 +7673,32 @@ function renderCenarios() {
       ${alertaHtml}
     </div>`;
   }).join('');
+
+  // ── Log automático de cenários ≥90% para aprendizado ──
+  const minAtual = DADOS?.fixture?.status?.elapsed||0;
+  ativos.filter(c=>c.pct>=90).forEach(c=>{
+    const key = `cen_${DADOS?.fixture?.id}_${c.id}_${minAtual}`;
+    if(!sessionStorage.getItem(key)){
+      sessionStorage.setItem(key,'1');
+      fns.httpsCallable('registrarCenarioAtivado')({
+        fixtureId: DADOS?.fixture?.id,
+        cenarioId: c.id, cenarioNome: c.nome, pct: c.pct,
+        minuto: minAtual,
+        placarCasa: DADOS?.fixture?.placar?.casa||0,
+        placarFora: DADOS?.fixture?.placar?.fora||0,
+      }).catch(()=>{});
+    }
+  });
 }
 
 function iniciarComentarista() {
   const f = DADOS?.fixture;
   if (!f) return;
+  // Se histórico ainda não chegou, agendar re-tentativa
+  if (!HIST_CASA && !HIST_FORA) {
+    setTimeout(iniciarComentarista, 3000);
+    return;
+  }
   const isLive    = ['1H','2H','ET','P','HT'].includes(f.status?.short);
   const isFT      = ['FT','AET','PEN'].includes(f.status?.short);
   const isPreJogo = f.status?.short === 'NS' || f.status?.short === 'TBD';
