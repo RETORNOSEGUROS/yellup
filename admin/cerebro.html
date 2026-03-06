@@ -230,9 +230,6 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',sans-serif;min-hei
 
 </div><!-- /page -->
 
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
 <script>
 firebase.initializeApp({
   apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
@@ -348,123 +345,113 @@ async function carregarCalibracao(){
 }
 
 // ── CARREGAR BANCO DE PADRÕES ──
-async function carregarBiblioteca(){
-  try {
-    const snap = await db.collection('biblioteca-padroes').orderBy('confiancaEstrelas','desc').limit(30).get();
-    if(snap.empty){
-      gc('listaPadroes').innerHTML = `<div class="empty-state"><div class="ico">🔬</div><p>Banco vazio — sistema aprende com cada jogo. Primeiros padrões aparecem após ~50 jogos monitorados.</p></div>`;
-      gc('badgePadroes').textContent = '0 padrões';
-      return;
-    }
-    gc('badgePadroes').textContent = `${snap.size} padrões`;
-    gc('listaPadroes').innerHTML = snap.docs.map(doc=>{
-      const d = doc.data();
-      const chave = chaveAmigavel(doc.id.replace(/_/g,' '));
-      const stars = d.confiancaEstrelas||1;
-      const jogos = d.totalEventos||0;
-      const metricas = d.alertaLimiares||{};
-      const metStr = Object.entries(metricas).slice(0,3)
-        .map(([k,v])=>`${k.replace('_',' ')}: ${typeof v==='number'?v.toFixed(1):v}`)
-        .join(' · ');
-      return `<div class="padrao-row">
-        <div class="padrao-chave">${chave}</div>
-        <div class="padrao-confianca">${estrelas(stars)}</div>
-        <div style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${metStr||'dados insuficientes'}</div>
-        <div class="padrao-jogos">${jogos} eventos</div>
-      </div>`;
-    }).join('');
-  } catch(e){
-    console.warn('biblioteca:', e.message);
-    gc('listaPadroes').innerHTML = `<div class="empty-state"><div class="ico">🔬</div><p>Banco não disponível — ${e.message}</p></div>`;
-  }
+// ── DADOS DO CÉREBRO (via Cloud Function — contorna regras Firestore) ──
+async function carregarDadosCerebro(){
+  const r = await fns.httpsCallable('buscarDadosCerebro')({});
+  return r.data;
 }
 
-// ── CARREGAR PADRÕES DE ODDS ──
-async function carregarOddsPatterns(){
-  try {
-    const snap = await db.collection('padroes-odds')
-      .orderBy('totalJogos','desc').limit(20).get();
-    if(snap.empty){
-      gc('listaOdds').innerHTML = `<div class="empty-state"><div class="ico">💰</div><p>Aguardando dados de odds. O sistema coleta automaticamente a cada 15 minutos para jogos próximos.</p></div>`;
-      return;
-    }
-    gc('listaOdds').innerHTML = snap.docs.map(doc=>{
-      const d = doc.data();
-      const chave = doc.id.replace(/_/g,' ');
-      const pct = d.totalJogos>0?Math.round((d.acertos||0)/d.totalJogos*100):null;
-      return `<div class="odds-row">
-        <div class="odds-chave">${chave}</div>
-        <div class="odds-stat">${d.totalJogos} jogos</div>
-        <div class="odds-pct" style="color:${corPct(pct)}">${pct!==null?pct+'%':'—'}</div>
-      </div>`;
-    }).join('');
-  } catch(e){
-    gc('listaOdds').innerHTML = `<div class="empty-state"><div class="ico">💰</div><p>${e.message}</p></div>`;
+async function renderBiblioteca(d){
+  const bib = d.biblioteca || [];
+  if(!bib.length){
+    gc('listaPadroes').innerHTML = `<div class="empty-state"><div class="ico">🔬</div><p>Banco vazio — sistema aprende com cada jogo. Primeiros padrões aparecem após ~50 jogos monitorados.</p></div>`;
+    gc('badgePadroes').textContent = '0 padrões';
+    return;
   }
+  gc('badgePadroes').textContent = `${bib.length} padrões`;
+  gc('listaPadroes').innerHTML = bib.map(doc=>{
+    const chave = chaveAmigavel(doc.id.replace(/_/g,' '));
+    const stars = doc.confiancaEstrelas||1;
+    const jogos = doc.totalEventos||0;
+    const metricas = doc.alertaLimiares||{};
+    const metStr = Object.entries(metricas).slice(0,3)
+      .map(([k,v])=>`${k.replace('_',' ')}: ${typeof v==='number'?v.toFixed(1):v}`)
+      .join(' · ');
+    return `<div class="padrao-row">
+      <div class="padrao-chave">${chave}</div>
+      <div class="padrao-confianca">${estrelas(stars)}</div>
+      <div style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${metStr||'dados insuficientes'}</div>
+      <div class="padrao-jogos">${jogos} eventos</div>
+    </div>`;
+  }).join('');
 }
 
-// ── MATURIDADE DO SISTEMA ──
-async function carregarMaturidade(){
-  try {
-    // Contar documentos em cada coleção relevante
-    const [prevSnap, estadosSnap, snapV2Snap] = await Promise.all([
-      db.collection('previsoes').limit(1).get().catch(()=>({size:0})),
-      db.collection('estados-pre-evento').limit(300).get().catch(()=>({size:0,docs:[]})),
-      db.collection('snapshots-v2').limit(300).get().catch(()=>({size:0,docs:[]})),
-    ]);
-
-    const nEstados = estadosSnap.docs?.length||0;
-    const nSnaps   = snapV2Snap.docs?.length||0;
-
-    // Timeline de marcos
-    const marcos = [
-      { label:'Deploy das funções de aprendizado', sub:'registrarSnapshotEnriquecido + salvarEstadoPreEvento', done: nSnaps>0 },
-      { label:'Primeiros snapshots enriquecidos', sub:`${nSnaps} snapshots coletados`, done: nSnaps>0, prog: nSnaps===0 },
-      { label:'Primeiros estados pré-evento', sub:`${nEstados} situações pré-gol registradas`, done: nEstados>10, prog: nEstados>0&&nEstados<=10 },
-      { label:'Base para padrões iniciais', sub:'requer 50+ eventos por chave de padrão', done: nEstados>=50 },
-      { label:'Padrões com confiança ★★★', sub:'requer 150+ eventos por chave', done: nEstados>=150 },
-      { label:'Valor preditivo real', sub:'500+ eventos · base madura', done: nEstados>=500 },
-    ];
-    gc('timelineMarcos').innerHTML = marcos.map(m=>`
-      <div class="tl-item">
-        <div class="tl-dot ${m.done?'done':m.prog?'prog':'todo'}"></div>
-        <div class="tl-label" style="color:${m.done?'var(--t1)':m.prog?'var(--yel)':'var(--t3)'}">${m.label}</div>
-        <div class="tl-sub">${m.sub}</div>
-      </div>`).join('');
-
-    // Stats de coleta
-    gc('statsColeta').innerHTML = `
-      <div class="bar-row" style="margin-bottom:14px;">
-        <div class="bar-label">Snapshots (v2)</div>
-        <div class="bar-track"><div class="bar-fill" style="width:${Math.min(nSnaps/300*100,100)}%;background:var(--acc)"></div></div>
-        <div class="bar-pct">${nSnaps}</div>
-      </div>
-      <div class="bar-row" style="margin-bottom:14px;">
-        <div class="bar-label">Estados pré-gol</div>
-        <div class="bar-track"><div class="bar-fill" style="width:${Math.min(nEstados/500*100,100)}%;background:var(--blu)"></div></div>
-        <div class="bar-pct">${nEstados}</div>
-      </div>
-      <div style="font-size:11px;color:var(--t3);margin-top:8px;line-height:1.6;">
-        A cada jogo monitorado ao vivo o sistema coleta snapshots a cada 60s e registra o estado antes de cada gol. A biblioteca de padrões é recalculada todo dia às 05h.
-      </div>`;
-
-  } catch(e){
-    console.warn('maturidade:', e.message);
+async function renderOdds(d){
+  const odds = d.padroes_odds || [];
+  if(!odds.length){
+    gc('listaOdds').innerHTML = `<div class="empty-state"><div class="ico">💰</div><p>Aguardando dados de odds. O sistema coleta automaticamente a cada 15 minutos para jogos próximos.</p></div>`;
+    return;
   }
+  gc('listaOdds').innerHTML = odds.map(doc=>{
+    const chave = doc.id.replace(/_/g,' ');
+    const pct = doc.totalJogos>0?Math.round((doc.acertos||0)/doc.totalJogos*100):null;
+    return `<div class="odds-row">
+      <div class="odds-chave">${chave}</div>
+      <div class="odds-stat">${doc.totalJogos} jogos</div>
+      <div class="odds-pct" style="color:${corPct(pct)}">${pct!==null?pct+'%':'—'}</div>
+    </div>`;
+  }).join('');
 }
 
-// ── CARREGAR TUDO ──
+async function renderMaturidade(d){
+  const nEstados = d.totalEstados || 0;
+  const nSnaps   = d.totalSnaps   || 0;
+
+  const marcos = [
+    { label:'Deploy das funções de aprendizado', sub:'registrarSnapshotEnriquecido + salvarEstadoPreEvento', done: nSnaps>0 },
+    { label:'Primeiros snapshots enriquecidos', sub:`${nSnaps} snapshots coletados`, done: nSnaps>5, prog: nSnaps>0&&nSnaps<=5 },
+    { label:'Primeiros estados pré-evento', sub:`${nEstados} situações pré-gol registradas`, done: nEstados>10, prog: nEstados>0&&nEstados<=10 },
+    { label:'Base para padrões iniciais', sub:'requer 50+ eventos por chave de padrão', done: nEstados>=50 },
+    { label:'Padrões com confiança ★★★', sub:'requer 150+ eventos por chave', done: nEstados>=150 },
+    { label:'Valor preditivo real', sub:'500+ eventos · base madura', done: nEstados>=500 },
+  ];
+  gc('timelineMarcos').innerHTML = marcos.map(m=>`
+    <div class="tl-item">
+      <div class="tl-dot ${m.done?'done':m.prog?'prog':'todo'}"></div>
+      <div class="tl-label" style="color:${m.done?'var(--t1)':m.prog?'var(--yel)':'var(--t3)'}">${m.label}</div>
+      <div class="tl-sub">${m.sub}</div>
+    </div>`).join('');
+
+  gc('statsColeta').innerHTML = `
+    <div class="bar-row" style="margin-bottom:14px;">
+      <div class="bar-label">Snapshots (v2)</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.min(nSnaps/300*100,100)}%;background:var(--acc)"></div></div>
+      <div class="bar-pct">${nSnaps}</div>
+    </div>
+    <div class="bar-row" style="margin-bottom:14px;">
+      <div class="bar-label">Estados pré-gol</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.min(nEstados/500*100,100)}%;background:var(--blu)"></div></div>
+      <div class="bar-pct">${nEstados}</div>
+    </div>
+    <div style="font-size:11px;color:var(--t3);margin-top:8px;line-height:1.6;">
+      A cada jogo monitorado ao vivo o sistema coleta snapshots a cada 60s e registra o estado antes de cada gol. A biblioteca de padrões é recalculada todo dia às 05h.
+    </div>`;
+}
+
 async function carregarTudo(){
   const btn = gc('btnRefresh');
   if(btn) btn.classList.add('loading');
   gc('lastUpdate').textContent = 'atualizando...';
 
-  await Promise.all([
-    carregarCalibracao(),
-    carregarBiblioteca(),
-    carregarOddsPatterns(),
-    carregarMaturidade(),
-  ]);
+  try {
+    // Carregar calibração (função existente) e dados do cérebro em paralelo
+    const [, cerebro] = await Promise.all([
+      carregarCalibracao(),
+      carregarDadosCerebro(),
+    ]);
+
+    await Promise.all([
+      renderBiblioteca(cerebro),
+      renderOdds(cerebro),
+      renderMaturidade(cerebro),
+    ]);
+  } catch(e) {
+    console.warn('carregarTudo:', e.message);
+    ['listaPadroes','listaOdds','statsColeta'].forEach(id=>{
+      const el=gc(id);
+      if(el) el.innerHTML=`<div class="empty-state"><div class="ico">⚠️</div><p>${e.message}</p></div>`;
+    });
+  }
 
   const now = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   gc('lastUpdate').textContent = `atualizado às ${now}`;
