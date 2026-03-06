@@ -198,6 +198,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .conv-msg:last-child { margin-bottom:0; }
 .conv-loading    { display:flex; align-items:center; gap:8px; color:var(--t3); font-size:11px; padding:20px; justify-content:center; }
 .conv-sem-dados  { text-align:center; padding:24px; color:var(--t3); font-size:11px; line-height:1.8; }
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .coment-wrap{background:var(--c3);border-radius:12px;padding:14px;margin-bottom:12px;}
 .coment-title{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:7px;}
 .coment-live{width:7px;height:7px;border-radius:50%;background:var(--red);animation:pulse 1.2s infinite;flex-shrink:0;}
@@ -6928,163 +6929,119 @@ function gerarIntroPreJogo() {
   if (!DADOS) return;
   const f    = DADOS.fixture;
   const nomC = f.timeCasa.nome, nomF = f.timeFora.nome;
-  const liga = f.liga?.nome || '';
   const items = [];
 
-  const odds     = ODDS_PREJOGO?.odds;
-  const o1       = odds?.resultados?.odd1;
-  const o2       = odds?.resultados?.odd2;
-  const oX       = odds?.resultados?.oddX;
-  const xGols    = odds?.xGolsOdds;
-  const h2h      = CONTEXTO?.h2h || {};
-  const mediaGolsH2h = h2h.mediaGols;
-  const h2hTotal = (h2h.vitoriasCasa||0) + (h2h.empates||0) + (h2h.vitoriasFora||0);
+  const odds  = ODDS_PREJOGO?.odds;
+  const o1    = odds?.resultados?.odd1;
+  const o2    = odds?.resultados?.odd2;
+  const oX    = odds?.resultados?.oddX;
+  const oO25  = odds?.overUnder?.over25;
+  const h2h   = CONTEXTO?.h2h || {};
+  const h2hTotal = (h2h.vitoriasCasa||0)+(h2h.empates||0)+(h2h.vitoriasFora||0);
 
-  // Helper: extrair métricas do HIST (últimos N jogos)
-  const metricas = (hist, n) => {
+  // Helper: métricas dos últimos N jogos
+  const metr = (hist, n) => {
     if (!hist?.jogos?.length) return null;
-    const jogos = hist.jogos.slice(0, n || 10);
-    const total = jogos.length;
-    const wins  = jogos.filter(j => j.resultado === 'V').length;
-    const draws = jogos.filter(j => j.resultado === 'E').length;
-    const losses= jogos.filter(j => j.resultado === 'D').length;
-    const gm    = jogos.reduce((a,j) => a + (j.gols||0), 0);
-    const gs    = jogos.reduce((a,j) => a + (j.golsSofridos||0), 0);
-    const aprov = Math.round((wins*3+draws)/(total*3)*100);
-    // Sequência atual (últimos jogos sem perder / vencendo)
-    let invicto = 0, seriVit = 0, seriDer = 0;
-    for (const j of jogos) {
-      if (j.resultado !== 'D') invicto++; else break;
-    }
-    for (const j of jogos) {
-      if (j.resultado === 'V') seriVit++; else break;
-    }
-    for (const j of jogos) {
-      if (j.resultado === 'D') seriDer++; else break;
-    }
-    // xG médio
-    const xgJogos = jogos.filter(j => j.stats?.time?.['expected_goals']);
-    const xgMed = xgJogos.length
-      ? xgJogos.reduce((a,j) => a + parseFloat(j.stats.time['expected_goals']||0), 0) / xgJogos.length
-      : null;
-    // Média de ataques perigosos
-    const apJogos = jogos.filter(j => j.stats?.time?.['Dangerous Attacks']);
-    const apMed = apJogos.length
-      ? apJogos.reduce((a,j) => a + parseFloat(j.stats.time['Dangerous Attacks']||0), 0) / apJogos.length
-      : null;
-    return { total, wins, draws, losses, gm, gs, aprov, invicto, seriVit, seriDer,
-             mediaMarcados: +(gm/total).toFixed(2), mediaSofridos: +(gs/total).toFixed(2),
-             xgMed: xgMed ? +xgMed.toFixed(2) : null, apMed: apMed ? +apMed.toFixed(0) : null };
+    const jogos = hist.jogos.slice(0, n||10), tot = jogos.length;
+    const V = jogos.filter(j=>j.resultado==='V').length;
+    const E = jogos.filter(j=>j.resultado==='E').length;
+    const D = jogos.filter(j=>j.resultado==='D').length;
+    const gm = jogos.reduce((a,j)=>a+(j.gols||0),0);
+    const gs = jogos.reduce((a,j)=>a+(j.golsSofridos||0),0);
+    const aprov = Math.round((V*3+E)/(tot*3)*100);
+    let streak=0;
+    for(const j of jogos){ if(j.resultado==='V') streak++; else break; }
+    let streakD=0;
+    for(const j of jogos){ if(j.resultado==='D') streakD++; else break; }
+    return {V,E,D,tot,aprov,mgols:+(gm/tot).toFixed(1),msof:+(gs/tot).toFixed(1),streak,streakD};
   };
+  const mC = metr(HIST_CASA), mF = metr(HIST_FORA);
 
-  const mC = metricas(HIST_CASA, 10);
-  const mF = metricas(HIST_FORA, 10);
-
-  // ── Card 1: Apresentação com odds ──
-  let intro = (liga ? liga + ' — ' : '') + nomC + ' recebe ' + nomF + '.';
+  // Card 1 — Apresentação + leitura das odds
+  let c1 = `🏟️ ${nomC} recebe ${nomF}.`;
   if (o1 && o2) {
-    const diff = Math.abs(o1 - o2);
-    const fav  = o1 < o2 ? nomC : nomF;
-    if (diff < 0.25)     intro += ' Mercado vê equilíbrio total: ' + o1.toFixed(2) + ' / ' + (oX ? oX.toFixed(2) : '—') + ' / ' + o2.toFixed(2) + '.';
-    else if (diff > 0.8) intro += ' ' + fav + ' é favorito claro (odd ' + Math.min(o1,o2).toFixed(2) + ' vs ' + Math.max(o1,o2).toFixed(2) + ').';
-    else                 intro += ' ' + fav + ' levemente favorito (' + Math.min(o1,o2).toFixed(2) + ' vs ' + Math.max(o1,o2).toFixed(2) + ').';
-  }
-  if (xGols) intro += ' Modelo projeta ' + xGols + ' gols na partida.';
-  items.push({ texto: intro, tipo: 'destaque' });
-
-  // ── Card 2: Forma do time da casa ──
-  if (mC) {
-    let txt = nomC + ' nos últimos ' + mC.total + ' jogos: ' + mC.wins + ' vitórias, ' + mC.draws + ' empates, ' + mC.losses + ' derrotas (' + mC.aprov + '% de aproveitamento).';
-    txt += ' Média de ' + mC.mediaMarcados + ' gols marcados e ' + mC.mediaSofridos + ' sofridos por jogo.';
-    if (mC.invicto >= 3)     txt += ' Invicto nos últimos ' + mC.invicto + ' jogos.';
-    if (mC.seriVit >= 3)     txt += ' Em sequência de ' + mC.seriVit + ' vitórias consecutivas.';
-    if (mC.seriDer >= 2)     txt += ' Vem de ' + mC.seriDer + ' derrotas seguidas — momento delicado.';
-    if (mC.xgMed)            txt += ' xG médio de ' + mC.xgMed + ' por jogo.';
-    if (mC.apMed)            txt += ' Gera em média ' + mC.apMed + ' ataques perigosos por partida.';
-    items.push({ texto: txt, tipo: mC.seriDer >= 2 ? 'alerta' : 'destaque' });
-  }
-
-  // ── Card 3: Forma do visitante ──
-  if (mF) {
-    let txt = nomF + ' nos últimos ' + mF.total + ' jogos: ' + mF.wins + ' vitórias, ' + mF.draws + ' empates, ' + mF.losses + ' derrotas (' + mF.aprov + '% de aproveitamento).';
-    txt += ' Média de ' + mF.mediaMarcados + ' gols marcados e ' + mF.mediaSofridos + ' sofridos por jogo.';
-    if (mF.invicto >= 3)     txt += ' Invicto nos últimos ' + mF.invicto + ' jogos.';
-    if (mF.seriVit >= 3)     txt += ' Vem de ' + mF.seriVit + ' vitórias consecutivas.';
-    if (mF.seriDer >= 2)     txt += ' Em sequência negativa de ' + mF.seriDer + ' derrotas.';
-    if (mF.xgMed)            txt += ' xG médio: ' + mF.xgMed + ' por partida.';
-    items.push({ texto: txt, tipo: mF.seriVit >= 3 ? 'alerta' : 'tatica' });
-  }
-
-  // ── Card 4: Confronto direto ──
-  if (h2hTotal >= 3) {
-    let txt = 'H2H (' + h2hTotal + ' confrontos): ' + nomC + ' venceu ' + (h2h.vitoriasCasa||0) + 'x, empates ' + (h2h.empates||0) + ', ' + nomF + ' venceu ' + (h2h.vitoriasFora||0) + 'x.';
-    if (mediaGolsH2h) {
-      txt += ' Média de ' + mediaGolsH2h.toFixed(1) + ' gols por jogo — ';
-      txt += mediaGolsH2h >= 3.2 ? 'confronto historicamente aberto, over 2.5 saiu com frequência.'
-           : mediaGolsH2h >= 2.3 ? 'jogos costumam ter gols mas sem exagero.'
-           :                       'duelo fechado historicamente, cuidado com over.';
+    const fav = o1<o2 ? nomC : nomF, minO = Math.min(o1,o2);
+    if (minO <= 1.55)
+      c1 += ` ${fav} é o grande favorito (odd ${minO.toFixed(2)}). Favoritismo alto converte em ~70% das vezes, mas o placar tende a ser apertado.`;
+    else if (Math.abs(o1-o2) < 0.3)
+      c1 += ` Odds equilibradas — qualquer resultado é possível. Fique de olho na odd de empate.`;
+    else
+      c1 += ` ${fav} entra favorito (odd ${minO.toFixed(2)}), mas sem folga confortável.`;
+    if (oO25) {
+      const pO = Math.round(1/oO25*100/1.05);
+      c1 += ` Mercado vê ${pO}% de chance de mais de 2 gols.`;
     }
-    items.push({ texto: txt, tipo: 'tatica' });
+  }
+  items.push({texto:c1, tipo:'apresentacao'});
+
+  // Card 2 — Forma recente Casa
+  if (mC) {
+    let t = `📊 ${nomC} nos últimos ${mC.tot} jogos: ${mC.V}V ${mC.E}E ${mC.D}D (${mC.aprov}% de aproveitamento). Média de ${mC.mgols} gols marcados e ${mC.msof} sofridos.`;
+    if (mC.streak >= 3)       t += ` 🔥 Vem de ${mC.streak} vitórias seguidas — em grande momento.`;
+    else if (mC.streakD >= 3) t += ` ❄️ Vem de ${mC.streakD} derrotas consecutivas — fase difícil.`;
+    else if (mC.E >= Math.floor(mC.tot*0.4)) t += ` Muitos empates recentes — time que tende a equilibrar.`;
+    items.push({texto:t, tipo:'forma_casa'});
   }
 
-  // ── Card 5: Desfalques ──
-  const lesoesCasa = (CONTEXTO?.lesoes||[]).filter(l => l.timeCasaId === f.timeCasa.id || l.time === nomC);
-  const lesoesFora = (CONTEXTO?.lesoes||[]).filter(l => l.timeCasaId === f.timeFora.id || l.time === nomF);
-  if (lesoesCasa.length > 0 || lesoesFora.length > 0) {
-    const partes = [];
-    if (lesoesCasa.length > 0)
-      partes.push(nomC + ' sem ' + lesoesCasa.slice(0,4).map(l => l.nome||l.player||'jogador').join(', ') + (lesoesCasa.length > 4 ? ' e mais ' + (lesoesCasa.length-4) : ''));
-    if (lesoesFora.length > 0)
-      partes.push(nomF + ' sem ' + lesoesFora.slice(0,4).map(l => l.nome||l.player||'jogador').join(', ') + (lesoesFora.length > 4 ? ' e mais ' + (lesoesFora.length-4) : ''));
-    let txt = 'Desfalques: ' + partes.join('. ') + '.';
-    if (lesoesCasa.length >= 5) txt += ' Volume crítico de ausências em ' + nomC + ' — esquema titular comprometido.';
-    else if (lesoesCasa.length >= 3) txt += ' ' + nomC + ' desfalcado pode ter dificuldades de manter o padrão.';
-    if (lesoesFora.length >= 4) txt += ' ' + nomF + ' com muitos desfalques tende a jogar recuado.';
-    items.push({ texto: txt, tipo: 'alerta' });
+  // Card 3 — Forma recente Fora
+  if (mF) {
+    let t = `📊 ${nomF} nos últimos ${mF.tot} jogos: ${mF.V}V ${mF.E}E ${mF.D}D (${mF.aprov}% de aproveitamento). Média de ${mF.mgols} gols marcados e ${mF.msof} sofridos.`;
+    if (mF.streak >= 3)       t += ` 🔥 Vem de ${mF.streak} vitórias — adversário em grande fase.`;
+    else if (mF.streakD >= 3) t += ` ❄️ Passa por má fase (${mF.streakD} derrotas seguidas).`;
+    items.push({texto:t, tipo:'forma_fora'});
   }
 
-  // ── Card 6: Árbitro ──
-  if (ARBITRO_PERFIL?.nome) {
-    const arb = ARBITRO_PERFIL;
-    let txt = 'Árbitro: ' + arb.nome + '.';
-    if (arb.totalJogos >= 5) txt += ' (' + arb.totalJogos + ' jogos analisados)';
-    if (arb.mediaAmarelos) txt += ' Média de ' + Number(arb.mediaAmarelos||0).toFixed(1) + ' cartões amarelos/jogo.';
-    if (arb.perfil === 'rigoroso') txt += ' Perfil rigoroso — qualquer disputa acirrada será punida. Atletas no limite do cartão estão em risco.';
-    else if (arb.perfil === 'permissivo') txt += ' Perfil permissivo — jogo deve ficar mais físico e faltas passarão sem punição.';
-    if (arb.pctPenalti >= 30) txt += ' Alta taxa de pênaltis (' + arb.pctPenalti + '% dos jogos) — bolas na área valem mais hoje.';
-    items.push({ texto: txt, tipo: 'tatica' });
+  // Card 4 — Confronto direto
+  if (h2hTotal >= 3) {
+    const pC = Math.round((h2h.vitoriasCasa||0)/h2hTotal*100);
+    const pE = Math.round((h2h.empates||0)/h2hTotal*100);
+    const pF = Math.round((h2h.vitoriasFora||0)/h2hTotal*100);
+    let t = `⚔️ Histórico direto (${h2hTotal} jogos): ${nomC} venceu ${pC}%, empates ${pE}%, ${nomF} venceu ${pF}%.`;
+    const mg = Number(h2h.mediaGols||0);
+    if (mg >= 3.0)      t += ` Média de ${mg.toFixed(1)} gols — jogos historicamente abertos entre eles.`;
+    else if (mg <= 1.5) t += ` Média de ${mg.toFixed(1)} gols — confrontos costumam ser fechados.`;
+    items.push({texto:t, tipo:'h2h'});
   }
 
-  // ── Card 7: Fingerprint + padrões ──
-  const fpTextos = [];
-  if (FP_CASA?.totalJogos >= 5) {
-    if (FP_CASA.janelaMaisPerigosa) fpTextos.push(nomC + ' marca mais entre ' + FP_CASA.janelaMaisPerigosa[0] + "'-" + FP_CASA.janelaMaisPerigosa[1] + "'");
-    if (FP_CASA.janelaMaisFragil)   fpTextos.push('sofre mais entre ' + FP_CASA.janelaMaisFragil[0] + "'-" + FP_CASA.janelaMaisFragil[1] + "'");
+  // Card 5 — Desfalques
+  const lC = CONTEXTO?.lesoesCasa||[], lF = CONTEXTO?.lesoesFora||[];
+  if (lC.length||lF.length) {
+    let t = '🏥 Desfalques: ';
+    if (lC.length) t += `${nomC} sem ${lC.slice(0,3).map(l=>l.nome||l.player||'?').join(', ')}${lC.length>3?' e mais '+(lC.length-3):''}. `;
+    if (lF.length) t += `${nomF} sem ${lF.slice(0,3).map(l=>l.nome||l.player||'?').join(', ')}${lF.length>3?' e mais '+(lF.length-3):''}. `;
+    if (lC.length>=3) t += `Volume de ausências pode impactar o esquema de ${nomC}.`;
+    items.push({texto:t, tipo:'lesoes'});
   }
-  if (FP_FORA?.totalJogos >= 5) {
-    if (FP_FORA.janelaMaisPerigosa) fpTextos.push(nomF + ' ataca com mais força entre ' + FP_FORA.janelaMaisPerigosa[0] + "'-" + FP_FORA.janelaMaisPerigosa[1] + "'");
+
+  // Card 6 — Árbitro
+  const arb = CONTEXTO?.arbitro;
+  if (arb?.nome) {
+    const ppm = Number(arb.mediaAmarelos||0).toFixed(1);
+    const perf = Number(arb.mediaAmarelos||0)>=5?'rigoroso':Number(arb.mediaAmarelos||0)<=2.5?'permissivo':'moderado';
+    let t = `🟨 Árbitro: ${arb.nome}. Média de ${ppm} cartões/jogo — perfil ${perf}.`;
+    if (perf==='rigoroso') t += ` Risco de cartões alto se o jogo ficar nervoso.`;
+    items.push({texto:t, tipo:'arbitro'});
   }
-  if (fpTextos.length > 0)
-    items.push({ texto: 'Padrões históricos do nosso banco: ' + fpTextos.join('; ') + '. Esses alertas dispararão automaticamente durante o jogo.', tipo: 'previsao' });
 
-  // ── Card 8: Sinal sharp ──
-  if (ODDS_PREJOGO?.movimento?.sinalSharp)
-    items.push({ texto: '🚨 Sinal sharp nas odds: movimento brusco detectado. Possível escalação inesperada ou lesão de última hora. Confirme as escalações antes do apito.', tipo: 'alerta' });
+  // Card 7 — Sharp signal
+  if (ODDS_PREJOGO?.sinalSharp)
+    items.push({texto:`🚨 Sinal sharp: as odds se moveram de forma incomum antes desse jogo. Pode ser informação de escalação ou condição física de última hora. Vale checar antes de apostar.`, tipo:'sharp'});
 
-  // Publicar
-  COMENTARISTA_FEED = [];
-  const tsBase = Date.now();
-  items.forEach((item, i) => {
-    COMENTARISTA_FEED.push({ texto: item.texto, tipo: item.tipo, minuto: 0, ts: tsBase + i });
+  // Renderizar cards
+  const feed = gc('comentaristaFeed');
+  if (!feed) return;
+  feed.innerHTML = '';
+  items.forEach((item,i) => {
+    const div = document.createElement('div');
+    div.className = 'coment-item ' + (item.tipo||'');
+    div.style.cssText = 'background:var(--bg3);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px 14px;margin-bottom:8px;animation:fadeUp .4s ease both;animation-delay:'+(i*.1)+'s';
+    div.innerHTML = `<div style="font-size:13px;line-height:1.65;color:var(--t1)">${item.texto}</div>`;
+    feed.appendChild(div);
   });
-  renderComentaristaFeed();
-  const statusEl = gc('comentaristaStatus');
-  if (statusEl) statusEl.textContent = 'análise pré-jogo · ' + items.length + ' cards';
+  const st = gc('comentaristaStatus');
+  if(st) st.textContent = `pré-jogo · ${items.length} análises`;
 }
 
-// ══════════════════════════════════════════════════════════════
-// 🏁 RESUMÃO PÓS-JOGO — análise narrativa completa
-// ══════════════════════════════════════════════════════════════
 function gerarResumaoPosJogo() {
   if (!DADOS) return;
   const f    = DADOS.fixture;
