@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yellup — Palpites do Dia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:     #080b10;
+    --bg2:    #0e1319;
+    --bg3:    #151c25;
+    --border: rgba(255,255,255,0.07);
+    --yell:   #f0c040;
+    --grn:    #3ecf73;
+    --red:    #f04f5a;
+    --blu:    #4f96f4;
+    --pur:    #9b72f4;
+    --t1:     #f0f4f8;
+    --t2:     #8899aa;
+    --t3:     #445566;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background: var(--bg);
+    color: var(--t1);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Fundo animado */
+  body::before {
+    content:'';
+    position:fixed; inset:0; z-index:0;
+    background:
+      radial-gradient(ellipse 80% 50% at 10% 20%, rgba(240,192,64,0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 90% 80%, rgba(79,150,244,0.05) 0%, transparent 60%);
+    pointer-events:none;
+  }
+
+  /* ── HEADER ── */
+  header {
+    position: relative; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 28px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(8,11,16,0.9);
+    backdrop-filter: blur(12px);
+  }
+  .logo-wrap { display:flex; align-items:center; gap:12px; }
+  .mascote {
+    width: 44px; height: 44px;
+    background: var(--yell);
+    border-radius: 12px;
+    display: flex; align-items:center; justify-content:center;
+    font-size: 22px;
+    box-shadow: 0 0 20px rgba(240,192,64,0.3);
+    animation: pulse-logo 3s ease-in-out infinite;
+  }
+  @keyframes pulse-logo {
+    0%,100% { box-shadow: 0 0 20px rgba(240,192,64,0.3); }
+    50%      { box-shadow: 0 0 36px rgba(240,192,64,0.6); }
+  }
+  .logo-txt h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px; letter-spacing: 2px;
+    color: var(--yell); line-height:1;
+  }
+  .logo-txt p { font-size: 11px; color: var(--t2); letter-spacing:1px; margin-top:2px; }
+  .header-right { display:flex; align-items:center; gap:12px; }
+  .badge-live {
+    display:flex; align-items:center; gap:6px;
+    background: rgba(62,207,115,0.1);
+    border: 1px solid rgba(62,207,115,0.25);
+    border-radius: 20px; padding: 5px 12px;
+    font-size: 11px; color: var(--grn); font-weight:600;
+  }
+  .badge-live::before {
+    content:''; width:6px; height:6px;
+    border-radius:50%; background:var(--grn);
+    animation: blink 1.4s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  .data-txt { font-family:'DM Mono'; font-size:11px; color:var(--t3); }
+
+  /* ── AVISO BASE PEQUENA ── */
+  .aviso-base {
+    position:relative; z-index:5;
+    margin: 20px 28px 0;
+    background: rgba(240,192,64,0.07);
+    border: 1px solid rgba(240,192,64,0.2);
+    border-radius: 10px;
+    padding: 12px 16px;
+    display:flex; align-items:center; gap:10px;
+    font-size: 12px; color: var(--t2);
+  }
+  .aviso-base span { font-size:16px; }
+
+  /* ── GRID PRINCIPAL ── */
+  main {
+    position:relative; z-index:5;
+    max-width: 900px; margin: 0 auto;
+    padding: 24px 20px 60px;
+  }
+
+  /* ── FILTROS ── */
+  .filtros {
+    display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px;
+  }
+  .filtro-btn {
+    padding: 6px 14px; border-radius:20px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: var(--t2); font-size:12px; font-family:'DM Sans';
+    cursor:pointer; transition: all 0.2s;
+  }
+  .filtro-btn:hover, .filtro-btn.ativo {
+    border-color: var(--yell); color: var(--yell);
+    background: rgba(240,192,64,0.08);
+  }
+
+  /* ── LOADING ── */
+  .loading-wrap {
+    display:flex; flex-direction:column; align-items:center;
+    gap:16px; padding:60px 20px; color:var(--t3);
+  }
+  .spinner {
+    width:32px; height:32px; border-radius:50%;
+    border:2px solid var(--border);
+    border-top-color: var(--yell);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* ── CARD DE PALPITE ── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 0;
+    margin-bottom: 14px;
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s;
+    animation: fadeUp 0.4s ease both;
+  }
+  .card:hover { transform:translateY(-2px); border-color:rgba(255,255,255,0.12); }
+  @keyframes fadeUp {
+    from { opacity:0; transform:translateY(16px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+  .card-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 14px 18px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg3);
+  }
+  .jogo-info { flex:1; }
+  .liga-nome { font-size:10px; color:var(--t3); letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
+  .times-nome { font-size:15px; font-weight:600; color:var(--t1); }
+  .hora-jogo { font-family:'DM Mono'; font-size:12px; color:var(--t2); white-space:nowrap; margin-left:12px; }
+
+  .estrelas { display:flex; gap:2px; margin-left:10px; }
+  .estrela { font-size:11px; }
+  .estrela.on  { color:var(--yell); }
+  .estrela.off { color:var(--t3); }
+
+  /* ── ODDS DISPLAY ── */
+  .odds-row {
+    display:flex; gap:6px; padding: 12px 18px 0;
+  }
+  .odd-box {
+    flex:1; text-align:center;
+    background:var(--bg); border:1px solid var(--border);
+    border-radius:8px; padding:8px 4px;
+  }
+  .odd-label { font-size:9px; color:var(--t3); text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+  .odd-valor { font-family:'DM Mono'; font-size:16px; font-weight:500; color:var(--t1); }
+  .odd-prob  { font-size:10px; color:var(--t3); margin-top:2px; }
+
+  /* ── BLOCO DE PALPITE ── */
+  .palpite-corpo { padding: 14px 18px 16px; }
+
+  .secao-titulo {
+    font-size:9px; color:var(--t3); letter-spacing:2px;
+    text-transform:uppercase; margin-bottom:8px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .secao-titulo::after {
+    content:''; flex:1; height:1px; background:var(--border);
+  }
+
+  /* Barra de probabilidade 3 lados */
+  .prob-barra-wrap { margin-bottom:14px; }
+  .prob-barra {
+    display:flex; height:10px; border-radius:5px; overflow:hidden;
+    margin-bottom:6px;
+  }
+  .prob-seg { transition:width 0.6s ease; }
+  .prob-seg.casa { background:var(--blu); }
+  .prob-seg.emp  { background:var(--t3); }
+  .prob-seg.fora { background:var(--pur); }
+  .prob-labels {
+    display:flex; justify-content:space-between; font-size:10px; color:var(--t2);
+  }
+  .prob-labels strong { color:var(--t1); font-size:12px; }
+
+  /* Faixa de gols */
+  .gols-grid { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .gol-item {
+    flex:1; min-width:80px; text-align:center;
+    background:var(--bg); border:1px solid var(--border);
+    border-radius:8px; padding:8px 6px;
+  }
+  .gol-item.destaque { border-color:rgba(240,192,64,0.4); background:rgba(240,192,64,0.05); }
+  .gol-lbl { font-size:9px; color:var(--t3); text-transform:uppercase; letter-spacing:1px; }
+  .gol-val { font-family:'DM Mono'; font-size:18px; font-weight:500; margin:4px 0 2px; }
+  .gol-val.alto { color:var(--grn); }
+  .gol-val.med  { color:var(--yell); }
+  .gol-val.baixo { color:var(--t2); }
+  .gol-sub  { font-size:10px; color:var(--t3); }
+
+  /* Escanteios */
+  .esc-row { display:flex; gap:8px; margin-bottom:14px; }
+  .esc-item {
+    flex:1; background:var(--bg); border:1px solid var(--border);
+    border-radius:8px; padding:8px 10px;
+    display:flex; flex-direction:column; gap:2px;
+  }
+  .esc-lbl { font-size:9px; color:var(--t3); text-transform:uppercase; letter-spacing:1px; }
+  .esc-val { font-family:'DM Mono'; font-size:15px; font-weight:500; color:var(--blu); }
+
+  /* Frase do mascote */
+  .mascote-frase {
+    background: rgba(240,192,64,0.07);
+    border: 1px solid rgba(240,192,64,0.18);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display:flex; gap:10px; align-items:flex-start;
+    margin-bottom:14px;
+  }
+  .mascote-mini { font-size:20px; flex-shrink:0; }
+  .mascote-txt  { font-size:12px; color:var(--t1); line-height:1.6; }
+  .mascote-txt strong { color:var(--yell); }
+
+  /* Alertas */
+  .alertas-wrap { display:flex; flex-direction:column; gap:6px; }
+  .alerta-item {
+    font-size:11px; color:var(--t2); padding:7px 10px;
+    background:rgba(240,79,90,0.07); border:1px solid rgba(240,79,90,0.2);
+    border-radius:7px;
+  }
+
+  /* Placares frequentes */
+  .placares-wrap { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .placar-pill {
+    font-family:'DM Mono'; font-size:12px;
+    padding:5px 10px; border-radius:6px;
+    border:1px solid var(--border); background:var(--bg);
+    display:flex; align-items:center; gap:6px;
+  }
+  .placar-pill .pct { font-size:10px; color:var(--t3); }
+  .placar-pill.top { border-color:rgba(240,192,64,0.3); color:var(--yell); }
+
+  /* Sem dados */
+  .sem-dados {
+    text-align:center; padding:60px 20px; color:var(--t3);
+  }
+  .sem-dados .ico { font-size:48px; margin-bottom:16px; }
+  .sem-dados p { font-size:14px; line-height:1.7; }
+  .sem-dados strong { color:var(--t2); }
+
+  /* Fonte tag */
+  .fonte-tag {
+    display:inline-flex; align-items:center; gap:4px;
+    font-size:9px; color:var(--t3); letter-spacing:1px;
+    text-transform:uppercase; padding:2px 7px;
+    border:1px solid var(--border); border-radius:4px;
+    margin-left:6px; vertical-align:middle;
+  }
+  .fonte-tag.hist { border-color:rgba(62,207,115,0.3); color:var(--grn); }
+  .fonte-tag.mkt  { border-color:rgba(79,150,244,0.3); color:var(--blu); }
+
+  /* Resultado sugerido pill */
+  .resultado-sugerido {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:5px 12px; border-radius:6px; margin-bottom:12px;
+    font-size:12px; font-weight:600;
+  }
+  .resultado-sugerido.casa { background:rgba(79,150,244,0.12); color:var(--blu); border:1px solid rgba(79,150,244,0.25); }
+  .resultado-sugerido.fora { background:rgba(155,114,244,0.12); color:var(--pur); border:1px solid rgba(155,114,244,0.25); }
+  .resultado-sugerido.empate { background:rgba(136,153,170,0.12); color:var(--t2); border:1px solid rgba(136,153,170,0.2); }
+
+  @media(max-width:600px) {
+    header { padding:14px 16px; }
+    main { padding:16px 12px 60px; }
+    .times-nome { font-size:13px; }
+    .gols-grid { gap:6px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-wrap">
+    <div class="mascote">⚡</div>
+    <div class="logo-txt">
+      <h1>YELLUP</h1>
+      <p>PALPITES DO DIA</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="badge-live">AO VIVO</div>
+    <div class="data-txt" id="dataTxt"></div>
+  </div>
+</header>
+
+<div class="aviso-base" id="avisoBase" style="display:none">
+  <span>📊</span>
+  <div>Sistema ainda em aprendizado — alguns palpites usam dados do mercado enquanto o banco histórico cresce. Confira as estrelas de confiança em cada card.</div>
+</div>
+
+<main>
+  <div class="filtros">
+    <button class="filtro-btn ativo" onclick="filtrar('todos',this)">Todos</button>
+    <button class="filtro-btn" onclick="filtrar('historico',this)">⭐ Com histórico</button>
+    <button class="filtro-btn" onclick="filtrar('over25',this)">Over 2.5</button>
+    <button class="filtro-btn" onclick="filtrar('ambas',this)">Ambas Marcam</button>
+    <button class="filtro-btn" onclick="filtrar('escanteios',this)">Escanteios</button>
+  </div>
+
+  <div id="lista">
+    <div class="loading-wrap">
+      <div class="spinner"></div>
+      <div>Carregando palpites...</div>
+    </div>
+  </div>
+</main>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-functions-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+<script>
+// ── Firebase config (mesma do projeto) ──
+const firebaseConfig = {
+  apiKey: "AIzaSyBVLqJegRaAsj8X9rq0S4wPk7f7zB1k1S0",
+  authDomain: "yellup-app.firebaseapp.com",
+  projectId: "yellup-app",
+  storageBucket: "yellup-app.appspot.com",
+  messagingSenderId: "1234567890",
+  appId: "1:1234567890:web:abcdef",
+};
+firebase.initializeApp(firebaseConfig);
+const fns  = firebase.functions();
+const auth = firebase.auth();
+
+let PALPITES_TODOS = [];
+let FILTRO_ATIVO = 'todos';
+
+// ── Data no header ──
+const agora = new Date();
+document.getElementById('dataTxt').textContent =
+  agora.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'}).toUpperCase();
+
+// ── Carregar palpites ──
+auth.onAuthStateChanged(async u => {
+  // Página de usuário — aceita qualquer login
+  // Se não logado, redireciona para login
+  // if (!u) { window.location.href = 'login.html'; return; }
+  await carregarPalpites();
+});
+
+async function carregarPalpites() {
+  try {
+    const fn = fns.httpsCallable('buscarPalpitesDia');
+    const res = await fn({});
+    PALPITES_TODOS = (res.data?.palpites || []).sort((a,b) => {
+      const da = a.dataJogo ? new Date(a.dataJogo) : 0;
+      const db = b.dataJogo ? new Date(b.dataJogo) : 0;
+      return da - db;
+    });
+
+    // Mostrar aviso se maioria sem histórico
+    const semHistorico = PALPITES_TODOS.filter(p => !p.temDadosHistoricos).length;
+    if (semHistorico > PALPITES_TODOS.length * 0.5) {
+      document.getElementById('avisoBase').style.display = 'flex';
+    }
+
+    renderLista(PALPITES_TODOS);
+  } catch(e) {
+    document.getElementById('lista').innerHTML = renderSemDados(
+      '⚡', 'Não foi possível carregar os palpites.<br>Tente novamente em alguns minutos.'
+    );
+    console.warn('carregarPalpites:', e.message);
+  }
+}
+
+function filtrar(tipo, btn) {
+  FILTRO_ATIVO = tipo;
+  document.querySelectorAll('.filtro-btn').forEach(b => b.classList.remove('ativo'));
+  btn.classList.add('ativo');
+
+  let lista = PALPITES_TODOS;
+  if (tipo === 'historico') lista = lista.filter(p => p.temDadosHistoricos);
+  else if (tipo === 'over25') lista = lista.filter(p => (p.gols?.pctOver25 || 0) >= 60);
+  else if (tipo === 'ambas')  lista = lista.filter(p => (p.gols?.pctAmbasMarcam || 0) >= 55);
+  else if (tipo === 'escanteios') lista = lista.filter(p => p.escanteios?.media);
+
+  renderLista(lista);
+}
+
+function renderLista(lista) {
+  const el = document.getElementById('lista');
+  if (!lista.length) {
+    el.innerHTML = renderSemDados('🔍', 'Nenhum palpite disponível para esse filtro.<br><strong>O sistema vai gerar palpites 30 minutos antes de cada jogo.</strong>');
+    return;
+  }
+  el.innerHTML = lista.map((p, i) => renderCard(p, i)).join('');
+}
+
+function renderCard(p, idx) {
+  const odd1 = p.odds?.odd1;
+  const oddX = p.odds?.oddX;
+  const odd2 = p.odds?.odd2;
+  const oddO25 = p.odds?.oddO25;
+
+  const prob  = p.resultado || {};
+  const gols  = p.gols || {};
+  const esc   = p.escanteios || {};
+  const mrv   = prob.maisProvavel || 'casa';
+  const fonte = p.temDadosHistoricos ? 'historico' : 'mkt';
+  const estrelas = p.estrelas || 0;
+
+  // Hora do jogo
+  const dtJogo = p.dataJogo ? new Date(p.dataJogo) : null;
+  const horaStr = dtJogo ? dtJogo.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) : '—';
+
+  // Frase do mascote
+  const frase = gerarFraseMascote(p);
+
+  // Placares frequentes
+  let placaresHtml = '';
+  if (prob.placaresFrequentes?.length) {
+    placaresHtml = `
+      <div class="secao-titulo">Placares mais frequentes</div>
+      <div class="placares-wrap">
+        ${prob.placaresFrequentes.map((pl,i) => `
+          <div class="placar-pill ${i===0?'top':''}">
+            ${pl.placar}
+            <span class="pct">${pl.pct}%</span>
+          </div>
+        `).join('')}
+      </div>`;
+  }
+
+  // Escanteios block
+  let escHtml = '';
+  if (esc.media) {
+    escHtml = `
+      <div class="secao-titulo">Escanteios</div>
+      <div class="esc-row">
+        <div class="esc-item">
+          <div class="esc-lbl">Média histórica</div>
+          <div class="esc-val">${esc.media}</div>
+        </div>
+        ${esc.bucketMaisFrequente ? `<div class="esc-item">
+          <div class="esc-lbl">Faixa mais comum</div>
+          <div class="esc-val">${esc.bucketMaisFrequente}</div>
+        </div>` : ''}
+        ${esc.pctOver85 ? `<div class="esc-item">
+          <div class="esc-lbl">Over 8.5</div>
+          <div class="esc-val" style="color:${esc.pctOver85>=55?'var(--grn)':'var(--t2)'}">${esc.pctOver85}%</div>
+        </div>` : ''}
+        ${esc.pctOver105 ? `<div class="esc-item">
+          <div class="esc-lbl">Over 10.5</div>
+          <div class="esc-val" style="color:${esc.pctOver105>=50?'var(--grn)':'var(--t2)'}">${esc.pctOver105}%</div>
+        </div>` : ''}
+      </div>`;
+  }
+
+  // Resultado sugerido label
+  const mrvLabels = { casa: p.timeCasaNome || 'Casa', fora: p.timeForaNome || 'Fora', empate: 'Empate' };
+  const mrvPct    = { casa: prob.pctCasa, fora: prob.pctFora, empate: prob.pctEmpate }[mrv] || 0;
+
+  // Alertas
+  const alertasHtml = p.alertas?.length ? `
+    <div class="alertas-wrap" style="margin-top:10px">
+      ${p.alertas.map(a => `<div class="alerta-item">${a}</div>`).join('')}
+    </div>` : '';
+
+  return `
+  <div class="card" style="animation-delay:${idx*0.06}s" data-fonte="${fonte}"
+       data-over25="${gols.pctOver25||0}" data-ambas="${gols.pctAmbasMarcam||0}"
+       data-esc="${esc.media||0}">
+    <div class="card-header">
+      <div class="jogo-info">
+        <div class="liga-nome">${p.ligaNome || '—'}</div>
+        <div class="times-nome">${p.timeCasaNome || '—'} <span style="color:var(--t3);font-weight:400">vs</span> ${p.timeForaNome || '—'}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="estrelas">${[1,2,3,4,5].map(n => `<span class="estrela ${n<=estrelas?'on':'off'}">${n<=estrelas?'★':'☆'}</span>`).join('')}</div>
+        <div class="hora-jogo">${horaStr}</div>
+      </div>
+    </div>
+
+    ${odd1 ? `
+    <div class="odds-row">
+      <div class="odd-box">
+        <div class="odd-label">Casa</div>
+        <div class="odd-valor">${odd1?.toFixed(2)||'—'}</div>
+        <div class="odd-prob">${prob.pctCasa ? prob.pctCasa+'%' : ''}</div>
+      </div>
+      <div class="odd-box">
+        <div class="odd-label">Empate</div>
+        <div class="odd-valor">${oddX?.toFixed(2)||'—'}</div>
+        <div class="odd-prob">${prob.pctEmpate ? prob.pctEmpate+'%' : ''}</div>
+      </div>
+      <div class="odd-box">
+        <div class="odd-label">Fora</div>
+        <div class="odd-valor">${odd2?.toFixed(2)||'—'}</div>
+        <div class="odd-prob">${prob.pctFora ? prob.pctFora+'%' : ''}</div>
+      </div>
+      ${oddO25 ? `<div class="odd-box">
+        <div class="odd-label">Over 2.5</div>
+        <div class="odd-valor">${oddO25?.toFixed(2)||'—'}</div>
+        <div class="odd-prob">${gols.pctOver25 ? gols.pctOver25+'%' : ''}</div>
+      </div>` : ''}
+    </div>` : ''}
+
+    <div class="palpite-corpo">
+
+      <!-- Frase do mascote -->
+      <div class="mascote-frase">
+        <div class="mascote-mini">⚡</div>
+        <div class="mascote-txt">${frase}</div>
+      </div>
+
+      <!-- Resultado sugerido -->
+      <div class="secao-titulo">Resultado mais provável
+        <span class="fonte-tag ${fonte}">${fonte === 'historico' ? '📊 histórico' : '📈 mercado'}</span>
+      </div>
+      <div style="margin-bottom:12px">
+        <div class="resultado-sugerido ${mrv}">
+          ${mrv === 'casa' ? '🏠' : mrv === 'fora' ? '✈️' : '🤝'}
+          ${mrvLabels[mrv]} — ${mrvPct.toFixed(0)}% de chance
+        </div>
+        ${prob.pctCasa ? `
+        <div class="prob-barra-wrap">
+          <div class="prob-barra">
+            <div class="prob-seg casa" style="width:${prob.pctCasa}%"></div>
+            <div class="prob-seg emp"  style="width:${prob.pctEmpate}%"></div>
+            <div class="prob-seg fora" style="width:${prob.pctFora}%"></div>
+          </div>
+          <div class="prob-labels">
+            <span><strong>${prob.pctCasa?.toFixed(0)}%</strong> Casa</span>
+            <span><strong>${prob.pctEmpate?.toFixed(0)}%</strong> Empate</span>
+            <span>Fora <strong>${prob.pctFora?.toFixed(0)}%</strong></span>
+          </div>
+        </div>` : ''}
+      </div>
+
+      <!-- Gols -->
+      <div class="secao-titulo">Gols esperados</div>
+      <div class="gols-grid" style="margin-bottom:14px">
+        ${gols.mediaEsperada ? `<div class="gol-item destaque">
+          <div class="gol-lbl">Média esperada</div>
+          <div class="gol-val ${gols.mediaEsperada>=3?'alto':gols.mediaEsperada>=2?'med':'baixo'}">${gols.mediaEsperada}</div>
+          <div class="gol-sub">por jogo</div>
+        </div>` : ''}
+        ${gols.pctOver25 ? `<div class="gol-item ${gols.pctOver25>=60?'destaque':''}">
+          <div class="gol-lbl">Over 2.5</div>
+          <div class="gol-val ${gols.pctOver25>=65?'alto':gols.pctOver25>=50?'med':'baixo'}">${gols.pctOver25?.toFixed(0)}%</div>
+          <div class="gol-sub">de chance</div>
+        </div>` : ''}
+        ${gols.pctAmbasMarcam ? `<div class="gol-item ${gols.pctAmbasMarcam>=55?'destaque':''}">
+          <div class="gol-lbl">Ambas marcam</div>
+          <div class="gol-val ${gols.pctAmbasMarcam>=60?'alto':gols.pctAmbasMarcam>=45?'med':'baixo'}">${gols.pctAmbasMarcam?.toFixed(0)}%</div>
+          <div class="gol-sub">de chance</div>
+        </div>` : ''}
+        ${gols.faixaMaisProvavel ? `<div class="gol-item">
+          <div class="gol-lbl">Faixa provável</div>
+          <div class="gol-val med" style="font-size:14px">${gols.faixaMaisProvavel} gols</div>
+          <div class="gol-sub">mais frequente</div>
+        </div>` : ''}
+      </div>
+
+      ${placaresHtml}
+      ${escHtml}
+      ${alertasHtml}
+
+      <!-- Volume de dados -->
+      <div style="margin-top:12px;font-size:10px;color:var(--t3);text-align:right">
+        Base: ${p.totalJogosBase || 0} jogos similares • chave ${p.chaveOdds || '—'}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Gerar frase do mascote (linguagem simples e acionável) ──
+function gerarFraseMascote(p) {
+  const nomC = p.timeCasaNome || 'Time da casa';
+  const nomF = p.timeForaNome || 'Visitante';
+  const prob  = p.resultado || {};
+  const gols  = p.gols || {};
+  const esc   = p.escanteios || {};
+  const mrv   = prob.maisProvavel || 'casa';
+  const mrvNome = mrv === 'casa' ? nomC : mrv === 'fora' ? nomF : 'Empate';
+  const mrvPct  = (mrv === 'casa' ? prob.pctCasa : mrv === 'fora' ? prob.pctFora : prob.pctEmpate) || 0;
+  const base = p.totalJogosBase || 0;
+  const tem  = p.temDadosHistoricos;
+
+  // Cenários especiais primeiro
+  if (p.alertas?.some(a => a.includes('sharp'))) {
+    return `Cuidado: as odds desse jogo se mexeram de forma estranha antes de abrir. Isso geralmente indica informação privilegiada — alguma escalação ou lesão de última hora. <strong>Vale conferir as escalações antes de apostar.</strong>`;
+  }
+
+  if (gols.pctOver25 >= 70 && tem) {
+    return `Em jogos com odds parecidas com essas, <strong>saiu mais de 2 gols em ${gols.pctOver25?.toFixed(0)}% das vezes</strong> (base: ${base} jogos). Perfil de jogo aberto — over 2.5 aparece como opção interessante.`;
+  }
+  if (gols.pctOver25 <= 35 && tem) {
+    return `Cuidado com o over nesse jogo. Quando as odds estão assim, <strong>o under 2.5 saiu em ${(100-gols.pctOver25)?.toFixed(0)}% dos casos</strong>. Esse perfil de odds tende a produzir jogos fechados.`;
+  }
+  if (gols.pctAmbasMarcam >= 65 && tem) {
+    return `Interessante para "ambas marcam": em jogos com esse perfil de odds, <strong>os dois times balançaram as redes em ${gols.pctAmbasMarcam?.toFixed(0)}% das vezes</strong>. Base de ${base} jogos — confiança razoável.`;
+  }
+  if (mrvPct >= 65 && mrv !== 'empate' && tem) {
+    return `${mrvNome} aparece como <strong>resultado mais frequente em jogos com esse perfil</strong>: ${mrvPct.toFixed(0)}% de aproveitamento histórico (${base} jogos). O mercado e nossos dados apontam na mesma direção.`;
+  }
+  if (prob.pctEmpate >= 38 && tem) {
+    return `Esse é um perfil de odds que <strong>produz muito empate</strong>: ${prob.pctEmpate?.toFixed(0)}% dos ${base} jogos similares terminaram empatados. Se as odds de empate estiverem atraentes, vale considerar.`;
+  }
+  if (p.alertas?.some(a => a.includes('Azarão')) && tem) {
+    return `Atenção: o azarão vence com mais frequência do que o esperado em jogos com esse perfil de odds. <strong>${nomF} pode surpreender</strong> — mercado pode estar subestimando o visitante.`;
+  }
+  if (esc.pctOver105 >= 55 && tem) {
+    return `Para quem gosta de escanteios: <strong>over 10.5 saiu em ${esc.pctOver105?.toFixed(0)}% dos jogos similares</strong>. Média de ${esc.media} escanteios por partida nesse perfil.`;
+  }
+
+  // Fallback sem dados históricos
+  if (!tem) {
+    const odd1 = p.odds?.odd1, odd2 = p.odds?.odd2;
+    if (!odd1) return `Ainda não temos histórico suficiente para jogos com esse perfil de odds. O sistema está aprendendo — em breve teremos dados mais consistentes.`;
+    const diff = Math.abs(odd1 - odd2);
+    if (diff < 0.3) return `Odds muito equilibradas — ${nomC} e ${nomF} estão tecnicamente lado a lado para o mercado. Qualquer resultado é possível. <strong>Ainda sem histórico suficiente</strong> para dizer o que costuma sair nesse perfil.`;
+    const fav = odd1 < odd2 ? nomC : nomF;
+    return `${fav} entra como favorito pelas odds, mas ainda não temos histórico suficiente para esse perfil. <strong>Os dados reais vão aparecer aqui conforme o sistema aprende.</strong>`;
+  }
+
+  return `Odds analisadas com base em ${base} jogos similares. Resultado mais indicado: <strong>${mrvNome} (${mrvPct?.toFixed(0)}%)</strong>.`;
+}
+
+function renderSemDados(ico, msg) {
+  return `<div class="sem-dados"><div class="ico">${ico}</div><p>${msg}</p></div>`;
+}
+</script>
+</body>
+</html>
