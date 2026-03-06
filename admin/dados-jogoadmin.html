@@ -168,6 +168,36 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .ph-spark-bar{width:4px;border-radius:2px 2px 0 0;background:var(--acc);transition:height .3s;}
 
 /* Comentarista AI */
+.conv-panel { background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:12px; }
+.conv-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.conv-titulo { font-size:11px; font-weight:700; letter-spacing:2px; color:var(--t3); text-transform:uppercase; }
+.conv-badge { font-size:9px; padding:3px 8px; border-radius:10px; font-weight:600; letter-spacing:1px; }
+.conv-badge.sem-dados  { background:rgba(68,85,102,0.3); color:var(--t3); }
+.conv-badge.aprendendo { background:rgba(79,150,244,0.15); color:var(--blu); border:1px solid rgba(79,150,244,0.25); }
+.conv-badge.confiavel  { background:rgba(62,207,115,0.15); color:var(--grn); border:1px solid rgba(62,207,115,0.25); }
+.conv-times { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+.conv-time  { text-align:center; }
+.conv-nome  { font-size:11px; color:var(--t2); margin-bottom:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.conv-gauge-wrap { position:relative; width:90px; height:90px; margin:0 auto 8px; }
+.conv-gauge-svg  { width:90px; height:90px; transform:rotate(-90deg); }
+.conv-gauge-bg   { fill:none; stroke:var(--bg3); stroke-width:8; }
+.conv-gauge-fill { fill:none; stroke-width:8; stroke-linecap:round; transition:stroke-dashoffset 1s ease, stroke 0.5s; }
+.conv-gauge-num  { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.conv-gauge-pct  { font-family:'Syne',sans-serif; font-size:20px; font-weight:700; line-height:1; }
+.conv-gauge-lbl  { font-size:8px; color:var(--t3); margin-top:2px; letter-spacing:1px; }
+.conv-fatores    { margin-top:8px; text-align:left; }
+.conv-fator-row  { display:flex; align-items:center; gap:6px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
+.conv-fator-row:last-child { border-bottom:none; }
+.conv-fator-dot  { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.conv-fator-dot.on  { background:var(--grn); box-shadow:0 0 5px rgba(62,207,115,0.5); }
+.conv-fator-dot.off { background:var(--t3); }
+.conv-fator-txt  { font-size:10px; color:var(--t2); flex:1; }
+.conv-fator-falta{ font-size:9px; color:var(--t3); white-space:nowrap; }
+.conv-narrativa  { padding:10px 12px; background:var(--bg3); border-radius:8px; margin-bottom:8px; }
+.conv-msg        { font-size:11px; color:var(--t1); line-height:1.6; margin-bottom:4px; }
+.conv-msg:last-child { margin-bottom:0; }
+.conv-loading    { display:flex; align-items:center; gap:8px; color:var(--t3); font-size:11px; padding:20px; justify-content:center; }
+.conv-sem-dados  { text-align:center; padding:24px; color:var(--t3); font-size:11px; line-height:1.8; }
 .coment-wrap{background:var(--c3);border-radius:12px;padding:14px;margin-bottom:12px;}
 .coment-title{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:7px;}
 .coment-live{width:7px;height:7px;border-radius:50%;background:var(--red);animation:pulse 1.2s infinite;flex-shrink:0;}
@@ -873,6 +903,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
   </div>
 
   <div class="algo-tabs">
+    <button class="algo-tab" onclick="algoAba(this,'convergencia')">🔬 Convergência</button>
     <button class="algo-tab on" onclick="algoAba(this,'previsoes')">🔮 Previsões</button>
     <button class="algo-tab"    onclick="algoAba(this,'pressao')">💢 Pressão</button>
     <button class="algo-tab"    onclick="algoAba(this,'dna')">🧬 DNA</button>
@@ -911,6 +942,19 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
       <div class="coment-loading">
         <div class="ld" style="width:12px;height:12px;"></div>
         Aguardando dados do jogo para iniciar análise...
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CONVERGÊNCIA ── -->
+  <div class="algo-panel" id="ap-convergencia" style="display:none;">
+    <div class="conv-panel">
+      <div class="conv-header">
+        <span class="conv-titulo">🔬 Índice de Convergência</span>
+        <span class="conv-badge sem-dados" id="convBadge">aguardando...</span>
+      </div>
+      <div id="convBody">
+        <div class="conv-loading"><div class="ld"></div> Aguardando dados do jogo...</div>
       </div>
     </div>
   </div>
@@ -1307,7 +1351,7 @@ async function registrarSnapshot(fixtureId,docId){
   const predLeg=gc('snapPredLegend');
   if(predLeg) predLeg.style.display=(!_ftl&&SNAPSHOTS.length>=3)?'flex':'none';
     }
-    // Tentar gravar no Firestore em background (silencioso se falhar)
+    // Gravar snapshot no Firestore (antigo + enriquecido em paralelo)
     fn({
       fixtureId:parseInt(fixtureId),
       minuto,
@@ -1315,6 +1359,12 @@ async function registrarSnapshot(fixtureId,docId){
       timeCasaId:f.timeCasa.id,
       timeForaId:f.timeFora.id
     }).catch(e=>console.warn('CF snapshot:',e.message));
+    // Snapshot enriquecido com delta para o motor de convergência
+    fns.httpsCallable('registrarSnapshotEnriquecido')({
+      fixtureId:parseInt(fixtureId), minuto, estatisticas:sts,
+      timeCasaId:f.timeCasa.id, timeForaId:f.timeFora.id,
+      placarCasa:f.placar?.casa||0, placarFora:f.placar?.fora||0,
+    }).catch(e=>console.warn('snapshot enriquecido:',e.message));
   }catch(e){ console.warn('Snapshot local falhou:',e.message); }
 }
 
@@ -2101,6 +2151,7 @@ function algoAba(btn,id){
   document.querySelectorAll('.algo-panel').forEach(p=>p.classList.remove('on'));
   btn.classList.add('on');
   gc('ap-'+id).classList.add('on');
+  if(id==='convergencia') atualizarConvergencia();
 }
 
 // ─── REGISTRAR PREVISÃO (background, não bloqueia UI) ───
@@ -6450,6 +6501,286 @@ function iniciarComentarista() {
   clearInterval(COMENTARISTA_TIMER);
   COMENTARISTA_TIMER = setInterval(() => gerarComentario(false), 3 * 60 * 1000);
 }
+
+// ══════════════════════════════════════════════════════════════
+// 🔬 MOTOR DE CONVERGÊNCIA — FRONTEND
+// ══════════════════════════════════════════════════════════════
+let CONV_TIMER = null;
+let CONV_DATA  = null; // último resultado de buscarConvergencia
+
+// Disparar quando aba de convergência é aberta ou a cada update do jogo
+async function atualizarConvergencia() {
+  if (!DADOS) return;
+  const f   = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+  const isLive = ['1H','2H','ET','P','HT'].includes(f.status?.short);
+  const isFT   = ['FT','AET','PEN'].includes(f.status?.short);
+  if (!isLive && !isFT) {
+    renderConvergenciaSemDados('Jogo ainda não começou. O índice de convergência fica disponível durante e após a partida.');
+    return;
+  }
+
+  const idC = f.timeCasa.id, idF = f.timeFora.id;
+  const min = f.status?.elapsed || 0;
+  const sc  = f.placar || {};
+
+  // Montar estado atual dos times a partir das estatísticas
+  const G = (id, k) => getStat(sts, id, k) || 0;
+  const estadoCasa = {
+    posse:             G(idC,'Ball Possession'),
+    ataquesPerigosos:  G(idC,'Dangerous Attacks'),
+    chutesAlvo:        G(idC,'Shots on Goal'),
+    chutesTotais:      G(idC,'Total Shots'),
+    escanteios:        G(idC,'Corner Kicks'),
+    xg:                G(idC,'expected_goals'),
+    faltas:            G(idC,'Fouls'),
+    ratingMedio:       null,
+    // deltas dos snapshots mais recentes
+    deltaPressao:   calcDeltaSnap('casa','ataquesPerigosos'),
+    deltaPosse:     calcDeltaSnap('casa','posse'),
+    deltaChutes:    calcDeltaSnap('casa','chutesAlvo'),
+    deltaXg:        calcDeltaSnap('casa','xg'),
+    ritmoAtaques:   calcRitmoAtaques('casa', min),
+    intensidadeIntervalo: calcIntensidade('casa'),
+  };
+  const estadoFora = {
+    posse:             G(idF,'Ball Possession'),
+    ataquesPerigosos:  G(idF,'Dangerous Attacks'),
+    chutesAlvo:        G(idF,'Shots on Goal'),
+    chutesTotais:      G(idF,'Total Shots'),
+    escanteios:        G(idF,'Corner Kicks'),
+    xg:                G(idF,'expected_goals'),
+    faltas:            G(idF,'Fouls'),
+    ratingMedio:       null,
+    deltaPressao:   calcDeltaSnap('fora','ataquesPerigosos'),
+    deltaPosse:     calcDeltaSnap('fora','posse'),
+    deltaChutes:    calcDeltaSnap('fora','chutesAlvo'),
+    deltaXg:        calcDeltaSnap('fora','xg'),
+    ritmoAtaques:   calcRitmoAtaques('fora', min),
+    intensidadeIntervalo: calcIntensidade('fora'),
+  };
+
+  // Injetar ratings se disponível
+  if (DADOS.jogadoresStats?.length) {
+    DADOS.jogadoresStats.forEach(t => {
+      const ratings = t.jogadores.map(p => parseFloat(p.stats?.games?.rating)).filter(r => r > 0);
+      const med = ratings.length ? ratings.reduce((a,b)=>a+b,0)/ratings.length : null;
+      if (t.time.id === idC) estadoCasa.ratingMedio = med;
+      if (t.time.id === idF) estadoFora.ratingMedio = med;
+    });
+  }
+
+  // Mostrar loading enquanto busca
+  const bodyEl = gc('convBody');
+  if (bodyEl) bodyEl.innerHTML = '<div class="conv-loading"><div class="ld"></div> Analisando padrões históricos...</div>';
+
+  try {
+    const cfConv = fns.httpsCallable('buscarConvergencia');
+    const res = await cfConv({
+      fixtureId: parseInt(f.id || new URLSearchParams(location.search).get('id')),
+      minuto: min,
+      timeCasaId: idC, timeForaId: idF,
+      timeCasaNome: f.timeCasa.nome, timeForaNome: f.timeFora.nome,
+      placarCasa: sc.casa || 0, placarFora: sc.fora || 0,
+      estadoCasa, estadoFora,
+      oddsPrejogo: ODDS_PREJOGO?.odds?.resultados || null,
+    });
+    CONV_DATA = res.data;
+    renderConvergencia(res.data, f, estadoCasa, estadoFora);
+  } catch(e) {
+    // Fallback: renderizar com heurística local
+    const convLocal = calcConvergenciaLocal(estadoCasa, estadoFora, f, min);
+    renderConvergencia(convLocal, f, estadoCasa, estadoFora);
+    console.warn('buscarConvergencia:', e.message, '— usando heurística local');
+  }
+
+  // Salvar estado pré-evento quando ocorre gol (detectado via eventos)
+  salvarEstadosPreEventosDetectados();
+}
+
+// ── Helpers para calcular deltas a partir de SNAPSHOTS ──
+function calcDeltaSnap(side, campo) {
+  if (!SNAPSHOTS || SNAPSHOTS.length < 2) return 0;
+  const ultimos = SNAPSHOTS.slice(-3);
+  if (ultimos.length < 2) return 0;
+  const novo = ultimos[ultimos.length-1];
+  const ant  = ultimos[0];
+  const mapa = { ataquesPerigosos:'ataquesPerigososCasa', posse:'posseCasa', chutesAlvo:'chutesAlvoCasa', xg:'xgCasa' };
+  const mapaF= { ataquesPerigosos:'ataquesPerigososFora', posse:'posseFora', chutesAlvo:'chutesAlvoFora', xg:'xgFora' };
+  const key  = side === 'casa' ? mapa[campo] : mapaF[campo];
+  if (!key || novo[key] === undefined) return 0;
+  return +((novo[key] || 0) - (ant[key] || 0)).toFixed(2);
+}
+
+function calcRitmoAtaques(side, minuto) {
+  if (!SNAPSHOTS || !SNAPSHOTS.length || !minuto) return 0;
+  const ant = SNAPSHOTS.length >= 3 ? SNAPSHOTS[SNAPSHOTS.length-3] : SNAPSHOTS[0];
+  const novo = SNAPSHOTS[SNAPSHOTS.length-1];
+  const minAnt = ant.minuto || 1;
+  const janela = Math.max(1, (novo.minuto || minuto) - minAnt);
+  const key = side === 'casa' ? 'ataquesPerigososCasa' : 'ataquesPerigososFora';
+  const delta = (novo[key]||0) - (ant[key]||0);
+  return +(delta / janela).toFixed(2);
+}
+
+function calcIntensidade(side) {
+  const d = calcDeltaSnap(side,'ataquesPerigosos');
+  const dc = calcDeltaSnap(side,'chutesAlvo');
+  return d + dc * 2;
+}
+
+// ── Convergência local (fallback sem backend) ──
+function calcConvergenciaLocal(eCasa, eFora, f, min) {
+  const calcIdx = (est, status) => {
+    let pts = 0; const ativos = [], faltando = [];
+    const chk = (lbl, val, limiar, peso, unt) => {
+      if (val === null) return;
+      if (val >= limiar) { pts += peso; ativos.push(lbl); }
+      else faltando.push({ fator: lbl, atual: val, falta: +(limiar-val).toFixed(1), complemento: unt });
+    };
+    // Limiares heurísticos
+    chk('Pressão',      est.ataquesPerigosos, 18, 20, 'ataques');
+    chk('xG',           est.xg,               1.2, 20, 'xG');
+    chk('Chutes alvo',  est.chutesAlvo,        4,  15, 'chutes');
+    chk('Posse',        est.posse,            48,  15, '%');
+    chk('Aceleração',   est.deltaPressao,      3,  15, 'ataques crescentes');
+    chk('Ritmo',        est.ritmoAtaques,     0.3, 10, 'ataques/min');
+    chk('Escanteios',   est.escanteios,        5,   5, 'escanteios');
+    const msgs = [];
+    if (pts >= 75) msgs.push(`⚽ Alta convergência — ${ativos.slice(0,3).join(', ')} convergindo.`);
+    else if (pts >= 50) { msgs.push(`🟡 Pressão acumulando — ${ativos.join(', ')}.`); if(faltando[0]) msgs.push(`Falta: ${faltando[0].fator} (atual ${faltando[0].atual}, limiar ${+(faltando[0].atual+faltando[0].falta).toFixed(1)} ${faltando[0].complemento}).`); }
+    else msgs.push(`⚪ Sem convergência clara no momento.`);
+    return { indice: pts, base: 0, estrelas: 0, fatoresAtivos: ativos, fatoresFaltando: faltando, mensagens: msgs };
+  };
+  const scC = f.placar?.casa||0, scF = f.placar?.fora||0;
+  const stC = scC>scF?'vencendo':scC<scF?'perdendo':'empatando';
+  const stF = scF>scC?'vencendo':scF<scC?'perdendo':'empatando';
+  return {
+    sucesso: true, minuto: min, temDados: false,
+    casa: { ...calcIdx(eCasa, stC), mensagens: calcIdx(eCasa, stC).mensagens },
+    fora: { ...calcIdx(eFora, stF), mensagens: calcIdx(eFora, stF).mensagens },
+  };
+}
+
+// ── Detectar gols ocorridos e salvar estado pré-evento ──
+let _ultimoGolSalvo = -1;
+function salvarEstadosPreEventosDetectados() {
+  if (!DADOS) return;
+  const f   = DADOS.fixture;
+  const evs = DADOS.eventos || [];
+  const gols = evs.filter(e => e.tipo === 'Goal' && e.detalhe !== 'Own Goal');
+  gols.forEach(gol => {
+    const minGol = gol.minuto || 0;
+    if (minGol <= _ultimoGolSalvo) return;
+    _ultimoGolSalvo = minGol;
+    const tipoEvento = gol.time?.id === f.timeCasa.id ? 'gol_casa' : 'gol_fora';
+    const fixtureId = new URLSearchParams(location.search).get('id');
+    fns.httpsCallable('salvarEstadoPreEvento')({
+      fixtureId: parseInt(fixtureId),
+      tipoEvento,
+      minutoEvento: minGol,
+      timeId: gol.time?.id,
+      timeCasaId: f.timeCasa.id,
+      timeForaId: f.timeFora.id,
+      ligaId: f.liga?.id || null,
+      placarAntes: { casa: f.placar?.casa||0, fora: f.placar?.fora||0 },
+      oddsPrejogo: ODDS_PREJOGO?.odds?.resultados || null,
+    }).catch(e => console.warn('salvarEstadoPreEvento:', e.message));
+  });
+}
+
+// ── Renderizar painel de convergência ──
+function renderConvergencia(data, f, eCasa, eFora) {
+  const bodyEl = gc('convBody');
+  const badgeEl = gc('convBadge');
+  if (!bodyEl) return;
+  if (!data) { renderConvergenciaSemDados('Erro ao buscar dados de convergência.'); return; }
+
+  const nomC = f.timeCasa.nome, nomF = f.timeFora.nome;
+  const convC = data.casa, convF = data.fora;
+
+  // Badge de confiança
+  const maxBase = Math.max(convC?.base||0, convF?.base||0);
+  if (badgeEl) {
+    if (maxBase === 0) { badgeEl.className='conv-badge sem-dados'; badgeEl.textContent='sem histórico'; }
+    else if (maxBase < 15) { badgeEl.className='conv-badge aprendendo'; badgeEl.textContent=maxBase+' jogos na base'; }
+    else { badgeEl.className='conv-badge confiavel'; badgeEl.textContent='●●● base: '+maxBase+' jogos'; }
+  }
+
+  const renderGauge = (conv, nome) => {
+    if (!conv) return '<div class="conv-time"><div class="conv-nome">—</div></div>';
+    const idx = conv.indice || 0;
+    const r = 36, circ = 2 * Math.PI * r;
+    const fill = circ - (idx / 100) * circ;
+    const cor = idx >= 70 ? 'var(--red)' : idx >= 50 ? 'var(--yell)' : idx >= 30 ? 'var(--blu)' : 'var(--t3)';
+    const nivel = idx >= 70 ? 'ALTO' : idx >= 50 ? 'MÉDIO' : idx >= 30 ? 'BAIXO' : 'INATIVO';
+
+    const fatoresHtml = [
+      ...(conv.fatoresAtivos||[]).map(f => `<div class="conv-fator-row"><div class="conv-fator-dot on"></div><span class="conv-fator-txt">${f}</span><span class="conv-fator-falta" style="color:var(--grn)">✓</span></div>`),
+      ...(conv.fatoresFaltando||[]).slice(0,3).map(f => `<div class="conv-fator-row"><div class="conv-fator-dot off"></div><span class="conv-fator-txt">${f.fator}</span><span class="conv-fator-falta">falta ${f.falta} ${f.complemento}</span></div>`),
+    ].join('');
+
+    return `
+      <div class="conv-time">
+        <div class="conv-nome">${nome}</div>
+        <div class="conv-gauge-wrap">
+          <svg class="conv-gauge-svg" viewBox="0 0 90 90">
+            <circle class="conv-gauge-bg"   cx="45" cy="45" r="${r}"/>
+            <circle class="conv-gauge-fill" cx="45" cy="45" r="${r}"
+              stroke="${cor}"
+              stroke-dasharray="${circ}"
+              stroke-dashoffset="${fill}"/>
+          </svg>
+          <div class="conv-gauge-num">
+            <span class="conv-gauge-pct" style="color:${cor}">${idx}</span>
+            <span class="conv-gauge-lbl">${nivel}</span>
+          </div>
+        </div>
+        <div class="conv-fatores">${fatoresHtml}</div>
+      </div>`;
+  };
+
+  const narrativaHtml = (conv) => {
+    if (!conv?.mensagens?.length) return '';
+    return `<div class="conv-narrativa">${conv.mensagens.map(m => `<div class="conv-msg">${m}</div>`).join('')}</div>`;
+  };
+
+  // Detectar qual time é mais perigoso agora
+  const idxC = convC?.indice || 0, idxF = convF?.indice || 0;
+  let destaque = '';
+  if (idxC >= 70 || idxF >= 70) {
+    const t = idxC >= idxF ? nomC : nomF;
+    const idx = Math.max(idxC, idxF);
+    destaque = `<div style="background:rgba(240,79,90,0.08);border:1px solid rgba(240,79,90,0.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--red);">
+      🔴 <strong>${t}</strong> com índice ${idx}/100 — múltiplos fatores convergindo. Momento de alta atenção.
+    </div>`;
+  }
+
+  const semDadosAviso = !data.temDados ? `<div style="font-size:10px;color:var(--t3);text-align:center;margin-top:8px;">
+    📊 Sem padrões históricos para este perfil de jogo ainda. Valores baseados em limiares heurísticos. O sistema aprende com cada partida.
+  </div>` : '';
+
+  bodyEl.innerHTML = `
+    ${destaque}
+    <div class="conv-times">
+      ${renderGauge(convC, nomC)}
+      ${renderGauge(convF, nomF)}
+    </div>
+    ${narrativaHtml(convC)}
+    ${narrativaHtml(convF)}
+    ${semDadosAviso}`;
+}
+
+function renderConvergenciaSemDados(msg) {
+  const bodyEl = gc('convBody');
+  if (bodyEl) bodyEl.innerHTML = `<div class="conv-sem-dados">🔬<br>${msg}</div>`;
+  const badgeEl = gc('convBadge');
+  if (badgeEl) { badgeEl.className='conv-badge sem-dados'; badgeEl.textContent='—'; }
+}
+
+// ── Integrar no algoAba para atualizar ao clicar ──
+// (monkey-patch do algoAba existente)
+const _algoAbaOriginal = typeof algoAba === 'function' ? algoAba : null;
 
 // ══════════════════════════════════════════════════════════════
 // 🎙️ ENGINE LOCAL DE INSIGHTS — sem API externa
