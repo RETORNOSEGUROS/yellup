@@ -199,6 +199,42 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .conv-loading    { display:flex; align-items:center; gap:8px; color:var(--t3); font-size:11px; padding:20px; justify-content:center; }
 .conv-sem-dados  { text-align:center; padding:24px; color:var(--t3); font-size:11px; line-height:1.8; }
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulseRed{0%,100%{box-shadow:0 0 0 0 rgba(240,79,90,.4)}50%{box-shadow:0 0 0 8px rgba(240,79,90,0)}}
+@keyframes pulseYel{0%,100%{box-shadow:0 0 0 0 rgba(245,197,66,.3)}50%{box-shadow:0 0 0 6px rgba(245,197,66,0)}}
+
+/* ── CENÁRIOS ── */
+#cenarioWrap{margin-bottom:14px;}
+.cen-title{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  color:var(--t3);padding:0 2px 8px;display:flex;align-items:center;gap:8px;}
+.cen-title::after{content:'';flex:1;height:1px;background:var(--border,rgba(255,255,255,.06));}
+.cen-empty{font-size:12px;color:var(--t3);padding:8px 4px;text-align:center;}
+.cen-card{
+  border-radius:10px;padding:12px 14px;margin-bottom:8px;
+  border:1px solid var(--bd2,rgba(255,255,255,.08));
+  background:var(--bg3);transition:all .3s;
+}
+.cen-card.amarelo{border-color:rgba(245,197,66,.25);background:rgba(245,197,66,.04);}
+.cen-card.laranja{border-color:rgba(240,140,50,.35);background:rgba(240,140,50,.06);}
+.cen-card.vermelho{border-color:rgba(240,79,90,.45);background:rgba(240,79,90,.07);animation:pulseRed 2s infinite;}
+.cen-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.cen-emoji{font-size:14px;}
+.cen-nome{font-size:12px;font-weight:700;color:var(--t1);flex:1;}
+.cen-pct{font-family:'DM Mono',monospace;font-size:13px;font-weight:700;}
+.cen-card.amarelo .cen-pct{color:var(--yel,#f5c542);}
+.cen-card.laranja .cen-pct{color:#f08c32;}
+.cen-card.vermelho .cen-pct{color:var(--red,#f04f5a);}
+.cen-track{height:5px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;margin-bottom:8px;}
+.cen-fill{height:100%;border-radius:3px;transition:width .8s cubic-bezier(.4,0,.2,1);}
+.cen-card.amarelo .cen-fill{background:var(--yel,#f5c542);}
+.cen-card.laranja .cen-fill{background:#f08c32;}
+.cen-card.vermelho .cen-fill{background:var(--red,#f04f5a);}
+.cen-desc{font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:6px;}
+.cen-conds{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;}
+.cen-cond{font-size:10px;padding:2px 7px;border-radius:5px;font-family:'DM Mono',monospace;}
+.cen-cond.ok{background:rgba(62,207,115,.12);color:var(--grn,#3ecf74);border:1px solid rgba(62,207,115,.2);}
+.cen-cond.falta{background:rgba(255,255,255,.05);color:var(--t3);border:1px solid rgba(255,255,255,.07);}
+.cen-alerta{font-size:11px;color:var(--red,#f04f5a);font-weight:600;margin-top:4px;}
+.cen-hist{font-size:10px;color:var(--t3);margin-top:4px;font-family:'DM Mono',monospace;}
 .coment-wrap{background:var(--c3);border-radius:12px;padding:14px;margin-bottom:12px;}
 .coment-title{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:7px;}
 .coment-live{width:7px;height:7px;border-radius:50%;background:var(--red);animation:pulse 1.2s infinite;flex-shrink:0;}
@@ -948,6 +984,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
   </div>
 
   <!-- PREVISÕES -->
+
+  <!-- ── CENÁRIOS AO VIVO ── -->
+  <div id="cenarioWrap" style="display:none;">
+    <div class="cen-title">⚡ cenários ativos</div>
+    <div id="cenarioCards"></div>
+  </div>
+
   <!-- COMENTARISTA AI — aparece no topo da aba IA -->
   <div class="coment-wrap" id="comentaristaWrap">
     <div class="coment-title">
@@ -1446,7 +1489,7 @@ async function buscarHistoricoBackground(casaId,foraId,temporada){
     renderFingerprint();
     renderAlgo(); // re-render com histórico + fingerprint disponíveis
     // Comentarista aguardou os dados — agora pode gerar análise rica
-    setTimeout(()=>iniciarComentarista(), 500);
+    setTimeout(()=>{ iniciarComentarista(); renderCenarios(); }, 500);
   }catch(e){
     gc('histLoadMsg').textContent='Erro ao buscar histórico: '+e.message;
     console.warn('Histórico:',e);
@@ -2204,6 +2247,7 @@ async function registrarPrevisaoFn(tipo, confianca, contexto){
 function renderAlgo(){
   if(!DADOS)return;
   renderGauges();
+  renderCenarios();
   renderPrevisoes();
   renderNarrative();
   renderPressao();
@@ -6479,6 +6523,353 @@ function renderComentaristaFeed() {
       + '<div class="coment-min">' + min + (min?' · ':'') + new Date(item.ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + '</div>'
       + '<div class="coment-txt">' + item.texto + '</div>'
       + '</div>';
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+// 🎬 MOTOR DE CENÁRIOS
+// ══════════════════════════════════════════════════════════════
+
+// Score de uma condição: 0-100 baseado em quão próximo do limiar
+function _scoreCond(atual, limiar, inverso) {
+  if (atual === null || atual === undefined) return 0;
+  const v = Number(atual) || 0;
+  const l = Number(limiar) || 0;
+  if (!inverso) {
+    if (l === 0) return v > 0 ? 100 : 0;
+    if (v >= l) return 100;
+    return Math.round(Math.max(0, (v / l) * 100));
+  } else {
+    // inverso: queremos ABAIXO do limiar
+    if (v <= l) return 100;
+    const excesso = v - l;
+    return Math.round(Math.max(0, 100 - (excesso / l) * 100));
+  }
+}
+
+// Definição dos 10 cenários
+function definirCenarios(f, sts, min, snapshots) {
+  if (!f || !sts) return [];
+  const idC = f.timeCasa.id, idF = f.timeFora.id;
+  const nomC = f.timeCasa.nome, nomF = f.timeFora.nome;
+  const scC  = f.placar?.casa ?? 0, scF = f.placar?.fora ?? 0;
+  const G    = (id, k) => getStat(sts, id, k) || 0;
+
+  const apC   = G(idC,'Dangerous Attacks'), apF  = G(idF,'Dangerous Attacks');
+  const xgC   = G(idC,'expected_goals'),    xgF  = G(idF,'expected_goals');
+  const shtC  = G(idC,'Shots on Goal'),     shtF = G(idF,'Shots on Goal');
+  const posC  = G(idC,'Ball Possession'),   posF = G(idF,'Ball Possession');
+  const fltC  = G(idC,'Fouls'),             fltF = G(idF,'Fouls');
+  const amC   = G(idC,'Yellow Cards'),      amF  = G(idF,'Yellow Cards');
+  const escC  = G(idC,'Corner Kicks'),      escF = G(idF,'Corner Kicks');
+  const termo = calcularTermometro();
+
+  // Deltas dos últimos 3 snapshots (10-15min)
+  const ultSnaps = (snapshots || []).slice(-3);
+  const deltaAp = ultSnaps.length >= 2
+    ? (ultSnaps[ultSnaps.length-1].ataquesPerigososCasa||0) - (ultSnaps[0].ataquesPerigososCasa||0) : 0;
+  const deltaApF = ultSnaps.length >= 2
+    ? (ultSnaps[ultSnaps.length-1].ataquesPerigososFora||0) - (ultSnaps[0].ataquesPerigososFora||0) : 0;
+
+  // Ratings médios dos jogadores
+  const todosJogs = (DADOS?.jogadoresStats || []);
+  const ratingsC  = todosJogs.find(t=>t.time?.id===idC)?.jogadores
+    ?.map(p=>parseFloat(p.stats?.games?.rating||0)).filter(r=>r>0) || [];
+  const ratingsF  = todosJogs.find(t=>t.time?.id===idF)?.jogadores
+    ?.map(p=>parseFloat(p.stats?.games?.rating||0)).filter(r=>r>0) || [];
+  const avgRatC   = ratingsC.length ? ratingsC.reduce((a,b)=>a+b,0)/ratingsC.length : 6.5;
+  const avgRatF   = ratingsF.length ? ratingsF.reduce((a,b)=>a+b,0)/ratingsF.length : 6.5;
+
+  // Odds
+  const o1 = ODDS_PREJOGO?.odds?.resultados?.odd1 || 0;
+  const o2 = ODDS_PREJOGO?.odds?.resultados?.odd2 || 0;
+
+  // Subs realizadas
+  const subsC = (DADOS?.eventos||[]).filter(e=>e.tipo==='subst'&&e.timeId===idC).length;
+  const subsF = (DADOS?.eventos||[]).filter(e=>e.tipo==='subst'&&e.timeId===idF).length;
+
+  // H2H
+  const mediaGolsH2h = CONTEXTO?.h2h?.mediaGols || 2.5;
+
+  // Árbitro rigoroso?
+  const arbRig = (CONTEXTO?.arbitro?.mediaAmarelos || 0) >= 5;
+
+  // Perda de desempenho defensores (rating caindo)
+  const defsC = todosJogs.find(t=>t.time?.id===idC)?.jogadores
+    ?.filter(p=>['D','G'].includes(p.stats?.games?.position)) || [];
+  const avgDefC = defsC.length
+    ? defsC.map(p=>parseFloat(p.stats?.games?.rating||0)).filter(r=>r>0)
+        .reduce((a,b,_,arr)=>a+b/arr.length,0) : 6.5;
+
+  const cenarios = [
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'pressao_explosiva_casa',
+      nome: 'Pressão Explosiva',
+      emoji: '🔥',
+      gatilho: `gol ${nomC}`,
+      desc: `${nomC} acumula pressão sem converter — pode explodir`,
+      ativo: scC <= scF, // perdendo ou empatando
+      janela: min >= 1,
+      condicoes: [
+        { label:`AP ≥ 8 (${apC})`,   score: _scoreCond(apC,  8),    ok: apC>=8  },
+        { label:`Chutes ≥ 4 (${shtC})`, score: _scoreCond(shtC, 4),  ok: shtC>=4 },
+        { label:`Posse ≥ 48% (${posC}%)`, score: _scoreCond(posC,48),ok: posC>=48 },
+        { label:`Termo ≥ 65 (${termo})`, score: _scoreCond(termo,65),ok: termo>=65 },
+        { label:`xG ≥ 1.0 (${xgC.toFixed(1)})`, score: _scoreCond(xgC,1.0), ok: xgC>=1.0 },
+      ],
+      pesos: [2,2,1.5,1.5,2],
+      historico: 71,
+    },
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'visitante_silencioso',
+      nome: 'Visitante Silencioso',
+      emoji: '🕵️',
+      gatilho: `gol ${nomF} (contra)`,
+      desc: `${nomC} domina a bola mas ${nomF} espreita no contra`,
+      ativo: true,
+      janela: min >= 10,
+      condicoes: [
+        { label:`Posse casa ≥ 60% (${posC}%)`, score: _scoreCond(posC,60),  ok: posC>=60 },
+        { label:`AP fora ≥ 3 (${apF})`,        score: _scoreCond(apF,3),    ok: apF>=3   },
+        { label:`Chutes fora ≥ 2 (${shtF})`,   score: _scoreCond(shtF,2),   ok: shtF>=2  },
+        { label:`Odd visit ≥ 2.5 (${o2.toFixed(2)})`, score: _scoreCond(o2,2.5), ok: o2>=2.5 },
+        { label:`Termo ≥ 45 (${termo})`,        score: _scoreCond(termo,45), ok: termo>=45 },
+      ],
+      pesos: [2,2,2,1,1.5],
+      historico: 58,
+    },
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'desespero_final',
+      nome: 'Desespero Final',
+      emoji: '⏰',
+      gatilho: 'gol ou escanteio',
+      desc: `Time atrás no placar com tudo ou nada`,
+      ativo: (scC < scF || scF < scC) && min >= 70,
+      janela: min >= 70,
+      condicoes: [
+        { label:`Min ≥ 75 (${min}')`,  score: _scoreCond(min, 75),   ok: min>=75  },
+        { label:`AP ≥ 6 (${Math.max(apC,apF)})`, score: _scoreCond(Math.max(apC,apF),6), ok: Math.max(apC,apF)>=6 },
+        { label:`Subs ≥ 2 (${Math.max(subsC,subsF)})`, score: _scoreCond(Math.max(subsC,subsF),2), ok: Math.max(subsC,subsF)>=2 },
+        { label:`Termo ≥ 70 (${termo})`, score: _scoreCond(termo,70), ok: termo>=70 },
+        { label:`Esc ≥ 5 (${Math.max(escC,escF)})`, score: _scoreCond(Math.max(escC,escF),5), ok: Math.max(escC,escF)>=5 },
+      ],
+      pesos: [1.5,2,1.5,2,1],
+      historico: 74,
+    },
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'goleiro_em_chamas',
+      nome: 'Goleiro em Chamas',
+      emoji: '🧤',
+      gatilho: 'gol inevitável',
+      desc: `Muita criação sem converter — a lei dos grandes números`,
+      ativo: (scC === scF || Math.abs(scC-scF)===1),
+      janela: min >= 15,
+      condicoes: [
+        { label:`Chutes ≥ 6 (${Math.max(shtC,shtF)})`, score: _scoreCond(Math.max(shtC,shtF),6), ok: Math.max(shtC,shtF)>=6 },
+        { label:`xG ≥ 1.5 (${Math.max(xgC,xgF).toFixed(1)})`, score: _scoreCond(Math.max(xgC,xgF),1.5), ok: Math.max(xgC,xgF)>=1.5 },
+        { label:`AP ≥ 10 (${Math.max(apC,apF)})`, score: _scoreCond(Math.max(apC,apF),10), ok: Math.max(apC,apF)>=10 },
+        { label:`Posse dom ≥ 55% (${Math.max(posC,posF)}%)`, score: _scoreCond(Math.max(posC,posF),55), ok: Math.max(posC,posF)>=55 },
+        { label:`Aceleração AP +3`, score: _scoreCond(Math.abs(deltaAp||deltaApF),3), ok: Math.abs(deltaAp||deltaApF)>=3 },
+      ],
+      pesos: [2,2.5,2,1.5,1],
+      historico: 68,
+    },
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'jogo_aberto',
+      nome: 'Jogo Aberto',
+      emoji: '🎯',
+      gatilho: 'over 2.5 gols',
+      desc: 'Ambos criam muito — mais gols esperados',
+      ativo: (scC + scF) <= 2,
+      janela: min >= 1,
+      condicoes: [
+        { label:`xG total ≥ 1.8 (${(xgC+xgF).toFixed(1)})`, score: _scoreCond(xgC+xgF,1.8), ok: xgC+xgF>=1.8 },
+        { label:`AP total ≥ 14 (${apC+apF})`, score: _scoreCond(apC+apF,14), ok: apC+apF>=14 },
+        { label:`H2H média ≥ 2.5 (${mediaGolsH2h})`, score: _scoreCond(mediaGolsH2h,2.5), ok: mediaGolsH2h>=2.5 },
+        { label:`Nenhum domina posse`, score: _scoreCond(100-Math.abs(posC-posF),80), ok: Math.abs(posC-posF)<20 },
+        { label:`Chutes total ≥ 8 (${shtC+shtF})`, score: _scoreCond(shtC+shtF,8), ok: shtC+shtF>=8 },
+      ],
+      pesos: [2.5,2,1.5,1,2],
+      historico: 65,
+    },
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'cartao_vermelho',
+      nome: 'Cartão Vermelho Iminente',
+      emoji: '🟥',
+      gatilho: 'expulsão',
+      desc: 'Acúmulo de faltas e nervosismo — expulsão no ar',
+      ativo: true,
+      janela: min >= 20,
+      condicoes: [
+        { label:`Faltas ≥ 12 (${Math.max(fltC,fltF)})`, score: _scoreCond(Math.max(fltC,fltF),12), ok: Math.max(fltC,fltF)>=12 },
+        { label:`Amarelos ≥ 3 (${Math.max(amC,amF)})`, score: _scoreCond(Math.max(amC,amF),3), ok: Math.max(amC,amF)>=3 },
+        { label:`Árbitro rigoroso`, score: arbRig?100:30, ok: arbRig },
+        { label:`Termo ≥ 60 (${termo})`, score: _scoreCond(termo,60), ok: termo>=60 },
+        { label:`Faltas total ≥ 20 (${fltC+fltF})`, score: _scoreCond(fltC+fltF,20), ok: fltC+fltF>=20 },
+      ],
+      pesos: [2.5,2,1.5,1.5,1.5],
+      historico: 52,
+    },
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'pressao_escanteios',
+      nome: 'Chuva de Escanteios',
+      emoji: '🚩',
+      gatilho: '3+ escanteios em breve',
+      desc: 'Pressão lateral intensa — escanteios seguidos',
+      ativo: true,
+      janela: min >= 10,
+      condicoes: [
+        { label:`Esc total ≥ 7 (${escC+escF})`, score: _scoreCond(escC+escF,7), ok: escC+escF>=7 },
+        { label:`AP ≥ 8 (${Math.max(apC,apF)})`, score: _scoreCond(Math.max(apC,apF),8), ok: Math.max(apC,apF)>=8 },
+        { label:`Posse dom ≥ 52% (${Math.max(posC,posF)}%)`, score: _scoreCond(Math.max(posC,posF),52), ok: Math.max(posC,posF)>=52 },
+        { label:`Chutes baixos (≤ 3) (${Math.min(shtC,shtF)})`, score: _scoreCond(4-Math.min(shtC||4,shtF||4),1), ok: Math.min(shtC,shtF)<=3 },
+      ],
+      pesos: [2.5,2,1.5,1],
+      historico: 63,
+    },
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'colapso_defensivo',
+      nome: 'Colapso Defensivo',
+      emoji: '💥',
+      gatilho: 'gol sofrido',
+      desc: 'Time confortável mas defesa cedendo terreno',
+      ativo: Math.abs(scC-scF) >= 2,
+      janela: min >= 30,
+      condicoes: [
+        { label:`Vencendo ≥ 2 gols`, score: Math.abs(scC-scF)>=2?100:0, ok: Math.abs(scC-scF)>=2 },
+        { label:`AP adversário ≥ 5 (${scC>scF?apF:apC})`, score: _scoreCond(scC>scF?apF:apC,5), ok: (scC>scF?apF:apC)>=5 },
+        { label:`Rating def ≤ 6.8 (${avgDefC.toFixed(1)})`, score: _scoreCond(7.5-avgDefC,0.7), ok: avgDefC<=6.8 },
+        { label:`0 subs ainda (${scC>scF?subsC:subsF})`, score: (scC>scF?subsC:subsF)===0?100:20, ok: (scC>scF?subsC:subsF)===0 },
+        { label:`Aceleração adversário`, score: _scoreCond(Math.abs(scC>scF?deltaApF:deltaAp),2), ok: Math.abs(scC>scF?deltaApF:deltaAp)>=2 },
+      ],
+      pesos: [2,2.5,2,1.5,1],
+      historico: 61,
+    },
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'jogo_fechado',
+      nome: 'Jogo Travado (Under)',
+      emoji: '🔒',
+      gatilho: 'under 2.5',
+      desc: 'Nenhum time cria — placar baixo provável',
+      ativo: (scC+scF) <= 1 && min >= 55,
+      janela: min >= 55,
+      condicoes: [
+        { label:`xG total ≤ 0.9 (${(xgC+xgF).toFixed(1)})`, score: _scoreCond(1-(xgC+xgF),0.1,false), ok: xgC+xgF<=0.9 },
+        { label:`AP total ≤ 8 (${apC+apF})`, score: _scoreCond(9-Math.min(apC+apF,9),0.5), ok: apC+apF<=8 },
+        { label:`Min ≥ 60 (${min}')`, score: _scoreCond(min,60), ok: min>=60 },
+        { label:`Chutes total ≤ 5 (${shtC+shtF})`, score: _scoreCond(6-Math.min(shtC+shtF,6),0.5), ok: shtC+shtF<=5 },
+      ],
+      pesos: [2.5,2,1,2],
+      historico: 59,
+    },
+    // ─────────────────────────────────────────────────────
+    {
+      id: 'virada_historica',
+      nome: 'Virada Histórica',
+      emoji: '⚡',
+      gatilho: 'empate ou virada',
+      desc: 'Time atrás com xG superior — virada no ar',
+      ativo: (scC < scF || scF < scC) && min >= 50,
+      janela: min >= 50,
+      condicoes: [
+        { label:`xG sup. ao placar`, score: (scC<scF&&xgC>xgF)||(scF<scC&&xgF>xgC)?100:20,
+          ok: (scC<scF&&xgC>xgF)||(scF<scC&&xgF>xgC) },
+        { label:`Rating ataque ≥ 7.0 (${Math.max(avgRatC,avgRatF).toFixed(1)})`,
+          score: _scoreCond(Math.max(avgRatC,avgRatF),7.0), ok: Math.max(avgRatC,avgRatF)>=7.0 },
+        { label:`Aceleração AP +3`, score: _scoreCond(Math.max(Math.abs(deltaAp),Math.abs(deltaApF)),3),
+          ok: Math.max(Math.abs(deltaAp),Math.abs(deltaApF))>=3 },
+        { label:`Termo ≥ 70 (${termo})`, score: _scoreCond(termo,70), ok: termo>=70 },
+        { label:`H2H viradas`, score: Math.min((CONTEXTO?.h2h?.totalViradas||0)*20,100),
+          ok: (CONTEXTO?.h2h?.totalViradas||0)>=2 },
+      ],
+      pesos: [2.5,2,2,2,1],
+      historico: 55,
+    },
+  ];
+
+  return cenarios;
+}
+
+// Calcular % de cada cenário
+function calcularCenarios() {
+  if (!DADOS?.fixture) return [];
+  const f   = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+  const min = f.status?.elapsed || 0;
+  const isLive = ['1H','2H','ET','P'].includes(f.status?.short);
+  if (!isLive) return [];
+
+  const cenarios = definirCenarios(f, sts, min, SNAPSHOTS);
+
+  return cenarios
+    .filter(c => c.ativo && c.janela)
+    .map(c => {
+      const conds = c.condicoes;
+      const pesos = c.pesos || conds.map(()=>1);
+      const pesoTotal = pesos.reduce((a,b)=>a+b,0);
+      const scoreTotal = conds.reduce((acc,cond,i) => acc + cond.score * (pesos[i]||1), 0);
+      const pct = Math.round(scoreTotal / (pesoTotal * 100) * 100);
+      return { ...c, pct: Math.min(pct, 100) };
+    })
+    .filter(c => c.pct >= 40)
+    .sort((a,b) => b.pct - a.pct)
+    .slice(0, 3);
+}
+
+// Renderizar os cards de cenários
+function renderCenarios() {
+  const wrap = gc('cenarioWrap');
+  const cont = gc('cenarioCards');
+  if (!wrap || !cont) return;
+
+  const ativos = calcularCenarios();
+
+  if (!ativos.length) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+
+  cont.innerHTML = ativos.map(c => {
+    const estado = c.pct >= 90 ? 'vermelho' : c.pct >= 70 ? 'laranja' : 'amarelo';
+    const icon   = c.pct >= 90 ? '🔴' : c.pct >= 70 ? '🟠' : '🟡';
+
+    const condsHtml = c.condicoes.map(cd =>
+      `<span class="cen-cond ${cd.ok?'ok':'falta'}">${cd.ok?'✓':''} ${cd.label}</span>`
+    ).join('');
+
+    // Só mostra condições pendentes se laranja ou vermelho
+    const mostrarConds = c.pct >= 70;
+    const pendentes = c.condicoes.filter(cd => !cd.ok);
+    const faltaHtml = (c.pct >= 70 && pendentes.length)
+      ? `<div class="cen-hist">⏳ Falta: ${pendentes.map(p=>p.label).join(' · ')}</div>`
+      : '';
+
+    const alertaHtml = c.pct >= 90
+      ? `<div class="cen-alerta">⚡ Cenário completo — histórico: gol/evento em ${c.historico}% dos casos</div>`
+      : `<div class="cen-hist">Histórico quando completo: ${c.historico}%</div>`;
+
+    return `<div class="cen-card ${estado}">
+      <div class="cen-header">
+        <span class="cen-emoji">${icon} ${c.emoji}</span>
+        <span class="cen-nome">${c.nome}</span>
+        <span class="cen-pct">${c.pct}%</span>
+      </div>
+      <div class="cen-track"><div class="cen-fill" style="width:${c.pct}%"></div></div>
+      <div class="cen-desc">${c.desc}</div>
+      ${mostrarConds ? `<div class="cen-conds">${condsHtml}</div>` : ''}
+      ${faltaHtml}
+      ${alertaHtml}
+    </div>`;
   }).join('');
 }
 
