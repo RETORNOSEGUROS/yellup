@@ -553,6 +553,68 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .snap-flag.abaixo{background:var(--rdim);color:var(--red);}
 .snap-flag.destaque{background:rgba(39,212,155,.15);color:var(--grn);}
 .snap-flag.ativo{background:var(--adim);color:var(--acc);}
+/* ══════════════════════════════════════
+   🔄 INTELIGÊNCIA DE SUBSTITUIÇÃO
+══════════════════════════════════════ */
+#subIntelWrap{ margin:0 0 12px; }
+.sub-intel-card{
+  background:var(--c2); border-radius:12px; padding:14px 16px;
+  border:1px solid rgba(255,255,255,.06);
+}
+.sub-intel-title{
+  font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--t2);
+  display:flex;align-items:center;gap:8px;margin-bottom:10px;
+}
+.sub-intel-title .si-live{
+  width:7px;height:7px;border-radius:50%;background:var(--grn);
+  box-shadow:0 0 6px var(--grn);animation:pulse 1.5s infinite;
+}
+/* GAP badge */
+.sub-gap{
+  display:inline-flex;align-items:center;gap:6px;
+  background:rgba(240,79,90,.12);border:1px solid rgba(240,79,90,.25);
+  border-radius:8px;padding:5px 10px;font-size:11px;color:var(--red);
+  font-weight:600;margin-bottom:10px;
+}
+/* Sugestão de jogador */
+.sub-sug-list{ display:flex;flex-direction:column;gap:8px; }
+.sub-sug-item{
+  background:var(--c3);border-radius:9px;padding:10px 12px;
+  border:1px solid rgba(255,255,255,.05);
+  display:flex;align-items:center;gap:10px;
+}
+.sub-sug-item.destaque{
+  border-color:rgba(39,212,155,.3);background:rgba(39,212,155,.05);
+}
+.sub-sug-rank{
+  font-family:'DM Mono',monospace;font-size:18px;font-weight:900;
+  color:var(--t3);min-width:22px;text-align:center;
+}
+.sub-sug-rank.rank-1{ color:var(--grn); }
+.sub-sug-info{ flex:1; }
+.sub-sug-nome{
+  font-size:13px;font-weight:700;color:var(--t1);margin-bottom:3px;
+}
+.sub-sug-stats{
+  display:flex;flex-wrap:wrap;gap:6px;
+}
+.sub-sug-pill{
+  font-size:10px;padding:2px 7px;border-radius:5px;font-weight:600;
+  background:rgba(255,255,255,.06);color:var(--t2);
+}
+.sub-sug-pill.forte{ background:rgba(39,212,155,.12);color:var(--grn); }
+.sub-sug-pill.gol{   background:rgba(124,92,252,.15);color:var(--acc); }
+.sub-sug-conf{
+  font-size:9px;color:var(--t3);margin-top:4px;font-family:'DM Mono',monospace;
+}
+/* Jogador em campo com impacto */
+.sub-campo-alerta{
+  background:rgba(255,200,0,.07);border:1px solid rgba(255,200,0,.2);
+  border-radius:9px;padding:8px 12px;margin-top:8px;
+  font-size:11px;color:#ffd55a;
+}
+.sub-empty{ font-size:11px;color:var(--t3);padding:8px 4px; }
+
 /* ── MINI CHART NO SLIDER ── */
 .sts-minichart{margin:10px 0 4px;position:relative;height:48px;}
 .sts-minichart svg{width:100%;height:48px;overflow:visible;}
@@ -1099,7 +1161,19 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
   <!-- PREVISÕES -->
 
   <!-- ── CENÁRIOS AO VIVO ── -->
-  <div id="cenarioWrap" style="display:none;">
+  <!-- ══ INTELIGÊNCIA DE SUBSTITUIÇÃO ══ -->
+<div id="subIntelWrap" style="display:none;">
+  <div class="sub-intel-card">
+    <div class="sub-intel-title">
+      <span class="si-live"></span>
+      🔄 INTELIGÊNCIA DE SUBSTITUIÇÃO
+      <span style="margin-left:auto;font-size:9px;color:var(--t3)" id="subIntelStatus"></span>
+    </div>
+    <div id="subIntelBody"></div>
+  </div>
+</div>
+
+<div id="cenarioWrap" style="display:none;">
     <div class="cen-title">⚡ cenários ativos</div>
     <div id="cenarioCards"></div>
   </div>
@@ -1645,7 +1719,7 @@ async function buscarHistoricoBackground(casaId,foraId,temporada){
     renderFingerprint();
     renderAlgo(); // re-render com histórico + fingerprint disponíveis
     // Comentarista aguardou os dados — agora pode gerar análise rica
-    setTimeout(()=>{ iniciarComentarista(); renderCenarios(); }, 300);
+    setTimeout(()=>{ iniciarComentarista(); renderCenarios(); atualizarSubstituicaoIntel(); }, 300);
   }catch(e){
     gc('histLoadMsg').textContent='Erro ao buscar histórico: '+e.message;
     console.warn('Histórico:',e);
@@ -2485,6 +2559,332 @@ const STAT_LABELS={
   'Passes accurate':'Passes Certos','Passes %':'Precisão Passes','Fouls':'Faltas',
   'Yellow Cards':'Cartões Amarelos','Red Cards':'Cartões Vermelhos','Goalkeeper Saves':'Defesas do Goleiro',
 };
+
+// ══════════════════════════════════════════════════════════════
+// 🔄 MOTOR DE INTELIGÊNCIA DE SUBSTITUIÇÃO
+// ══════════════════════════════════════════════════════════════
+let SUB_PERFIS_CACHE = {};   // jogadorId → perfil (sessão)
+let SUB_LAST_RUN    = 0;     // timestamp última execução
+
+// ── Ponto de entrada: chamado a cada renderAlgo/renderCenarios ──
+async function atualizarSubstituicaoIntel() {
+  if (!DADOS?.fixture) return;
+  const f   = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+  const isLive = ['1H','2H','ET','P','HT'].includes(f.status?.short);
+  if (!isLive) { gc('subIntelWrap').style.display='none'; return; }
+
+  // Throttle: não recalcular mais de 1x por minuto
+  if (Date.now() - SUB_LAST_RUN < 60000) return;
+  SUB_LAST_RUN = Date.now();
+
+  // 1. Detectar GAP atual — qual indicador está bloqueando os cenários?
+  const gap = _detectarGapCenario();
+  if (!gap) { gc('subIntelWrap').style.display='none'; return; }
+
+  // 2. Montar lista de jogadores no banco (substitute=true ou minutos=0)
+  const jgs = DADOS.jogadoresStats || [];
+  const bancoCasa = _jogsNoBanco(jgs, f.timeCasa.id);
+  const bancoFora = _jogsNoBanco(jgs, f.timeFora.id);
+
+  // 3. Jogadores já em campo que são fortes no gap (verificar se estão ajudando)
+  const campoRele = _jogsEmCampoRelevantes(jgs, gap);
+
+  // 4. Renderizar com dados locais imediatos (histórico de stats do jogo)
+  _renderSubIntelLocal(gap, bancoCasa, bancoFora, campoRele, f);
+
+  // 5. Enriquecer com perfis históricos do Firestore (async)
+  _enriquecerComPerfis(gap, bancoCasa, bancoFora, f);
+}
+
+// ── Detectar qual indicador está bloqueando os cenários ──
+function _detectarGapCenario() {
+  if (!DADOS?.fixture) return null;
+  const f   = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+  const min = f.status?.elapsed || 0;
+  const getSt = (id,k) => getStat(sts,id,k)||0;
+
+  // Pegar cenários 60-89% — os que estão quase completos
+  const cens = calcularCenarios ? calcularCenarios() : [];
+  const quaseCompletos = cens.filter(c => c.pct >= 60 && c.pct < 90);
+  if (!quaseCompletos.length) return null;
+
+  // Pegar o cenário mais próximo de completar
+  const topo = quaseCompletos.sort((a,b) => b.pct - a.pct)[0];
+
+  // Encontrar condições faltando
+  const faltando = topo.condicoes.filter(cd => !cd.ok);
+  if (!faltando.length) return null;
+
+  // Mapear condição → indicador
+  const primeira = faltando[0].label.toLowerCase();
+  let indicador = null;
+  let indicadorLabel = '';
+  let valorAtual = null;
+  let valorMeta  = null;
+
+  if (primeira.includes('ap ') || primeira.includes('ataque')) {
+    indicador = 'ap';
+    indicadorLabel = 'Ataques Perigosos';
+    valorAtual = getSt(f.timeCasa.id,'Dangerous Attacks');
+    valorMeta  = 8;
+  } else if (primeira.includes('chute')) {
+    indicador = 'chutes';
+    indicadorLabel = 'Chutes a Gol';
+    valorAtual = getSt(f.timeCasa.id,'Shots on Goal');
+    valorMeta  = 4;
+  } else if (primeira.includes('posse')) {
+    indicador = 'posse';
+    indicadorLabel = 'Posse de Bola';
+    valorAtual = getSt(f.timeCasa.id,'Ball Possession');
+    valorMeta  = 52;
+  } else if (primeira.includes('xg') || primeira.includes('gol esp')) {
+    indicador = 'xg';
+    indicadorLabel = 'xG';
+    valorAtual = parseFloat(getSt(f.timeCasa.id,'expected_goals'))||0;
+    valorMeta  = 1.0;
+  }
+
+  if (!indicador) return null;
+
+  return {
+    indicador, indicadorLabel, valorAtual, valorMeta,
+    cenario: topo.nome, cenarioPct: topo.pct,
+    timeId: f.timeCasa.id, timeNome: f.timeCasa.nome,
+  };
+}
+
+// ── Jogadores no banco: substitute=true ou 0 minutos jogados ──
+function _jogsNoBanco(jgs, timeId) {
+  const time = jgs.find(t => t.time.id === timeId);
+  if (!time) return [];
+  return time.jogadores.filter(p => {
+    const s = p.stats || {};
+    return s.games?.substitute === true || (s.games?.minutes||0) === 0;
+  });
+}
+
+// ── Jogadores em campo que são fortes no indicador ──
+function _jogsEmCampoRelevantes(jgs, gap) {
+  const todos = jgs.flatMap(t => t.jogadores.map(p => ({...p, teamId: t.time.id})));
+  const emCampo = todos.filter(p => {
+    const s = p.stats || {};
+    return (s.games?.minutes||0) > 0 && s.games?.substitute !== true;
+  });
+
+  // Filtrar os que têm bom desempenho no indicador gap
+  return emCampo.filter(p => {
+    const s = p.stats || {};
+    if (gap.indicador === 'chutes')  return (s.shots?.on||0) >= 1;
+    if (gap.indicador === 'ap')      return (s.shots?.total||0) >= 2;
+    if (gap.indicador === 'posse')   return (s.passes?.accuracy||0) >= 85;
+    return false;
+  }).slice(0, 2);
+}
+
+// ── Render local imediato (sem CF) ──
+function _renderSubIntelLocal(gap, bancoCasa, bancoFora, campoRele, f) {
+  const wrap = gc('subIntelWrap');
+  const body = gc('subIntelBody');
+  const status = gc('subIntelStatus');
+  if (!wrap || !body) return;
+
+  wrap.style.display = 'block';
+  if (status) status.textContent = 'analisando banco...';
+
+  // Gap badge
+  let html = `<div class="sub-gap">
+    ⚠️ Gap: <b>${gap.indicadorLabel}</b> em ${gap.timeNome} —
+    atual ${typeof gap.valorAtual==='number'&&gap.valorAtual%1!==0?gap.valorAtual.toFixed(2):gap.valorAtual},
+    meta ${gap.valorMeta} · Cenário <b>${gap.cenario}</b> a ${gap.cenarioPct}%
+  </div>`;
+
+  // Jogadores em campo que já contribuem
+  if (campoRele.length) {
+    html += `<div class="sub-campo-alerta">
+      ⚽ Em campo: ${campoRele.map(p=>`<b>${_nCurto(p.nome)}</b> já contribui com ${
+        gap.indicador==='chutes'?`${p.stats?.shots?.on||0} chutes a gol`:
+        gap.indicador==='posse'?`${p.stats?.passes?.accuracy||0}% precisão`:
+        `${p.stats?.shots?.total||0} chutes`
+      }`).join(' · ')}
+    </div>`;
+  }
+
+  // Jogadores do banco relevantes para o gap (por stats do jogo atual)
+  const bancoPrioritario = _rankearBancoPorGap(bancoCasa, gap);
+
+  if (!bancoPrioritario.length) {
+    html += `<div class="sub-empty">Nenhum jogador no banco com perfil mapeado para este gap ainda. Dados acumulando...</div>`;
+  } else {
+    html += '<div class="sub-sug-list">';
+    bancoPrioritario.slice(0, 3).forEach((p, i) => {
+      const s = p.stats || {};
+      const hist = HISTORICO_JOGADORES[p.id] || null;
+      const rating = parseFloat(s.games?.rating) || (hist?.medias?.rating || 0);
+      const isDestaque = i === 0;
+
+      const pills = [];
+      if (s.shots?.on)        pills.push({l:`${s.shots.on} chut.`, forte: gap.indicador==='chutes'});
+      if (s.shots?.total)     pills.push({l:`${s.shots.total} tot.chut.`, forte: false});
+      if (s.passes?.accuracy) pills.push({l:`${s.passes.accuracy}% pass.`, forte: gap.indicador==='posse'});
+      if (s.dribbles?.success)pills.push({l:`${s.dribbles.success} drib.`, forte: false});
+      if (hist?.medias?.rating) pills.push({l:`⭐ ${hist.medias.rating.toFixed(1)} méd.hist`, forte: false});
+
+      html += `<div class="sub-sug-item ${isDestaque?'destaque':''}">
+        <div class="sub-sug-rank rank-${i+1}">${i+1}</div>
+        <div class="sub-sug-info">
+          <div class="sub-sug-nome">${x(p.nome)}
+            ${s.games?.position?`<span style="font-size:10px;color:var(--t3);font-weight:400"> · ${s.games.position}</span>`:''}
+          </div>
+          <div class="sub-sug-stats">
+            ${pills.map(pl=>`<span class="sub-sug-pill ${pl.forte?'forte':''}">${pl.l}</span>`).join('')}
+            <span class="sub-sug-pill gol" id="subPerfil_${p.id}">hist. carregando...</span>
+          </div>
+          <div class="sub-sug-conf">
+            ${isDestaque?`✅ Entrada recomendada para resolver o gap de ${gap.indicadorLabel}`:''}
+          </div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  body.innerHTML = html;
+}
+
+// ── Rankear banco por gap usando stats do jogo atual ──
+function _rankearBancoPorGap(banco, gap) {
+  return [...banco].sort((a, b) => {
+    const sA = a.stats || {}, sB = b.stats || {};
+    const hist_a = HISTORICO_JOGADORES[a.id], hist_b = HISTORICO_JOGADORES[b.id];
+    let scoreA = 0, scoreB = 0;
+    if (gap.indicador === 'chutes') {
+      scoreA = (sA.shots?.on||0)*3 + (sA.shots?.total||0) + (hist_a?.medias?.rating||0)*0.5;
+      scoreB = (sB.shots?.on||0)*3 + (sB.shots?.total||0) + (hist_b?.medias?.rating||0)*0.5;
+    } else if (gap.indicador === 'ap') {
+      scoreA = (sA.shots?.total||0)*2 + (sA.dribbles?.attempts||0) + (hist_a?.medias?.rating||0)*0.5;
+      scoreB = (sB.shots?.total||0)*2 + (sB.dribbles?.attempts||0) + (hist_b?.medias?.rating||0)*0.5;
+    } else if (gap.indicador === 'posse') {
+      scoreA = (sA.passes?.accuracy||0)*0.1 + (sA.passes?.total||0)*0.05 + (hist_a?.medias?.rating||0)*0.5;
+      scoreB = (sB.passes?.accuracy||0)*0.1 + (sB.passes?.total||0)*0.05 + (hist_b?.medias?.rating||0)*0.5;
+    } else {
+      scoreA = hist_a?.medias?.rating || 0;
+      scoreB = hist_b?.medias?.rating || 0;
+    }
+    return scoreB - scoreA;
+  });
+}
+
+// ── Enriquecer com perfis históricos do Firestore ──
+async function _enriquecerComPerfis(gap, bancoCasa, bancoFora, f) {
+  const status = gc('subIntelStatus');
+  const todos = [...bancoCasa, ...bancoFora].slice(0, 6);
+
+  let carregados = 0;
+  await Promise.all(todos.map(async p => {
+    if (SUB_PERFIS_CACHE[p.id]) {
+      _atualizarPillPerfil(p.id, SUB_PERFIS_CACHE[p.id], gap);
+      return;
+    }
+    try {
+      const fn = fns.httpsCallable('buscarPerfilSubstituicao');
+      const r  = await fn({ jogadorId: p.id });
+      if (r.data?.sucesso && r.data.perfil) {
+        SUB_PERFIS_CACHE[p.id] = r.data.perfil;
+        _atualizarPillPerfil(p.id, r.data.perfil, gap);
+      } else {
+        _atualizarPillSemDados(p.id);
+      }
+      carregados++;
+    } catch(e) { _atualizarPillSemDados(p.id); }
+  }));
+
+  if (status) status.textContent = `${carregados} perfis históricos carregados`;
+}
+
+// ── Atualizar pill de perfil histórico de um jogador ──
+function _atualizarPillPerfil(jogId, perfil, gap) {
+  const el = gc(`subPerfil_${jogId}`);
+  if (!el) return;
+  const impacto = perfil.mediaImpacto?.[gap.indicador];
+  const taxaGol = perfil.taxaGol2T ?? perfil.taxaGol;
+  const conf    = perfil.confianca;
+  const n       = perfil.totalEntradas;
+
+  if (!n || n < 3) { el.textContent = 'dados insuf.'; return; }
+
+  const impStr = impacto != null
+    ? (impacto > 0 ? `+${impacto.toFixed(1)} ${gap.indicador}` : `${impacto.toFixed(1)} ${gap.indicador}`)
+    : '';
+  const golStr = taxaGol != null ? `gol em ${taxaGol}% das entradas` : '';
+
+  el.textContent = [impStr, golStr, `(${n}x)`].filter(Boolean).join(' · ');
+  if (impacto > 0) el.className = 'sub-sug-pill gol';
+}
+
+function _atualizarPillSemDados(jogId) {
+  const el = gc(`subPerfil_${jogId}`);
+  if (el) el.textContent = 'sem hist. ainda';
+}
+
+// ── Detectar substituição e registrar impacto ──
+let SUB_REGISTRADAS = new Set();
+function verificarSubstituicoesParaRegistro() {
+  if (!DADOS?.fixture || !SNAPSHOTS.length) return;
+  const evs = DADOS.eventos || [];
+  const subs = evs.filter(e => e.tipo === 'subst');
+
+  subs.forEach(sub => {
+    const key = `${sub.minuto}_${sub.jogador?.nome}`;
+    if (SUB_REGISTRADAS.has(key)) return;
+    SUB_REGISTRADAS.add(key);
+
+    // Pegar snapshot pré (mais próximo do minuto da sub)
+    const snapPre = SNAPSHOTS.filter(s => (s.minuto||0) <= sub.minuto)
+      .sort((a,b) => (b.minuto||0)-(a.minuto||0))[0];
+
+    if (!snapPre) return;
+
+    // Aguardar 10 min e pegar snapshot pós
+    const minPosAlvo = sub.minuto + 10;
+    const agendarVerif = () => {
+      const snapPos = SNAPSHOTS.filter(s => (s.minuto||0) >= minPosAlvo)
+        .sort((a,b) => (a.minuto||0)-(b.minuto||0))[0];
+      if (!snapPos) return; // ainda não chegou
+
+      const f = DADOS.fixture;
+      const timeId = sub.time?.id || f.timeCasa.id;
+      const isCasa = timeId === f.timeCasa.id;
+
+      fns.httpsCallable('registrarImpactoSubstituicao')({
+        fixtureId: f.id,
+        jogadorEntrou: { id: sub.jogador?.id, nome: sub.jogador?.nome },
+        jogadorSaiu:   { id: sub.assistente?.id, nome: sub.assistente?.nome },
+        timeId, minuto: sub.minuto,
+        snapPre: {
+          ap:     isCasa ? snapPre.ataquesPerigososCasa : snapPre.ataquesPerigososFora,
+          chutes: isCasa ? snapPre.chutesAlvoCasa       : snapPre.chutesAlvoFora,
+          posse:  isCasa ? snapPre.posseCasa            : snapPre.posseFora,
+          xg:     isCasa ? snapPre.xgCasa               : snapPre.xgFora,
+          placar: isCasa ? snapPre.placarCasa           : snapPre.placarFora,
+        },
+        snapPos: {
+          ap:     isCasa ? snapPos.ataquesPerigososCasa : snapPos.ataquesPerigososFora,
+          chutes: isCasa ? snapPos.chutesAlvoCasa       : snapPos.chutesAlvoFora,
+          posse:  isCasa ? snapPos.posseCasa            : snapPos.posseFora,
+          xg:     isCasa ? snapPos.xgCasa               : snapPos.xgFora,
+          placar: isCasa ? snapPos.placarCasa           : snapPos.placarFora,
+        },
+      }).catch(()=>{});
+    };
+
+    // Se minuto pós já existe nos snapshots, registrar agora; senão aguardar ciclos
+    const jaTemPos = SNAPSHOTS.some(s => (s.minuto||0) >= minPosAlvo);
+    if (jaTemPos) agendarVerif();
+    else setTimeout(agendarVerif, 12 * 60 * 1000); // 12 min
+  });
+}
 
 // ══════════════════════════════════════════════
 // ⏱ SLIDER DE TEMPO NAS ESTATÍSTICAS
