@@ -79,6 +79,14 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',sans-serif;min-hei
 .bar-fill{height:100%;border-radius:3px;transition:width .6s cubic-bezier(.4,0,.2,1);}
 .bar-pct{font-size:11px;font-family:'DM Mono',monospace;color:var(--t2);width:38px;text-align:right;}
 
+/* ── BOTÃO REPROCESSAR ── */
+.btn-reprocess{
+  margin-top:14px;padding:9px 20px;background:var(--acc);color:#fff;
+  border:none;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px;transition:opacity .2s;
+}
+.btn-reprocess:disabled{opacity:.5;cursor:default;}
+
 /* ── CALIBRAÇÃO ── */
 .calib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;}
 .calib-cell{background:var(--bg3);border:1px solid var(--bd);border-radius:8px;
@@ -300,10 +308,17 @@ async function carregarCalibracao(){
     const d = r.data?.dados;
     if(!d){
       console.warn('dados null — sem previsões processadas ainda');
-      gc('cardTipos').innerHTML = `<div class="empty-state"><div class="ico">📭</div><p>Sem previsões processadas ainda. O sistema processa automaticamente todo dia às 02h.</p></div>`;
-      gc('calibGrid').innerHTML = `<div class="empty-state"><div class="ico">⚖️</div><p>Aguardando previsões processadas.</p></div>`;
-      gc('valTotal').textContent = '0';
-      gc('subPct').textContent = 'sem dados processados';
+      const diag = r.data?.diagnostico;
+      const pendentes = diag?.pendentes || 0;
+      const totalReal = diag?.totalReal || 0;
+      const diagMsg = diag?.msg || 'Sem previsões processadas. O sistema processa automaticamente às 02h.';
+      gc('valTotal').textContent = totalReal.toString();
+      gc('subPct').textContent = pendentes > 0 ? pendentes+' aguardando processamento' : 'nenhuma previsão salva ainda';
+      const btnHtml = pendentes > 0
+        ? `<button class="btn-reprocess" onclick="reprocessarManual()">⚡ Reprocessar ${pendentes} previsões agora</button>`
+        : '';
+      gc('cardTipos').innerHTML = `<div class="empty-state"><div class="ico">${totalReal>0?'⏳':'📭'}</div><p>${diagMsg}</p>${btnHtml}</div>`;
+      gc('calibGrid').innerHTML = `<div class="empty-state"><div class="ico">⚖️</div><p>${diagMsg}</p></div>`;
       return;
     }
 
@@ -442,6 +457,24 @@ async function renderMaturidade(d){
     <div style="font-size:11px;color:var(--t3);margin-top:8px;line-height:1.6;">
       A cada jogo monitorado ao vivo o sistema coleta snapshots a cada 60s e registra o estado antes de cada gol. A biblioteca de padrões é recalculada todo dia às 05h.
     </div>`;
+}
+
+async function reprocessarManual(){
+  const btn = document.querySelector('.btn-reprocess');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Processando...'; }
+  try{
+    const r = await fns.httpsCallable('processarPrevisoesManual')({});
+    const d = r.data;
+    if(btn){
+      btn.textContent = d.sucesso ? ('✅ '+d.msg) : '❌ Erro';
+      btn.style.background = d.sucesso?'var(--grn)':'var(--red)';
+    }
+    if(d.sucesso && (d.processadas||0)>0)
+      setTimeout(()=>carregarTudo(), 2500);
+  }catch(e){
+    if(btn){ btn.textContent='❌ '+e.message; btn.style.background='var(--red)'; btn.disabled=false; }
+    console.error('reprocessarManual:',e);
+  }
 }
 
 async function carregarTudo(){
