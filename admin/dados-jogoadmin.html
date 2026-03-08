@@ -2073,8 +2073,8 @@ function construirFeedNarracao(maxMin) {
     });
   }
 
-  // 3. Insights do comentarista (do COMENTARISTA_FEED)
-  (COMENTARISTA_FEED||[]).slice(0,5).forEach((item,i)=>{
+  // 3. Insights do comentarista — removido da narração (exclusivo aba IA)
+  if(false)(COMENTARISTA_FEED||[]).slice(0,5).forEach((item,i)=>{
     if(!item?.texto) return;
     const m = f.status?.elapsed || min;
     const mAdj = Math.max(1, m - i*3); // espaçar no tempo
@@ -3587,11 +3587,25 @@ function renderPrevisoes(){
   const xgDefFora=Math.max(0, xgF - Math.max(0, sc[1]-0.3));
 
   // Ataques perigosos acumulados (sinal mais forte de pressão ofensiva real)
-  const apC=getStat(sts,f.timeCasa.id,'Dangerous Attacks')||0;
-  const apF=getStat(sts,f.timeFora.id,'Dangerous Attacks')||0;
-  const apRatC=minAtual>0?apC/minAtual:0;   // ataques perigosos por minuto
+  const apCBruto=getStat(sts,f.timeCasa.id,'Dangerous Attacks')||0;
+  const apFBruto=getStat(sts,f.timeFora.id,'Dangerous Attacks')||0;
+
+  // Fallback quando API não traz AP (comum em ligas menores ou início de jogo):
+  // usar média histórica do fingerprint para não zerar o sinal
+  const apMediaHistC = FP_CASA?.mediaAtaquesPerigosos || 0;
+  const apMediaHistF = FP_FORA?.mediaAtaquesPerigosos || 0;
+  const apiSemDados  = apCBruto===0 && apFBruto===0 && minAtual>=10;
+  const apC = apiSemDados && apMediaHistC>0
+    ? Math.round(apMediaHistC * minAtual / 90 * 0.7)  // estimativa conservadora
+    : apCBruto;
+  const apF = apiSemDados && apMediaHistF>0
+    ? Math.round(apMediaHistF * minAtual / 90 * 0.7)
+    : apFBruto;
+  const _apEstimado = apiSemDados && (apMediaHistC>0||apMediaHistF>0);
+
+  const apRatC=minAtual>0?apC/minAtual:0;
   const apRatF=minAtual>0?apF/minAtual:0;
-  const ppApC=Math.min(20,Math.round(apRatC*18));   // até +20pp
+  const ppApC=Math.min(20,Math.round(apRatC*18));
   const ppApF=Math.min(20,Math.round(apRatF*18));
 
   // Aceleração de pressão via snapshots (últimos 10min)
@@ -3610,8 +3624,40 @@ function renderPrevisoes(){
   const ppXgAbsC=Math.min(15,Math.round(xgC*8));
   const ppXgAbsF=Math.min(15,Math.round(xgF*8));
 
-  // fase de jogo (minutos finais = mais gols)
-  const fataseBonus=minAtual>=80?15:minAtual>=70?8:minAtual>=40&&minAtual<=45?10:0;
+  // ── ESCANTEIOS: pressão de área (chuva de escanteios + xG alto = gol iminente) ──
+  const cornersC = getStat(sts,f.timeCasa.id,'Corner Kicks')||0;
+  const cornersF = getStat(sts,f.timeFora.id,'Corner Kicks')||0;
+  const cornerRatC = minAtual>0 ? cornersC/minAtual : 0;
+  const cornerRatF = minAtual>0 ? cornersF/minAtual : 0;
+  // Combinação: escanteio/min * xG * posse → sinal multiplicativo
+  const posseC = getStat(sts,f.timeCasa.id,'Ball Possession')||50;
+  const posseF = getStat(sts,f.timeFora.id,'Ball Possession')||(100-posseC);
+  const cornerXgC = cornerRatC * Math.max(1,xgC) * (posseC/50);  // normalizado
+  const cornerXgF = cornerRatF * Math.max(1,xgF) * (posseF/50);
+  const ppCornersC = Math.min(12, Math.round(cornerXgC * 4));  // até +12pp
+  const ppCornersF = Math.min(12, Math.round(cornerXgF * 4));
+
+  // fase de jogo (minutos finais = mais gols, + início de jogo = pressão inicial)
+  const fataseBonus=minAtual>=80?15:minAtual>=70?8:minAtual>=40&&minAtual<=45?10:minAtual<=15?5:0;
+
+  // ── INÍCIO DE JOGO (<= 20 min): usar fingerprint + odds para compensar dados escassos ──
+  const isInicioJogo = minAtual <= 20;
+  let bonusInicioC = 0, bonusInicioF = 0;
+  if(isInicioJogo){
+    // Fingerprint histórico como base quando AP ainda está acumulando
+    if(FP_CASA?.mediaGolsMarcados >= 1.8) bonusInicioC += 8;
+    else if(FP_CASA?.mediaGolsMarcados >= 1.4) bonusInicioC += 4;
+    if(FP_FORA?.mediaGolsMarcados >= 1.8) bonusInicioF += 8;
+    else if(FP_FORA?.mediaGolsMarcados >= 1.4) bonusInicioF += 4;
+    // Odds: time favorito tem maior pressão ofensiva esperada no início
+    const o1 = ODDS_PREJOGO?.odds?.resultados?.odd1||0;
+    const o2 = ODDS_PREJOGO?.odds?.resultados?.odd2||0;
+    if(o1>0 && o1 < 1.8) bonusInicioC += 6;  // favorito em casa
+    if(o2>0 && o2 < 1.8) bonusInicioF += 6;  // favorito fora
+    // Janela histórica quente no início
+    if(FP_CASA?.janelaMaisPerigosa === '0-10' || FP_CASA?.janelaMaisPerigosa === '0-15') bonusInicioC += 5;
+    if(FP_FORA?.janelaMaisPerigosa === '0-10' || FP_FORA?.janelaMaisPerigosa === '0-15') bonusInicioF += 5;
+  }
 
   let probGolCasa=Math.min(95,Math.round(
     (shotsOnC/totalShotsC)*15      // precisão de chutes
@@ -3621,6 +3667,8 @@ function renderPrevisoes(){
     + ppAcelC                      // aceleração recente
     + momCasa10*3                  // momentum por eventos
     + fataseBonus
+    + bonusInicioC                 // compensação início de jogo (fingerprint+odds)
+    + ppCornersC                   // pressão de escanteios
   ));
   let probGolFora=Math.min(95,Math.round(
     (shotsOnF/totalShotsF)*15
@@ -3630,11 +3678,19 @@ function renderPrevisoes(){
     + ppAcelF
     + momFora10*3
     + fataseBonus
+    + bonusInicioF
+    + ppCornersF
   ));
   const probGol=Math.min(95,Math.round((1-(1-probGolCasa/100)*(1-probGolFora/100))*100));
 
   const sinaisGol=[];
   // Sinais por ordem de impacto
+  if(ppCornersC>3) sinaisGol.push({label:`⚠️ ${f.timeCasa.nome}: ${cornersC} escanteios + xG ${xgC.toFixed(2)} + ${posseC}% posse — pressão de área`,pp:ppCornersC,destaque:true});
+  if(ppCornersF>3) sinaisGol.push({label:`⚠️ ${f.timeFora.nome}: ${cornersF} escanteios + xG ${xgF.toFixed(2)} + ${posseF}% posse — pressão de área`,pp:ppCornersF,destaque:true});
+  if(isInicioJogo && (bonusInicioC>0||bonusInicioF>0)){
+    const nomFav = bonusInicioC>=bonusInicioF ? f.timeCasa.nome : f.timeFora.nome;
+    sinaisGol.push({label:`📊 Início de jogo: histórico e odds apontam pressão de ${nomFav}`,pp:Math.max(bonusInicioC,bonusInicioF)});
+  }
   if(ppApC>5)   sinaisGol.push({label:`Pressão ofensiva ${f.timeCasa.nome}: ${apC} AP (${apRatC.toFixed(1)}/min)`,pp:ppApC});
   if(ppApF>5)   sinaisGol.push({label:`Pressão ofensiva ${f.timeFora.nome}: ${apF} AP (${apRatF.toFixed(1)}/min)`,pp:ppApF});
   if(ppAcelC>3) sinaisGol.push({label:`${f.timeCasa.nome} acelerando: +${aceleracaoC.toFixed(1)} AP nos últimos 10min`,pp:ppAcelC});
@@ -3669,6 +3725,8 @@ function renderPrevisoes(){
   if (_oddsAdj !== 0 && ODDS_PREJOGO?.odds) {
     sinaisGol.push({ label: _oddsAdj > 0 ? `Odds pré-jogo: jogo aberto (+${_oddsAdj}pp)` : `Odds pré-jogo: jogo fechado (${_oddsAdj}pp)`, pp: _oddsAdj });
   }
+  // Aviso quando AP é estimado por histórico (API sem dados)
+  if(_apEstimado) sinaisGol.push({label:`⚠️ AP da API indisponível — usando histórico do fingerprint como estimativa`,pp:0});
   sinaisGol.sort((a,b)=>b.pp-a.pp);
   const probGolComOdds = Math.min(95, probGol + _oddsAdj);
 
@@ -7684,6 +7742,9 @@ async function buscarHistoricoJogadoresFn() {
 // 🎙️ COMENTARISTA AI — YELLUP ANALYTICS
 // Usa Claude API para gerar análise inteligente em tempo real
 // ══════════════════════════════════════════════════════════════
+let _ULTIMO_HASH_COM = '';
+function _hashCom(txt){ return txt ? txt.slice(0,40) : ''; }
+
 function gerarComentario(forcado) {
   if (!DADOS) return;
   const f = DADOS.fixture;
@@ -7705,6 +7766,10 @@ function gerarComentario(forcado) {
     minuto: f.status?.elapsed || 0,
     ts: Date.now(),
   };
+  // Evitar repetição: não exibir se texto igual ao anterior
+  const _hNovo = _hashCom(item?.txt||item?.texto||'');
+  if(_hNovo && _hNovo === _ULTIMO_HASH_COM) return;
+  _ULTIMO_HASH_COM = _hNovo;
   COMENTARISTA_FEED.unshift(item);
   if (COMENTARISTA_FEED.length > 15) COMENTARISTA_FEED.pop();
 
