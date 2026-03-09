@@ -7705,8 +7705,8 @@ async function buscarFingerprintOddsFn() {
   try {
     const fn = fns.httpsCallable('buscarFingerprintOdds');
     const r  = await fn({ fixtureId: DADOS.fixture.id });
-    if (r.data?.sucesso && r.data.odds) {
-      ODDS_PREJOGO = r.data;
+    if (r.data?.sucesso && r.data.dados) {
+      ODDS_PREJOGO = { sucesso: true, odds: r.data.dados };
       renderAlgo();
       // re-iniciar comentarista com odds disponíveis
       if(HIST_CASA) iniciarComentarista();
@@ -7723,10 +7723,10 @@ async function buscarFingerprintOddsFn() {
 async function buscarOddsOnDemand() {
   if (!DADOS || ODDS_PREJOGO) return;
   try {
-    const fn = fns.httpsCallable('buscarOddsJogo');
+    const fn = fns.httpsCallable('buscarOddsLive');
     const r  = await fn({ fixtureId: DADOS.fixture.id });
-    if (r.data?.sucesso && r.data.odds) {
-      ODDS_PREJOGO = r.data;
+    if (r.data?.sucesso && r.data.dados) {
+      ODDS_PREJOGO = { sucesso: true, odds: r.data.dados };
       renderAlgo();
       if(HIST_CASA) iniciarComentarista();
     }
@@ -9404,16 +9404,36 @@ let PULSO_METRICAS_ON = new Set(['xg','ap','posse','chutes','escanteios','delta1
 let PULSO_AUTO_REFRESH = null;
 
 async function pulsoCarregar(){
-  if(!DADOS?.fixture?.apiId) {
+  if(!DADOS?.fixture?.id) {
     gc('pulso-content').innerHTML = '<div class="pulso-loading">⚠️ Abra um jogo primeiro para ver o Pulso.</div>';
     return;
   }
-  gc('pulso-content').innerHTML = '<div class="pulso-loading"><div class="ld" style="width:16px;height:16px;"></div>&nbsp;Carregando série temporal...</div>';
+
+  // Fallback imediato: se já temos snapshots locais, exibir enquanto tenta a function
+  if(SNAPSHOTS.length && !PULSO_SNAPS.length){
+    PULSO_SNAPS = SNAPSHOTS.map(s => ({
+      minuto: s.minuto||0,
+      placar: {casa:s.placarCasa||0,fora:s.placarFora||0},
+      casa:{xg:s.xg?.casa||0,ataquesPerigosos:s.ataquePerigoso?.casa||0,posse:s.posse?.casa||0,chutesAlvo:s.chutesAlvo?.casa||0,escanteios:s.escanteios?.casa||0,deltaPressao:s.deltaPressao?.casa||null,delta3Pressao:null},
+      fora:{xg:s.xg?.fora||0,ataquesPerigosos:s.ataquePerigoso?.fora||0,posse:s.posse?.fora||0,chutesAlvo:s.chutesAlvo?.fora||0,escanteios:s.escanteios?.fora||0,deltaPressao:s.deltaPressao?.fora||null,delta3Pressao:null},
+    }));
+    pulsoRender(); // exibe imediatamente com dados locais
+  } else {
+    gc('pulso-content').innerHTML = '<div class="pulso-loading"><div class="ld" style="width:16px;height:16px;"></div>&nbsp;Carregando série temporal...</div>';
+  }
 
   try {
     const fn = firebase.functions();
-    const res = await fn.httpsCallable('buscarSnapshotsPulso')({ fixtureId: DADOS.fixture.apiId });
+    const res = await fn.httpsCallable('buscarSnapshotsPulso')({ fixtureId: DADOS.fixture.id });
     PULSO_SNAPS = res.data.snapshots || [];
+    if(!PULSO_SNAPS.length && SNAPSHOTS.length){
+      PULSO_SNAPS = SNAPSHOTS.map(s => ({
+        minuto: s.minuto||0,
+        placar: {casa:s.placarCasa||0,fora:s.placarFora||0},
+        casa:{xg:s.xg?.casa||0,ataquesPerigosos:s.ataquePerigoso?.casa||0,posse:s.posse?.casa||0,chutesAlvo:s.chutesAlvo?.casa||0,escanteios:s.escanteios?.casa||0,deltaPressao:s.deltaPressao?.casa||null,delta3Pressao:null},
+        fora:{xg:s.xg?.fora||0,ataquesPerigosos:s.ataquePerigoso?.fora||0,posse:s.posse?.fora||0,chutesAlvo:s.chutesAlvo?.fora||0,escanteios:s.escanteios?.fora||0,deltaPressao:s.deltaPressao?.fora||null,delta3Pressao:null},
+      }));
+    }
 
     if(!PULSO_SNAPS.length && SNAPSHOTS.length) {
       PULSO_SNAPS = SNAPSHOTS.map(s => ({
@@ -9655,10 +9675,10 @@ function pulsoToggleMetrica(key,btn){
 let CORR_AUTO_REFRESH = null;
 
 async function pulsoCorrelacionar(){
-  if(!DADOS?.fixture?.apiId) return;
+  if(!DADOS?.fixture?.id) return;
   try {
     const fn = firebase.functions();
-    const res = await fn.httpsCallable('correlacionarEstadoAtual')({ fixtureId: DADOS.fixture.apiId });
+    const res = await fn.httpsCallable('correlacionarEstadoAtual')({ fixtureId: DADOS.fixture.id });
     const d = res.data;
     if(!d?.sucesso) return;
     renderCorrelacao(d);
