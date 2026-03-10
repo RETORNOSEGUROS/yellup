@@ -1725,6 +1725,7 @@ async function load(fId, dId) {
       ajustarPesosAutomatico(); // 🆕 ajuste automático de pesos pós-jogo
       _verificarResultadosCenarios(); // 📐 registra acertos/erros dos cenários
       _registrarResultadoPreOdds();   // 🏦 associa resultado real às pré-odds salvas
+      vincularResultadoSnapshotsFn(); // 🔗 batch update em todos os snapshots com resultado
       _pararLoopsEncerrado();
     }
 
@@ -11059,6 +11060,38 @@ function pulsoTabela(snaps, vars, nc, nf) {
     <span style="color:var(--pur);">YAI</span> = Yellup Attack Index &nbsp;·&nbsp;
     <span style="color:var(--grn);">GCS</span> = Game Control Score${usandoFallbackAP ? ' &nbsp;·&nbsp; † Ataques totais (DA indisponível nesta liga)' : ''}
   </div>`;
+}
+
+// ── Batch update resultado em todos os snapshots ao FT ─────────────────
+async function vincularResultadoSnapshotsFn() {
+  if (!DADOS) return;
+  try {
+    const f = DADOS.fixture;
+    // Odds pré-jogo da memória local (capturadas anteriormente)
+    const opd = PRE_ODDS_DATA?.mediaOdds || ODDS_PREJOGO?.odds?.resultados || null;
+    const oddsPrejogo = opd ? {
+      odd1:   opd.odd1   ?? opd.odd1  ?? null,
+      oddX:   opd.oddX   ?? opd.oddX  ?? null,
+      odd2:   opd.odd2   ?? opd.odd2  ?? null,
+      over25: opd.over25 ?? (PRE_ODDS_DATA?.mediaOdds?.over25) ?? (ODDS_PREJOGO?.odds?.overUnder?.over25) ?? null,
+    } : null;
+
+    const fn = fns.httpsCallable('vincularResultadoSnapshots');
+    const r  = await fn({
+      fixtureId:   f.id,
+      placarCasa:  f.placar?.casa ?? 0,
+      placarFora:  f.placar?.fora ?? 0,
+      ligaId:      f.liga?.id     ?? null,
+      timeCasaId:  f.timeCasa?.id ?? null,
+      timeForaId:  f.timeFora?.id ?? null,
+      temporada:   f.liga?.temporada ?? new Date().getFullYear(),
+      oddsPrejogo,
+    });
+
+    if (r.data?.sucesso) {
+      console.log(`🔗 Resultado vinculado: ${r.data.snapshotsAtualizados} snapshots | ${r.data.resultado?.totalGols} gols | ${r.data.resultado?.resultadoFinal}`);
+    }
+  } catch(e) { console.warn('vincularResultadoSnapshots:', e.message); }
 }
 
 // ── Associa resultado real às pré-odds após FT ─────────────────────────
