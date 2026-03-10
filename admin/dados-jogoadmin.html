@@ -7806,12 +7806,35 @@ async function buscarFingerprintOddsFn() {
 async function buscarOddsOnDemand() {
   if (!DADOS || ODDS_PREJOGO) return;
   try {
-    const fn = fns.httpsCallable('buscarOddsLive');
-    const r  = await fn({ fixtureId: DADOS.fixture.id });
-    if (r.data?.sucesso && r.data.dados) {
-      ODDS_PREJOGO = { sucesso: true, odds: r.data.dados };
+    // Usar capturarOddsOnDemand — busca da API e salva no Firestore
+    const fn = fns.httpsCallable('capturarOddsOnDemand');
+    const f  = DADOS.fixture;
+    const r  = await fn({
+      fixtureId:  f.id,
+      timeCasaId: f.timeCasa.id,
+      timeForaId: f.timeFora.id,
+      ligaId:     f.liga?.id,
+    });
+    console.log('🎲 capturarOddsOnDemand:', r.data?.sucesso, r.data?.fonte, r.data?.odds?.resultados);
+    if (r.data?.sucesso && r.data.odds) {
+      ODDS_PREJOGO = {
+        sucesso: true,
+        odds: {
+          resultados:     r.data.odds.resultados,
+          overUnder:      r.data.odds.overUnder,
+          ambasMarcam:    r.data.odds.ambasMarcam,
+          probImplicitas: r.data.probImplicitas,
+          xGolsOdds:      r.data.xGolsOdds,
+          tipoJogo:       r.data.tipoJogo,
+          casasUsadas:    r.data.casasUsadas,
+        }
+      };
       renderAlgo();
       if(HIST_CASA) iniciarComentarista();
+      toast('📈 Odds carregadas — '+( r.data.casasUsadas?.slice(0,2).join(', ')||'API'),'ok');
+    } else if (r.data?.erro) {
+      console.warn('OddsOnDemand sem dados:', r.data.erro);
+      toast('⚠️ '+r.data.erro, 'warn');
     }
   } catch(e) { console.warn('OddsOnDemand:', e.message); }
 }
