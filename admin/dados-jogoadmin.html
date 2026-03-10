@@ -1086,6 +1086,7 @@ canvas.spark{width:100%;height:55px;display:block;}
       <span id="hLigaNome">—</span>
     </div>
     <span class="liga-rodada" id="hRodada"></span>
+    <button class="back-btn" id="btnVerUsuario" style="display:none;color:var(--blu);border-color:var(--blu);" onclick="abrirVisaoUsuario()">👁️ Usuário</button>
   </div>
   <div class="score-hero">
     <div class="sh-team">
@@ -1233,6 +1234,7 @@ canvas.spark{width:100%;height:55px;display:block;}
     <div class="termometro-wrap" id="termometroEl"></div>
   </div>
 
+  <div id="diagEl" style="margin-bottom:8px;"></div>
   <div class="grupo-tabs-wrap">
     <div class="grupo-label">⚡ Análise — o que fazer agora</div>
     <div class="algo-tabs">
@@ -1656,6 +1658,7 @@ async function load(fId,dId){
     verificarGolParaSnapshot();
     gc('pgLoad').style.display='none';
     gc('pgMain').style.display='block';
+    renderDiagnostico(); // painel de diagnóstico API
 
     const isLive=['1H','2H','ET','P','HT','BT'].includes(DADOS.fixture.status.short);
 
@@ -3368,15 +3371,29 @@ function renderStats(){
   const sts=DADOS.estatisticas||[];
   const el=gc('statsEl');
   if(sts.length<2){
+    const isLive=['1H','2H','ET','P','HT','BT'].includes(DADOS.fixture?.status?.short);
     const temSnaps=SNAPSHOTS&&SNAPSHOTS.length>0;
     el.innerHTML=`<div class="empty"><div class="ico">📊</div>
-      <p>Estatísticas ao vivo não disponíveis</p>
-      <p style="font-size:11px;color:var(--t3);margin-top:4px;">A API não fornece stats para esta liga/jogo.</p>
+      <p>Estatísticas ${isLive?'ainda ':''}não disponíveis</p>
+      <p style="font-size:11px;color:var(--t3);margin-top:4px;">${isLive?'A API ainda não enviou dados para este jogo. Verifique os logs no Firebase.':'A API não fornece stats para esta liga/jogo.'}</p>
       ${temSnaps?`<p style="font-size:11px;color:var(--grn);margin-top:4px;">✅ ${SNAPSHOTS.length} snapshots próprios gravados — veja Histórico.</p>`:''}
     </div>`;
     return;
   }
+  // Checar se todos os valores são null (API retornou estrutura vazia)
   const casa=sts[0],fora=sts[1];
+  const allNull=Object.values(casa.stats||{}).every(v=>v===null||v===undefined)
+    && Object.values(fora.stats||{}).every(v=>v===null||v===undefined);
+  if(allNull){
+    const isLive=['1H','2H','ET','P','HT','BT'].includes(DADOS.fixture?.status?.short);
+    const temSnaps=SNAPSHOTS&&SNAPSHOTS.length>0;
+    el.innerHTML=`<div class="empty"><div class="ico">📊</div>
+      <p>Stats retornaram vazias da API</p>
+      <p style="font-size:11px;color:var(--acc);margin-top:4px;">⚠️ ${isLive?'Jogo ao vivo mas API-Football retornou null para todos os campos — pode ser limite de plano ou jogo ainda não iniciou stats.':'Sem dados disponíveis.'}</p>
+      ${temSnaps?`<p style="font-size:11px;color:var(--grn);margin-top:4px;">✅ ${SNAPSHOTS.length} snapshots próprios — veja Histórico.</p>`:''}
+    </div>`;
+    return;
+  }
   gc('stNomeCasa').textContent=casa.time.nome;
   gc('stNomeFora').textContent=fora.time.nome;
 
@@ -9932,6 +9949,60 @@ const gc=id=>document.getElementById(id);
 function x(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function setImg(id,src){const e=gc(id);if(src){e.src=src;e.style.display='';}else{e.style.display='none';}}
 function toast(msg,t){const el=gc('toast');el.textContent=msg;el.className='toast show'+(t?' '+t:'');clearTimeout(el._t);el._t=setTimeout(()=>el.className='toast',3000);}
+// ═══ DIAGNÓSTICO API ═══
+function renderDiagnostico(){
+  const el=gc('diagEl');
+  if(!el||!DADOS)return;
+  const f=DADOS.fixture;
+  const sts=DADOS.estatisticas||[];
+  const isLive=['1H','2H','ET','P','HT','BT'].includes(f.status?.short);
+
+  const getS=(idx,key)=>{
+    const t=sts[idx];
+    if(!t)return'<span style="color:var(--t3)">—</span>';
+    const v=t.stats?.[key];
+    if(v===null||v===undefined)return'<span style="color:var(--red)">null ❌</span>';
+    return`<span style="color:var(--grn)">${v} ✅</span>`;
+  };
+
+  const nCasa=sts[0]?.time?.nome||f.timeCasa.nome;
+  const nFora=sts[1]?.time?.nome||f.timeFora.nome;
+
+  const keys=['Dangerous Attacks','Attacks','Ball Possession','Shots on Goal','Total Shots','expected_goals','Corner Kicks','Fouls'];
+
+  el.innerHTML=`
+    <div style="background:var(--c2);border:1px solid var(--bd2);border-radius:12px;padding:14px;margin-bottom:12px;">
+      <div style="font-family:'Syne',sans-serif;font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">
+        🔬 Diagnóstico — dados recebidos da API
+      </div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:8px;">
+        Status: <b>${f.status.short}</b> ${f.status.elapsed?f.status.elapsed+"'":''}
+        · Placar: <b>${f.placar.casa??'?'} × ${f.placar.fora??'?'}</b>
+        · Stats retornados: <b style="color:${sts.length>=2?'var(--grn)':'var(--red)'}">${sts.length} times</b>
+        · ODDS_LIVE: <b style="color:${ODDS_LIVE?'var(--grn)':'var(--red)'}">${ODDS_LIVE?'✅ '+ODDS_LIVE.bookmaker:'null ❌'}</b>
+      </div>
+      ${sts.length>=2?`
+      <table style="width:100%;border-collapse:collapse;font-size:10px;">
+        <tr style="color:var(--t3);">
+          <td style="padding:3px 6px;font-weight:700;">Stat</td>
+          <td style="padding:3px 6px;text-align:center;font-weight:700;">${x(nCasa)}</td>
+          <td style="padding:3px 6px;text-align:center;font-weight:700;">${x(nFora)}</td>
+        </tr>
+        ${keys.map(k=>`<tr style="border-top:1px solid var(--bd1);">
+          <td style="padding:3px 6px;color:var(--t2)">${k}</td>
+          <td style="padding:3px 6px;text-align:center">${getS(0,k)}</td>
+          <td style="padding:3px 6px;text-align:center">${getS(1,k)}</td>
+        </tr>`).join('')}
+      </table>`:'<div style="color:var(--red);font-size:12px;">⚠️ API não retornou estatísticas para nenhum time. Verifique logs no Firebase Console.</div>'}
+      ${isLive&&sts.length>=2&&!Object.values(sts[0]?.stats||{}).some(v=>v!=null)?`
+      <div style="margin-top:8px;padding:8px;background:var(--rdim);border-radius:8px;font-size:11px;color:var(--red);">
+        ⚠️ Stats estrutura existe mas todos os valores são <b>null</b>.<br>
+        Causa provável: plano API-Football não inclui stats ao vivo para esta liga,
+        ou a API ainda não enviou dados nos primeiros minutos.
+      </div>`:''}
+    </div>`;
+}
+
 </script>
 </body>
 </html>
