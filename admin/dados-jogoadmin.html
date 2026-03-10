@@ -5716,7 +5716,7 @@ function mkInsights(list){
 
 // ═══ TABS ═══
 function aba(id){
-  if(id!=='pulso') PULSO_TAB_ATIVA=false; else { PULSO_TAB_ATIVA=true; pulsoCarregar(); return; }
+  if(id!=='pulso') PULSO_TAB_ATIVA=false; else { PULSO_TAB_ATIVA=true; pulsoCarregar(); pulsoCorrelacionar(); return; }
   document.querySelectorAll('.tab').forEach((t,i)=>{
     t.classList.toggle('on',['timeline','campo','stats','jogadores','ia','historico','pulso'][i]===id);
   });
@@ -8028,7 +8028,8 @@ function pulsoRender() {
     pulsoAlertas(variacoes, snaps, nomeCasa, nomeFora) +
     pulsoSparks(snaps) +
     '<div class="pulso-wrap">' + pulsoTabela(snaps, variacoes, nomeCasa, nomeFora) + '</div>' +
-    `<div style="font-size:10px;color:var(--t3);padding:6px 0 2px;text-align:center;">${snaps.length} snapshots · atualiza automaticamente a cada minuto ao vivo</div>`;
+    `<div id="pulso-corr-el" style="margin-top:12px;"></div>
+  <div style="font-size:10px;color:var(--t3);padding:6px 0 2px;text-align:center;">${snaps.length} snapshots · atualiza automaticamente a cada minuto ao vivo</div>`;
 
   // Desenhar sparklines após render
   setTimeout(() => pulsoDrawSparks(snaps, nomeCasa, nomeFora), 60);
@@ -8207,6 +8208,35 @@ function pulsoTabela(snaps, vars, nomeCasa, nomeFora) {
   }).join('');
 
   return `<table class="pulso-table">${thead}<tbody>${aviso}${rows}</tbody></table>`;
+}
+
+
+// ════════════════════════════════════════════════════════
+// 🔭 CORRELACIONADOR — compara estado atual vs biblioteca
+// ════════════════════════════════════════════════════════
+let CORR_AUTO_REFRESH = null;
+
+async function pulsoCorrelacionar() {
+  if (!DADOS?.fixture?.id) return;
+  const el = gc('pulso-corr-el');
+  try {
+    const res = await fns.httpsCallable('correlacionarEstadoAtual')({ fixtureId: DADOS.fixture.id });
+    const d = res.data;
+    if (!d?.sucesso || !el) return;
+    // Renderizar resultado da correlação
+    const top = (d.padroes || []).slice(0, 3);
+    if (!top.length) { if(el) el.innerHTML = '<div style="font-size:11px;color:var(--t3);">Biblioteca ainda sem padrões suficientes para esta liga.</div>'; return; }
+    el.innerHTML = `
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:6px;">🔭 PADRÕES SIMILARES ENCONTRADOS</div>
+      ${top.map(p => `<div class="distorcao-card ${p.score>0.7?'forte':'media'}" style="padding:6px 10px;margin-bottom:4px;">
+        <div style="font-size:11px;font-weight:700;">${(p.score*100).toFixed(0)}% similar · ${p.minutosAteGol!=null?'gol em '+p.minutosAteGol+'min':'sem gol'}</div>
+        <div style="font-size:10px;color:var(--t3);">${p.descricao||''}</div>
+      </div>`).join('')}
+      <div style="font-size:9px;color:var(--t3);margin-top:4px;">Baseado em ${d.totalPadroes||0} padrões na biblioteca</div>`;
+  } catch(e) {
+    // Correlação é opcional — sem dados de biblioteca ainda
+    if(el) el.innerHTML = '<div style="font-size:10px;color:var(--t3);">Correlação indisponível (biblioteca em construção).</div>';
+  }
 }
 
 </script>
