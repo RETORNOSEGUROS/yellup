@@ -1288,7 +1288,7 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
     <div class="hist-panel" id="oddsLivePanel" style="display:none;">
       <h4>📈 Odds ao Vivo
         <span class="hist-badge" style="background:rgba(245,165,36,.15);color:var(--acc)">MERCADO</span>
-        <span style="font-size:10px;color:var(--t3);font-weight:400;margin-left:6px;">Atualiza a cada 3 min</span>
+        <span style="font-size:10px;color:var(--t3);font-weight:400;margin-left:6px;">Atualiza a cada 1 min</span>
       </h4>
       <div id="oddsLiveEl"></div>
     </div>
@@ -1746,6 +1746,13 @@ async function carregarSnapshots(fixtureId){
     const r=await fn({fixtureId:parseInt(fixtureId)});
     if(r.data.sucesso){
       SNAPSHOTS=(r.data.snapshots||[]).map(normalizarSnapshot);
+      // Se já temos odds ao vivo, preencher snaps que vieram sem odds do Firestore
+      if(ODDS_LIVE) SNAPSHOTS.forEach(s => {
+        if(!s.oddsCasa) {
+          s.oddsCasa=ODDS_LIVE.casa; s.oddsEmpate=ODDS_LIVE.empate;
+          s.oddsFora=ODDS_LIVE.fora; s.oddsOver25=ODDS_LIVE.over25; s.oddsFonte='retro';
+        }
+      });
       if(SNAPSHOTS.length){
         gc('snapChart').style.display='block';
         renderSnapshots();
@@ -9053,6 +9060,21 @@ async function buscarOddsLiveLoop(fixtureId){
           casa:ODDS_LIVE.casa, empate:ODDS_LIVE.empate, fora:ODDS_LIVE.fora,
           over25:ODDS_LIVE.over25, fonte:ODDS_LIVE.bookmaker||'live'
         };
+        // Preencher retroativamente todos os snaps sem odds (sessão anterior ou recarregamento)
+        SNAPSHOTS.forEach(s => {
+          if (!s.oddsCasa && !s.oddsEmpate) {
+            s.oddsCasa   = ODDS_LIVE.casa;
+            s.oddsEmpate = ODDS_LIVE.empate;
+            s.oddsFora   = ODDS_LIVE.fora;
+            s.oddsOver25 = ODDS_LIVE.over25;
+            s.oddsFonte  = 'retro';
+            ODDS_HISTORY[s.minuto] = ODDS_HISTORY[s.minuto] || {
+              casa:ODDS_LIVE.casa, empate:ODDS_LIVE.empate, fora:ODDS_LIVE.fora,
+              over25:ODDS_LIVE.over25, fonte:'retro'
+            };
+          }
+        });
+        if(PULSO_TAB_ATIVA) pulsoRender();
         renderOdds();
         renderAlgo();
       }
