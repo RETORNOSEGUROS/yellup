@@ -9162,18 +9162,24 @@ async function buscarOddsLiveLoop(fixtureId){
   const buscar=async()=>{
     try{
       const fn=fns.httpsCallable('buscarOddsLive');
-      const r=await fn({fixtureId});
+      // Passar nomes dos times para odds-api.io fazer fuzzy match
+      const nomeCasa = DADOS?.fixture?.timeCasa?.nome || '';
+      const nomeFora = DADOS?.fixture?.timeFora?.nome || '';
+      const r=await fn({fixtureId, nomeCasa, nomeFora});
       if(r.data?.sucesso && r.data.dados){
         const prev=ODDS_LIVE;
         ODDS_LIVE=r.data.dados;
         if(prev) ODDS_LIVE._anterior=prev; // detectar movimento de mercado
+        const fonte = ODDS_LIVE.fonte || ODDS_LIVE.bookmaker || '?';
+        console.log(`🎲 Odds recebidas — bookmaker=${ODDS_LIVE.bookmaker} fonte=${fonte} casa=${ODDS_LIVE.casa} empate=${ODDS_LIVE.empate} fora=${ODDS_LIVE.fora}`);
         renderOdds();
         renderAlgo(); // re-render com odds disponíveis
+      } else {
+        console.warn('🎲 Sem odds disponíveis para este jogo');
       }
     }catch(e){
-    console.warn('oddsLive:',e.message);
-    // Odds indisponíveis é normal para muitos jogos — não bloqueia UI
-  }
+      console.warn('oddsLive erro:',e.message);
+    }
   };
   buscar(); // imediato
   oddsTimer=setInterval(buscar,180000); // a cada 3min
@@ -9376,7 +9382,16 @@ function renderOdds(){
 
   el.innerHTML=`
     <div class="odds-live-card">
-      <div style="font-size:10px;color:var(--t3);margin-bottom:8px;">Minuto ${o.minuto||'—'}' · Prob. implícita normalizada (sem margem da casa)</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <span style="font-size:10px;color:var(--t3);">${o.bookmaker||'—'}</span>
+        ${o.fonte==='odds_api_io'
+          ? '<span style="font-size:9px;background:#1a4;color:#fff;padding:1px 5px;border-radius:4px;font-weight:700;">🟢 AO VIVO</span>'
+          : o.fonte==='pre_jogo'||o.fonte==='pre_jogo_qualquer'
+          ? '<span style="font-size:9px;background:#664;color:#ffa;padding:1px 5px;border-radius:4px;font-weight:700;">⚠️ PRÉ-JOGO</span>'
+          : '<span style="font-size:9px;background:#333;color:#aaa;padding:1px 5px;border-radius:4px;">LIVE</span>'
+        }
+        <span style="font-size:10px;color:var(--t3);margin-left:auto;">${o.minuto?o.minuto+"'":'—'} · Prob. implícita (sem margem)</span>
+      </div>
       <div class="pred-api-pcts">
         <div class="pred-api-pct" style="color:var(--acc)">
           <span class="pred-api-val">${nC}%</span>
@@ -9394,6 +9409,10 @@ function renderOdds(){
           <span style="font-size:10px;color:var(--t3)">odd ${o.fora||'—'}</span>
         </div>
       </div>
+      ${o.over25?`<div style="margin-top:8px;padding:6px 10px;background:var(--c3);border-radius:8px;display:flex;gap:16px;font-size:11px;color:var(--t2);">
+        <span>Over 2.5 <b style="color:var(--acc)">${o.over25}</b></span>
+        <span>Under 2.5 <b style="color:var(--blu)">${o.under25||'—'}</b></span>
+      </div>`:''}
       ${sinalMercado}
     </div>`;
   gc('oddsLivePanel').style.display='block';
