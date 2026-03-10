@@ -1524,7 +1524,7 @@ let PREVISOES_LOG=[];   // log de previsões feitas nesta sessão
 let SNAP_PLAYERS=[];    // série temporal de stats de jogadores
 let PREDICTIONS=null;   // predictions da API-Football
 let ODDS_LIVE=null;     // odds ao vivo
-let ODDS_HISTORY={};   // histórico de odds por minuto: {min:{casa,empate,fora,over25}}
+let ODDS_HISTORY={};   // histórico de odds por minuto: {min:{casa,empate,fora,over25,ts}}
 let ODDS_PREJOGO=null;  // odds pré-jogo + fingerprint de odds
 let RELATORIO_SALVO=false; // evitar salvar duas vezes
 let CONTEXTO=null;      // lesões + h2h
@@ -1534,6 +1534,19 @@ let snapTimer=null;     // timer de snapshot
 let CURRENT_DOC_ID=null;
 let CURRENT_FIX_ID=null;
 
+// ── CONTROLE DE LOOPS (evitar duplicação de intervals) ──
+let _refreshTimer=null;       // timer de refresh dos dados do jogo
+let _snapPlayersTimer=null;   // timer de snapshot de jogadores
+let _LOOPS_INICIADOS=false;   // flag: loops só sobem uma vez por sessão
+
+// ── SPEED OF ODDS — velocidade de variação das odds ──
+let ODDS_VELOCITY=[];         // [{minuto, casa, fora, empate, velCasa, velFora, ts}]
+let _ULTIMA_ODDS_REGISTRADA=null; // snapshot anterior para calcular velocidade
+
+// ── JANELA PRÉ-EVENTO — correlação antes de gols/cartões ──
+let JANELAS_PRE_EVENTO=[];    // [{tipo, minuto, snapshots_antes:[...5min], variações}]
+let _EVENTOS_JA_PROCESSADOS=new Set(); // evitar processar o mesmo evento 2x
+
 auth.onAuthStateChanged(async u=>{
   if(!u||u.email!=='admin@yellup.com'){window.location.href='login.html';return;}
   const p=new URLSearchParams(location.search);
@@ -1542,77 +1555,150 @@ auth.onAuthStateChanged(async u=>{
   await load(fId,dId);
 });
 
-async function load(fId,dId){
-  try{
-    let fixtureId=fId;
-    if(!fixtureId&&dId){
-      const s=await db.collection('jogos-admin').doc(dId).get();
-      if(s.exists) fixtureId=s.data().apiFixtureId;
-    }
-    if(!fixtureId){errPage('Sem API Fixture ID');return;}
-    CURRENT_DOC_ID=dId; CURRENT_FIX_ID=fixtureId;
+// ════════════════════════════════════════════════════════════════
+// ⚡ LOAD — separado em: carregamento inicial + refresh de dados
+// ════════════════════════════════════════════════════════════════
 
-    const fn=fns.httpsCallable('buscarDadosJogo');
-    const r=await fn({fixtureId:parseInt(fixtureId)});
-    DADOS=r.data;
+async function load(fId, dId) {
+  try {
+    let fixtureId = fId;
+    if (!fixtureId && dId) {
+      const s = await db.collection('jogos-admin').doc(dId).get();
+      if (s.exists) fixtureId = s.data().apiFixtureId;
+    }
+    if (!fixtureId) { errPage('Sem API Fixture ID'); return; }
+    CURRENT_DOC_ID = dId; CURRENT_FIX_ID = fixtureId;
+
+    // ── Busca dados frescos da API ──
+    const fn = fns.httpsCallable('buscarDadosJogo');
+    const r  = await fn({ fixtureId: parseInt(fixtureId) });
+    DADOS = r.data;
+
+    // ── Primeira vez: montar UI e iniciar todos os loops ──
+    if (!_LOOPS_INICIADOS) {
+      _iniciarLoops(fixtureId, dId);
+      gc('pgLoad').style.display = 'none';
+      gc('pgMain').style.display = 'block';
+    }
+
+    // ── Todas as vezes: re-renderizar com dados novos ──
     renderAll();
     verificarGolParaSnapshot();
-    gc('pgLoad').style.display='none';
-    gc('pgMain').style.display='block';
+    verificarJanelaPreEvento();   // 🆕 detectar e registrar contexto pré-evento
+    verificarResultadosPrevisoes();
 
-    const isLive=['1H','2H','ET','P','HT','BT'].includes(DADOS.fixture.status.short);
-
-    // Auto-refresh: ao vivo a cada 60s, NS a cada 30s (detectar início)
-    if(isLive){
-      setInterval(()=>load(fixtureId,dId),60000);
-    } else if(['NS','TBD'].includes(DADOS.fixture.status.short)){
-      // Verifica a cada 30s se o jogo começou
-      const nsTimer = setInterval(()=>{
-        load(fixtureId,dId).then(()=>{
-          const s=DADOS?.fixture?.status?.short;
-          if(s&&!['NS','TBD'].includes(s)) clearInterval(nsTimer);
-        });
-      }, 30000);
+    // Encerrou? Salvar relatório + ajustar pesos automaticamente
+    const isFt = ['FT','AET','PEN'].includes(DADOS.fixture.status.short);
+    if (isFt) {
+      salvarRelatorioFn();
+      ajustarPesosAutomatico(); // 🆕 ajuste automático de pesos pós-jogo
+      _pararLoopsEncerrado();
     }
 
-    // Carregar snapshots existentes
-    carregarSnapshots(fixtureId); // busca snapshots históricos desta partida
+  } catch(e) {
+    errPage('Erro: ' + e.message + ' | ' + (e.stack ? e.stack.split('\n')[1] : ''));
+  }
+}
 
-    // Auto-snapshot ao vivo (a cada 60s)
-    if(isLive && dId){
-      registrarSnapshot(fixtureId,dId); // imediato
-      snapTimer=setInterval(()=>registrarSnapshot(fixtureId,dId),60000);
-      gc('snapStatusBar').style.display='flex';
-      gc('snapStatusMsg').textContent='Registrando ao vivo — snapshot a cada minuto';
+// ── Inicia TODOS os loops — chamado exatamente UMA vez ──
+function _iniciarLoops(fixtureId, dId) {
+  if (_LOOPS_INICIADOS) return;
+  _LOOPS_INICIADOS = true;
+
+  const isLive = ['1H','2H','ET','P','HT','BT'].includes(DADOS.fixture.status.short);
+  const isNS   = ['NS','TBD'].includes(DADOS.fixture.status.short);
+
+  // Carregar dados complementares (apenas 1x, não no refresh)
+  carregarSnapshots(fixtureId);
+  carregarSnapshotsPlayers(parseInt(fixtureId));
+  buscarHistoricoBackground(DADOS.fixture.timeCasa.id, DADOS.fixture.timeFora.id,
+    DADOS.fixture.liga.temporada || new Date().getFullYear());
+  buscarPredictionsContexto(parseInt(fixtureId), DADOS.fixture.timeCasa.id, DADOS.fixture.timeFora.id);
+  buscarPerfilArbitro();
+  buscarFingerprintOddsFn();
+  carregarSugestaoPesos();
+  setTimeout(() => buscarHistoricoJogadoresFn().catch(e => console.warn('hist jog:', e.message)), 5000);
+
+  if (isLive) {
+    // ── Snapshot de estatísticas (a cada 60s) ──
+    if (dId) {
+      registrarSnapshot(fixtureId, dId); // imediato
+      snapTimer = setInterval(() => registrarSnapshot(fixtureId, dId), 60000);
+      gc('snapStatusBar').style.display = 'flex';
+      gc('snapStatusMsg').textContent = 'Registrando ao vivo — snapshot a cada minuto';
     }
 
-    // Buscar histórico em background (não bloqueia UI)
-    const casaId=DADOS.fixture.timeCasa.id;
-    const foraId=DADOS.fixture.timeFora.id;
-    const temporada=DADOS.fixture.liga.temporada||new Date().getFullYear();
-    buscarHistoricoBackground(casaId,foraId,temporada);
+    // ── Refresh dos dados do jogo (a cada 60s) ──
+    _refreshTimer = setInterval(() => refreshDados(fixtureId, dId), 60000);
 
-    // Buscar predictions + contexto + perfil árbitro — 1x
-    buscarPredictionsContexto(parseInt(fixtureId), casaId, foraId);
-    buscarPerfilArbitro();
-    buscarFingerprintOddsFn();
-    carregarSugestaoPesos();
+    // ── Snapshot de jogadores (a cada 2min) ──
+    setTimeout(() => registrarSnapshotPlayers(parseInt(fixtureId)).catch(() => {}), 8000);
+    _snapPlayersTimer = setInterval(() => registrarSnapshotPlayers(parseInt(fixtureId)).catch(() => {}), 120000);
 
-    // Buscar snapshots de players existentes
-    carregarSnapshotsPlayers(parseInt(fixtureId));
+    // ── Odds ao vivo ──
+    buscarOddsLiveLoop(parseInt(fixtureId));
 
-    // Histórico dos jogadores (rating médio últimos 10 jogos)
-    setTimeout(()=>buscarHistoricoJogadoresFn().catch(e=>console.warn('hist jog:',e.message)), 5000);
+  } else if (isNS) {
+    // Pré-jogo: verifica a cada 30s se o jogo começou
+    const nsTimer = setInterval(() => {
+      refreshDados(fixtureId, dId).then(() => {
+        const s = DADOS?.fixture?.status?.short;
+        if (s && !['NS','TBD'].includes(s)) {
+          clearInterval(nsTimer);
+          // Jogo começou — reiniciar com loops de ao vivo
+          _LOOPS_INICIADOS = false;
+          _iniciarLoops(fixtureId, dId);
+        }
+      });
+    }, 30000);
+  }
+}
 
-    // Ao vivo: snapshot players a cada 2min + odds a cada 3min
-    if(isLive){
-      setTimeout(()=>registrarSnapshotPlayers(parseInt(fixtureId)).catch(()=>{}),8000);
-      setInterval(()=>registrarSnapshotPlayers(parseInt(fixtureId)).catch(()=>{}),120000);
-      buscarOddsLiveLoop(parseInt(fixtureId));
-    } // fim if isLive
-    // Comentarista inicia no callback do buscarHistoricoBackground
+// ── Refresh leve: só busca dados e re-renderiza, sem setup de loops ──
+async function refreshDados(fixtureId, dId) {
+  try {
+    const fn = fns.httpsCallable('buscarDadosJogo');
+    const r  = await fn({ fixtureId: parseInt(fixtureId) });
+    if (!r.data) return;
+    DADOS = r.data;
+    renderAll();
+    verificarGolParaSnapshot();
+    verificarJanelaPreEvento(); // 🆕
+    verificarResultadosPrevisoes();
+    const isFt = ['FT','AET','PEN'].includes(DADOS.fixture.status.short);
+    if (isFt) {
+      salvarRelatorioFn();
+      ajustarPesosAutomatico(); // 🆕
+      _pararLoopsEncerrado();
+    }
+    // Atualizar badge de status ao vivo
+    _atualizarBadgeStatus();
+  } catch(e) { console.warn('refreshDados:', e.message); }
+}
 
-  }catch(e){errPage('Erro: '+e.message+' | '+( e.stack?e.stack.split('\n')[1]:''));}
+// ── Para todos os loops quando o jogo encerra ──
+function _pararLoopsEncerrado() {
+  if (_refreshTimer)      { clearInterval(_refreshTimer);      _refreshTimer = null; }
+  if (snapTimer)          { clearInterval(snapTimer);           snapTimer = null; }
+  if (_snapPlayersTimer)  { clearInterval(_snapPlayersTimer);   _snapPlayersTimer = null; }
+  if (oddsTimer)          { clearInterval(oddsTimer);           oddsTimer = null; }
+  if (PULSO_AUTO_REFRESH) { clearInterval(PULSO_AUTO_REFRESH);  PULSO_AUTO_REFRESH = null; }
+  console.log('✅ Todos os loops encerrados — jogo finalizado.');
+}
+
+// ── Atualiza badge de ao vivo no snapStatus ──
+function _atualizarBadgeStatus() {
+  const st  = DADOS?.fixture?.status;
+  const bar = gc('snapStatusBar');
+  const msg = gc('snapStatusMsg');
+  if (!bar || !msg) return;
+  const isLive = ['1H','2H','ET','P','HT','BT'].includes(st?.short);
+  if (isLive) {
+    bar.style.display = 'flex';
+    msg.textContent = `Ao vivo — ${st.elapsed || 0}' · atualizando a cada 60s`;
+  } else {
+    msg.textContent = `Jogo encerrado — ${st?.long || 'FT'}`;
+  }
 }
 
 async function registrarSnapshot(fixtureId,docId){
@@ -1789,6 +1875,146 @@ async function buscarHistoricoBackground(casaId,foraId,temporada){
     gc('histLoadMsg').textContent='Erro ao buscar histórico: '+e.message;
     console.warn('Histórico:',e);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 🆕 JANELA PRÉ-EVENTO — coração do aprendizado automático
+// Quando um gol/cartão/pênalti ocorre, captura os snapshots dos
+// 5 minutos anteriores e registra padrões no banco para aprendizado
+// ══════════════════════════════════════════════════════════════════
+function verificarJanelaPreEvento() {
+  if (!DADOS || !SNAPSHOTS.length) return;
+  const evs = DADOS.eventos || [];
+  const tiposRelevantes = ['Goal', 'Card', 'Var']; // expandir conforme necessário
+
+  evs.filter(e => tiposRelevantes.includes(e.tipo)).forEach(ev => {
+    const chave = `${ev.tipo}_${ev.minuto}_${ev.jogador?.id||ev.time?.id||'?'}`;
+    if (_EVENTOS_JA_PROCESSADOS.has(chave)) return;
+    _EVENTOS_JA_PROCESSADOS.add(chave);
+
+    const minEvento = ev.minuto || 0;
+
+    // Pegar snapshots dos 5 minutos ANTES do evento
+    const snapsBefore = SNAPSHOTS.filter(s => {
+      const m = s.minuto || 0;
+      return m > 0 && m <= minEvento && m >= minEvento - 5;
+    }).sort((a,b) => (a.minuto||0) - (b.minuto||0));
+
+    if (snapsBefore.length < 1) return; // sem dados suficientes
+
+    // Calcular variações nos snaps pré-evento
+    const variacoes = _calcularVariacoesPre(snapsBefore);
+
+    // Capturar estado das odds 1-3 min antes do evento
+    const oddsAntes = _getOddsAntesEvento(minEvento);
+
+    const janela = {
+      tipo:       ev.tipo,
+      detalhe:    ev.detalhe || '',
+      minuto:     minEvento,
+      timeId:     ev.time?.id,
+      isCasa:     ev.time?.id === DADOS.fixture.timeCasa.id,
+      placar:     [DADOS.fixture.placar?.casa||0, DADOS.fixture.placar?.fora||0],
+      snapsBefore,
+      variacoes,
+      oddsAntes,
+      fixtureId:  CURRENT_FIX_ID,
+      ligaId:     DADOS.fixture.liga?.id,
+      timeCasaId: DADOS.fixture.timeCasa.id,
+      timeForaId: DADOS.fixture.timeFora.id,
+      ts:         Date.now()
+    };
+    JANELAS_PRE_EVENTO.push(janela);
+
+    // Salvar no Firestore para aprendizado acumulativo
+    _salvarJanelaPreEventoFirestore(janela);
+
+    // Log para debug
+    console.log(`🔬 Janela pré-${ev.tipo} capturada (min ${minEvento}'):`, variacoes);
+  });
+}
+
+// Calcula variações nos snapshots antes do evento (delta entre primeiro e último snap)
+function _calcularVariacoesPre(snaps) {
+  if (snaps.length < 2) {
+    const s = snaps[0];
+    return {
+      ap_casa:    s.ataquesPerigososCasa || 0,
+      ap_fora:    s.ataquesPerigososFora || 0,
+      xg_casa:    s.xgCasa || 0,
+      xg_fora:    s.xgFora || 0,
+      chutes_casa:s.chutesAlvoCasa || 0,
+      chutes_fora:s.chutesAlvoFora || 0,
+      posse_casa: s.posseCasa || null,
+    };
+  }
+  const primeiro = snaps[0];
+  const ultimo   = snaps[snaps.length - 1];
+  return {
+    // Variação ACUMULADA nos 5min antes do evento
+    delta_ap_casa:     (ultimo.ataquesPerigososCasa||0) - (primeiro.ataquesPerigososCasa||0),
+    delta_ap_fora:     (ultimo.ataquesPerigososFora||0) - (primeiro.ataquesPerigososFora||0),
+    delta_xg_casa:     ((ultimo.xgCasa||0) - (primeiro.xgCasa||0)),
+    delta_xg_fora:     ((ultimo.xgFora||0) - (primeiro.xgFora||0)),
+    delta_chutes_casa: (ultimo.chutesAlvoCasa||0) - (primeiro.chutesAlvoCasa||0),
+    delta_chutes_fora: (ultimo.chutesAlvoFora||0) - (primeiro.chutesAlvoFora||0),
+    // Valores absolutos no momento (último snap antes do evento)
+    ap_casa_abs:    ultimo.ataquesPerigososCasa || 0,
+    ap_fora_abs:    ultimo.ataquesPerigososFora || 0,
+    xg_casa_abs:    ultimo.xgCasa || 0,
+    xg_fora_abs:    ultimo.xgFora || 0,
+    posse_casa:     ultimo.posseCasa || null,
+    // Taxa de ataque (ataques por minuto antes do evento)
+    taxa_ap_casa:   snaps.length > 1
+      ? ((ultimo.ataquesPerigososCasa||0) - (primeiro.ataquesPerigososCasa||0)) / Math.max(1,(ultimo.minuto||1)-(primeiro.minuto||0))
+      : 0,
+    taxa_ap_fora:   snaps.length > 1
+      ? ((ultimo.ataquesPerigososFora||0) - (primeiro.ataquesPerigososFora||0)) / Math.max(1,(ultimo.minuto||1)-(primeiro.minuto||0))
+      : 0,
+    n_snaps: snaps.length,
+  };
+}
+
+// Retorna as odds capturadas imediatamente antes do evento (do ODDS_HISTORY)
+function _getOddsAntesEvento(minEvento) {
+  const mins = Object.keys(ODDS_HISTORY).map(Number).filter(m => m <= minEvento && m > 0).sort((a,b)=>b-a);
+  if (!mins.length) return null;
+  const minMaisProximo = mins[0];
+  const o = ODDS_HISTORY[minMaisProximo];
+  // Incluir velocidade se disponível
+  const vel = ODDS_VELOCITY.filter(v => v.minuto <= minEvento).slice(-1)[0];
+  return {
+    minuto:    minMaisProximo,
+    casa:      o.casa,
+    fora:      o.fora,
+    empate:    o.empate,
+    over25:    o.over25 || null,
+    fonte:     o.fonte,
+    velCasa:   vel?.velCasa   || null,
+    velFora:   vel?.velFora   || null,
+  };
+}
+
+async function _salvarJanelaPreEventoFirestore(janela) {
+  try {
+    const fn = fns.httpsCallable('registrarJanelaPreEvento');
+    await fn({
+      fixtureId:   janela.fixtureId,
+      tipo:        janela.tipo,
+      detalhe:     janela.detalhe,
+      minuto:      janela.minuto,
+      isCasa:      janela.isCasa,
+      timeId:      janela.timeId,
+      placarCasa:  janela.placar[0],
+      placarFora:  janela.placar[1],
+      variacoes:   janela.variacoes,
+      oddsAntes:   janela.oddsAntes,
+      ligaId:      janela.ligaId,
+      timeCasaId:  janela.timeCasaId,
+      timeForaId:  janela.timeForaId,
+    });
+    console.log(`✅ Janela pré-${janela.tipo} salva no Firestore (min ${janela.minuto}')`);
+  } catch(e) { console.warn('salvarJanelaPreEvento CF:', e.message); }
 }
 
 function errPage(m){
@@ -8863,6 +9089,86 @@ function calcularDNATexto(teamId) {
   return 'Equilibrado';
 }
 
+// ══════════════════════════════════════════════════════════════════
+// 🆕 AJUSTE AUTOMÁTICO DE PESOS — aprende com os acertos/erros
+// Chamado após encerramento do jogo. Analisa quais fatores mais
+// contribuíram para acertos e ajusta pesos para o próximo jogo.
+// ══════════════════════════════════════════════════════════════════
+function ajustarPesosAutomatico() {
+  const prevsVerif = PREV_HISTORICO.filter(p => p.resultado !== null && p.resultado !== 'pendente');
+  if (prevsVerif.length < 3) return; // poucos dados — não ajustar
+
+  const acertos = prevsVerif.filter(p => p.resultado === 'acerto');
+  const erros   = prevsVerif.filter(p => p.resultado === 'erro');
+  const taxaAcerto = acertos.length / prevsVerif.length;
+
+  console.log(`🧠 Ajuste automático: ${acertos.length}/${prevsVerif.length} acertos (${Math.round(taxaAcerto*100)}%)`);
+
+  // Análise: quando acertamos, quais fatores estavam presentes?
+  // Quando erramos, quais estavam presentes?
+  const analise = _analisarFatoresPorResultado(acertos, erros);
+
+  // Aplicar ajuste gradual (máx ±20% por jogo para não oscilar muito)
+  const AJUSTE_MAX  = 0.2;
+  const TAXA_APRENDIZADO = 0.1; // 10% de ajuste por jogo
+
+  const novosPesos = { ...PESOS };
+
+  if (taxaAcerto > 0.65) {
+    // Acima de 65%: reforçar os pesos que estavam alinhados com acertos
+    if (analise.xgForteNosAcertos)     novosPesos.xgDef     = Math.min(PESOS.xgDef     * (1 + TAXA_APRENDIZADO), PESOS_DEFAULT.xgDef.max     || 15);
+    if (analise.apForteNosAcertos)     novosPesos.momentum  = Math.min(PESOS.momentum  * (1 + TAXA_APRENDIZADO), PESOS_DEFAULT.momentum.max  || 25);
+    if (analise.precisaoForteNosAcertos) novosPesos.precisaoTiro = Math.min(PESOS.precisaoTiro * (1 + TAXA_APRENDIZADO), PESOS_DEFAULT.precisaoTiro.max || 20);
+  } else if (taxaAcerto < 0.40) {
+    // Abaixo de 40%: reduzir pesos que estavam nos erros
+    if (analise.xgForteNosErros)       novosPesos.xgDef     = Math.max(PESOS.xgDef     * (1 - TAXA_APRENDIZADO), PESOS_DEFAULT.xgDef.min     || 2);
+    if (analise.apForteNosErros)       novosPesos.momentum  = Math.max(PESOS.momentum  * (1 - TAXA_APRENDIZADO), PESOS_DEFAULT.momentum.min  || 5);
+  }
+
+  // Aplicar só se houve mudança real
+  const mudou = Object.keys(novosPesos).some(k => Math.abs(novosPesos[k] - PESOS[k]) > 0.01);
+  if (mudou) {
+    PESOS = novosPesos;
+    salvarPesos();
+    console.log('✅ Pesos ajustados automaticamente:', PESOS);
+    // Enviar log ao Firestore para histórico de calibrações
+    _salvarLogCalibracao(taxaAcerto, analise, novosPesos);
+  }
+}
+
+function _analisarFatoresPorResultado(acertos, erros) {
+  // Verifica se xG estava alto nas previsões que acertamos/erramos
+  // (simplificado — com mais dados isso vira uma regressão real)
+  const mediaXgAcertos = acertos.length
+    ? acertos.reduce((s,p) => s + (p.conf||0), 0) / acertos.length : 0;
+  const mediaXgErros   = erros.length
+    ? erros.reduce((s,p) => s + (p.conf||0), 0) / erros.length : 0;
+
+  return {
+    xgForteNosAcertos:        mediaXgAcertos > 65,
+    xgForteNosErros:          mediaXgErros   > 65,
+    apForteNosAcertos:        mediaXgAcertos > 70,
+    apForteNosErros:          mediaXgErros   > 70,
+    precisaoForteNosAcertos:  acertos.some(p => p.tipo === 'gol_casa' || p.tipo === 'gol_fora'),
+    taxaGeral:                acertos.length / Math.max(1, acertos.length + erros.length),
+  };
+}
+
+async function _salvarLogCalibracao(taxaAcerto, analise, novosPesos) {
+  try {
+    const fn = fns.httpsCallable('registrarLogCalibracao');
+    await fn({
+      fixtureId:   CURRENT_FIX_ID,
+      taxaAcerto,
+      totalPrevisoes: PREV_HISTORICO.length,
+      pesosAntes:  PESOS,
+      pesosDepois: novosPesos,
+      analise,
+      ts: Date.now()
+    });
+  } catch(e) { console.warn('logCalibracao CF:', e.message); }
+}
+
 // ── Salvar relatório pós-jogo no Firestore ──
 async function salvarRelatorioFn() {
   if (!DADOS || RELATORIO_SALVO) return;
@@ -9054,37 +9360,134 @@ async function buscarOddsLiveLoop(fixtureId){
         const prev=ODDS_LIVE;
         ODDS_LIVE=r.data.dados;
         if(prev) ODDS_LIVE._anterior=prev;
-        // Gravar no ODDS_HISTORY com o minuto atual
+        // Gravar no ODDS_HISTORY com o minuto ATUAL — nunca retroativo
         const _min=DADOS?.fixture?.status?.elapsed||0;
-        ODDS_HISTORY[_min]={
-          casa:ODDS_LIVE.casa, empate:ODDS_LIVE.empate, fora:ODDS_LIVE.fora,
-          over25:ODDS_LIVE.over25, fonte:ODDS_LIVE.bookmaker||'live'
-        };
-        // Preencher retroativamente todos os snaps sem odds (sessão anterior ou recarregamento)
-        SNAPSHOTS.forEach(s => {
-          if (!s.oddsCasa && !s.oddsEmpate) {
-            s.oddsCasa   = ODDS_LIVE.casa;
-            s.oddsEmpate = ODDS_LIVE.empate;
-            s.oddsFora   = ODDS_LIVE.fora;
-            s.oddsOver25 = ODDS_LIVE.over25;
-            s.oddsFonte  = 'retro';
-            ODDS_HISTORY[s.minuto] = ODDS_HISTORY[s.minuto] || {
-              casa:ODDS_LIVE.casa, empate:ODDS_LIVE.empate, fora:ODDS_LIVE.fora,
-              over25:ODDS_LIVE.over25, fonte:'retro'
-            };
-          }
-        });
+        if(_min>0){
+          ODDS_HISTORY[_min]={
+            casa:ODDS_LIVE.casa, empate:ODDS_LIVE.empate, fora:ODDS_LIVE.fora,
+            over25:ODDS_LIVE.over25, fonte:ODDS_LIVE.bookmaker||'live',
+            ts: Date.now() // 🆕 timestamp real da captura
+          };
+          // 🆕 Calcular velocidade de variação das odds (speed of odds)
+          _registrarVelocidadeOdds(_min, ODDS_LIVE, prev);
+        }
+        // 🆕 NÃO preencher retroativamente snapshots antigos com odds atuais
+        // Em vez disso: usar interpolação linear para snaps sem odds entre dois pontos conhecidos
+        _interpolarOddsSnapshots();
+
         if(PULSO_TAB_ATIVA) pulsoRender();
         renderOdds();
         renderAlgo();
       }
     }catch(e){
     console.warn('oddsLive:',e.message);
-    // Odds indisponíveis é normal para muitos jogos — não bloqueia UI
   }
   };
   buscar(); // imediato
   oddsTimer=setInterval(buscar,60000); // a cada 60s — mesmo ciclo dos snapshots
+}
+
+// ══════════════════════════════════════════════════════════════
+// 🆕 SPEED OF ODDS — velocidade de variação das odds por minuto
+// Movimento rápido de odds = dinheiro inteligente entrando agora
+// ══════════════════════════════════════════════════════════════
+function _registrarVelocidadeOdds(minAtual, oddsAtuais, oddsPrev) {
+  if (!oddsPrev || !oddsAtuais) return;
+  const deltaMin = (ODDS_VELOCITY.length > 0)
+    ? minAtual - ODDS_VELOCITY[ODDS_VELOCITY.length-1].minuto
+    : 1;
+  if (deltaMin <= 0) return;
+
+  const velCasa   = (oddsAtuais.casa   - (oddsPrev.casa||oddsAtuais.casa))   / deltaMin;
+  const velFora   = (oddsAtuais.fora   - (oddsPrev.fora||oddsAtuais.fora))   / deltaMin;
+  const velEmpate = (oddsAtuais.empate - (oddsPrev.empate||oddsAtuais.empate)) / deltaMin;
+
+  const entrada = {
+    minuto:  minAtual,
+    casa:    oddsAtuais.casa,
+    fora:    oddsAtuais.fora,
+    empate:  oddsAtuais.empate,
+    velCasa,   // positivo = odd subiu (time ficou mais azarão)
+    velFora,   // negativo = odd caiu (time ficou mais favorito)
+    velEmpate,
+    ts: Date.now()
+  };
+  ODDS_VELOCITY.push(entrada);
+  if (ODDS_VELOCITY.length > 120) ODDS_VELOCITY.shift(); // manter últimos 2h
+
+  // Detectar movimento SHARP: variação > 0.15 em 1 minuto
+  const SHARP_THRESHOLD = 0.15;
+  const alertas = [];
+  if (Math.abs(velCasa)   >= SHARP_THRESHOLD) alertas.push({lado:'casa',   vel:velCasa,   odd:oddsAtuais.casa,   min:minAtual});
+  if (Math.abs(velFora)   >= SHARP_THRESHOLD) alertas.push({lado:'fora',   vel:velFora,   odd:oddsAtuais.fora,   min:minAtual});
+  if (alertas.length > 0) {
+    alertas.forEach(a => _dispararAlertaSharp(a));
+    _salvarVelocidadeFirestore(entrada, alertas);
+  }
+  _ULTIMA_ODDS_REGISTRADA = entrada;
+}
+
+function _dispararAlertaSharp(alerta) {
+  const nome = alerta.lado === 'casa'
+    ? DADOS?.fixture?.timeCasa?.nome
+    : DADOS?.fixture?.timeFora?.nome;
+  const direcao = alerta.vel > 0 ? '↑ subindo (azarão)' : '↓ caindo (favorito)';
+  const msg = `⚡ SHARP: ${nome} ${direcao} (${alerta.vel>0?'+':''}${alerta.vel.toFixed(2)}/min) → odd ${alerta.odd?.toFixed(2)} no min ${alerta.min}'`;
+  console.warn('%c' + msg, 'color:#f5a524;font-weight:bold');
+  toast('🏦 ' + msg, 'ok');
+  // Adicionar ao feed do comentarista
+  if (COMENTARISTA_FEED) {
+    COMENTARISTA_FEED.unshift({ texto: msg, tipo: 'sharp', minuto: alerta.min, ts: Date.now() });
+    if (COMENTARISTA_FEED.length > 25) COMENTARISTA_FEED.length = 25;
+  }
+}
+
+async function _salvarVelocidadeFirestore(entrada, alertas) {
+  try {
+    const fn = fns.httpsCallable('registrarVelocidadeOdds');
+    await fn({
+      fixtureId:   CURRENT_FIX_ID,
+      minuto:      entrada.minuto,
+      velCasa:     entrada.velCasa,
+      velFora:     entrada.velFora,
+      velEmpate:   entrada.velEmpate,
+      oddsCasa:    entrada.casa,
+      oddsFora:    entrada.fora,
+      oddsEmpate:  entrada.empate,
+      alertas,
+      ts: entrada.ts
+    });
+  } catch(e) { console.warn('velocidadeOdds CF:', e.message); }
+}
+
+// 🆕 Interpolação linear de odds em snaps sem odds — NÃO usa odds atuais retroativamente
+function _interpolarOddsSnapshots() {
+  const mins = Object.keys(ODDS_HISTORY).map(Number).sort((a,b)=>a-b);
+  if (mins.length < 2) return; // precisa de pelo menos 2 pontos conhecidos
+
+  SNAPSHOTS.forEach(s => {
+    if (s.oddsCasa || s.oddsFonte === 'pre') return; // já tem odds reais ou pré-jogo
+
+    const m = s.minuto || 0;
+    // Encontrar ponto anterior e posterior com odds conhecidas
+    const antes  = mins.filter(x => x <= m).pop();
+    const depois = mins.filter(x => x > m).shift();
+
+    if (antes == null || depois == null) return; // sem pontos para interpolar
+
+    const oA = ODDS_HISTORY[antes];
+    const oD = ODDS_HISTORY[depois];
+    const ratio = (depois - antes) > 0 ? (m - antes) / (depois - antes) : 0;
+
+    s.oddsCasa   = oA.casa   + (oD.casa   - oA.casa)   * ratio;
+    s.oddsEmpate = oA.empate + (oD.empate - oA.empate) * ratio;
+    s.oddsFora   = oA.fora   + (oD.fora   - oA.fora)   * ratio;
+    s.oddsOver25 = oA.over25 ? oA.over25 + ((oD.over25||oA.over25) - oA.over25) * ratio : null;
+    s.oddsFonte  = 'interpolado'; // 🆕 marcar claramente que foi interpolado, não capturado
+    if (ODDS_HISTORY[antes]) ODDS_HISTORY[m] = ODDS_HISTORY[m] || {
+      casa:s.oddsCasa, empate:s.oddsEmpate, fora:s.oddsFora, over25:s.oddsOver25, fonte:'interpolado'
+    };
+  });
 }
 
 // ═══ RENDER PREDICTIONS ═══
@@ -9550,6 +9953,7 @@ function pulsoRender() {
 
   el.innerHTML =
     pulsoAlertas(vars, snaps, nc, nf) +
+    _renderVelocidadeOdds() + // 🆕 Speed of Odds
     '<div class="sparkline-wrap">' +
       '<div class="spark-card"><div class="spark-titulo">Ataques Perigosos <span id="spk-ap-v"></span></div><canvas class="spark" id="spk-ap"></canvas></div>' +
       '<div class="spark-card"><div class="spark-titulo">Chutes a Gol <span id="spk-ch-v"></span></div><canvas class="spark" id="spk-ch"></canvas></div>' +
@@ -9560,6 +9964,57 @@ function pulsoRender() {
     `<div style="font-size:10px;color:var(--t3);padding:6px 0 2px;text-align:center;">${snaps.length} snapshots · atualiza a cada minuto ao vivo</div>`;
 
   setTimeout(() => pulsoDrawSparks(snaps), 60);
+}
+
+// 🆕 Renderiza painel de Speed of Odds no Pulso
+function _renderVelocidadeOdds() {
+  if (!ODDS_VELOCITY.length) return '';
+  const f  = DADOS?.fixture;
+  const nc = f?.timeCasa?.nome || 'Casa';
+  const nf = f?.timeFora?.nome || 'Fora';
+
+  // Últimos 15 registros
+  const ult = ODDS_VELOCITY.slice(-15);
+  const maxVel = Math.max(...ult.flatMap(v => [Math.abs(v.velCasa||0), Math.abs(v.velFora||0)]), 0.01);
+
+  // Detectar movimento sharp recente (últimos 5min)
+  const minAtual = f?.status?.elapsed || 0;
+  const sharps   = ODDS_VELOCITY.filter(v => v.minuto >= minAtual - 5 && (Math.abs(v.velCasa||0) >= 0.15 || Math.abs(v.velFora||0) >= 0.15));
+
+  const sharpHtml = sharps.length
+    ? `<div style="background:rgba(245,165,36,.1);border:1px solid rgba(245,165,36,.3);border-radius:7px;padding:7px 10px;margin-bottom:8px;font-size:11px;color:var(--acc);">
+        ⚡ <strong>SHARP MONEY</strong> detectado: ${sharps.map(s=>{
+          const quem = Math.abs(s.velCasa) > Math.abs(s.velFora) ? nc : nf;
+          const dir  = (Math.abs(s.velCasa) > Math.abs(s.velFora) ? s.velCasa : s.velFora) < 0 ? '↓ caindo (favorito)' : '↑ subindo (azarão)';
+          return `<b>${quem}</b> ${dir} min ${s.minuto}'`;
+        }).join(' · ')}
+      </div>` : '';
+
+  const barras = ult.map(v => {
+    const hC = Math.round(Math.abs(v.velCasa||0) / maxVel * 28);
+    const hF = Math.round(Math.abs(v.velFora||0) / maxVel * 28);
+    const corC = (v.velCasa||0) < 0 ? 'var(--grn)' : 'var(--red)'; // cai = favorito = verde
+    const corF = (v.velFora||0) < 0 ? 'var(--grn)' : 'var(--red)';
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:1;cursor:default;" title="Min ${v.minuto}' | ${nc}: ${v.velCasa>0?'+':''}${(v.velCasa||0).toFixed(3)}/min | ${nf}: ${v.velFora>0?'+':''}${(v.velFora||0).toFixed(3)}/min">
+      <div style="height:${Math.max(hC,2)}px;width:5px;border-radius:2px 2px 0 0;background:${corC};opacity:.8;"></div>
+      <div style="height:${Math.max(hF,2)}px;width:5px;border-radius:2px 2px 0 0;background:${corF};opacity:.5;"></div>
+      <div style="font-size:7px;color:var(--t3);margin-top:1px;">${v.minuto}'</div>
+    </div>`;
+  }).join('');
+
+  return `<div style="background:var(--c2);border:1px solid var(--bd2);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+    <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:8px;">
+      🏦 SPEED OF ODDS — velocidade de variação por minuto
+      <span style="font-size:9px;font-weight:400;margin-left:6px;">verde = caindo (favorito) · vermelho = subindo (azarão)</span>
+    </div>
+    ${sharpHtml}
+    <div style="display:flex;gap:1px;align-items:flex-end;height:44px;">${barras}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:9px;color:var(--t3);">
+      <span style="color:var(--acc)">● ${nc}</span>
+      <span style="color:var(--blu);opacity:.6">● ${nf}</span>
+      <span>${ODDS_VELOCITY.length} capturas</span>
+    </div>
+  </div>`;
 }
 
 function pulsoCalcVar(snaps) {
@@ -9664,11 +10119,14 @@ function pulsoTabela(snaps, vars, nc, nf) {
     if (!o.casa && !o.empate && !o.fora)
       return '<td colspan="4" style="color:var(--t3);opacity:.3;font-size:9px;text-align:center;">—</td>';
     const f = x => x!=null ? parseFloat(x).toFixed(2) : '—';
-    const isPre = s.minuto===0 || o.fonte==='pre';
-    return `<td style="color:var(--acc);font-weight:700;font-size:11px;">${f(o.casa)}${vbadge(v?.dOC,PULSO_LIMITES.odds,true)}</td>
-      <td style="color:var(--t3);font-size:11px;">${f(o.empate)}</td>
-      <td style="color:var(--blu);font-weight:700;font-size:11px;">${f(o.fora)}${vbadge(v?.dOF,PULSO_LIMITES.odds,true)}</td>
-      <td style="color:var(--t3);font-size:10px;">${o.over25?f(o.over25):'—'}${isPre?'<sup style="font-size:7px;">★</sup>':''}</td>`;
+    const isPre          = s.minuto===0 || o.fonte==='pre';
+    const isInterpolado  = o.fonte==='interpolado'; // 🆕
+    const opacidade      = isInterpolado ? 'opacity:.55;' : ''; // odds interpoladas mais apagadas
+    const sufixo         = isPre ? '<sup style="font-size:7px;">★</sup>' : isInterpolado ? '<sup style="font-size:7px;color:var(--t3);">~</sup>' : '';
+    return `<td style="color:var(--acc);font-weight:700;font-size:11px;${opacidade}">${f(o.casa)}${vbadge(v?.dOC,PULSO_LIMITES.odds,true)}${isPre?'<sup style="font-size:7px;">★</sup>':isInterpolado?'<sup style="font-size:7px;color:var(--t3);">~</sup>':''}</td>
+      <td style="color:var(--t3);font-size:11px;${opacidade}">${f(o.empate)}</td>
+      <td style="color:var(--blu);font-weight:700;font-size:11px;${opacidade}">${f(o.fora)}${vbadge(v?.dOF,PULSO_LIMITES.odds,true)}</td>
+      <td style="color:var(--t3);font-size:10px;${opacidade}">${o.over25?f(o.over25):'—'}${sufixo}</td>`;
   };
 
   const aviso = !temStats && snaps.length
@@ -9695,7 +10153,8 @@ function pulsoTabela(snaps, vars, nc, nf) {
     </tr>`;
   }).join('');
 
-  return `<table class="pulso-table">${thead}<tbody>${aviso}${rows}</tbody></table>`;
+  return `<table class="pulso-table">${thead}<tbody>${aviso}${rows}</tbody></table>
+  <div style="font-size:9px;color:var(--t3);padding:4px 2px;">★ odds pré-jogo &nbsp;·&nbsp; ~ odds interpoladas (entre dois pontos reais) &nbsp;·&nbsp; sem símbolo = captura real ao vivo</div>`;
 }
 
 </script>
