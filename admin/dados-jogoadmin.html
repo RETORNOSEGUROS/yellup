@@ -1814,7 +1814,9 @@ async function registrarSnapshot(fixtureId,docId){
     };
     const snapLocal={
       minuto,
-      posseCasa:           getSL(f.timeCasa.id,'Ball Possession'),  // null se indisponível
+      placarCasa:          f.placar?.casa ?? null,   // ← FIX: estava faltando
+      placarFora:          f.placar?.fora ?? null,   // ← FIX: estava faltando
+      posseCasa:           getSL(f.timeCasa.id,'Ball Possession'),
       posseFora:           getSL(f.timeFora.id,'Ball Possession'),
       ataquesPerigososCasa:getSL(f.timeCasa.id,'Dangerous Attacks')??0,
       ataquesPerigososFora:getSL(f.timeFora.id,'Dangerous Attacks')??0,
@@ -1825,6 +1827,7 @@ async function registrarSnapshot(fixtureId,docId){
       xgCasa:              getSL(f.timeCasa.id,'expected_goals')??0,
       xgFora:              getSL(f.timeFora.id,'expected_goals')??0,
       ataquesCasa:         getSL(f.timeCasa.id,'Attacks')??0,
+      ataquesFora:         getSL(f.timeFora.id,'Attacks')??0,      // ← FIX: fallback para AP
       faltasCasa:          getSL(f.timeCasa.id,'Fouls')??0,
       // Odds Bet365 no momento exato do snapshot
       oddsCasa:   (ODDS_LIVE?.casa   ?? ODDS_HISTORY[minuto]?.casa   ?? ODDS_PREJOGO?.odds?.resultados?.odd1  ?? null),
@@ -3798,6 +3801,16 @@ function getStat(statsArr, teamId, key){
   if(v===null||v===undefined)return null;
   const s=String(v).replace('%','').trim();
   return isNaN(s)?null:parseFloat(s);
+}
+
+// Versão especial para Ataques Perigosos: usa 'Attacks' como fallback
+// quando 'Dangerous Attacks' vem null/0 (comum em UCL e ligas sem tracking Opta)
+function getStatAP(statsArr, teamId) {
+  const ap = getStat(statsArr, teamId, 'Dangerous Attacks');
+  if (ap != null && ap > 0) return { val: ap, fonte: 'dangerous' };
+  const atk = getStat(statsArr, teamId, 'Attacks');
+  if (atk != null && atk > 0) return { val: atk, fonte: 'attacks' };
+  return { val: 0, fonte: 'none' };
 }
 
 function momentum(evs, teamId, fromMin, toMin){
@@ -10120,7 +10133,10 @@ async function buscarOddsLiveLoop(fixtureId){
   const buscar=async()=>{
     try{
       const fn=fns.httpsCallable('buscarOddsLive');
-      const r=await fn({fixtureId});
+      // Passar nomes dos times para a CF conseguir fazer match na Odds-API.io
+      const nomeCasa = DADOS?.fixture?.timeCasa?.nome || '';
+      const nomeFora = DADOS?.fixture?.timeFora?.nome || '';
+      const r=await fn({fixtureId, nomeCasa, nomeFora});
       if(r.data?.sucesso && r.data.dados){
         const prev=ODDS_LIVE;
         ODDS_LIVE=r.data.dados;
@@ -10461,9 +10477,21 @@ function renderOdds(){
     else if(diffC<-15) sinalMercado=`<div class="odds-sinal warn">📉 Mercado ${Math.abs(diffC)}pp acima do nosso algoritmo para ${f.timeCasa.nome}</div>`;
   }
 
+  // Badge de fonte — ao vivo vs pré-jogo
+  const isPre = o.fonte === 'pre_jogo';
+  const isApiIo = o.fonte === 'odds_api_io';
+  const fonteBadge = isPre
+    ? `<span style="font-size:9px;background:rgba(255,200,0,.15);color:#f5c542;border:1px solid rgba(245,197,66,.3);border-radius:4px;padding:1px 5px;margin-left:4px;">★ pré-jogo</span>`
+    : isApiIo
+    ? `<span style="font-size:9px;background:rgba(50,200,100,.12);color:#3ec87a;border:1px solid rgba(62,200,122,.3);border-radius:4px;padding:1px 5px;margin-left:4px;">● ao vivo</span>`
+    : `<span style="font-size:9px;background:rgba(100,150,255,.12);color:#7fa8ff;border:1px solid rgba(127,168,255,.3);border-radius:4px;padding:1px 5px;margin-left:4px;">● ao vivo</span>`;
+  const bookmakerNome = o.bookmaker || 'Bet365';
+
   el.innerHTML=`
     <div class="odds-live-card">
-      <div style="font-size:10px;color:var(--t3);margin-bottom:8px;">Minuto ${o.minuto||'—'}' · Prob. implícita normalizada (sem margem da casa)</div>
+      <div style="font-size:10px;color:var(--t3);margin-bottom:8px;display:flex;align-items:center;gap:4px;">
+        <span>${bookmakerNome}</span>${fonteBadge}<span style="margin-left:auto;">Min ${o.minuto||'—'}' · prob. implícita sem margem</span>
+      </div>
       <div class="pred-api-pcts">
         <div class="pred-api-pct" style="color:var(--acc)">
           <span class="pred-api-val">${nC}%</span>
@@ -10648,11 +10676,21 @@ const PULSO_LIMITES = {
 function snapParaPulso(s) {
   const min = s.minuto || 0;
   const oh  = ODDS_HISTORY[min] || {};
+
+  // ── FIX: AP fallback para Attacks totais quando Dangerous Attacks indisponível ──
+  // A API-Football não retorna Dangerous Attacks para todas as ligas (ex: UCL).
+  // Nesse caso usamos Attacks totais como proxy — marcamos com flag para UI saber.
+  const apCRaw = s.ataquesPerigososCasa ?? null;
+  const apFRaw = s.ataquesPerigososFora ?? null;
+  const usandoFallbackAP = (!apCRaw && !apFRaw) && (s.ataquesCasa > 0 || s.ataquesFora > 0);
+  const apC = apCRaw || (usandoFallbackAP ? (s.ataquesCasa ?? null) : null);
+  const apF = apFRaw || (usandoFallbackAP ? (s.ataquesFora ?? null) : null);
+
   return {
     minuto: min,
     placarCasa: s.placarCasa ?? null,
     placarFora: s.placarFora ?? null,
-    ap:     { c: s.ataquesPerigososCasa ?? null, f: s.ataquesPerigososFora ?? null },
+    ap:     { c: apC, f: apF, fallback: usandoFallbackAP },
     chutes: { c: s.chutesAlvoCasa       ?? null, f: s.chutesAlvoFora       ?? null },
     xg:     { c: s.xgCasa               ?? null, f: s.xgFora               ?? null },
     posse:  { c: s.posseCasa            ?? null, f: s.posseFora             ?? null },
@@ -10868,9 +10906,14 @@ function pulsoTabela(snaps, vars, nc, nf) {
   const temStats = snaps.some(s=>s.ap.c||s.chutes.c||s.xg.c);
   const sc = nc.substring(0,6), sf = nf.substring(0,6);
 
+  // Detectar se snaps estão usando fallback de AP
+  const usandoFallbackAP = snaps.some(s => s.ap?.fallback);
+  const apLabel = usandoFallbackAP ? 'Ataques†' : 'AP';
+  const apTip   = usandoFallbackAP ? '† Ataques totais (Dangerous Attacks indisponível nesta liga)' : '';
+
   const thead = `<thead><tr>
     <th style="text-align:left;">Min</th><th>Placar</th>
-    <th class="casa">AP<br><small>${sc}</small></th><th class="fora">AP<br><small>${sf}</small></th>
+    <th class="casa">${apLabel}<br><small>${sc}</small></th><th class="fora">${apLabel}<br><small>${sf}</small></th>
     <th class="casa">Chutes↑<br><small>${sc}</small></th><th class="fora">Chutes↑<br><small>${sf}</small></th>
     <th class="casa">xG<br><small>${sc}</small></th><th class="fora">xG<br><small>${sf}</small></th>
     <th colspan="4" style="color:var(--acc);font-size:9px;text-align:center;">BET365 · 1 / X / 2 / O2.5</th>
@@ -10896,13 +10939,21 @@ function pulsoTabela(snaps, vars, nc, nf) {
       return '<td colspan="4" style="color:var(--t3);opacity:.3;font-size:9px;text-align:center;">—</td>';
     const f = x => x!=null ? parseFloat(x).toFixed(2) : '—';
     const isPre          = s.minuto===0 || o.fonte==='pre';
-    const isInterpolado  = o.fonte==='interpolado'; // 🆕
-    const opacidade      = isInterpolado ? 'opacity:.55;' : ''; // odds interpoladas mais apagadas
-    const sufixo         = isPre ? '<sup style="font-size:7px;">★</sup>' : isInterpolado ? '<sup style="font-size:7px;color:var(--t3);">~</sup>' : '';
-    return `<td style="color:var(--acc);font-weight:700;font-size:11px;${opacidade}">${f(o.casa)}${vbadge(v?.dOC,PULSO_LIMITES.odds,true)}${isPre?'<sup style="font-size:7px;">★</sup>':isInterpolado?'<sup style="font-size:7px;color:var(--t3);">~</sup>':''}</td>
+    const isInterpolado  = o.fonte==='interpolado';
+    const isApiIo        = o.fonte==='odds_api_io';
+    // Pré-jogo = mais apagado + label ★; interpolado = levemente apagado + ~; ao vivo real = normal
+    const opacidade = isPre ? 'opacity:.45;' : isInterpolado ? 'opacity:.6;' : '';
+    const sufixo = isPre
+      ? '<sup style="font-size:7px;color:var(--acc);">★</sup>'
+      : isInterpolado
+      ? '<sup style="font-size:7px;color:var(--t3);">~</sup>'
+      : isApiIo
+      ? '<sup style="font-size:7px;color:#3ec87a;">●</sup>'
+      : '';
+    return `<td style="color:var(--acc);font-weight:700;font-size:11px;${opacidade}">${f(o.casa)}${vbadge(v?.dOC,PULSO_LIMITES.odds,true)}${sufixo}</td>
       <td style="color:var(--t3);font-size:11px;${opacidade}">${f(o.empate)}</td>
       <td style="color:var(--blu);font-weight:700;font-size:11px;${opacidade}">${f(o.fora)}${vbadge(v?.dOF,PULSO_LIMITES.odds,true)}</td>
-      <td style="color:var(--t3);font-size:10px;${opacidade}">${o.over25?f(o.over25):'—'}${sufixo}</td>`;
+      <td style="color:var(--t3);font-size:10px;${opacidade}">${o.over25?f(o.over25):'—'}</td>`;
   };
 
   const aviso = !temStats && snaps.length
@@ -10930,7 +10981,12 @@ function pulsoTabela(snaps, vars, nc, nf) {
   }).join('');
 
   return `<table class="pulso-table">${thead}<tbody>${aviso}${rows}</tbody></table>
-  <div style="font-size:9px;color:var(--t3);padding:4px 2px;">★ odds pré-jogo &nbsp;·&nbsp; ~ odds interpoladas (entre dois pontos reais) &nbsp;·&nbsp; sem símbolo = captura real ao vivo</div>`;
+  <div style="font-size:9px;color:var(--t3);padding:4px 2px;">
+    <span style="color:var(--acc);">★</span> odds pré-jogo &nbsp;·&nbsp;
+    <span>~</span> interpolado &nbsp;·&nbsp;
+    <span style="color:#3ec87a;">●</span> ao vivo (Odds-API.io) &nbsp;·&nbsp;
+    sem símbolo = API-Football live${usandoFallbackAP ? ' &nbsp;·&nbsp; † Ataques totais (Dangerous Attacks indisponível nesta liga)' : ''}
+  </div>`;
 }
 
 </script>
