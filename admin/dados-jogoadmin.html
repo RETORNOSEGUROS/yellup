@@ -1679,6 +1679,12 @@ let _ULTIMA_ODDS_REGISTRADA=null; // snapshot anterior para calcular velocidade
 let JANELAS_PRE_EVENTO=[];    // [{tipo, minuto, snapshots_antes:[...5min], variações}]
 let _EVENTOS_JA_PROCESSADOS=new Set(); // evitar processar o mesmo evento 2x
 
+// -- PATTERN ENGINE -- deteccao de padroes historicos ao vivo
+let PADRAO_ATUAL=null;
+let _padraoTimer=null;
+let _PADRAO_ULTIMO_MIN=null;
+let ENRIQUECIMENTO_FEITO=false;
+
 // ── CENÁRIOS DINÂMICOS — taxas de acerto reais do banco ──
 let CENARIOS_STATS={};        // {cenarioId: {taxaAcerto, totalAtivacoes, totalAcertos}}
 let CENARIOS_LOG_SESSAO=[];   // cenários ativados nesta sessão: [{cenarioId, minuto, placarCasa, placarFora}]
@@ -1731,6 +1737,7 @@ async function load(fId, dId) {
       _verificarResultadosCenarios(); // 📐 registra acertos/erros dos cenários
       _registrarResultadoPreOdds();   // 🏦 associa resultado real às pré-odds salvas
       vincularResultadoSnapshotsFn(); // 🔗 batch update em todos os snapshots com resultado
+      _enriquecerSnapshotsPosFTFn();  // 🧠 Pattern Engine: enriquece snapshots com golNos10/15
       _pararLoopsEncerrado();
     }
 
@@ -11185,18 +11192,131 @@ function pulsoRender() {
   const nf = DADOS?.fixture?.timeFora?.nome || 'Fora';
 
   el.innerHTML =
+    _renderMomentumGauge(vars, snaps, nc, nf) +   // 🆕 Painel de Momentum
     pulsoAlertas(vars, snaps, nc, nf) +
-    _renderVelocidadeOdds() + // 🆕 Speed of Odds
+    _renderVelocidadeOdds() +
     '<div class="sparkline-wrap">' +
       '<div class="spark-card"><div class="spark-titulo">Ataques Perigosos <span id="spk-ap-v"></span></div><canvas class="spark" id="spk-ap"></canvas></div>' +
       '<div class="spark-card"><div class="spark-titulo">Chutes a Gol <span id="spk-ch-v"></span></div><canvas class="spark" id="spk-ch"></canvas></div>' +
       '<div class="spark-card"><div class="spark-titulo">xG acumulado <span id="spk-xg-v"></span></div><canvas class="spark" id="spk-xg"></canvas></div>' +
-      '<div class="spark-card"><div class="spark-titulo">Bet365 1X2 <span id="spk-od-v"></span></div><canvas class="spark" id="spk-od"></canvas></div>' +
+      '<div class="spark-card"><div class="spark-titulo">🌊 Momentum 10min <span id="spk-mom-v"></span></div><canvas class="spark" id="spk-mom"></canvas></div>' +
     '</div>' +
     '<div class="pulso-wrap">' + pulsoTabela(snaps, vars, nc, nf) + '</div>' +
     `<div style="font-size:10px;color:var(--t3);padding:6px 0 2px;text-align:center;">${snaps.length} snapshots · atualiza a cada minuto ao vivo</div>`;
 
-  setTimeout(() => pulsoDrawSparks(snaps), 60);
+  setTimeout(() => pulsoDrawSparks(snaps, vars), 60);
+}
+
+// ── Painel de Momentum (janela deslizante 10min) ─────────────────────
+function _renderMomentumGauge(vars, snaps, nc, nf) {
+  if (!snaps.length) return '';
+
+  // Último var com momentum calculado
+  const ultVar = [...vars].reverse().find(v => v.momC !== null && v.momF !== null);
+  if (!ultVar) return '';
+
+  const mC = ultVar.momC ?? 0;
+  const mF = ultVar.momF ?? 0;
+  const total = Math.max(mC + mF, 0.01);
+
+  // Histórico de momentum para mini-gráfico de tendência (últimos 10 snaps)
+  const hist = vars.slice(-12).filter(v => v.momC !== null);
+
+  // Quem tem momentum agora
+  const lidC = mC > mF;
+  const lider = lidC ? nc : (mF > mC ? nf : null);
+  const diff  = Math.abs(mC - mF).toFixed(1);
+
+  // Intensidade geral: média dos dois últimos momentums normalizados
+  const maxMom = Math.max(...vars.filter(v=>v.momC!==null).flatMap(v=>[v.momC,v.momF]), 0.01);
+  const intensidade = Math.round((Math.max(mC, mF) / maxMom) * 100);
+  const nivelLabel = intensidade >= 75 ? '🔥 Alta' : intensidade >= 45 ? '⚡ Média' : '💤 Baixa';
+  const nivelCor   = intensidade >= 75 ? 'var(--red)' : intensidade >= 45 ? 'var(--acc)' : 'var(--t3)';
+
+  // Barra de dominância
+  const pctC = total > 0 ? Math.round(mC / total * 100) : 50;
+  const pctF = 100 - pctC;
+
+  // Mini-sparkline de momentum (SVG inline, 10 pontos)
+  const mkSparkMom = (arr, key, cor) => {
+    if (arr.length < 2) return '';
+    const vals = arr.map(v => v[key] ?? 0);
+    const mn = Math.min(...vals), mx = Math.max(...vals, mn + 0.01);
+    const W = 80, H = 24;
+    const pts = vals.map((v, i) => {
+      const x = Math.round(i / (vals.length - 1) * (W - 4)) + 2;
+      const y = H - 4 - Math.round((v - mn) / (mx - mn) * (H - 8));
+      return `${x},${y}`;
+    }).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${cor}" stroke-width="1.5" stroke-linejoin="round"/>`;
+  };
+
+  // Aceleração: momentum atual vs 5min atrás
+  const histRecente = vars.filter(v => v.momC !== null).slice(-6);
+  const momAntC = histRecente.length >= 2 ? histRecente[0].momC : mC;
+  const momAntF = histRecente.length >= 2 ? histRecente[0].momF : mF;
+  const acelC = mC - momAntC;
+  const acelF = mF - momAntF;
+  const acelIcon = (d) => d > 1.5 ? '▲' : d < -1.5 ? '▼' : '━';
+  const acelCor  = (d) => d > 1.5 ? 'var(--grn)' : d < -1.5 ? 'var(--red)' : 'var(--t3)';
+
+  return `
+  <div style="background:var(--c2);border:1px solid var(--bd2);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+    <!-- Cabeçalho -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div>
+        <span style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);">🌊 MOMENTUM</span>
+        <span style="font-size:9px;color:var(--t3);margin-left:6px;">janela 10 minutos</span>
+      </div>
+      <div>
+        <span style="font-size:11px;font-weight:700;color:${nivelCor};">${nivelLabel}</span>
+        ${lider ? `<span style="font-size:10px;color:var(--t3);margin-left:6px;">→ <strong>${lider.slice(0,10)}</strong> +${diff}</span>` : `<span style="font-size:10px;color:var(--t3);margin-left:6px;">Equilibrado</span>`}
+      </div>
+    </div>
+
+    <!-- Barra de dominância -->
+    <div style="display:flex;height:10px;border-radius:6px;overflow:hidden;margin-bottom:8px;">
+      <div style="width:${pctC}%;background:var(--acc);transition:width .5s;"></div>
+      <div style="width:${pctF}%;background:var(--blu);transition:width .5s;"></div>
+    </div>
+
+    <!-- Valores e tendência -->
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <!-- Casa -->
+      <div style="text-align:left;">
+        <div style="font-size:9px;color:var(--t3);">${nc.slice(0,10)}</div>
+        <div style="display:flex;align-items:baseline;gap:4px;">
+          <span style="font-size:20px;font-weight:800;color:var(--acc);font-family:'DM Mono',monospace;">${mC.toFixed(1)}</span>
+          <span style="font-size:13px;font-weight:700;color:${acelCor(acelC)};">${acelIcon(acelC)}</span>
+        </div>
+        <div style="font-size:9px;color:var(--t3);">ritmo: ${(ultVar.momRitmC??0).toFixed(2)}/min</div>
+      </div>
+
+      <!-- Mini spark SVG -->
+      <div style="flex:1;padding:0 12px;">
+        <svg viewBox="0 0 80 24" style="width:100%;height:28px;">
+          ${mkSparkMom(hist, 'momC', 'var(--acc)')}
+          ${mkSparkMom(hist, 'momF', 'var(--blu)')}
+        </svg>
+        <div style="font-size:8px;color:var(--t3);text-align:center;">últimos ${hist.length} snapshots</div>
+      </div>
+
+      <!-- Fora -->
+      <div style="text-align:right;">
+        <div style="font-size:9px;color:var(--t3);">${nf.slice(0,10)}</div>
+        <div style="display:flex;align-items:baseline;gap:4px;justify-content:flex-end;">
+          <span style="font-size:13px;font-weight:700;color:${acelCor(acelF)};">${acelIcon(acelF)}</span>
+          <span style="font-size:20px;font-weight:800;color:var(--blu);font-family:'DM Mono',monospace;">${mF.toFixed(1)}</span>
+        </div>
+        <div style="font-size:9px;color:var(--t3);">ritmo: ${(ultVar.momRitmF??0).toFixed(2)}/min</div>
+      </div>
+    </div>
+
+    ${intensidade >= 70 ? `
+    <div style="margin-top:10px;padding:7px 10px;background:rgba(245,165,36,.1);border-radius:7px;font-size:11px;color:var(--acc);border:1px solid rgba(245,165,36,.2);">
+      ⚠️ <strong>Pressão elevada</strong> na janela atual — padrão associado a gols ou cartões nos próximos 5–8 minutos.
+    </div>` : ''}
+  </div>`;
 }
 
 // 🆕 Renderiza painel de Speed of Odds no Pulso
@@ -11252,19 +11372,68 @@ function _renderVelocidadeOdds() {
 
 function pulsoCalcVar(snaps) {
   return snaps.map((s, i) => {
-    if (i === 0) return {};
-    const p = snaps[i-1];
-    return {
-      dap_c:  (s.ap.c??0)-(p.ap.c??0),     dap_f:  (s.ap.f??0)-(p.ap.f??0),
-      dch_c:  (s.chutes.c??0)-(p.chutes.c??0), dch_f: (s.chutes.f??0)-(p.chutes.f??0),
-      dxg_c:  (s.xg.c??0)-(p.xg.c??0),     dxg_f:  (s.xg.f??0)-(p.xg.f??0),
-      dpo_c:  (s.posse.c??0)-(p.posse.c??0), dpo_f: (s.posse.f??0)-(p.posse.f??0),
-      dOC: (s.odds.casa&&p.odds.casa) ? s.odds.casa-p.odds.casa : null,
-      dOF: (s.odds.fora&&p.odds.fora) ? s.odds.fora-p.odds.fora : null,
-      dOE: (s.odds.empate&&p.odds.empate) ? s.odds.empate-p.odds.empate : null,
-    };
+    const base = {};
+    if (i > 0) {
+      const p = snaps[i-1];
+      base.dap_c  = (s.ap.c??0)-(p.ap.c??0);
+      base.dap_f  = (s.ap.f??0)-(p.ap.f??0);
+      base.dch_c  = (s.chutes.c??0)-(p.chutes.c??0);
+      base.dch_f  = (s.chutes.f??0)-(p.chutes.f??0);
+      base.dxg_c  = (s.xg.c??0)-(p.xg.c??0);
+      base.dxg_f  = (s.xg.f??0)-(p.xg.f??0);
+      base.dpo_c  = (s.posse.c??0)-(p.posse.c??0);
+      base.dpo_f  = (s.posse.f??0)-(p.posse.f??0);
+      base.dOC = (s.odds.casa&&p.odds.casa) ? s.odds.casa-p.odds.casa : null;
+      base.dOF = (s.odds.fora&&p.odds.fora) ? s.odds.fora-p.odds.fora : null;
+      base.dOE = (s.odds.empate&&p.odds.empate) ? s.odds.empate-p.odds.empate : null;
+    }
+
+    // ── Janela deslizante 10 minutos ──────────────────────────────
+    // Busca o snapshot mais antigo dentro da janela [min-10, min[
+    // YAI acumulado: delta = YAI[agora] - YAI[10min atrás]
+    // Quanto maior, mais intensa foi a pressão na última janela
+    const JANELA = 10;
+    const minAtual = s.minuto || 0;
+    const limInf   = minAtual - JANELA;
+
+    // Snap de referência: o mais antigo dentro da janela
+    let snapRef = null;
+    for (let j = i - 1; j >= 0; j--) {
+      if ((snaps[j].minuto || 0) >= limInf) snapRef = snaps[j];
+      else break;
+    }
+
+    if (snapRef) {
+      const janelaMins = Math.max(1, minAtual - (snapRef.minuto || 0));
+
+      const yaiNowC  = s.yai?.c   ?? 0;
+      const yaiNowF  = s.yai?.f   ?? 0;
+      const yaiRefC  = snapRef.yai?.c ?? 0;
+      const yaiRefF  = snapRef.yai?.f ?? 0;
+
+      // Momentum absoluto na janela (YAI gerado nos últimos ~10min)
+      base.momC = +(yaiNowC - yaiRefC).toFixed(1);
+      base.momF = +(yaiNowF - yaiRefF).toFixed(1);
+
+      // Momentum normalizado por minuto (ritmo)
+      base.momRitmC = +(base.momC / janelaMins).toFixed(2);
+      base.momRitmF = +(base.momF / janelaMins).toFixed(2);
+
+      // Quem domina a janela: positivo = casa lidera, negativo = fora lidera
+      base.momDelta = +(base.momC - base.momF).toFixed(1);
+
+      // Intensidade relativa: 0–100 com base no maior momentum visto até agora
+      base.momJanelaMins = janelaMins;
+    } else {
+      base.momC = null; base.momF = null;
+      base.momRitmC = null; base.momRitmF = null;
+      base.momDelta = null; base.momJanelaMins = JANELA;
+    }
+
+    return base;
   });
 }
+
 
 function pulsoAlertas(vars, snaps, nc, nf) {
   const lista = [];
@@ -11276,6 +11445,9 @@ function pulsoAlertas(vars, snaps, nc, nf) {
     if ((v.dch_f||0) >= PULSO_LIMITES.chutes) lista.push({icon:'🎯',nivel:'media',min:m,msg:`${nf}: +${v.dch_f} chute${v.dch_f>1?'s':''} a gol`});
     if ((v.dxg_c||0) >= PULSO_LIMITES.xg)    lista.push({icon:'📈',nivel:'forte',min:m,msg:`${nc}: xG +${(v.dxg_c).toFixed(2)}`});
     if ((v.dxg_f||0) >= PULSO_LIMITES.xg)    lista.push({icon:'📈',nivel:'forte',min:m,msg:`${nf}: xG +${(v.dxg_f).toFixed(2)}`});
+    // Momentum 10min: alerta quando aceleração é significativa
+    if (v.momC !== null && v.momC >= 8)  lista.push({icon:'🌊',nivel:'forte',min:m,msg:`${nc}: momentum alto na janela (${v.momC.toFixed(1)})`});
+    if (v.momF !== null && v.momF >= 8)  lista.push({icon:'🌊',nivel:'forte',min:m,msg:`${nf}: momentum alto na janela (${v.momF.toFixed(1)})`});
     if (v.dOC!=null && Math.abs(v.dOC)>=PULSO_LIMITES.odds)
       lista.push({icon:'🏦',nivel:'odds',min:m,msg:`Bet365 casa ${v.dOC<0?'↓ favoreceu':'↑ subiu'} (${v.dOC>0?'+':''}${v.dOC.toFixed(2)}) → ${s.odds.casa?.toFixed(2)}`});
     if (v.dOF!=null && Math.abs(v.dOF)>=PULSO_LIMITES.odds)
@@ -11290,7 +11462,7 @@ function pulsoAlertas(vars, snaps, nc, nf) {
     </div></div>`;
 }
 
-function pulsoDrawSparks(snaps) {
+function pulsoDrawSparks(snaps, vars) {
   const COR_C='#f5a524', COR_F='#4f96f4';
   const draw = (cid, vid, dC, dF, fmt) => {
     const cv=gc(cid); if(!cv)return;
@@ -11316,7 +11488,14 @@ function pulsoDrawSparks(snaps) {
   draw('spk-ap','spk-ap-v', snaps.map(s=>s.ap.c),     snaps.map(s=>s.ap.f),     v=>Math.round(v));
   draw('spk-ch','spk-ch-v', snaps.map(s=>s.chutes.c), snaps.map(s=>s.chutes.f), v=>Math.round(v));
   draw('spk-xg','spk-xg-v', snaps.map(s=>s.xg.c),     snaps.map(s=>s.xg.f),     v=>v.toFixed(2));
-  draw('spk-od','spk-od-v', snaps.map(s=>s.odds.casa), snaps.map(s=>s.odds.fora), v=>v.toFixed(2));
+  // Momentum 10min spark: usa vars para pegar momC/momF por snap
+  if (vars && vars.length === snaps.length) {
+    draw('spk-mom','spk-mom-v',
+      vars.map(v => v.momC ?? null),
+      vars.map(v => v.momF ?? null),
+      v => v.toFixed(1)
+    );
+  }
 }
 
 function pulsoTabela(snaps, vars, nc, nf) {
@@ -11335,7 +11514,7 @@ function pulsoTabela(snaps, vars, nc, nf) {
     <th class="casa">xG<br><small>${sc}</small></th><th class="fora">xG<br><small>${sf}</small></th>
     <th class="casa" style="color:var(--pur);font-size:9px;">YAI<br><small>${sc}</small></th>
     <th class="fora" style="color:var(--pur);font-size:9px;">YAI<br><small>${sf}</small></th>
-    <th style="color:var(--grn);font-size:9px;">GCS</th>
+    <th style="color:var(--grn);font-size:9px;text-align:center;">🌊 Mom<br><small>10min</small></th>
   </tr></thead>`;
 
   const vbadge = (d, lim) => {
@@ -11357,10 +11536,16 @@ function pulsoTabela(snaps, vars, nc, nf) {
     return `<td style="color:${cor};font-weight:700;font-size:11px;">${v.toFixed(1)}</td>`;
   };
 
-  const celGCS = (v) => {
-    if (v==null) return '<td style="color:var(--t3);font-size:10px;">—</td>';
-    const cor = v>=65?'var(--grn)':v>=45?'var(--acc)':'var(--t3)';
-    return `<td style="color:${cor};font-size:11px;">${v}</td>`;
+  // Célula de Momentum 10min — exibe o líder e o delta da janela
+  const celMom = (vC, vF) => {
+    if (vC === null || vC === undefined) return '<td style="color:var(--t3);font-size:9px;text-align:center;">—</td>';
+    const lidC = vC > vF;
+    const lidF = vF > vC;
+    const diff  = Math.abs(vC - vF).toFixed(1);
+    if (!lidC && !lidF) return `<td style="color:var(--t3);font-size:10px;text-align:center;">=</td>`;
+    const cor  = lidC ? 'var(--acc)' : 'var(--blu)';
+    const icon = lidC ? '↑C' : '↑F';
+    return `<td style="color:${cor};font-weight:700;font-size:11px;text-align:center;">${icon} ${diff}</td>`;
   };
 
   const aviso = !temStats && snaps.length
@@ -11385,14 +11570,14 @@ function pulsoTabela(snaps, vars, nc, nf) {
       ${celNum(s.xg.f,     v.dxg_f, PULSO_LIMITES.xg,     'xg')}
       ${celYAI(s.yai?.c)}
       ${celYAI(s.yai?.f)}
-      ${celGCS(s.gcs)}
+      ${celMom(v.momC, v.momF)}
     </tr>`;
   }).join('');
 
   return `<table class="pulso-table">${thead}<tbody>${aviso}${rows}</tbody></table>
   <div style="font-size:9px;color:var(--t3);padding:4px 2px;">
     <span style="color:var(--pur);">YAI</span> = Yellup Attack Index &nbsp;·&nbsp;
-    <span style="color:var(--grn);">GCS</span> = Game Control Score${usandoFallbackAP ? ' &nbsp;·&nbsp; † Ataques totais (DA indisponível nesta liga)' : ''}
+    <span style="color:var(--grn);">🌊 Mom</span> = YAI gerado nos últimos 10min (↑C = casa lidera, ↑F = fora lidera)${usandoFallbackAP ? ' &nbsp;·&nbsp; † Ataques totais (DA indisponível)' : ''}
   </div>`;
 }
 
