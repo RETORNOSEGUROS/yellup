@@ -1725,14 +1725,23 @@ async function registrarSnapshot(fixtureId,docId){
       const t=sts.find(t=>t.time.id===tid);
       if(!t)return null;
       const v=t.stats?.[key];
-      return v!=null?parseFloat(String(v).replace('%','').trim())||null:null;
+      if(v===null||v===undefined||v==='null')return null;
+      const n=parseFloat(String(v).replace('%','').trim());
+      return isNaN(n)?null:n;
+    };
+    // AP: tenta Dangerous Attacks primeiro, senão usa Attacks como fallback
+    const getAPL=(tid)=>{
+      const da=getSL(tid,'Dangerous Attacks');
+      if(da!==null&&da>0)return da;
+      const at=getSL(tid,'Attacks');
+      return at||0; // Attacks como fallback
     };
     const snapLocal={
       minuto,
-      posseCasa:           getSL(f.timeCasa.id,'Ball Possession'),  // null se indisponível
+      posseCasa:           getSL(f.timeCasa.id,'Ball Possession'),
       posseFora:           getSL(f.timeFora.id,'Ball Possession'),
-      ataquesPerigososCasa:getSL(f.timeCasa.id,'Dangerous Attacks')??0,
-      ataquesPerigososFora:getSL(f.timeFora.id,'Dangerous Attacks')??0,
+      ataquesPerigososCasa:getAPL(f.timeCasa.id),
+      ataquesPerigososFora:getAPL(f.timeFora.id),
       chutesAlvoCasa:      getSL(f.timeCasa.id,'Shots on Goal')??0,
       chutesAlvoFora:      getSL(f.timeFora.id,'Shots on Goal')??0,
       escanteiosCasa:      getSL(f.timeCasa.id,'Corner Kicks')??0,
@@ -1741,13 +1750,36 @@ async function registrarSnapshot(fixtureId,docId){
       xgFora:              getSL(f.timeFora.id,'expected_goals')??0,
       ataquesCasa:         getSL(f.timeCasa.id,'Attacks')??0,
       faltasCasa:          getSL(f.timeCasa.id,'Fouls')??0,
+      placarCasa:          f.placar?.casa??null,
+      placarFora:          f.placar?.fora??null,
     };
+    // Calcular deltas comparando com snap anterior
+    if(SNAPSHOTS.length>0){
+      const prev1 = SNAPSHOTS[SNAPSHOTS.length-1];
+      const prev3 = SNAPSHOTS.length>=3?SNAPSHOTS[SNAPSHOTS.length-3]:prev1;
+      snapLocal.deltaAPCasa  = snapLocal.ataquesPerigososCasa - (prev1.ataquesPerigososCasa||0);
+      snapLocal.deltaAPFora  = snapLocal.ataquesPerigososFora - (prev1.ataquesPerigososFora||0);
+      snapLocal.deltaAP3Casa = snapLocal.ataquesPerigososCasa - (prev3.ataquesPerigososCasa||0);
+      snapLocal.deltaAP3Fora = snapLocal.ataquesPerigososFora - (prev3.ataquesPerigososFora||0);
+    } else {
+      snapLocal.deltaAPCasa=0;snapLocal.deltaAPFora=0;
+      snapLocal.deltaAP3Casa=0;snapLocal.deltaAP3Fora=0;
+    }
     // Adicionar localmente (evitar duplicata)
     if(!SNAPSHOTS.find(s=>s.minuto===minuto)){
       SNAPSHOTS.push(snapLocal);
       SNAPSHOTS.sort((a,b)=>(a.minuto||0)-(b.minuto||0));
       renderSnapshots();
-    if(['FT','AET','PEN'].includes(DADOS?.fixture?.status?.short)) renderRelatorio();
+    if(['FT','AET','PEN'].includes(DADOS?.fixture?.status?.short)){
+      renderRelatorio();
+      // Jogo encerrado: processar previsões imediatamente (sem esperar o cron das 02h)
+      if(!window._prevProcessado){
+        window._prevProcessado=true;
+        fns.httpsCallable('processarPrevisoesManual')({dias:1})
+          .then(r=>console.log('✅ Previsões processadas:',r.data?.msg||'ok'))
+          .catch(e=>console.warn('processarPrevisoes:',e.message));
+      }
+    }
       gc('snapCount').textContent=SNAPSHOTS.length;
   const _ftl=['FT','AET','PEN'].includes(DADOS?.fixture?.status?.short);
   const predLeg=gc('snapPredLegend');
@@ -2376,7 +2408,9 @@ function renderTimeline(maxMin=null){
         scoreBadge=`<div class="goal-score">${scoremap[k]||''}</div>`;
         goalIdx++;
       }
-      const narracao=narrar(e);
+      // Contexto do placar ANTES deste gol para narrar corretamente
+      const scAntes = isGol ? placarAteMinExcluindo(evs, f, e.minuto||0, e) : [0,0];
+      const narracao=narrar(e, scAntes);
       const assStr=e.assistente?' &middot; <b>'+x(e.assistente.nome)+'</b>':'';
       const bodyHtml=tlMode==='narr'
         ?('<div class="ev-narr">'+narracao+'</div>')
@@ -2419,7 +2453,20 @@ function mkIco(e){
   return{ico:'•',cls:''};
 }
 // ── NARRAÇÃO REAL baseada em eventos da API ──
-function narrar(e){
+// Retorna o placar ANTES de um evento específico (excluindo ele mesmo)
+function placarAteMinExcluindo(evs, f, min, evExcluir){
+  const sc=[0,0];
+  evs.filter(e=>e.tipo==='Goal'&&e!==evExcluir&&((e.minuto||0)<min||(e.minuto||0)===min&&evs.indexOf(e)<evs.indexOf(evExcluir)))
+    .sort((a,b)=>(a.minuto||0)-(b.minuto||0))
+    .forEach(e=>{
+      const own=e.detalhe==='Own Goal';
+      const isCasa=e.time.id===f?.timeCasa?.id;
+      if(own){isCasa?sc[1]++:sc[0]++;}else{isCasa?sc[0]++:sc[1]++;}
+    });
+  return sc;
+}
+
+function narrar(e, scAntes){
   const j = e.jogador?.nome || 'Jogador';
   const a = e.assistente?.nome;
   const t = e.time?.nome || '';
@@ -2427,6 +2474,25 @@ function narrar(e){
   const pick = arr => arr[Math.floor((e.minuto||0) % arr.length)];
 
   if(e.tipo==='Goal'){
+    // Calcular contexto do placar antes deste gol
+    const sc = scAntes || [0,0];
+    const isCasaGol = e.time.id === (window.DADOS?.fixture?.timeCasa?.id);
+    // Após o gol, qual será o placar?
+    const own = d==='Own Goal';
+    const novoSc = [...sc];
+    if(own){isCasaGol?novoSc[1]++:novoSc[0]++;}else{isCasaGol?novoSc[0]++:novoSc[1]++;}
+    // Determinar contexto: abre, empata, vira, amplia
+    let ctxGol = '';
+    if(novoSc[0]===1&&novoSc[1]===0) ctxGol = `${window.DADOS?.fixture?.timeCasa?.nome||t} abre o placar.`;
+    else if(novoSc[0]===0&&novoSc[1]===1) ctxGol = `${window.DADOS?.fixture?.timeFora?.nome||t} abre o placar.`;
+    else if(novoSc[0]===novoSc[1]) ctxGol = `${t} empata o jogo! ${novoSc[0]}–${novoSc[1]}.`;
+    else {
+      const vencedorAntes = sc[0]>sc[1]?window.DADOS?.fixture?.timeCasa?.nome:sc[1]>sc[0]?window.DADOS?.fixture?.timeFora?.nome:null;
+      const quemFez = isCasaGol ? window.DADOS?.fixture?.timeCasa?.nome : window.DADOS?.fixture?.timeFora?.nome;
+      if(vencedorAntes && quemFez && vencedorAntes !== quemFez) ctxGol = `${t} vira o jogo! ${novoSc[0]}–${novoSc[1]}.`;
+      else ctxGol = `${t} amplia a vantagem! ${novoSc[0]}–${novoSc[1]}.`;
+    }
+
     if(d==='Own Goal') return pick([
       `Que azar! <b>${j}</b> desvia para o próprio gol. Gol contra do ${t}.`,
       `Tragédia para o ${t}! <b>${j}</b> manda para a própria rede.`,
@@ -2443,16 +2509,16 @@ function narrar(e){
       `Bola na área, <b>${j}</b> domina o alto e cabecea. É gol!`,
     ]);
     if(a) return pick([
-      `<b>${j}</b> recebe de ${a} e finaliza — GOL! ${t} abre o placar.`,
-      `Jogada de classe! ${a} lança, <b>${j}</b> domina e chuta sem chances para o goleiro.`,
-      `<b>${j}</b> aparece na pequena área. Chute certeiro. GOL!${a?` Assistência de ${a}.`:''}`,
-      `Que golaço! <b>${j}</b> recebe de ${a} e não desperdiça a oportunidade.`,
+      `<b>${j}</b> recebe de ${a} e finaliza — GOL! ${ctxGol}`,
+      `Jogada de classe! ${a} lança, <b>${j}</b> domina e chuta sem chances para o goleiro. ${ctxGol}`,
+      `<b>${j}</b> aparece na pequena área. Chute certeiro. GOL! ${ctxGol}`,
+      `Que golaço! <b>${j}</b> recebe de ${a}. ${ctxGol}`,
     ]);
     return pick([
-      `<b>${j}</b> recebe, gira e chuta. GOL do ${t}!`,
-      `Individual! <b>${j}</b> arrisca de fora da área e acerta o ângulo.`,
-      `<b>${j}</b> aparece livre e não perdoa. GOL para o ${t}!`,
-      `Chute cruzado de <b>${j}</b>, sem chances para o goleiro. É gol!`,
+      `<b>${j}</b> recebe, gira e chuta. ${ctxGol}`,
+      `Individual! <b>${j}</b> arrisca de fora da área e acerta o ângulo. ${ctxGol}`,
+      `<b>${j}</b> aparece livre e não perdoa. ${ctxGol}`,
+      `Chute cruzado de <b>${j}</b>, sem chances para o goleiro. ${ctxGol}`,
     ]);
   }
 
@@ -9658,7 +9724,7 @@ function pulsoRenderTabela(snaps, nomeCasa, nomeFora){
   const thead=`<thead><tr>
     <th>Min</th><th>Placar</th>
     ${vis.map(c=>c.odds
-      ? `<th colspan="2" class="odds">Odds B365</th>`
+      ? `<th colspan="3" class="odds">1 · X · 2</th>`
       : `<th class="casa">${c.label} <small style="opacity:.6">${nomeCasa.substring(0,5)}</small></th><th class="fora">${c.label} <small style="opacity:.6">${nomeFora.substring(0,5)}</small></th>`
     ).join('')}
   </tr></thead>`;
@@ -9672,10 +9738,19 @@ function pulsoRenderTabela(snaps, nomeCasa, nomeFora){
 
     const cell=(col,side)=>{
       if(col.odds){
-        const o=snap.odds;
-        if(!o) return '<td colspan="2" style="color:var(--t3);font-size:9px;text-align:center;">—</td>';
-        const b=Object.values(o)[0]||{};
-        return `<td style="color:var(--acc);">${b.casa?.toFixed(2)||'—'}</td><td style="color:var(--blu);">${b.fora?.toFixed(2)||'—'}</td>`;
+        // Tentar snap.odds (do Firestore) ou ODDS_LIVE global como fallback
+        let oc=null, of=null, oe=null;
+        if(snap.odds){
+          // Formato do backend: { Bet365:{casa,fora,empate}, Bwin:{...} }
+          const bk=snap.odds['Bet365']||snap.odds['Bwin']||Object.values(snap.odds)[0]||{};
+          oc=bk.casa; of=bk.fora; oe=bk.empate;
+        } else if(ODDS_LIVE && snap.minuto === Math.max(...PULSO_SNAPS.map(s=>s.minuto||0))){
+          // Só no último snap: injetar ODDS_LIVE atual
+          oc=ODDS_LIVE.casa; of=ODDS_LIVE.fora; oe=ODDS_LIVE.empate;
+        }
+        if(oc==null&&of==null) return '<td colspan="3" style="color:var(--t3);font-size:9px;text-align:center;">—</td>';
+        const fmt=v=>v!=null?parseFloat(v).toFixed(2):'—';
+        return `<td style="color:var(--acc);font-size:11px;">${fmt(oc)}</td><td style="color:var(--t3);font-size:11px;">${fmt(oe)}</td><td style="color:var(--blu);font-size:11px;">${fmt(of)}</td>`;
       }
       const v=side==='c'?col.getC(snap):col.getF(snap);
       const fmtd=col.fmt(v);
