@@ -1115,6 +1115,7 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
   <button class="tab"     onclick="aba('ia')">⚡ Análise</button>
   <button class="tab"     onclick="aba('historico')">🧠 Inteligência</button>
   <button class="tab"     onclick="aba('pulso')">⚡ Pulso</button>
+  <button class="tab"     onclick="aba('preodds')">🏦 Odds</button>
 </div>
 
 <!-- ── TIMELINE ── -->
@@ -1502,6 +1503,43 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
 
 <!-- ══════════════════════════════ -->
 <!-- ⚡ PULSO — minuto a minuto     -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- 🏦 PRÉ-ODDS MULTI-BOOKMAKER                                   -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="sec-preodds" class="sec" style="display:none;">
+
+  <!-- Cabeçalho -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+    <div>
+      <div style="font-weight:800;font-size:15px;">🏦 Odds Pré-Jogo</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:2px;">Captura antes do apito · salva no banco para aprendizado</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span id="preodds-salvo-badge" style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(39,212,155,.15);color:var(--grn);display:none;">✓ Salvo</span>
+      <button onclick="buscarPreOddsAgora()" id="btn-buscar-preodds"
+        style="font-size:11px;padding:4px 12px;border:1px solid var(--acc);border-radius:6px;background:transparent;color:var(--acc);cursor:pointer;font-weight:600;">
+        🔍 Buscar Odds
+      </button>
+    </div>
+  </div>
+
+  <!-- Status loader -->
+  <div id="preodds-loader" style="display:none;text-align:center;padding:30px;color:var(--t3);font-size:12px;">
+    <div class="ld" style="width:20px;height:20px;margin:0 auto 10px;"></div>
+    Buscando odds nas principais casas...
+  </div>
+
+  <!-- Conteúdo principal -->
+  <div id="preodds-content">
+    <div style="font-size:12px;color:var(--t3);padding:30px;text-align:center;border:1px dashed var(--brd);border-radius:10px;">
+      Abra um jogo e clique em <strong>Buscar Odds</strong> para capturar as pré-odds das principais casas.
+    </div>
+  </div>
+
+  <!-- Painel de aprendizado (aparece quando há dados históricos) -->
+  <div id="preodds-aprendizado" style="display:none;margin-top:16px;"></div>
+
+</div>
 <!-- ══════════════════════════════ -->
 <div id="sec-pulso" class="sec">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
@@ -1686,6 +1724,7 @@ async function load(fId, dId) {
       salvarRelatorioFn();
       ajustarPesosAutomatico(); // 🆕 ajuste automático de pesos pós-jogo
       _verificarResultadosCenarios(); // 📐 registra acertos/erros dos cenários
+      _registrarResultadoPreOdds();   // 🏦 associa resultado real às pré-odds salvas
       _pararLoopsEncerrado();
     }
 
@@ -1711,6 +1750,8 @@ function _iniciarLoops(fixtureId, dId) {
   buscarPerfilArbitro();
   buscarFingerprintOddsFn();
   carregarSugestaoPesos();
+  PRE_ODDS_DATA = null; // reset para o novo jogo
+  _tentarPreOddsAuto();
   setTimeout(() => buscarHistoricoJogadoresFn().catch(e => console.warn('hist jog:', e.message)), 5000);
 
   if (isLive) {
@@ -7832,12 +7873,13 @@ function mkInsights(list){
 // ═══ TABS ═══
 function aba(id){
   document.querySelectorAll('.tab').forEach((t,i)=>{
-    t.classList.toggle('on',['timeline','campo','stats','jogadores','ia','historico','pulso'][i]===id);
+    t.classList.toggle('on',['timeline','campo','stats','jogadores','ia','historico','pulso','preodds'][i]===id);
   });
   document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
   gc('sec-'+id).classList.add('on');
   if(id==='stats' && SNAPSHOTS.length) stsInicializar();
   if(id==='pulso'){ PULSO_TAB_ATIVA=true; pulsoCarregar(); } else { PULSO_TAB_ATIVA=false; }
+  if(id==='preodds') renderPreOddsTab();
 }
 
 // ═══ SNAPSHOTS: SÉRIE TEMPORAL ═══
@@ -10677,24 +10719,66 @@ function snapParaPulso(s) {
   const min = s.minuto || 0;
   const oh  = ODDS_HISTORY[min] || {};
 
-  // ── FIX: AP fallback para Attacks totais quando Dangerous Attacks indisponível ──
-  // A API-Football não retorna Dangerous Attacks para todas as ligas (ex: UCL).
-  // Nesse caso usamos Attacks totais como proxy — marcamos com flag para UI saber.
   const apCRaw = s.ataquesPerigososCasa ?? null;
   const apFRaw = s.ataquesPerigososFora ?? null;
   const usandoFallbackAP = (!apCRaw && !apFRaw) && (s.ataquesCasa > 0 || s.ataquesFora > 0);
   const apC = apCRaw || (usandoFallbackAP ? (s.ataquesCasa ?? null) : null);
   const apF = apFRaw || (usandoFallbackAP ? (s.ataquesFora ?? null) : null);
 
+  // ── YAI (Yellup Attack Index) ──────────────────────────────────
+  // Substituto calculado para Dangerous Attacks, usando stats disponíveis
+  const _yai = (sht_on, sht_off, sht_blk, corners, offside) => {
+    if (!sht_on && !sht_off && !sht_blk && !corners) return null;
+    return +(
+      (sht_on  || 0) * 3.0 +
+      (sht_off || 0) * 1.2 +
+      (sht_blk || 0) * 1.0 +
+      (corners || 0) * 0.6 +
+      (offside || 0) * 0.3
+    ).toFixed(1);
+  };
+
+  const yaiC = _yai(
+    s.chutesAlvoCasa,
+    getStat(DADOS?.estatisticas||[], DADOS?.fixture?.timeCasa?.id, 'Shots off Goal'),
+    getStat(DADOS?.estatisticas||[], DADOS?.fixture?.timeCasa?.id, 'Blocked Shots'),
+    s.escanteiosCasa,
+    getStat(DADOS?.estatisticas||[], DADOS?.fixture?.timeCasa?.id, 'Offsides')
+  );
+  const yaiF = _yai(
+    s.chutesAlvoFora,
+    getStat(DADOS?.estatisticas||[], DADOS?.fixture?.timeFora?.id, 'Shots off Goal'),
+    getStat(DADOS?.estatisticas||[], DADOS?.fixture?.timeFora?.id, 'Blocked Shots'),
+    s.escanteiosFora,
+    getStat(DADOS?.estatisticas||[], DADOS?.fixture?.timeFora?.id, 'Offsides')
+  );
+
+  // ── GCS (Game Control Score) 0–100 ────────────────────────────
+  const _gcs = () => {
+    const posC = s.posseCasa ?? 50;
+    const sOnC = s.chutesAlvoCasa || 0;
+    const sOnF = s.chutesAlvoFora || 0;
+    const sts  = DADOS?.estatisticas || [];
+    const idC  = DADOS?.fixture?.timeCasa?.id;
+    const paC  = getStat(sts, idC, 'Passes %') || 75;
+    const sOnTotal = sOnC + sOnF;
+    const shotShare = sOnTotal > 0 ? sOnC / sOnTotal : 0.5;
+    const gcs = Math.round(posC * 0.35 + paC * 0.25 + shotShare * 100 * 0.4);
+    return Math.min(100, Math.max(0, gcs));
+  };
+  const gcs = (s.chutesAlvoCasa != null || s.posseCasa != null) ? _gcs() : null;
+
   return {
     minuto: min,
     placarCasa: s.placarCasa ?? null,
     placarFora: s.placarFora ?? null,
     ap:     { c: apC, f: apF, fallback: usandoFallbackAP },
-    chutes: { c: s.chutesAlvoCasa       ?? null, f: s.chutesAlvoFora       ?? null },
-    xg:     { c: s.xgCasa               ?? null, f: s.xgFora               ?? null },
-    posse:  { c: s.posseCasa            ?? null, f: s.posseFora             ?? null },
-    esc:    { c: s.escanteiosCasa       ?? null, f: s.escanteiosFora        ?? null },
+    chutes: { c: s.chutesAlvoCasa ?? null, f: s.chutesAlvoFora ?? null },
+    xg:     { c: s.xgCasa         ?? null, f: s.xgFora         ?? null },
+    posse:  { c: s.posseCasa      ?? null, f: s.posseFora       ?? null },
+    esc:    { c: s.escanteiosCasa  ?? null, f: s.escanteiosFora  ?? null },
+    yai:    { c: yaiC, f: yaiF },
+    gcs,
     odds: {
       casa:   oh.casa   ?? s.oddsCasa   ?? null,
       empate: oh.empate ?? s.oddsEmpate ?? null,
@@ -10906,23 +10990,22 @@ function pulsoTabela(snaps, vars, nc, nf) {
   const temStats = snaps.some(s=>s.ap.c||s.chutes.c||s.xg.c);
   const sc = nc.substring(0,6), sf = nf.substring(0,6);
 
-  // Detectar se snaps estão usando fallback de AP
   const usandoFallbackAP = snaps.some(s => s.ap?.fallback);
   const apLabel = usandoFallbackAP ? 'Ataques†' : 'AP';
-  const apTip   = usandoFallbackAP ? '† Ataques totais (Dangerous Attacks indisponível nesta liga)' : '';
 
   const thead = `<thead><tr>
     <th style="text-align:left;">Min</th><th>Placar</th>
     <th class="casa">${apLabel}<br><small>${sc}</small></th><th class="fora">${apLabel}<br><small>${sf}</small></th>
     <th class="casa">Chutes↑<br><small>${sc}</small></th><th class="fora">Chutes↑<br><small>${sf}</small></th>
     <th class="casa">xG<br><small>${sc}</small></th><th class="fora">xG<br><small>${sf}</small></th>
-    <th colspan="4" style="color:var(--acc);font-size:9px;text-align:center;">BET365 · 1 / X / 2 / O2.5</th>
+    <th class="casa" style="color:var(--pur);font-size:9px;">YAI<br><small>${sc}</small></th>
+    <th class="fora" style="color:var(--pur);font-size:9px;">YAI<br><small>${sf}</small></th>
+    <th style="color:var(--grn);font-size:9px;">GCS</th>
   </tr></thead>`;
 
-  const vbadge = (d, lim, forOdds) => {
+  const vbadge = (d, lim) => {
     if (d==null || Math.abs(d)<lim) return '';
-    // Para odds: queda = ficou favorito (verde), subida = ficou azarão (vermelho)
-    const up = forOdds ? d>0 : d>0;
+    const up = d>0;
     const f  = Math.abs(d)<1 ? Math.abs(d).toFixed(2) : Math.round(Math.abs(d));
     return `<span class="pulso-var ${up?'var-up':'var-dn'}">${up?'▲':'▼'}${f}</span>`;
   };
@@ -10930,34 +11013,23 @@ function pulsoTabela(snaps, vars, nc, nf) {
   const celNum = (v, d, lim, tipo) => {
     const hi = tipo==='ap' && (v||0)>=maxAP*0.7 && (v||0)>0;
     const fv  = tipo==='xg' ? (v!=null?v.toFixed(2):'—') : (v??'—');
-    return `<td><span class="cv ${hi?'hi':(v||0)>0?'up':'neu'}">${fv}</span>${vbadge(d,lim,false)}</td>`;
+    return `<td><span class="cv ${hi?'hi':(v||0)>0?'up':'neu'}">${fv}</span>${vbadge(d,lim)}</td>`;
   };
 
-  const celOdds = (s, v) => {
-    const o = s.odds;
-    if (!o.casa && !o.empate && !o.fora)
-      return '<td colspan="4" style="color:var(--t3);opacity:.3;font-size:9px;text-align:center;">—</td>';
-    const f = x => x!=null ? parseFloat(x).toFixed(2) : '—';
-    const isPre          = s.minuto===0 || o.fonte==='pre';
-    const isInterpolado  = o.fonte==='interpolado';
-    const isApiIo        = o.fonte==='odds_api_io';
-    // Pré-jogo = mais apagado + label ★; interpolado = levemente apagado + ~; ao vivo real = normal
-    const opacidade = isPre ? 'opacity:.45;' : isInterpolado ? 'opacity:.6;' : '';
-    const sufixo = isPre
-      ? '<sup style="font-size:7px;color:var(--acc);">★</sup>'
-      : isInterpolado
-      ? '<sup style="font-size:7px;color:var(--t3);">~</sup>'
-      : isApiIo
-      ? '<sup style="font-size:7px;color:#3ec87a;">●</sup>'
-      : '';
-    return `<td style="color:var(--acc);font-weight:700;font-size:11px;${opacidade}">${f(o.casa)}${vbadge(v?.dOC,PULSO_LIMITES.odds,true)}${sufixo}</td>
-      <td style="color:var(--t3);font-size:11px;${opacidade}">${f(o.empate)}</td>
-      <td style="color:var(--blu);font-weight:700;font-size:11px;${opacidade}">${f(o.fora)}${vbadge(v?.dOF,PULSO_LIMITES.odds,true)}</td>
-      <td style="color:var(--t3);font-size:10px;${opacidade}">${o.over25?f(o.over25):'—'}</td>`;
+  const celYAI = (v) => {
+    if (v==null) return '<td style="color:var(--t3);font-size:10px;">—</td>';
+    const cor = v>=15?'var(--red)':v>=9?'var(--acc)':v>=4?'var(--t2)':'var(--t3)';
+    return `<td style="color:${cor};font-weight:700;font-size:11px;">${v.toFixed(1)}</td>`;
+  };
+
+  const celGCS = (v) => {
+    if (v==null) return '<td style="color:var(--t3);font-size:10px;">—</td>';
+    const cor = v>=65?'var(--grn)':v>=45?'var(--acc)':'var(--t3)';
+    return `<td style="color:${cor};font-size:11px;">${v}</td>`;
   };
 
   const aviso = !temStats && snaps.length
-    ? '<tr><td colspan="12" style="text-align:center;padding:10px;color:var(--t3);font-size:11px;">⚠️ AP/xG/Chutes indisponíveis nesta liga — placar e odds sendo registrados normalmente.</td></tr>' : '';
+    ? `<tr><td colspan="11" style="text-align:center;padding:10px;color:var(--t3);font-size:11px;">⚠️ AP/xG/Chutes indisponíveis nesta liga — YAI calculado via Ataques totais.</td></tr>` : '';
 
   const rows = [...snaps].reverse().map((s,ri) => {
     const oi = snaps.length-1-ri;
@@ -10976,19 +11048,311 @@ function pulsoTabela(snaps, vars, nc, nf) {
       ${celNum(s.chutes.f, v.dch_f, PULSO_LIMITES.chutes, 'num')}
       ${celNum(s.xg.c,     v.dxg_c, PULSO_LIMITES.xg,     'xg')}
       ${celNum(s.xg.f,     v.dxg_f, PULSO_LIMITES.xg,     'xg')}
-      ${celOdds(s, v)}
+      ${celYAI(s.yai?.c)}
+      ${celYAI(s.yai?.f)}
+      ${celGCS(s.gcs)}
     </tr>`;
   }).join('');
 
   return `<table class="pulso-table">${thead}<tbody>${aviso}${rows}</tbody></table>
   <div style="font-size:9px;color:var(--t3);padding:4px 2px;">
-    <span style="color:var(--acc);">★</span> odds pré-jogo &nbsp;·&nbsp;
-    <span>~</span> interpolado &nbsp;·&nbsp;
-    <span style="color:#3ec87a;">●</span> ao vivo (Odds-API.io) &nbsp;·&nbsp;
-    sem símbolo = API-Football live${usandoFallbackAP ? ' &nbsp;·&nbsp; † Ataques totais (Dangerous Attacks indisponível nesta liga)' : ''}
+    <span style="color:var(--pur);">YAI</span> = Yellup Attack Index &nbsp;·&nbsp;
+    <span style="color:var(--grn);">GCS</span> = Game Control Score${usandoFallbackAP ? ' &nbsp;·&nbsp; † Ataques totais (DA indisponível nesta liga)' : ''}
   </div>`;
 }
 
-</script>
-</body>
-</html>
+// ── Associa resultado real às pré-odds após FT ─────────────────────────
+async function _registrarResultadoPreOdds() {
+  if (!DADOS || !PRE_ODDS_DATA) return;
+  try {
+    const f  = DADOS.fixture;
+    const pc = f.placar?.casa ?? 0;
+    const pf = f.placar?.fora ?? 0;
+    const totalGols = pc + pf;
+    // Detectar ambas marcaram
+    const ambasMarcaram = pc > 0 && pf > 0;
+    const fn = fns.httpsCallable('registrarResultadoPreOdds');
+    await fn({ fixtureId: f.id, totalGols, ambasMarcaram });
+    // Atualizar local para exibir no painel
+    PRE_ODDS_DATA.totalGolsRealizado = totalGols;
+    PRE_ODDS_DATA.ambasMarcaram = ambasMarcaram;
+    if (gc('preodds-content') && gc('sec-preodds').classList.contains('on')) {
+      _renderPreOddsHTML(PRE_ODDS_DATA);
+    }
+  } catch(e) { console.warn('RegistrarResultadoPreOdds:', e.message); }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 🏦 PRÉ-ODDS MULTI-BOOKMAKER — render, busca, aprendizado
+// ══════════════════════════════════════════════════════════════════════
+
+let PRE_ODDS_DATA = null; // dados carregados do Firestore ou da última busca
+
+// ── Casas que queremos exibir (ordem de prioridade visual) ─────────────
+const CASAS_ALVO = [
+  { key:'bet365',      label:'Bet365',       cor:'#00a859' },
+  { key:'betano',      label:'Betano',       cor:'#0070f3' },
+  { key:'sportingbet', label:'Sportingbet',  cor:'#e63939' },
+  { key:'pinnacle',    label:'Pinnacle',     cor:'#f5a524' },
+  { key:'betfair',     label:'Betfair',      cor:'#ff9900' },
+  { key:'1xbet',       label:'1xBet',        cor:'#3ec87a' },
+  { key:'william_hill',label:'William Hill', cor:'#7c3aed' },
+];
+
+// Chamada ao abrir a aba
+async function renderPreOddsTab() {
+  if (!DADOS) {
+    gc('preodds-content').innerHTML =
+      `<div style="text-align:center;padding:30px;color:var(--t3);font-size:12px;">Abra um jogo primeiro.</div>`;
+    return;
+  }
+  // Se já temos dados (da busca anterior ou do carregamento) re-renderiza
+  if (PRE_ODDS_DATA) {
+    _renderPreOddsHTML(PRE_ODDS_DATA);
+    return;
+  }
+  // Tenta carregar do Firestore (dados salvos anteriormente)
+  await _carregarPreOddsSalvas();
+}
+
+// ── Carregar odds já salvas no Firestore ────────────────────────────────
+async function _carregarPreOddsSalvas() {
+  if (!DADOS) return;
+  try {
+    const fn = fns.httpsCallable('buscarPreOddsMultiCasa');
+    const r  = await fn({ fixtureId: DADOS.fixture.id, apenasLeitura: true });
+    if (r.data?.sucesso && r.data.casas?.length) {
+      PRE_ODDS_DATA = r.data;
+      _renderPreOddsHTML(r.data);
+    }
+    // Se não há dados salvos, deixa o placeholder
+  } catch(e) {
+    console.warn('PreOdds carregar:', e.message);
+  }
+}
+
+// ── Botão: buscar agora ─────────────────────────────────────────────────
+async function buscarPreOddsAgora() {
+  if (!DADOS) return;
+  const loader  = gc('preodds-loader');
+  const content = gc('preodds-content');
+  const btn     = gc('btn-buscar-preodds');
+  loader.style.display  = 'block';
+  content.style.display = 'none';
+  if (btn) btn.disabled = true;
+
+  try {
+    const fn = fns.httpsCallable('buscarPreOddsMultiCasa');
+    const r  = await fn({
+      fixtureId: DADOS.fixture.id,
+      nomeCasa:  DADOS.fixture.timeCasa?.nome || '',
+      nomeFora:  DADOS.fixture.timeFora?.nome || '',
+      salvar:    true,
+    });
+
+    if (r.data?.sucesso) {
+      PRE_ODDS_DATA = r.data;
+      _renderPreOddsHTML(r.data);
+      const badge = gc('preodds-salvo-badge');
+      if (badge) { badge.style.display='inline'; setTimeout(()=>badge.style.display='none', 4000); }
+    } else {
+      content.innerHTML = `<div style="color:var(--red);padding:20px;font-size:12px;">⚠️ ${r.data?.erro||'Erro ao buscar odds.'}</div>`;
+    }
+  } catch(e) {
+    content.innerHTML = `<div style="color:var(--red);padding:20px;font-size:12px;">⚠️ ${e.message}</div>`;
+  } finally {
+    loader.style.display  = 'none';
+    content.style.display = 'block';
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── Render principal ────────────────────────────────────────────────────
+function _renderPreOddsHTML(data) {
+  const content  = gc('preodds-content');
+  const apDiv    = gc('preodds-aprendizado');
+  if (!content || !data) return;
+
+  const f        = DADOS?.fixture;
+  const casas    = data.casas || [];       // [{bookmaker, odd1, oddX, odd2, over25, under25, ambas_sim, ambas_nao}]
+  const capturadoEm = data.capturadoEm ? new Date(data.capturadoEm).toLocaleString('pt-BR') : '—';
+  const totalGols = data.totalGolsRealizado ?? null; // preenchido após o jogo
+
+  // Média das casas disponíveis
+  const media = (key) => {
+    const vals = casas.map(c => parseFloat(c[key])).filter(v => v > 0 && !isNaN(v));
+    return vals.length ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null;
+  };
+  const mediaO1 = media('odd1'), mediaOX = media('oddX'), mediaO2 = media('odd2');
+  const mediaO25 = media('over25'), mediaU25 = media('under25'), mediaAm = media('ambas_sim');
+
+  // Prob implícita (sem margem) a partir da média
+  const probImp = (odd) => odd ? Math.round(100/parseFloat(odd)) : null;
+
+  // ── Tabela por casa ──
+  const mkOddCell = (val, tipo) => {
+    if (!val || parseFloat(val)<=0) return `<td style="color:var(--t3);text-align:center;">—</td>`;
+    const v = parseFloat(val);
+    let cor = 'var(--t2)';
+    if (tipo==='1') cor = v < 1.8 ? 'var(--grn)' : v > 3.5 ? 'var(--red)' : 'var(--acc)';
+    if (tipo==='X') cor = 'var(--t2)';
+    if (tipo==='2') cor = v < 1.8 ? 'var(--blu)' : v > 3.5 ? 'var(--t3)' : 'var(--blu)';
+    if (tipo==='O') cor = v < 1.7 ? 'var(--grn)' : 'var(--t3)';
+    return `<td style="text-align:center;font-weight:700;font-size:13px;color:${cor};">${v.toFixed(2)}</td>`;
+  };
+
+  const linhasCasas = casas.map(c => {
+    const cfg = CASAS_ALVO.find(x=>x.key===c.bookmaker) || { label: c.bookmaker, cor:'var(--t3)' };
+    return `<tr>
+      <td style="font-weight:600;font-size:12px;padding:6px 8px;">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${cfg.cor};margin-right:5px;"></span>
+        ${cfg.label}
+      </td>
+      ${mkOddCell(c.odd1,'1')}
+      ${mkOddCell(c.oddX,'X')}
+      ${mkOddCell(c.odd2,'2')}
+      ${mkOddCell(c.over25,'O')}
+      ${mkOddCell(c.under25,'U')}
+      ${mkOddCell(c.ambas_sim,'A')}
+    </tr>`;
+  }).join('');
+
+  const linhaMedia = (mediaO1||mediaOX||mediaO2) ? `
+    <tr style="border-top:2px solid var(--brd);background:rgba(255,255,255,.03);">
+      <td style="font-size:10px;color:var(--t3);padding:6px 8px;font-weight:700;">MÉDIA</td>
+      ${mkOddCell(mediaO1,'1')} ${mkOddCell(mediaOX,'X')} ${mkOddCell(mediaO2,'2')}
+      ${mkOddCell(mediaO25,'O')} ${mkOddCell(mediaU25,'U')} ${mkOddCell(mediaAm,'A')}
+    </tr>` : '';
+
+  // ── Barras de probabilidade implícita ──
+  const p1 = probImp(mediaO1) || 0;
+  const pX = probImp(mediaOX) || 0;
+  const p2 = probImp(mediaO2) || 0;
+  const pSum = p1+pX+p2 || 100;
+  const pN1 = Math.round(p1/pSum*100), pNX = Math.round(pX/pSum*100), pN2 = 100-pN1-pNX;
+
+  const barraProb = (mediaO1 && mediaOX && mediaO2) ? `
+    <div style="margin:14px 0 10px;">
+      <div style="font-size:10px;color:var(--t3);margin-bottom:6px;font-weight:600;text-transform:uppercase;">Probabilidade Implícita (normalizada)</div>
+      <div style="display:flex;height:28px;border-radius:8px;overflow:hidden;font-size:11px;font-weight:700;">
+        <div style="width:${pN1}%;background:var(--grn);display:flex;align-items:center;justify-content:center;color:#000;">${pN1}%</div>
+        <div style="width:${pNX}%;background:var(--brd);display:flex;align-items:center;justify-content:center;color:var(--t2);">${pNX}%</div>
+        <div style="width:${pN2}%;background:var(--blu);display:flex;align-items:center;justify-content:center;color:#fff;">${pN2}%</div>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:5px;font-size:10px;color:var(--t3);">
+        <span>🟢 ${f?.timeCasa?.nome||'Casa'} ${pN1}%</span>
+        <span>⬜ Empate ${pNX}%</span>
+        <span>🔵 ${f?.timeFora?.nome||'Fora'} ${pN2}%</span>
+      </div>
+    </div>` : '';
+
+  content.style.display = 'block';
+  gc('preodds-loader').style.display = 'none';
+
+  content.innerHTML = `
+    <div style="font-size:10px;color:var(--t3);margin-bottom:10px;">
+      📅 Capturado em: <strong>${capturadoEm}</strong>
+      ${totalGols !== null ? ` &nbsp;·&nbsp; Resultado: <strong style="color:var(--acc)">${totalGols} gols</strong>` : ''}
+    </div>
+
+    ${barraProb}
+
+    <div style="overflow-x:auto;margin:10px 0;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="font-size:10px;color:var(--t3);border-bottom:1px solid var(--brd);">
+            <th style="text-align:left;padding:4px 8px;">Casa</th>
+            <th style="text-align:center;color:var(--grn);">1</th>
+            <th style="text-align:center;">X</th>
+            <th style="text-align:center;color:var(--blu);">2</th>
+            <th style="text-align:center;">Over 2.5</th>
+            <th style="text-align:center;">Under 2.5</th>
+            <th style="text-align:center;">Ambas</th>
+          </tr>
+        </thead>
+        <tbody>${linhasCasas}${linhaMedia}</tbody>
+      </table>
+    </div>
+
+    <div style="font-size:10px;color:var(--t3);margin-top:8px;">
+      ${casas.length} casa${casas.length!==1?'s':''} capturada${casas.length!==1?'s':''} via API-Football + Odds-API.io
+    </div>
+  `;
+
+  // Painel de aprendizado
+  _renderAprendizadoOdds(data, apDiv);
+}
+
+// ── Motor de aprendizado: exibe insights baseados no histórico ─────────
+function _renderAprendizadoOdds(data, container) {
+  if (!container) return;
+  const insights = data.insights || [];
+  const historico = data.historico || {}; // {total, pctOver25, pct3gols, pct4gols, mediaGols, bucket}
+
+  if (!insights.length && !historico.total) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'block';
+
+  const mkInsight = (txt, cor, icone) =>
+    `<div style="background:var(--c3);border-left:3px solid ${cor};border-radius:7px;padding:10px 12px;margin-bottom:8px;font-size:12px;line-height:1.5;">
+       <span style="margin-right:6px;">${icone}</span>${txt}
+     </div>`;
+
+  let html = `<div style="font-weight:700;font-size:13px;margin-bottom:10px;">🧠 O que o banco diz sobre essas odds</div>`;
+
+  if (historico.total >= 5) {
+    const n = historico.total;
+    if (historico.pct4gols != null)
+      html += mkInsight(
+        `Com odds parecidas, <strong style="color:var(--acc)">${historico.pct4gols}%</strong> dos jogos tiveram 4+ gols (${n} partidas similares).`,
+        'var(--acc)', '⚽'
+      );
+    if (historico.pct3gols != null && historico.pct3gols !== historico.pctOver25)
+      html += mkInsight(
+        `3+ gols saiu em <strong>${historico.pct3gols}%</strong> dos casos similares.`,
+        'var(--grn)', '📊'
+      );
+    if (historico.pctOver25 != null)
+      html += mkInsight(
+        `Over 2.5 aconteceu em <strong style="color:var(--grn)">${historico.pctOver25}%</strong> (média ${historico.mediaGols ?? '—'} gols).`,
+        'var(--grn)', '🎯'
+      );
+    if (historico.pctAmbas != null)
+      html += mkInsight(
+        `Ambas as equipes marcaram em <strong>${historico.pctAmbas}%</strong> dos jogos com esse perfil.`,
+        'var(--pur)', '🔁'
+      );
+  } else if (historico.total > 0) {
+    html += mkInsight(
+      `Apenas ${historico.total} jogos similares no banco — aguardando mais dados para insights confiáveis.`,
+      'var(--t3)', '⏳'
+    );
+  }
+
+  // Insights ad-hoc vindos da CF
+  insights.forEach(i => {
+    html += mkInsight(i.texto, i.cor||'var(--t3)', i.icone||'💡');
+  });
+
+  if (!historico.total && !insights.length) {
+    html += `<div style="font-size:11px;color:var(--t3);">Nenhum dado histórico ainda. Conforme jogos com odds similares forem registrados, os insights aparecerão aqui.</div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+// ── Chamar busca automática quando jogo carrega (antes do apito) ───────
+// Integra com o fluxo de carregamento de DADOS
+function _tentarPreOddsAuto() {
+  if (!DADOS) return;
+  const status = DADOS.fixture?.status?.short;
+  // Busca automática apenas pré-jogo ou primeiros 5 minutos (sem sobrescrever se já tem)
+  if (['NS','TBD','1H'].includes(status) && !PRE_ODDS_DATA) {
+    _carregarPreOddsSalvas();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
