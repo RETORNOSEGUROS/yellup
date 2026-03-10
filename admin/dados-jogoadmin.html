@@ -1250,6 +1250,7 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
       <button class="algo-tab" onclick="algoAba(this,'xgtimeline')">📉 xG</button>
       <button class="algo-tab" onclick="algoAba(this,'eficiencia')">📐 Eficiência</button>
       <button class="algo-tab" onclick="algoAba(this,'halvs')">⏱️ 1T vs 2T</button>
+      <button class="algo-tab" onclick="algoAba(this,'fadiga')">📉 Fadiga</button>
       <button class="algo-tab" onclick="algoAba(this,'radar')">🕸️ Radar</button>
       <button class="algo-tab" onclick="algoAba(this,'cartoes')">🟨 Cartões</button>
       <button class="algo-tab" onclick="algoAba(this,'corners')">🚩 Escanteios</button>
@@ -1452,6 +1453,10 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
 
   <div class="algo-panel" id="ap-halvs">
     <div id="halvsEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
+  </div>
+
+  <div class="algo-panel" id="ap-fadiga">
+    <div id="fadigaEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
   </div>
 
   <div class="algo-panel" id="ap-radar">
@@ -3816,6 +3821,7 @@ function renderAlgo(){
   renderXGTimeline();
   renderFingerprint();
   renderHalvs();
+  renderFadiga();
   renderRadar();
   renderCartoes();
   renderPrevLog();
@@ -4894,47 +4900,155 @@ function renderRisco(){
 }
 
 // ── EFICIÊNCIA ──
-function renderEficiencia(){
-  const f=DADOS.fixture;
-  const sts=DADOS.estatisticas||[];
-  const sc=[f.placar.casa??0,f.placar.fora??0];
-  const insights=[];
+function renderEficiencia() {
+  const el = gc('eficienciaEl');
+  if (!el || !DADOS) return;
+  const f   = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+  const idC = f.timeCasa.id, idF = f.timeFora.id;
+  const nC  = f.timeCasa.nome, nF = f.timeFora.nome;
+  const pC  = f.placar?.casa ?? 0, pF = f.placar?.fora ?? 0;
+  const min = f.status?.elapsed || 0;
 
-  [f.timeCasa,f.timeFora].forEach((time,i)=>{
-    const golos=sc[i];
-    const shots=getStat(sts,time.id,'Total Shots')||0;
-    const shotsOn=getStat(sts,time.id,'Shots on Goal')||0;
-    const xg=getStat(sts,time.id,'expected_goals')||0;
-    const passe=getStat(sts,time.id,'Passes accurate')||0;
-    const passePct=getStat(sts,time.id,'Passes %')||getStat(sts,time.id,'Passes accuracy')||0;
-    const corners=getStat(sts,time.id,'Corner Kicks')||0;
+  const G = (id, k) => parseFloat(getStat(sts, id, k)) || 0;
 
-    const efShots=shots>0?((golos/shots)*100).toFixed(1):0;
-    const efShotsOn=shotsOn>0?((golos/shotsOn)*100).toFixed(1):0;
-    const xgDiff=(golos-xg).toFixed(2);
-    const convCorner=corners>0?((golos/corners)*100).toFixed(1):0;
+  // ── Stats brutas ────────────────────────────────────────────────
+  const sOnC = G(idC,'Shots on Goal'),  sOnF = G(idF,'Shots on Goal');
+  const sOffC= G(idC,'Shots off Goal'), sOffF= G(idF,'Shots off Goal');
+  const sBlkC= G(idC,'Blocked Shots'),  sBlkF= G(idF,'Blocked Shots');
+  const sTotC= G(idC,'Total Shots') || (sOnC+sOffC+sBlkC) || 1;
+  const sTotF= G(idF,'Total Shots') || (sOnF+sOffF+sBlkF) || 1;
+  const xgC  = G(idC,'expected_goals'), xgF  = G(idF,'expected_goals');
+  const paC  = G(idC,'Passes %') || G(idC,'Passes accuracy') || 0;
+  const paF  = G(idF,'Passes %') || G(idF,'Passes accuracy') || 0;
+  const ptC  = G(idC,'Total passes') || 1, ptF = G(idF,'Total passes') || 1;
+  const defC = G(idC,'Goalkeeper Saves'), defF = G(idF,'Goalkeeper Saves');
+  const cornC= G(idC,'Corner Kicks'),     cornF= G(idF,'Corner Kicks');
+  const offC = G(idC,'Offsides'),         offF = G(idF,'Offsides');
 
-    insights.push({
-      ico:i===0?'🟡':'🔵',cls:'neutral',
-      text:`<strong>${time.nome}</strong> — Eficiência: <em>${efShots}%</em> de aproveitamento total (${golos}/${shots} chutes).
-No alvo: ${efShotsOn}% (${golos}/${shotsOn}). ${xg>0?`xG: ${xg.toFixed(2)} → diferença ${parseFloat(xgDiff)>0?'+'+xgDiff:xgDiff} vs real.`:''}
-${passePct?`Precisão de passes: <em>${passePct}%</em> (${passe} certos).`:''} ${corners?`Escanteios: ${corners} (${convCorner}% em gol).`:''}`
-    });
-  });
+  // ── Índices calculados ──────────────────────────────────────────
 
-  // Comparativo direto
-  const shotsC=getStat(sts,f.timeCasa.id,'Total Shots')||0;
-  const shotsF=getStat(sts,f.timeFora.id,'Total Shots')||0;
-  const xgC=getStat(sts,f.timeCasa.id,'expected_goals')||0;
-  const xgF=getStat(sts,f.timeFora.id,'expected_goals')||0;
+  // SQI — Shot Quality Index: % dos chutes que foram no alvo
+  const sqiC = sTotC > 0 ? Math.round(sOnC / sTotC * 100) : 0;
+  const sqiF = sTotF > 0 ? Math.round(sOnF / sTotF * 100) : 0;
 
-  insights.push({
-    ico:'⚖️', cls: xgC>xgF?'positive':'neutral',
-    text:`Superioridade ofensiva (xG): <strong>${xgC>xgF?f.timeCasa.nome:f.timeFora.nome}</strong> com ${Math.max(xgC,xgF).toFixed(2)} xG.
-Chutes totais: ${f.timeCasa.nome} ${shotsC} × ${f.timeFora.nome} ${shotsF}. ${Math.abs(sc[0]-sc[1])===0&&Math.abs(xgC-xgF)>0.5?'O resultado de empate <strong>contraria a estatística</strong>.':''}`
-  });
+  // Taxa de conversão real: gols / chutes no alvo
+  const convC = sOnC > 0 ? Math.round(pC / sOnC * 100) : 0;
+  const convF = sOnF > 0 ? Math.round(pF / sOnF * 100) : 0;
 
-  gc('eficienciaEl').innerHTML=mkInsights(insights);
+  // xG por chute: qualidade média de cada chance criada
+  const xgPerShotC = sTotC > 0 ? (xgC / sTotC).toFixed(3) : null;
+  const xgPerShotF = sTotF > 0 ? (xgF / sTotF).toFixed(3) : null;
+
+  // xG Gap: time está "devendo" ou "recebendo" gols sorte
+  const xgGapC = xgC > 0 ? (pC - xgC) : null;
+  const xgGapF = xgF > 0 ? (pF - xgF) : null;
+
+  // YAI — Yellup Attack Index
+  const yaiC = +((sOnC*3.0)+(sOffC*1.2)+(sBlkC*1.0)+(cornC*0.6)+(offC*0.3)).toFixed(1);
+  const yaiF = +((sOnF*3.0)+(sOffF*1.2)+(sBlkF*1.0)+(cornF*0.6)+(offF*0.3)).toFixed(1);
+
+  // PAI — Pass Aggression Index: jogo direto vs posse estéril
+  const paiC = ptC > 0 ? +((sTotC / ptC * 1000) + (100 - paC) * 0.5).toFixed(1) : null;
+  const paiF = ptF > 0 ? +((sTotF / ptF * 1000) + (100 - paF) * 0.5).toFixed(1) : null;
+
+  // DSI — Defensive Stress Index: pressão sofrida pelo goleiro
+  const dsiC = yaiF + (defC * 1.5);
+  const dsiF = yaiC + (defF * 1.5);
+
+  // GCS — Game Control Score
+  const sOnTot = sOnC + sOnF || 1;
+  const gcsC = Math.min(100, Math.max(0, Math.round(
+    (G(idC,'Ball Possession') || 50) * 0.35 + (paC || 75) * 0.25 + (sOnC / sOnTot) * 100 * 0.4
+  )));
+
+  // ── Helpers visuais ─────────────────────────────────────────────
+  const bar = (vC, vF, label, unitC='', unitF='', reversoF=false) => {
+    const maxV = Math.max(vC || 0, vF || 0, 0.01);
+    const pctC = Math.round((vC || 0) / maxV * 100);
+    const pctF = Math.round((vF || 0) / maxV * 100);
+    const winC = reversoF ? vC <= vF : vC >= vF;
+    return `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:10px;color:var(--t3);margin-bottom:5px;font-weight:600;text-transform:uppercase;">${label}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
+          <span style="width:90px;font-size:12px;font-weight:700;color:${winC?'var(--acc)':'var(--t2)'};">${vC != null ? vC+unitC : '—'}</span>
+          <div style="flex:1;background:var(--bg3);border-radius:4px;height:8px;">
+            <div style="width:${pctC}%;background:${winC?'var(--acc)':'rgba(245,165,36,.35)'};height:100%;border-radius:4px;transition:width .4s;"></div>
+          </div>
+          <span style="font-size:10px;color:var(--t3);width:32px;text-align:right;">${nC.slice(0,6)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="width:90px;font-size:12px;font-weight:700;color:${!winC?'var(--blu)':'var(--t2)'};">${vF != null ? vF+unitF : '—'}</span>
+          <div style="flex:1;background:var(--bg3);border-radius:4px;height:8px;">
+            <div style="width:${pctF}%;background:${!winC?'var(--blu)':'rgba(61,116,221,.35)'};height:100%;border-radius:4px;transition:width .4s;"></div>
+          </div>
+          <span style="font-size:10px;color:var(--t3);width:32px;text-align:right;">${nF.slice(0,6)}</span>
+        </div>
+      </div>`;
+  };
+
+  const card = (titulo, corpo, destaque=false) =>
+    `<div style="background:${destaque?'rgba(245,165,36,.07)':'var(--c3)'};border:1px solid ${destaque?'rgba(245,165,36,.25)':'var(--brd)'};border-radius:10px;padding:12px;margin-bottom:10px;">
+       <div style="font-size:10px;color:var(--t3);font-weight:700;text-transform:uppercase;margin-bottom:10px;">${titulo}</div>
+       ${corpo}
+     </div>`;
+
+  const xgGapBadge = (gap, nome) => {
+    if (gap === null) return '';
+    const abs = Math.abs(gap).toFixed(2);
+    if (Math.abs(gap) < 0.3) return `<span style="font-size:11px;color:var(--t3);">${nome} em linha com xG</span>`;
+    if (gap > 0) return `<span style="font-size:11px;color:var(--grn);">✅ ${nome} converteu <strong>+${abs} gol acima</strong> do esperado</span>`;
+    return `<span style="font-size:11px;color:var(--red);">⚠️ ${nome} está <strong>${abs} gol abaixo</strong> do xG — chance de gol iminente</span>`;
+  };
+
+  // ── Conclusões automáticas ────────────────────────────────────
+  const conclusoes = [];
+  if (sqiC > sqiF + 15) conclusoes.push(`<strong>${nC}</strong> criou chances de qualidade significativamente superior (SQI ${sqiC}% vs ${sqiF}%).`);
+  else if (sqiF > sqiC + 15) conclusoes.push(`<strong>${nF}</strong> foi mais preciso na construção — SQI ${sqiF}% vs ${sqiC}%.`);
+  if (xgGapC !== null && xgGapC < -0.8) conclusoes.push(`<strong>${nC}</strong> criou ${Math.abs(xgGapC).toFixed(1)} gol a mais do que converteu — pressão deverá continuar.`);
+  if (xgGapF !== null && xgGapF < -0.8) conclusoes.push(`<strong>${nF}</strong> está devendo ${Math.abs(xgGapF).toFixed(1)} gol pelo que criou.`);
+  if (dsiC > 25) conclusoes.push(`Goleiro do <strong>${nC}</strong> sob pressão alta (DSI ${dsiC.toFixed(0)}) — risco de gol sofrido.`);
+  if (dsiF > 25) conclusoes.push(`Goleiro do <strong>${nF}</strong> sob pressão alta (DSI ${dsiF.toFixed(0)}).`);
+  if (gcsC < 40) conclusoes.push(`Controle do jogo favorece <strong>${nF}</strong> — GCS Casa apenas ${gcsC}.`);
+  else if (gcsC > 65) conclusoes.push(`<strong>${nC}</strong> domina com consistência — GCS ${gcsC}.`);
+  if (!conclusoes.length) conclusoes.push('Eficiência equilibrada entre os times até agora.');
+
+  el.innerHTML = `
+    <div style="font-size:11px;color:var(--t3);margin-bottom:12px;">
+      📐 Índices calculados com stats disponíveis nesta liga · ${min > 0 ? min+"'" : 'pré-jogo'}
+    </div>
+
+    ${card('🎯 Qualidade das Finalizações',
+      bar(sqiC+'%', sqiF+'%', 'SQI — Chutes no alvo / Total chutes') +
+      bar(yaiC, yaiF, 'YAI — Yellup Attack Index (pressão composta)') +
+      bar(xgPerShotC, xgPerShotF, 'xG por chute — qualidade média de cada chance')
+    )}
+
+    ${card('⚽ Conversão & xG',
+      `${bar(convC+'%', convF+'%', 'Taxa de Conversão — Gols / Chutes no alvo')}
+       <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px;">
+         ${xgGapBadge(xgGapC, nC)}
+         ${xgGapBadge(xgGapF, nF)}
+       </div>`,
+      xgGapC !== null && xgGapC < -0.8 || xgGapF !== null && xgGapF < -0.8
+    )}
+
+    ${card('🛡️ Controle & Defesa',
+      `${bar(gcsC, 100-gcsC, 'GCS — Game Control Score (posse + passes + chutes)', '', '', false)}
+       ${bar(dsiF.toFixed(0), dsiC.toFixed(0), 'DSI — Pressão sofrida pelo goleiro (menor = melhor)', '', '', true)}`
+    )}
+
+    ${card('🔀 Estilo de Jogo',
+      bar(paC+'%', paF+'%', 'Precisão de Passes') +
+      (paiC && paiF ? bar(paiC, paiF, 'PAI — Pass Aggression (maior = mais direto/agressivo)') : '')
+    )}
+
+    <div style="background:var(--c3);border-radius:10px;padding:12px;border:1px solid var(--brd);">
+      <div style="font-size:10px;color:var(--t3);font-weight:700;text-transform:uppercase;margin-bottom:8px;">🔍 Conclusões</div>
+      ${conclusoes.map(c => `<div style="font-size:12px;line-height:1.6;margin-bottom:4px;">• ${c}</div>`).join('')}
+    </div>
+  `;
 }
 
 // ── SUBSTITUIÇÕES ──
@@ -5786,8 +5900,228 @@ function renderHalvs() {
     </div>`;
 }
 
-// ═══════════════════════════════════════════════════════
-// 🕸️ RADAR DE COMPARAÇÃO (Spider Chart SVG)
+// ═══════════════════════════════════════════════════════════════════
+// 📉 FADIGA POR FASE — análise da intensidade ao longo das 4 fases
+// Usa SNAPSHOTS (minuto a minuto) para detectar queda de rendimento
+// Fases: 0-25' / 26-45' / 46-65' / 66-90'+
+// ═══════════════════════════════════════════════════════════════════
+function renderFadiga() {
+  const el = gc('fadigaEl');
+  if (!el || !DADOS) return;
+  const f   = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+  const min = f.status?.elapsed || 0;
+  const isFt = ['FT','AET','PEN'].includes(f.status?.short);
+  const nC  = f.timeCasa.nome, nF = f.timeFora.nome;
+  const idC = f.timeCasa.id,   idF = f.timeFora.id;
+
+  if (!SNAPSHOTS.length) {
+    el.innerHTML = '<div class="empty"><div class="ico">📉</div><p>Snapshots necessários — disponível após o 1º minuto de jogo</p></div>';
+    return;
+  }
+  if (min < 20 && !isFt) {
+    el.innerHTML = '<div class="empty"><div class="ico">⏳</div><p>Aguardando dados suficientes (a partir do min 20)</p></div>';
+    return;
+  }
+
+  const G = (id, k) => parseFloat(getStat(sts, id, k)) || 0;
+
+  // ── Definir fases ────────────────────────────────────────────────
+  const fases = [
+    { label: '0–25\'',   min: 0,  max: 25  },
+    { label: '26–45\'',  min: 26, max: 45  },
+    { label: '46–65\'',  min: 46, max: 65  },
+    { label: '66–90\'+', min: 66, max: 999 },
+  ];
+
+  // Métricas por fase, calculadas via SNAPSHOTS
+  const snapsFase = (mMin, mMax) => SNAPSHOTS.filter(s => (s.minuto||0) >= mMin && (s.minuto||0) <= mMax);
+
+  const mediaSnap = (snaps, getCasa) => {
+    const vals = snaps.map(s => {
+      // YAI aproximado usando dados do snapshot
+      if (getCasa) {
+        const sOn = s.chutesAlvoCasa || 0;
+        const ap  = s.ataquesPerigososCasa || s.ataquesCasa || 0;
+        const esc = s.escanteiosCasa || 0;
+        return sOn * 3.0 + ap * 0.5 + esc * 0.6;
+      } else {
+        const sOn = s.chutesAlvoFora || 0;
+        const ap  = s.ataquesPerigososFora || s.ataquesFora || 0;
+        const esc = s.escanteiosFora || 0;
+        return sOn * 3.0 + ap * 0.5 + esc * 0.6;
+      }
+    }).filter(v => v > 0);
+    return vals.length ? +(vals.reduce((a,b)=>a+b)/vals.length).toFixed(1) : null;
+  };
+
+  const mediaPosse = (snaps) => {
+    const vals = snaps.map(s => s.posseCasa).filter(v => v != null && v > 0);
+    return vals.length ? Math.round(vals.reduce((a,b)=>a+b)/vals.length) : null;
+  };
+
+  const mediaChutes = (snaps, casa) => {
+    const key = casa ? 'chutesAlvoCasa' : 'chutesAlvoFora';
+    const vals = snaps.map(s => s[key]).filter(v => v != null);
+    if (!vals.length) return null;
+    // Deltas entre snapshots (acumulado — precisa de diferença)
+    const deltas = [];
+    for (let i = 1; i < vals.length; i++) {
+      const d = vals[i] - vals[i-1];
+      if (d >= 0) deltas.push(d);
+    }
+    return deltas.length ? +(deltas.reduce((a,b)=>a+b)/deltas.length).toFixed(2) : null;
+  };
+
+  // Stats finais dos últimos 15 minutos via API (para precisão de passes recente)
+  const paC = G(idC,'Passes %') || 75;
+  const paF = G(idF,'Passes %') || 75;
+
+  // Construir dados por fase
+  const dadosFases = fases.map(fase => {
+    const snaps = snapsFase(fase.min, fase.max);
+    const temDados = snaps.length >= 2;
+    return {
+      ...fase,
+      snaps: snaps.length,
+      temDados,
+      yaiC: temDados ? mediaSnap(snaps, true)  : null,
+      yaiF: temDados ? mediaSnap(snaps, false) : null,
+      posseC: temDados ? mediaPosse(snaps) : null,
+      ativa: min >= fase.min,
+    };
+  }).filter(f => f.ativa && f.snaps > 0);
+
+  if (dadosFases.length < 2) {
+    el.innerHTML = '<div class="empty"><div class="ico">⏳</div><p>Dados insuficientes para análise por fases</p></div>';
+    return;
+  }
+
+  // ── Detectar queda de rendimento ────────────────────────────────
+  const maxYaiC = Math.max(...dadosFases.map(f => f.yaiC || 0), 0.1);
+  const maxYaiF = Math.max(...dadosFases.map(f => f.yaiF || 0), 0.1);
+
+  const ultimaFase = dadosFases[dadosFases.length - 1];
+  const primeiraFase = dadosFases[0];
+  const quedaC = primeiraFase.yaiC && ultimaFase.yaiC
+    ? ((ultimaFase.yaiC - primeiraFase.yaiC) / primeiraFase.yaiC * 100).toFixed(0)
+    : null;
+  const quedaF = primeiraFase.yaiF && ultimaFase.yaiF
+    ? ((ultimaFase.yaiF - primeiraFase.yaiF) / primeiraFase.yaiF * 100).toFixed(0)
+    : null;
+
+  // ── Helpers visuais ──────────────────────────────────────────────
+  const corYAI = (v, max) => {
+    const pct = v / max;
+    return pct >= 0.75 ? 'var(--grn)' : pct >= 0.45 ? 'var(--acc)' : 'var(--red)';
+  };
+
+  const barYai = (v, max, cor) => {
+    const pct = max > 0 ? Math.min(100, Math.round(v / max * 100)) : 0;
+    return `<div style="flex:1;background:var(--bg3);border-radius:3px;height:6px;">
+      <div style="width:${pct}%;background:${cor};height:100%;border-radius:3px;transition:width .4s;"></div>
+    </div>`;
+  };
+
+  const trendIcon = (arr, key) => {
+    if (arr.length < 2) return '';
+    const last = arr[arr.length-1][key], prev = arr[arr.length-2][key];
+    if (!last || !prev) return '';
+    const d = last - prev;
+    if (d > 1.5) return '<span style="color:var(--grn);font-size:12px;">▲</span>';
+    if (d < -1.5) return '<span style="color:var(--red);font-size:12px;">▼</span>';
+    return '<span style="color:var(--t3);font-size:10px;">━</span>';
+  };
+
+  // ── Conclusões ───────────────────────────────────────────────────
+  const conclusoes = [];
+  if (quedaC !== null) {
+    const q = parseInt(quedaC);
+    if (q <= -25) conclusoes.push(`<strong style="color:var(--red);">${nC} caiu ${Math.abs(q)}%</strong> de intensidade em relação à fase inicial — sinal claro de fadiga.`);
+    else if (q >= 25) conclusoes.push(`<strong style="color:var(--grn);">${nC} cresceu ${q}%</strong> de intensidade — em ascensão.`);
+    else conclusoes.push(`${nC} manteve intensidade razoavelmente estável ao longo do jogo.`);
+  }
+  if (quedaF !== null) {
+    const q = parseInt(quedaF);
+    if (q <= -25) conclusoes.push(`<strong style="color:var(--red);">${nF} caiu ${Math.abs(q)}%</strong> de intensidade — possivelmente sofrendo com ritmo de jogo.`);
+    else if (q >= 25) conclusoes.push(`<strong style="color:var(--grn);">${nF} cresceu ${q}%</strong> de intensidade no decorrer do jogo.`);
+  }
+  // Alerta de janela de gol por fadiga
+  const faseAtual = dadosFases[dadosFases.length-1];
+  if (faseAtual?.yaiC && maxYaiC > 0 && faseAtual.yaiC / maxYaiC < 0.5 && min >= 65) {
+    conclusoes.push(`⚠️ ${nC} está com YAI abaixo de 50% do pico — intensidade ofensiva caiu na reta final.`);
+  }
+  if (faseAtual?.yaiF && maxYaiF > 0 && faseAtual.yaiF / maxYaiF < 0.5 && min >= 65) {
+    conclusoes.push(`⚠️ ${nF} perde fôlego ofensivo nos últimos minutos.`);
+  }
+  if (!conclusoes.length) conclusoes.push('Dados insuficientes de fases para conclusão — análise completa disponível após o 2T.');
+
+  // ── Render ───────────────────────────────────────────────────────
+  const linhasFases = dadosFases.map((fase, i) => {
+    const yC = fase.yaiC ?? 0, yF = fase.yaiF ?? 0;
+    const corC = corYAI(yC, maxYaiC), corF = corYAI(yF, maxYaiF);
+    const isAtual = i === dadosFases.length - 1 && !isFt;
+    return `
+      <div style="background:${isAtual?'rgba(245,165,36,.07)':'var(--c3)'};border:1px solid ${isAtual?'rgba(245,165,36,.25)':'var(--brd)'};border-radius:9px;padding:10px 12px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:11px;font-weight:700;color:${isAtual?'var(--acc)':'var(--t2)'};">
+            ${isAtual?'⚡ ':''}<strong>${fase.label}</strong>
+            ${isAtual?'<span style="font-size:9px;font-weight:400;color:var(--t3);"> ao vivo</span>':''}
+          </span>
+          <span style="font-size:9px;color:var(--t3);">${fase.snaps} snapshots</span>
+        </div>
+
+        <!-- Casa -->
+        <div style="margin-bottom:6px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+            <span style="font-size:10px;color:var(--t3);width:70px;">${nC.slice(0,8)}</span>
+            ${barYai(yC, maxYaiC, corC)}
+            <span style="font-size:12px;font-weight:700;color:${corC};width:36px;text-align:right;">${yC.toFixed(1)}</span>
+            ${trendIcon(dadosFases.slice(0,i+1), 'yaiC')}
+          </div>
+          <!-- Fora -->
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:10px;color:var(--t3);width:70px;">${nF.slice(0,8)}</span>
+            ${barYai(yF, maxYaiF, corF)}
+            <span style="font-size:12px;font-weight:700;color:${corF};width:36px;text-align:right;">${yF.toFixed(1)}</span>
+            ${trendIcon(dadosFases.slice(0,i+1), 'yaiF')}
+          </div>
+        </div>
+
+        ${fase.posseC !== null ? `<div style="font-size:10px;color:var(--t3);">Posse média: <strong style="color:var(--acc);">${fase.posseC}%</strong> × <strong style="color:var(--blu);">${100-fase.posseC}%</strong></div>` : ''}
+      </div>`;
+  }).join('');
+
+  // Mini resumo de tendência geral
+  const resumoTendencia = dadosFases.length >= 2 ? (() => {
+    const f1 = dadosFases[0], fN = dadosFases[dadosFases.length-1];
+    const difC = (fN.yaiC||0) - (f1.yaiC||0);
+    const difF = (fN.yaiF||0) - (f1.yaiF||0);
+    const maisForte = difC > difF ? nC : difF > difC ? nF : null;
+    return maisForte
+      ? `<div style="font-size:11px;color:var(--t3);text-align:center;padding:8px;border-top:1px solid var(--brd);margin-top:4px;">📈 <strong style="color:var(--t2);">${maisForte}</strong> ganhou mais intensidade ao longo do jogo</div>`
+      : '';
+  })() : '';
+
+  el.innerHTML = `
+    <div style="margin-bottom:12px;">
+      <div style="font-weight:800;font-size:14px;margin-bottom:4px;">📉 Fadiga por Fase</div>
+      <div style="font-size:11px;color:var(--t3);">YAI médio em cada bloco de tempo — detecta queda de ritmo e aceleração tardia</div>
+    </div>
+
+    ${linhasFases}
+    ${resumoTendencia}
+
+    <div style="background:var(--c3);border:1px solid var(--brd);border-radius:9px;padding:10px 12px;margin-top:8px;">
+      <div style="font-size:10px;color:var(--t3);font-weight:700;text-transform:uppercase;margin-bottom:6px;">🔍 Interpretação</div>
+      ${conclusoes.map(c => `<div style="font-size:12px;line-height:1.6;margin-bottom:3px;">• ${c}</div>`).join('')}
+    </div>
+
+    <div style="font-size:9px;color:var(--t3);padding:6px 2px;margin-top:4px;">
+      YAI = (chutes_alvo × 3) + (ataques × 0.5) + (escanteios × 0.6) · média por fase via snapshots
+    </div>
+  `;
+}
 // 6 dimensões táticas dos dois times em gráfico aranha
 // ═══════════════════════════════════════════════════════
 function renderRadar() {
