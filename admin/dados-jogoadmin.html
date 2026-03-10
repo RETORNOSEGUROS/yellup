@@ -1264,6 +1264,7 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
       <button class="algo-tab" onclick="algoAba(this,'pressing')">🔥 Pressing</button>
       <button class="algo-tab" onclick="algoAba(this,'mercado')">💰 Odds</button>
       <button class="algo-tab" onclick="algoAba(this,'fingerprint')">📚 Banco</button>
+      <button class="algo-tab" onclick="algoAba(this,'padrao')">🧠 Padrão</button>
       <button class="algo-tab" onclick="algoAba(this,'h2hvisual')">⚔️ H2H</button>
       <button class="algo-tab" onclick="algoAba(this,'fases')">⏰ Fases</button>
     </div>
@@ -1449,6 +1450,11 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
 
   <div class="algo-panel" id="ap-fingerprint">
     <div id="fpCompEl"><div class="empty"><div class="ld" style="width:20px;height:20px;"></div></div></div>
+  </div>
+
+  <!-- PATTERN ENGINE -->
+  <div class="algo-panel" id="ap-padrao">
+    <div id="padraoEl"><div class="empty"><div class="ico">🧠</div><p>Aguardando dados de jogo ao vivo</p></div></div>
   </div>
 
   <div class="algo-panel" id="ap-halvs">
@@ -1786,6 +1792,10 @@ function _iniciarLoops(fixtureId, dId) {
     // ── Odds ao vivo ──
     buscarOddsLiveLoop(parseInt(fixtureId));
 
+    // -- Pattern Engine: detectar padroes a cada 5min ao vivo --
+    setTimeout(() => _detectarPadraoFn(), 15000);
+    _padraoTimer = setInterval(() => _detectarPadraoFn(), 300000);
+
   } else if (isNS) {
     // Pré-jogo: verifica a cada 30s se o jogo começou
     const nsTimer = setInterval(() => {
@@ -1833,6 +1843,7 @@ function _pararLoopsEncerrado() {
   if (_snapPlayersTimer)  { clearInterval(_snapPlayersTimer);   _snapPlayersTimer = null; }
   if (oddsTimer)          { clearInterval(oddsTimer);           oddsTimer = null; }
   if (PULSO_AUTO_REFRESH) { clearInterval(PULSO_AUTO_REFRESH);  PULSO_AUTO_REFRESH = null; }
+  if (_padraoTimer)       { clearInterval(_padraoTimer);          _padraoTimer = null; }
   console.log('✅ Todos os loops encerrados — jogo finalizado.');
 }
 
@@ -3780,6 +3791,7 @@ function algoAba(btn,id){
   gc('ap-'+id).classList.add('on');
   if(id==='convergencia') atualizarConvergencia();
   if(id==='risco' || id==='notif') _initAlertasFeed(); // 🔔 feed de alertas
+  if(id==='padrao') renderPadraoDetectado();
 }
 
 // ─── REGISTRAR PREVISÃO (background, não bloqueia UI) ───
@@ -3827,6 +3839,7 @@ function renderAlgo(){
   renderSubsAnalysis();
   renderXGTimeline();
   renderFingerprint();
+  renderPadraoDetectado();
   renderHalvs();
   renderFadiga();
   renderRadar();
@@ -11612,6 +11625,229 @@ async function vincularResultadoSnapshotsFn() {
     }
   } catch(e) { console.warn('vincularResultadoSnapshots:', e.message); }
 }
+
+// =============================================================================
+// PATTERN ENGINE — frontend (items 3, 5, 6, 7, 8, 9)
+// =============================================================================
+
+// Enriquece snapshots apos FT
+async function _enriquecerSnapshotsPosFTFn() {
+  if (ENRIQUECIMENTO_FEITO || !DADOS) return;
+  try {
+    const f   = DADOS.fixture;
+    const evs = (DADOS.eventos || []).map(e => ({
+      tipo:   e.tipo,
+      minuto: e.minuto || 0,
+      timeId: e.time?.id || null,
+    }));
+    const op = ODDS_PREJOGO?.odds?.resultados || PRE_ODDS_DATA?.mediaOdds || null;
+
+    const fn = fns.httpsCallable('enriquecerSnapshotsPosFT');
+    const r  = await fn({
+      fixtureId:       f.id,
+      timeCasaId:      f.timeCasa.id,
+      timeForaId:      f.timeFora.id,
+      placarFinalCasa: f.placar?.casa ?? 0,
+      placarFinalFora: f.placar?.fora ?? 0,
+      oddsPrejogo: op ? {
+        odd1:   op.odd1   ?? op.casa   ?? null,
+        oddX:   op.oddX   ?? op.empate ?? null,
+        odd2:   op.odd2   ?? op.fora   ?? null,
+        over25: op.over25 ?? null,
+      } : null,
+      eventos:   evs,
+      ligaId:    f.liga?.id        ?? null,
+      temporada: f.liga?.temporada ?? new Date().getFullYear(),
+    });
+
+    if (r.data?.sucesso) {
+      ENRIQUECIMENTO_FEITO = true;
+      console.log('Pattern Engine: ' + r.data.snapshotsEnriquecidos +
+        ' snapshots + ' + r.data.padroesGlobaisSalvos + ' padroes salvos');
+    }
+  } catch(e) { console.warn('enriquecerSnapshotsPosFT:', e.message); }
+}
+
+// Detecta padroes ao vivo (chamado a cada 5min)
+async function _detectarPadraoFn() {
+  if (!DADOS || !SNAPSHOTS.length) return;
+  const f   = DADOS.fixture;
+  const min = f.status?.elapsed || 0;
+  if (!['1H','2H','ET'].includes(f.status?.short)) return;
+  if (_PADRAO_ULTIMO_MIN === min) return;
+  _PADRAO_ULTIMO_MIN = min;
+
+  try {
+    const sts  = DADOS.estatisticas || [];
+    const snp  = SNAPSHOTS[SNAPSHOTS.length - 1] || {};
+    const op   = ODDS_PREJOGO?.odds?.resultados || PRE_ODDS_DATA?.mediaOdds || null;
+    const evs  = DADOS.eventos || [];
+    const golsC = evs.filter(e => e.tipo==='Goal' && e.minuto<=min && e.time?.id===f.timeCasa.id).length;
+    const golsF = evs.filter(e => e.tipo==='Goal' && e.minuto<=min && e.time?.id===f.timeFora.id).length;
+    const sitC  = golsC > golsF ? 'vencendo' : golsC < golsF ? 'perdendo' : 'empatando';
+    const sitF  = golsF > golsC ? 'vencendo' : golsF < golsC ? 'perdendo' : 'empatando';
+
+    const snps10 = SNAPSHOTS.filter(s => (s.minuto||0) >= min-10 && (s.minuto||0) < min);
+    const yaiMinC = snps10.length >= 2
+      ? +((snp.yai?.casa||0) - (snps10[0].yai?.casa||0)) / Math.max(1, min - snps10[0].minuto)
+      : null;
+    const yaiMinF = snps10.length >= 2
+      ? +((snp.yai?.fora||0) - (snps10[0].yai?.fora||0)) / Math.max(1, min - snps10[0].minuto)
+      : null;
+
+    const cfn = fns.httpsCallable('detectarPadraoAoVivo');
+    const r   = await cfn({
+      timeCasaId: f.timeCasa.id,
+      timeForaId: f.timeFora.id,
+      minutoAtual: min,
+      posseCasa:   snp.posseCasa ?? getStat(sts, f.timeCasa.id, 'Ball Possession') ?? null,
+      yaiCasa:     snp.yai?.casa ?? null,
+      yaiFora:     snp.yai?.fora ?? null,
+      yaiPorMinCasa: yaiMinC,
+      yaiPorMinFora: yaiMinF,
+      gcsCasa:        null,
+      situacaoPlacarCasa: sitC,
+      situacaoPlacarFora: sitF,
+      odd1:   op?.odd1   ?? op?.casa   ?? null,
+      oddX:   op?.oddX   ?? op?.empate ?? null,
+      odd2:   op?.odd2   ?? op?.fora   ?? null,
+      over25: op?.over25 ?? null,
+      ligaId: f.liga?.id ?? null,
+    });
+
+    if (r.data?.sucesso) {
+      PADRAO_ATUAL = r.data;
+      const panel = gc('ap-padrao');
+      if (panel && panel.classList.contains('on')) renderPadraoDetectado();
+      if (r.data.alertarAdmin && r.data.melhorPadrao) {
+        _injetarAlertaPadrao(r.data.melhorPadrao, f);
+      }
+    }
+  } catch(e) { console.warn('detectarPadraoAoVivo:', e.message); }
+}
+
+// Injeta alerta de padrao no feed hierarquizado
+function _injetarAlertaPadrao(padrao, f) {
+  if (!padrao || padrao.probJanela < 55) return;
+  const feedEl = gc('feedEl') || gc('alertasFeed');
+  if (!feedEl) return;
+  const nomeTime = padrao.local === 'casa' ? f.timeCasa.nome : f.timeFora.nome;
+  const min = f.status?.elapsed || 0;
+  const confiancaCor = padrao.confianca === 'alta' ? 'var(--grn)' : padrao.confianca === 'media' ? 'var(--acc)' : 'var(--t3)';
+  const div = document.createElement('div');
+  div.className = 'alerta-item nivel-forte';
+  div.style.cssText = 'animation:fadeIn .4s ease;border-left:3px solid var(--grn);';
+  div.innerHTML =
+    '<span class="alerta-ico">🧠</span>' +
+    '<div class="alerta-corpo">' +
+      '<strong>' + min + '\' PADRAO</strong> — ' + nomeTime + ' (' + padrao.local + ')' +
+      '<div style="font-size:10px;color:var(--t2);">Gol nos ' + padrao.janelaRecomendada +
+      'min: <strong style="color:var(--grn);">' + padrao.probJanela + '%</strong>' +
+      ' &middot; ' + padrao.totalAmostras + ' amostras' +
+      ' &middot; <span style="color:' + confiancaCor + ';">' + padrao.confianca + '</span>' +
+      '</div></div>';
+  feedEl.insertBefore(div, feedEl.firstChild);
+}
+
+// Renderiza painel Padrao Detectado
+function renderPadraoDetectado() {
+  const el = gc('padraoEl');
+  if (!el) return;
+
+  if (!PADRAO_ATUAL) {
+    el.innerHTML =
+      '<div class="empty">' +
+        '<div class="ico">🧠</div>' +
+        '<p>Aguardando dados ao vivo — detecta padroes apos o minuto 5</p>' +
+        '<p style="font-size:10px;color:var(--t3);margin-top:6px;">' +
+          'O banco aprende a cada jogo monitorado. Com 5+ situacoes similares o painel ativa.' +
+        '</p>' +
+      '</div>';
+    return;
+  }
+
+  const f   = DADOS?.fixture;
+  const pd  = PADRAO_ATUAL;
+  const nC  = f?.timeCasa?.nome || 'Casa';
+  const nF  = f?.timeFora?.nome || 'Fora';
+  const min = f?.status?.elapsed || 0;
+
+  const barProb = (pct, janela) => {
+    if (pct == null) return '';
+    const cor = pct >= 60 ? 'var(--grn)' : pct >= 40 ? 'var(--acc)' : 'var(--t3)';
+    return '<div style="margin-bottom:7px;">' +
+      '<div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px;">' +
+        '<span style="color:var(--t3);">Gol nos ' + janela + 'min</span>' +
+        '<span style="font-weight:700;color:' + cor + ';">' + pct + '%</span>' +
+      '</div>' +
+      '<div style="background:var(--bg3);border-radius:4px;height:7px;">' +
+        '<div style="width:' + Math.min(pct, 100) + '%;background:' + cor + ';height:100%;border-radius:4px;transition:width .5s;"></div>' +
+      '</div>' +
+    '</div>';
+  };
+
+  const cardPadrao = (p, nomeTime, corTime) => {
+    if (!p) return '<div style="color:var(--t3);font-size:11px;padding:10px 0;">Sem amostras para ' + nomeTime + '</div>';
+    const confCor = p.confianca === 'alta' ? 'var(--grn)' : p.confianca === 'media' ? 'var(--acc)' : 'var(--t3)';
+    const bgCard  = p.alertar ? 'rgba(42,196,98,.06)' : 'var(--c3)';
+    const brdCard = p.alertar ? 'rgba(42,196,98,.25)' : 'var(--brd)';
+
+    return '<div style="background:' + bgCard + ';border:1px solid ' + brdCard + ';border-radius:10px;padding:12px;margin-bottom:10px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+        '<div>' +
+          '<span style="font-size:13px;font-weight:800;color:' + corTime + ';">' + nomeTime.slice(0, 14) + '</span>' +
+          '<span style="font-size:10px;color:var(--t3);margin-left:6px;">' + (p.local === 'casa' ? '&#127968;' : '&#9992;') + '</span>' +
+        '</div>' +
+        '<div style="text-align:right;">' +
+          '<div style="font-size:10px;font-weight:700;color:' + confCor + ';">' + p.confianca + '</div>' +
+          '<div style="font-size:9px;color:var(--t3);">' + p.totalAmostras + ' amostras</div>' +
+        '</div>' +
+      '</div>' +
+      barProb(p.pctGolNos5,  5) +
+      barProb(p.pctGolNos10, 10) +
+      barProb(p.pctGolNos15, 15) +
+      (p.alertar ?
+        '<div style="background:rgba(42,196,98,.1);border-radius:7px;padding:8px 10px;margin-top:6px;">' +
+          '<div style="font-size:11px;font-weight:700;color:var(--grn);">' +
+            'Janela: proximos ' + p.janelaRecomendada + 'min — ' + p.probJanela + '% historico' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--t3);margin-top:2px;">' +
+            'Estimativa pico: ' + (p.picoEstimado?.min ?? min+3) + '\'' + ' – ' + (p.picoEstimado?.max ?? min+11) + '\'' +
+          '</div>' +
+        '</div>' : '') +
+      (p.pctCartaoNos10 >= 30 ?
+        '<div style="margin-top:8px;font-size:10px;color:var(--acc);">' +
+          'Cartao nos proximos 10min: <strong>' + p.pctCartaoNos10 + '%</strong>' +
+        '</div>' : '') +
+    '</div>';
+  };
+
+  const totalAmostras = (pd.padraoCasa?.totalAmostras || 0) + (pd.padraoFora?.totalAmostras || 0);
+
+  el.innerHTML =
+    '<div style="font-weight:800;font-size:14px;margin-bottom:4px;">🧠 Padrao Detectado</div>' +
+    '<div style="font-size:11px;color:var(--t3);margin-bottom:10px;">' +
+      'Historico de situacoes similares — probabilidade de gol nos proximos minutos' +
+    '</div>' +
+    (totalAmostras > 0 ?
+      '<div style="font-size:9px;color:var(--t3);margin-bottom:12px;">' +
+        totalAmostras + ' amostras &middot; Fase ' + (pd.fase||'?').replace('_','-') +
+        ' &middot; Min ' + min + '\'' +
+        (pd.melhorPadrao?.alertar ? ' &middot; <span style="color:var(--grn);font-weight:700;">PADRAO ATIVO</span>' : '') +
+      '</div>' : '') +
+    (totalAmostras === 0 ?
+      '<div style="background:var(--c3);border:1px solid var(--brd);border-radius:10px;padding:16px;text-align:center;color:var(--t3);">' +
+        '<div style="font-size:24px;margin-bottom:8px;">📊</div>' +
+        '<div style="font-size:12px;">Banco vazio para estes times nesta situacao</div>' +
+        '<div style="font-size:10px;margin-top:4px;">O sistema aprende a cada jogo monitorado e enriquecido.</div>' +
+      '</div>' : '') +
+    cardPadrao(pd.padraoCasa, nC, 'var(--acc)') +
+    cardPadrao(pd.padraoFora, nF, 'var(--blu)') +
+    '<div style="font-size:9px;color:var(--t3);padding:6px 2px;border-top:1px solid var(--brd);margin-top:4px;">' +
+      'Filtros: fase &middot; forca adversario (odd inicial) &middot; situacao placar em tempo real' +
+    '</div>';
+}
+
 
 // ── Associa resultado real às pré-odds após FT ─────────────────────────
 async function _registrarResultadoPreOdds() {
