@@ -1636,6 +1636,10 @@ let _ULTIMA_ODDS_REGISTRADA=null; // snapshot anterior para calcular velocidade
 let JANELAS_PRE_EVENTO=[];    // [{tipo, minuto, snapshots_antes:[...5min], variações}]
 let _EVENTOS_JA_PROCESSADOS=new Set(); // evitar processar o mesmo evento 2x
 
+// ── CENÁRIOS DINÂMICOS — taxas de acerto reais do banco ──
+let CENARIOS_STATS={};        // {cenarioId: {taxaAcerto, totalAtivacoes, totalAcertos}}
+let CENARIOS_LOG_SESSAO=[];   // cenários ativados nesta sessão: [{cenarioId, minuto, placarCasa, placarFora}]
+
 auth.onAuthStateChanged(async u=>{
   if(!u||u.email!=='admin@yellup.com'){window.location.href='login.html';return;}
   const p=new URLSearchParams(location.search);
@@ -1681,6 +1685,7 @@ async function load(fId, dId) {
     if (isFt) {
       salvarRelatorioFn();
       ajustarPesosAutomatico(); // 🆕 ajuste automático de pesos pós-jogo
+      _verificarResultadosCenarios(); // 📐 registra acertos/erros dos cenários
       _pararLoopsEncerrado();
     }
 
@@ -1759,6 +1764,7 @@ async function refreshDados(fixtureId, dId) {
     if (isFt) {
       salvarRelatorioFn();
       ajustarPesosAutomatico(); // 🆕
+      _verificarResultadosCenarios(); // 📐 registra acertos/erros dos cenários
       _pararLoopsEncerrado();
     }
     // Atualizar badge de status ao vivo
@@ -1944,16 +1950,23 @@ async function buscarHistoricoBackground(casaId,foraId,temporada){
   try{
     const fnH=fns.httpsCallable('buscarHistoricoTime');
     const fnFP=fns.httpsCallable('buscarFingerprint');
-    const [rCasa,rFora,rFP]=await Promise.all([
+    const fnCen=fns.httpsCallable('buscarEstatisticasCenarios');
+    const [rCasa,rFora,rFP,rCen]=await Promise.all([
       fnH({teamId:casaId,season:temporada,numJogos:20}),
       fnH({teamId:foraId,season:temporada,numJogos:20}),
       fnFP({timeCasaId:casaId,timeForaId:foraId}),
+      fnCen({}).catch(()=>({data:{sucesso:false}})),
     ]);
     HIST_CASA=rCasa.data;
     HIST_FORA=rFora.data;
     if(rFP.data?.sucesso){
       FP_CASA=rFP.data.casa;  // fingerprint acumulativo do nosso banco
       FP_FORA=rFP.data.fora;
+    }
+    // ── Estatísticas reais de cenários ──
+    if(rCen.data?.sucesso && rCen.data.stats) {
+      CENARIOS_STATS = rCen.data.stats;
+      console.log(`📐 Cenários stats carregados: ${Object.keys(CENARIOS_STATS).length} cenários com dados reais.`);
     }
     gc('histLoadStatus').style.display='none';
     renderHistorico();
@@ -8669,6 +8682,22 @@ function definirCenarios(f, sts, min, snapshots) {
   const scC  = f.placar?.casa ?? 0, scF = f.placar?.fora ?? 0;
   const G    = (id, k) => getStat(sts, id, k) || 0;
 
+  // ── Resolve taxa de acerto real do banco; fallback = valor hardcoded original ──
+  // Retorna { taxa: number, amostras: number, real: bool }
+  const _hist = (cenarioId, fallback) => {
+    const s = CENARIOS_STATS?.[cenarioId];
+    if (s?.totalAtivacoes >= 10 && s?.taxaAcerto != null) {
+      return { taxa: s.taxaAcerto, amostras: s.totalAtivacoes, real: true };
+    }
+    // Banco tem dados mas insuficientes — blend parcial
+    if (s?.totalAtivacoes >= 3 && s?.taxaAcerto != null) {
+      const peso = s.totalAtivacoes / 10; // 0.3–0.9
+      const blend = Math.round(s.taxaAcerto * peso + fallback * (1 - peso));
+      return { taxa: blend, amostras: s.totalAtivacoes, real: false, blend: true };
+    }
+    return { taxa: fallback, amostras: 0, real: false };
+  };
+
   const apC   = G(idC,'Dangerous Attacks'), apF  = G(idF,'Dangerous Attacks');
   const xgC   = G(idC,'expected_goals'),    xgF  = G(idF,'expected_goals');
   const shtC  = G(idC,'Shots on Goal'),     shtF = G(idF,'Shots on Goal');
@@ -8733,7 +8762,7 @@ function definirCenarios(f, sts, min, snapshots) {
         { label:`xG ≥ 1.0 (${xgC.toFixed(1)})`, score: _scoreCond(xgC,1.0), ok: xgC>=1.0 },
       ],
       pesos: [2,2,1.5,1.5,2],
-      historico: 71,
+      historico: _hist('pressao_explosiva_casa', 71),
     },
     // ─────────────────────────────────────────────────────
     {
@@ -8752,7 +8781,7 @@ function definirCenarios(f, sts, min, snapshots) {
         { label:`Termo ≥ 45 (${termo})`,        score: _scoreCond(termo,45), ok: termo>=45 },
       ],
       pesos: [2,2,2,1,1.5],
-      historico: 58,
+      historico: _hist('visitante_silencioso', 58),
     },
     // ─────────────────────────────────────────────────────
     {
@@ -8771,7 +8800,7 @@ function definirCenarios(f, sts, min, snapshots) {
         { label:`Esc ≥ 5 (${Math.max(escC,escF)})`, score: _scoreCond(Math.max(escC,escF),5), ok: Math.max(escC,escF)>=5 },
       ],
       pesos: [1.5,2,1.5,2,1],
-      historico: 74,
+      historico: _hist('desespero_final', 74),
     },
     // ─────────────────────────────────────────────────────
     {
@@ -8790,7 +8819,7 @@ function definirCenarios(f, sts, min, snapshots) {
         { label:`Aceleração AP +3`, score: _scoreCond(Math.abs(deltaAp||deltaApF),3), ok: Math.abs(deltaAp||deltaApF)>=3 },
       ],
       pesos: [2,2.5,2,1.5,1],
-      historico: 68,
+      historico: _hist('goleiro_em_chamas', 68),
     },
     // ─────────────────────────────────────────────────────
     {
@@ -8809,7 +8838,7 @@ function definirCenarios(f, sts, min, snapshots) {
         { label:`Chutes total ≥ 8 (${shtC+shtF})`, score: _scoreCond(shtC+shtF,8), ok: shtC+shtF>=8 },
       ],
       pesos: [2.5,2,1.5,1,2],
-      historico: 65,
+      historico: _hist('jogo_aberto', 65),
     },
     // ─────────────────────────────────────────────────────
     {
@@ -8828,7 +8857,7 @@ function definirCenarios(f, sts, min, snapshots) {
         { label:`Faltas total ≥ 20 (${fltC+fltF})`, score: _scoreCond(fltC+fltF,20), ok: fltC+fltF>=20 },
       ],
       pesos: [2.5,2,1.5,1.5,1.5],
-      historico: 52,
+      historico: _hist('cartao_vermelho', 52),
     },
     // ─────────────────────────────────────────────────────
     {
@@ -8846,7 +8875,7 @@ function definirCenarios(f, sts, min, snapshots) {
         { label:`Chutes baixos (≤ 3) (${Math.min(shtC,shtF)})`, score: _scoreCond(4-Math.min(shtC||4,shtF||4),1), ok: Math.min(shtC,shtF)<=3 },
       ],
       pesos: [2.5,2,1.5,1],
-      historico: 63,
+      historico: _hist('pressao_escanteios', 63),
     },
     // ─────────────────────────────────────────────────────
     {
@@ -8865,7 +8894,7 @@ function definirCenarios(f, sts, min, snapshots) {
         { label:`Aceleração adversário`, score: _scoreCond(Math.abs(scC>scF?deltaApF:deltaAp),2), ok: Math.abs(scC>scF?deltaApF:deltaAp)>=2 },
       ],
       pesos: [2,2.5,2,1.5,1],
-      historico: 61,
+      historico: _hist('colapso_defensivo', 61),
     },
     // ─────────────────────────────────────────────────────
     {
@@ -8883,7 +8912,7 @@ function definirCenarios(f, sts, min, snapshots) {
         { label:`Chutes total ≤ 5 (${shtC+shtF})`, score: _scoreCond(6-Math.min(shtC+shtF,6),0.5), ok: shtC+shtF<=5 },
       ],
       pesos: [2.5,2,1,2],
-      historico: 59,
+      historico: _hist('jogo_fechado', 59),
     },
     // ─────────────────────────────────────────────────────
     {
@@ -8906,7 +8935,7 @@ function definirCenarios(f, sts, min, snapshots) {
           ok: (CONTEXTO?.h2h?.totalViradas||0)>=2 },
       ],
       pesos: [2.5,2,2,2,1],
-      historico: 55,
+      historico: _hist('virada_historica', 55),
     },
   ];
 
@@ -8968,8 +8997,31 @@ function renderCenarios() {
       : '';
 
     const alertaHtml = c.pct >= 90
-      ? `<div class="cen-alerta">⚡ Cenário completo — histórico: gol/evento em ${c.historico}% dos casos</div>`
-      : `<div class="cen-hist">Histórico quando completo: ${c.historico}%</div>`;
+      ? (() => {
+          const h = c.historico;
+          const taxa = typeof h === 'object' ? h.taxa : h;
+          const amostras = typeof h === 'object' ? h.amostras : 0;
+          const isReal = typeof h === 'object' && h.real;
+          const isBlend = typeof h === 'object' && h.blend;
+          const badge = isReal
+            ? `<span style="font-size:9px;color:var(--grn);font-weight:700;margin-left:4px;">● real (${amostras} jogos)</span>`
+            : isBlend
+            ? `<span style="font-size:9px;color:var(--acc);font-weight:700;margin-left:4px;">~ blend (${amostras} amostras)</span>`
+            : `<span style="font-size:9px;color:var(--t3);margin-left:4px;">estimado</span>`;
+          return `<div class="cen-alerta">⚡ Cenário completo — histórico: gol/evento em ${taxa}% dos casos${badge}</div>`;
+        })()
+      : (() => {
+          const h = c.historico;
+          const taxa = typeof h === 'object' ? h.taxa : h;
+          const amostras = typeof h === 'object' ? h.amostras : 0;
+          const isReal = typeof h === 'object' && h.real;
+          const badge = isReal && amostras >= 10
+            ? ` <span style="font-size:9px;color:var(--grn);">● ${amostras} jogos</span>`
+            : amostras > 0
+            ? ` <span style="font-size:9px;color:var(--t3);">(${amostras} amostras)</span>`
+            : ` <span style="font-size:9px;color:var(--t3);">estimado</span>`;
+          return `<div class="cen-hist">Histórico quando completo: ${taxa}%${badge}</div>`;
+        })();
 
     return `<div class="cen-card ${estado}">
       <div class="cen-header">
@@ -8991,6 +9043,15 @@ function renderCenarios() {
     const key = `cen_${DADOS?.fixture?.id}_${c.id}_${minAtual}`;
     if(!sessionStorage.getItem(key)){
       sessionStorage.setItem(key,'1');
+      // Guardar no log da sessão para verificar resultado ao encerrar
+      CENARIOS_LOG_SESSAO.push({
+        cenarioId: c.id,
+        cenarioNome: c.nome,
+        minuto: minAtual,
+        placarCasa: DADOS?.fixture?.placar?.casa||0,
+        placarFora: DADOS?.fixture?.placar?.fora||0,
+        gatilho: c.gatilho || '',
+      });
       fns.httpsCallable('registrarCenarioAtivado')({
         fixtureId: DADOS?.fixture?.id,
         cenarioId: c.id, cenarioNome: c.nome, pct: c.pct,
@@ -9712,6 +9773,92 @@ function calcularDNATexto(teamId) {
 // Chamado após encerramento do jogo. Analisa quais fatores mais
 // contribuíram para acertos e ajusta pesos para o próximo jogo.
 // ══════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// 📐 VERIFICAR RESULTADOS DOS CENÁRIOS — roda ao encerrar o jogo
+// Para cada cenário logado na sessão, verifica se o gatilho
+// aconteceu nos ~15min seguintes à ativação.
+// ══════════════════════════════════════════════════════════════════
+function _verificarResultadosCenarios() {
+  if (!DADOS?.fixture || !CENARIOS_LOG_SESSAO.length) return;
+
+  const f      = DADOS.fixture;
+  const evs    = DADOS.eventos || [];
+  const placarFinalC = f.placar?.casa ?? 0;
+  const placarFinalF = f.placar?.fora ?? 0;
+
+  // Detectores de gatilho por tipo de cenário
+  // Retorna true se o gatilho aconteceu entre minAtivacao e minAtivacao+15
+  const _acertou = (cenarioId, minAtivacao, placarCasaNaAtivacao, placarForaNaAtivacao) => {
+    const janela = 15; // minutos após ativação para detectar gatilho
+    const minFim = minAtivacao + janela;
+
+    const golsNoIntervalo = evs.filter(e =>
+      e.tipo === 'Goal' &&
+      (e.minuto || 0) > minAtivacao &&
+      (e.minuto || 0) <= minFim
+    );
+    const golsCasaInt   = golsNoIntervalo.filter(e => e.timeId === f.timeCasa.id).length;
+    const golsForaInt   = golsNoIntervalo.filter(e => e.timeId === f.timeFora.id).length;
+    const golsTotaisInt = golsNoIntervalo.length;
+    const escInt = evs.filter(e =>
+      e.tipo === 'Corner' &&
+      (e.minuto || 0) > minAtivacao && (e.minuto || 0) <= minFim
+    ).length;
+    const vrInt = evs.filter(e =>
+      e.tipo === 'Card' && e.detalhe === 'Red Card' &&
+      (e.minuto || 0) > minAtivacao && (e.minuto || 0) <= minFim
+    ).length;
+
+    switch (cenarioId) {
+      case 'pressao_explosiva_casa':  return golsCasaInt >= 1;
+      case 'visitante_silencioso':    return golsForaInt >= 1;
+      case 'desespero_final':         return golsTotaisInt >= 1 || escInt >= 3;
+      case 'goleiro_em_chamas':       return golsTotaisInt >= 1;
+      case 'jogo_aberto':             return golsTotaisInt >= 1;
+      case 'cartao_vermelho':         return vrInt >= 1;
+      case 'pressao_escanteios':      return escInt >= 3;
+      case 'colapso_defensivo':       return golsTotaisInt >= 1;
+      case 'jogo_fechado': {
+        // Jogo fechado = nenhum gol nos próximos 20min
+        const golsPos = evs.filter(e =>
+          e.tipo === 'Goal' &&
+          (e.minuto || 0) > minAtivacao && (e.minuto || 0) <= minAtivacao + 20
+        ).length;
+        return golsPos === 0;
+      }
+      case 'virada_historica': {
+        // Virada = time que estava atrás empatou ou virou nos próximos 20min
+        const golsVint = evs.filter(e =>
+          e.tipo === 'Goal' &&
+          (e.minuto || 0) > minAtivacao && (e.minuto || 0) <= minAtivacao + 20
+        );
+        // Considerar acerto se houve gol que equilibrou ou inverteu o placar
+        return golsVint.length >= 1;
+      }
+      default: return golsTotaisInt >= 1;
+    }
+  };
+
+  const payload = CENARIOS_LOG_SESSAO.map(c => ({
+    cenarioId: c.cenarioId,
+    minuto:    c.minuto,
+    acertou:   _acertou(c.cenarioId, c.minuto, c.placarCasa, c.placarFora),
+  }));
+
+  if (!payload.length) return;
+
+  console.log(`📐 Registrando resultados de ${payload.length} cenários:`, payload);
+
+  fns.httpsCallable('registrarResultadoCenario')({
+    fixtureId: f.id,
+    cenarios:  payload,
+  }).then(r => {
+    console.log('📐 Resultados de cenários salvos:', r.data);
+  }).catch(e => {
+    console.warn('📐 Erro ao salvar resultados de cenários:', e.message);
+  });
+}
+
 function ajustarPesosAutomatico() {
   const prevsVerif = PREV_HISTORICO.filter(p => p.resultado !== null && p.resultado !== 'pendente');
   if (prevsVerif.length < 3) return; // poucos dados — não ajustar
