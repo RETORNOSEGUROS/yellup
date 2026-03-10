@@ -1073,7 +1073,9 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
 
 <div id="pgLoad" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:14px;">
   <div class="ld" style="width:36px;height:36px;"></div>
-  <p style="color:var(--t3);font-size:13px;">Carregando partida...</p>
+  <p id="pgLoadMsg" style="color:var(--t3);font-size:13px;">Carregando partida...</p>
+  <p id="pgLoadSub" style="color:var(--t3);font-size:10px;display:none;">Conectando ao servidor...</p>
+  <button id="pgLoadRetry" onclick="location.reload()" style="display:none;margin-top:8px;padding:6px 18px;border:1px solid var(--brd);border-radius:8px;background:transparent;color:var(--t2);font-size:12px;cursor:pointer;">↺ Tentar novamente</button>
 </div>
 
 <div id="pgMain" style="display:none;">
@@ -1735,10 +1737,33 @@ async function load(fId, dId) {
 
     CURRENT_DOC_ID = dId; CURRENT_FIX_ID = fixtureId;
 
-    // ── Busca dados frescos da API ──
-    const fn = fns.httpsCallable('buscarDadosJogo');
-    const r  = await fn({ fixtureId: parseInt(fixtureId) });
+    // ── Busca dados frescos da API com timeout de 25s ──
+    _pgLoadMsg('Conectando ao Firebase...');
+    await new Promise(r => setTimeout(r, 200)); // deixa UI respirar
+
+    _pgLoadMsg('Buscando dados da partida...');
+    const fn = fns.httpsCallable('buscarDadosJogo', { timeout: 25000 });
+
+    let r;
+    try {
+      r = await Promise.race([
+        fn({ fixtureId: parseInt(fixtureId) }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout — servidor demorou mais de 25s. Verifique o deploy das Cloud Functions.')), 25000))
+      ]);
+    } catch(cfErr) {
+      // Timeout ou erro da CF — mostrar botão de retry
+      const sub = gc('pgLoadSub'); if(sub) sub.style.display='block';
+      const btn = gc('pgLoadRetry'); if(btn) btn.style.display='block';
+      errPage('Erro ao carregar: ' + cfErr.message);
+      return;
+    }
+
+    if (!r?.data?.fixture) {
+      errPage('Dados inválidos retornados pelo servidor. Verifique se o fixtureId ' + fixtureId + ' existe.');
+      return;
+    }
     DADOS = r.data;
+    _pgLoadMsg('Montando interface...');
 
     // ── Primeira vez: montar UI e iniciar todos os loops ──
     if (!_LOOPS_INICIADOS) {
@@ -2206,8 +2231,13 @@ async function _salvarJanelaPreEventoFirestore(janela) {
   } catch(e) { console.warn('salvarJanelaPreEvento CF:', e.message); }
 }
 
+function _pgLoadMsg(msg, sub) {
+  const el = gc('pgLoadMsg'); if(el) el.textContent = msg;
+  const s  = gc('pgLoadSub'); if(s && sub) { s.textContent = sub; s.style.display = 'block'; }
+}
+
 function errPage(m){
-  gc('pgLoad').innerHTML=`<div class="empty"><div class="ico">⚠️</div><p style="color:var(--red)">${m}</p><button onclick="history.back()" class="back-btn" style="margin-top:12px;">← Voltar</button></div>`;
+  gc('pgLoad').innerHTML=`<div class="empty"><div class="ico">⚠️</div><p style="color:var(--red)">${m}</p><button onclick="location.reload()" class="back-btn" style="margin-top:12px;">↺ Tentar novamente</button><button onclick="history.back()" class="back-btn" style="margin-top:8px;margin-left:8px;">← Voltar</button></div>`;
 }
 
 // ═══ RENDER ALL ═══
