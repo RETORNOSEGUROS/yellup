@@ -125,6 +125,36 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 .explain-text strong{color:var(--t1);}
 
 .empty{text-align:center;padding:36px 20px;color:var(--t3);font-size:13px;font-family:"DM Mono",monospace;}
+/* H2H */
+.h2h-resumo{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:16px;}
+.h2h-side{text-align:center;}
+.h2h-side-nome{font-size:12px;font-weight:700;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.h2h-side-wins{font-size:36px;font-weight:800;font-family:'DM Mono',monospace;line-height:1;}
+.h2h-side-lbl{font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.4px;}
+.h2h-center{text-align:center;}
+.h2h-emp{font-size:22px;font-weight:800;font-family:'DM Mono',monospace;color:var(--t3);}
+.h2h-emp-lbl{font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;}
+.h2h-bar-wrap{display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:12px;}
+.h2h-bar-casa{background:var(--acc);transition:width .7s cubic-bezier(.4,0,.2,1);}
+.h2h-bar-emp{background:var(--bg4);}
+.h2h-bar-fora{background:var(--blu);transition:width .7s cubic-bezier(.4,0,.2,1);}
+.h2h-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:4px;}
+.h2h-stat{background:var(--bg3);border:1px solid var(--brd);border-radius:8px;padding:8px;text-align:center;}
+.h2h-stat-val{font-size:18px;font-weight:700;font-family:'DM Mono',monospace;}
+.h2h-stat-lbl{font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;margin-top:2px;}
+.h2h-insight{padding:10px 12px;background:rgba(0,229,160,.05);border:1px solid rgba(0,229,160,.15);border-radius:8px;font-size:11px;color:var(--t2);line-height:1.5;margin-top:12px;}
+
+/* H2H lista */
+.h2h-item{display:grid;grid-template-columns:60px 1fr auto 1fr 70px;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--brd);}
+.h2h-item:last-child{border-bottom:none;}
+.h2h-data{font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;}
+.h2h-team-nome{font-size:11px;font-weight:600;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.h2h-team-nome.winner{color:var(--t1);}
+.h2h-score{font-size:15px;font-weight:800;font-family:'DM Mono',monospace;text-align:center;white-space:nowrap;}
+.h2h-result-badge{font-size:9px;font-weight:700;font-family:'DM Mono',monospace;padding:2px 7px;border-radius:4px;text-align:center;}
+.h2h-result-badge.vC{background:rgba(0,229,160,.12);color:var(--acc);}
+.h2h-result-badge.vF{background:rgba(75,142,255,.12);color:var(--blu);}
+.h2h-result-badge.e{background:var(--bg4);color:var(--t3);}
 </style>
 </head>
 <body>
@@ -157,6 +187,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
     <button class="tab"    onclick="switchTab('dna',this)">&#129516; DNA T&#225;tico</button>
     <button class="tab"    onclick="switchTab('gols',this)">&#9917; Janela de Gols</button>
     <button class="tab"    onclick="switchTab('fontes',this)">&#128202; Fontes</button>
+    <button class="tab"    onclick="switchTab('h2h',this)" id="tabH2H">&#9876;&#65039; H2H</button>
   </div>
 
   <!-- PROBABILIDADES -->
@@ -216,6 +247,18 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
       <div id="pesosEl"></div>
     </div>
   </div>
+
+  <!-- H2H -->
+  <div class="pane" id="pane-h2h">
+    <div class="card" id="h2hResumoCard">
+      <div class="card-title">&#9876;&#65039; Confrontos Diretos &#8212; Resumo</div>
+      <div id="h2hResumoEl"><div class="empty">Carregando H2H...</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Últimos Jogos Entre os Times</div>
+      <div id="h2hListEl"><div class="empty">Carregando...</div></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -228,6 +271,7 @@ let DADOS_JOGO=null, HIST_CASA=null, HIST_FORA=null;
 let CTX_CASA=null,   CTX_FORA=null;
 let CTX_GLOBAL=null, FP=null;
 let DNA_CASA=null,   DNA_FORA=null;
+let H2H_DADOS=null;
 let PARAMS={};
 
 // ── LOG ──────────────────────────────────────────────────────────────────
@@ -286,9 +330,10 @@ async function carregarTudo(){
     fns.httpsCallable("buscarContextoGlobal",{timeout:20000})({situacaoPlacar:situacao,faseJogo:fase}).catch(()=>null),
     fns.httpsCallable("buscarFingerprint",{timeout:15000})({timeCasaId:PARAMS.casaId,timeForaId:PARAMS.foraId}).catch(()=>null),
     PARAMS.fixId ? fns.httpsCallable("buscarDadosJogo",{timeout:20000})({fixtureId:PARAMS.fixId}).catch(()=>null) : Promise.resolve(null),
+    PARAMS.fixId ? fns.httpsCallable("buscarContextoJogo",{timeout:25000})({fixtureId:PARAMS.fixId,timeCasaId:PARAMS.casaId,timeForaId:PARAMS.foraId}).catch(()=>null) : Promise.resolve(null),
   ];
 
-  const [rHC,rHF,rCC,rCF,rCG,rFP,rJogo] = await Promise.all(promises);
+  const [rHC,rHF,rCC,rCF,rCG,rFP,rJogo,rCtxJogo] = await Promise.all(promises);
 
   HIST_CASA = rHC?.data?.jogos||[];
   HIST_FORA = rHF?.data?.jogos||[];
@@ -297,6 +342,7 @@ async function carregarTudo(){
   CTX_GLOBAL= rCG?.data||null;
   FP        = rFP?.data||null;
   DADOS_JOGO= rJogo?.data||null;
+  H2H_DADOS = rCtxJogo?.data?.dados||null;
 
   log("OK todos os dados recebidos. Calculando...");
 
@@ -533,6 +579,7 @@ function renderTudo(){
   renderDNA();
   renderJanelaGols();
   renderFontes(r);
+  renderH2H();
 }
 
 // ── RENDER PROBABILIDADES ─────────────────────────────────────────────────
@@ -710,6 +757,143 @@ function mkJanelaCard(jogos,nome,cor){
 }
 
 // ── FONTES ────────────────────────────────────────────────────────────────
+// ── H2H ──────────────────────────────────────────────────────────────────
+function renderH2H(){
+  // Fonte 1: API (buscarContextoJogo com fixId)
+  // Fonte 2: fallback calculado do histórico local
+  const nC=PARAMS.casaNome, nF=PARAMS.foraNome;
+  const cId=PARAMS.casaId,  fId=PARAMS.foraId;
+
+  let h2h=[], resumo=null;
+
+  if(H2H_DADOS?.h2h?.length){
+    h2h=H2H_DADOS.h2h;
+    resumo=H2H_DADOS.h2hResumo;
+  } else if(HIST_CASA.length||HIST_FORA.length){
+    // Fallback: filtrar do histórico jogos contra o mesmo adversário
+    const opostos=new Set([cId,fId]);
+    const doHistCasa=(HIST_CASA||[]).filter(j=>j.adversario?.id===fId);
+    const doHistFora=(HIST_FORA||[]).filter(j=>j.adversario?.id===cId);
+    if(doHistCasa.length||doHistFora.length){
+      // Converter para formato comum
+      h2h=[
+        ...doHistCasa.map(j=>({
+          data:j.data,
+          casa:{id:cId, nome:nC, gols:j.gols},
+          fora:{id:fId, nome:nF, gols:j.golsSofridos},
+          status:'FT', fonte:'hist'
+        })),
+        ...doHistFora.map(j=>({
+          data:j.data,
+          casa:{id:fId, nome:nF, gols:j.gols},
+          fora:{id:cId, nome:nC, gols:j.golsSofridos},
+          status:'FT', fonte:'hist'
+        })),
+      ].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,10);
+    }
+  }
+
+  // Calcular resumo local se não veio da API
+  if(!resumo&&h2h.length){
+    let vC=0,vF=0,emp=0,gC=0,gF=0;
+    h2h.forEach(f=>{
+      if(!['FT','AET','PEN'].includes(f.status)) return;
+      const gc=f.casa.id===cId?f.casa.gols:f.fora.gols;
+      const gf=f.casa.id===fId?f.casa.gols:f.fora.gols;
+      gC+=gc||0; gF+=gf||0;
+      if(gc>gf) vC++; else if(gc<gf) vF++; else emp++;
+    });
+    const n=h2h.length||1;
+    resumo={vCasa:vC,vFora:vF,emp,golsCasa:gC,golsFora:gF,
+      mediaGolsCasa:(gC/n).toFixed(1),mediaGolsFora:(gF/n).toFixed(1)};
+  }
+
+  if(!h2h.length){
+    gc('h2hResumoEl').innerHTML="<div class='empty'>Abra via jogo ao vivo para carregar H2H da API.<br><span style='font-size:10px;color:var(--t3)'>Sem fixId disponível.</span></div>";
+    gc('h2hListEl').innerHTML="<div class='empty'>Sem dados H2H</div>";
+    return;
+  }
+
+  // ── Resumo visual ─────────────────────────────────────────────
+  const total=h2h.length;
+  const pC=total?Math.round(resumo.vCasa/total*100):0;
+  const pF=total?Math.round(resumo.vFora/total*100):0;
+  const pE=100-pC-pF;
+  const corC='var(--acc)', corF='var(--blu)';
+
+  // Insight dominância
+  let insight='';
+  if(resumo.vCasa>resumo.vFora+1) insight=`<strong style='color:var(--acc)'>${nC}</strong> domina historicamente com ${resumo.vCasa}V em ${total} jogos.`;
+  else if(resumo.vFora>resumo.vCasa+1) insight=`<strong style='color:var(--blu)'>${nF}</strong> domina historicamente com ${resumo.vFora}V em ${total} jogos.`;
+  else insight=`Confronto equilibrado — diferença de apenas ${Math.abs(resumo.vCasa-resumo.vFora)} vitória(s) em ${total} jogos.`;
+
+  const golsTot=resumo.golsCasa+resumo.golsFora;
+  const mediaGols=(golsTot/total).toFixed(1);
+  const golStr=parseFloat(mediaGols)>=2.5?`🔥 Média de <strong>${mediaGols}</strong> gols/jogo — confronto de gols.`
+              :parseFloat(mediaGols)<=1.5?`🔒 Média de <strong>${mediaGols}</strong> gols/jogo — confronto truncado.`
+              :`Média de <strong>${mediaGols}</strong> gols por jogo.`;
+
+  gc('h2hResumoEl').innerHTML=`
+    <div class="h2h-resumo">
+      <div class="h2h-side">
+        <div class="h2h-side-nome" style="color:${corC}">${nC}</div>
+        <div class="h2h-side-wins" style="color:${corC}">${resumo.vCasa}</div>
+        <div class="h2h-side-lbl">vitórias</div>
+      </div>
+      <div class="h2h-center">
+        <div class="h2h-emp" >${resumo.emp}</div>
+        <div class="h2h-emp-lbl">empates</div>
+      </div>
+      <div class="h2h-side">
+        <div class="h2h-side-nome" style="color:${corF}">${nF}</div>
+        <div class="h2h-side-wins" style="color:${corF}">${resumo.vFora}</div>
+        <div class="h2h-side-lbl">vitórias</div>
+      </div>
+    </div>
+    <div class="h2h-bar-wrap">
+      <div class="h2h-bar-casa" style="width:${pC}%"></div>
+      <div class="h2h-bar-emp"  style="flex:1"></div>
+      <div class="h2h-bar-fora" style="width:${pF}%"></div>
+    </div>
+    <div class="h2h-stats">
+      <div class="h2h-stat">
+        <div class="h2h-stat-val" style="color:${corC}">${resumo.mediaGolsCasa}</div>
+        <div class="h2h-stat-lbl">gols/jogo ${nC}</div>
+      </div>
+      <div class="h2h-stat">
+        <div class="h2h-stat-val">${mediaGols}</div>
+        <div class="h2h-stat-lbl">total gols/jogo</div>
+      </div>
+      <div class="h2h-stat">
+        <div class="h2h-stat-val" style="color:${corF}">${resumo.mediaGolsFora}</div>
+        <div class="h2h-stat-lbl">gols/jogo ${nF}</div>
+      </div>
+    </div>
+    <div class="h2h-insight">${insight}<br>${golStr}</div>
+  `;
+
+  // ── Lista de jogos ────────────────────────────────────────────
+  gc('h2hListEl').innerHTML=h2h.map(f=>{
+    if(!['FT','AET','PEN'].includes(f.status)) return '';
+    const datFmt=f.data?new Date(f.data).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}):'—';
+    const gC2=f.casa.id===cId?f.casa.gols:f.fora.gols;
+    const gF2=f.casa.id===fId?f.casa.gols:f.fora.gols;
+    let badge,badgeCls;
+    if(gC2>gF2){badge='VIT CASA';badgeCls='vC';}
+    else if(gC2<gF2){badge='VIT FORA';badgeCls='vF';}
+    else{badge='EMPATE';badgeCls='e';}
+    const nCasa=f.casa.nome||'Casa', nFora=f.fora.nome||'Fora';
+    const winnerC=gC2>gF2, winnerF=gF2>gC2;
+    return `<div class="h2h-item">
+      <div class="h2h-data">${datFmt}</div>
+      <div class="h2h-team-nome ${winnerC?'winner':''}" style="text-align:right">${nCasa}</div>
+      <div class="h2h-score">${gC2??'—'} <span style="color:var(--t3)">×</span> ${gF2??'—'}</div>
+      <div class="h2h-team-nome ${winnerF?'winner':''}">${nFora}</div>
+      <div class="h2h-result-badge ${badgeCls}">${badge}</div>
+    </div>`;
+  }).join('');
+}
+
 function renderFontes(r){
   const{fontes}=r;
   const confClass=c=>"fonte-conf conf-pill conf-"+(c||"insuf");
