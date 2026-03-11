@@ -516,6 +516,7 @@ async function iniciar() {
     iniciarAutoRefresh();
     iniciarSinaisLoop();
     iniciarOddsLoop();
+    carregarEstatisticasCenarios();
   } else {
     buscarSinaisServidor();
   }
@@ -1000,6 +1001,19 @@ function renderInsights() {
 // ── ODDS STATE ────────────────────────────────────────────────────────────
 let ODDS_ATUAL = null, ODDS_ANTERIOR = null, ODDS_HIST = []; // últimas 10 leituras
 let oddsTimer = null;
+let CENARIOS_STATS = {}; // {cenarioId: {taxaAcerto, totalAtivacoes, totalAcertos}}
+let CENARIOS_REGISTRADOS = new Set(); // evita registrar duplicata na mesma sessão
+
+async function carregarEstatisticasCenarios() {
+  try {
+    const fn = fns.httpsCallable('buscarEstatisticasCenarios', { timeout: 10000 });
+    const r = await fn({});
+    if (r?.data?.stats) {
+      CENARIOS_STATS = r.data.stats;
+      console.log('📐 Cenários stats:', Object.keys(CENARIOS_STATS).length, 'cenários com dados reais.');
+    }
+  } catch (e) { console.warn('Stats cenários:', e.message); }
+}
 
 function iniciarOddsLoop() {
   clearInterval(oddsTimer);
@@ -1441,14 +1455,55 @@ function renderCenarios() {
     gc('cenarioEl').innerHTML='<div class="empty">Nenhum cenário ativo no momento (≥ 35%)</div>';
     return;
   }
+
+  // Auto-registrar cenários com pct >= 60 (uma vez por sessão por cenário+minuto)
+  if (isAoVivo() && DADOS?.fixture) {
+    const f = DADOS.fixture;
+    const min = f.status.elapsed || 0;
+    lista.filter(c => c.pct >= 60).forEach(c => {
+      const key = c.id + '_' + min;
+      if (!CENARIOS_REGISTRADOS.has(key)) {
+        CENARIOS_REGISTRADOS.add(key);
+        fns.httpsCallable('registrarCenarioAtivado')({
+          fixtureId:   parseInt(FIX_ID),
+          cenarioId:   c.id,
+          cenarioNome: c.nome,
+          pct:         c.pct,
+          minuto:      min,
+          placarCasa:  f.placar.casa ?? 0,
+          placarFora:  f.placar.fora ?? 0,
+        }).catch(() => {});
+      }
+    });
+  }
+
   gc('cenarioEl').innerHTML='<div class="cen-list">'+lista.map(c=>{
     const cor = c.pct>=80?'var(--red)':c.pct>=60?'var(--yel)':'var(--acc)';
     const cls = c.pct>=80?'cen-quente':c.pct>=60?'cen-medio':'';
+
+    // Taxa de acerto: banco real se disponível, fallback no valor fixo
+    const statsReal = CENARIOS_STATS[c.id];
+    const temDados  = statsReal?.totalAtivacoes >= 5;
+    const taxaAcerto = temDados ? statsReal.taxaAcerto : c.hist;
+    const totalAtiv  = temDados ? statsReal.totalAtivacoes : null;
+    const histLabel  = temDados
+      ? "<span style='color:var(--acc)'>&#10003; banco real</span> · "+taxaAcerto+"% acerto em "+totalAtiv+" ativações"
+      : "estimativa (sem dados reais ainda) · "+c.hist+"%";
+
+    // Badge de confiança
+    const confBadge = temDados
+      ? (taxaAcerto >= 65
+          ? "<span style='background:rgba(0,229,160,.12);color:var(--acc);padding:1px 6px;border-radius:4px;font-size:9px;font-family:\"DM Mono\",monospace;margin-left:6px;'>alta confiança</span>"
+          : taxaAcerto >= 50
+          ? "<span style='background:rgba(255,184,0,.1);color:var(--yel);padding:1px 6px;border-radius:4px;font-size:9px;font-family:\"DM Mono\",monospace;margin-left:6px;'>confiança média</span>"
+          : "<span style='background:rgba(255,69,96,.1);color:var(--red);padding:1px 6px;border-radius:4px;font-size:9px;font-family:\"DM Mono\",monospace;margin-left:6px;'>baixa confiança</span>")
+      : "<span style='background:var(--bg4);color:var(--t3);padding:1px 6px;border-radius:4px;font-size:9px;font-family:\"DM Mono\",monospace;margin-left:6px;'>sem dados</span>";
+
     return "<div class='cen-card "+cls+"'>"+
       "<div class='cen-header'>"+
         "<div class='cen-emoji'>"+c.emoji+"</div>"+
         "<div class='cen-info'>"+
-          "<div class='cen-nome'>"+c.nome+"</div>"+
+          "<div class='cen-nome'>"+c.nome+confBadge+"</div>"+
           "<div class='cen-desc'>"+c.desc+"</div>"+
           "<div class='cen-gatilho'>&#8594; "+c.gatilho+"</div>"+
         "</div>"+
@@ -1459,7 +1514,7 @@ function renderCenarios() {
       "</div>"+
       "<div class='cen-bar'><div class='cen-bar-fill' style='width:"+c.pct+"%;background:"+cor+"'></div></div>"+
       "<div class='cen-conds'>"+c.conds.map(cd=>"<span class='cen-cond "+(cd.ok?'ok':'nok')+"'>"+(cd.ok?'✓':'○')+' '+cd.l+"</span>").join('')+"</div>"+
-      "<div class='cen-hist'>hist. interno: "+c.hist+"% de acerto</div>"+
+      "<div class='cen-hist'>"+histLabel+"</div>"+
     "</div>";
   }).join('')+'</div>';
 }
