@@ -347,6 +347,28 @@ select:focus{border-color:var(--acc);}
 .live-min-badge{display:inline-flex;align-items:center;gap:4px;font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:var(--red);}
 .live-min-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--red);animation:pulse .8s infinite alternate;flex-shrink:0;}
 
+
+/* ── Backfill Modal ── */
+.bf-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:500;display:none;align-items:center;justify-content:center;}
+.bf-overlay.on{display:flex;}
+.bf-box{background:var(--c2);border:1px solid var(--bd3);border-radius:14px;width:520px;max-width:95vw;padding:0;overflow:hidden;}
+.bf-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--bd2);}
+.bf-head h3{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;}
+.bf-close{background:none;border:none;color:var(--t2);font-size:18px;cursor:pointer;padding:2px 6px;border-radius:6px;}
+.bf-close:hover{color:var(--red);}
+.bf-body{padding:20px;}
+.bf-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.bf-label{font-size:12px;color:var(--t2);font-weight:500;}
+.bf-num{width:70px;background:var(--c1);border:1px solid var(--bd2);border-radius:7px;padding:5px 10px;color:var(--t1);font-family:'DM Mono',monospace;font-size:13px;text-align:center;}
+.bf-check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--t2);cursor:pointer;}
+.bf-check input{accent-color:var(--pur);}
+.bf-status{background:var(--c1);border:1px solid var(--bd2);border-radius:8px;padding:12px;min-height:80px;font-family:'DM Mono',monospace;font-size:11px;color:var(--t2);white-space:pre-wrap;line-height:1.6;max-height:220px;overflow-y:auto;}
+.bf-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--bd2);}
+.bf-progress{flex:1;height:4px;background:var(--c1);border-radius:2px;overflow:hidden;}
+.bf-bar{height:100%;background:var(--pur);border-radius:2px;transition:width .4s;width:0%;}
+.btn-pur{background:var(--pur);color:#0a0a14;border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s;}
+.btn-pur:disabled{opacity:.4;cursor:not-allowed;}
+.btn-pur:hover:not(:disabled){opacity:.85;}
 </style>
 </head>
 <body>
@@ -490,6 +512,7 @@ select:focus{border-color:var(--acc);}
               <option value="encerrado">Encerrados</option>
               <option value="adiado">Adiados</option>
             </select>
+            <button class="btn-sm" id="backfillBtn" onclick="abrirBackfill()" style="color:var(--pur);border-color:var(--pur);" title="Backfill de padrões históricos">🧠 Backfill</button>
           </div>
         </div>
         <div class="liga-filter-wrap" id="ligaFilterWrap" style="display:none;">
@@ -2006,5 +2029,134 @@ document.addEventListener('keydown',e=>{
     <div class="empty"><div class="ld" style="width:16px;height:16px;"></div></div>
   </div>
 </div>
+
+<!-- ═══ BACKFILL MODAL ═══ -->
+<div class="bf-overlay" id="bfOverlay" onclick="if(event.target===this)fecharBackfill()">
+  <div class="bf-box">
+    <div class="bf-head">
+      <h3>🧠 Backfill de Padrões Históricos</h3>
+      <button class="bf-close" onclick="fecharBackfill()">✕</button>
+    </div>
+    <div class="bf-body">
+      <p style="font-size:12px;color:var(--t2);margin-bottom:14px;line-height:1.6;">
+        Processa jogos encerrados que ainda não têm padrões no banco global.<br>
+        Cada lote busca eventos da API (1 call por jogo) e salva os padrões.
+      </p>
+      <div class="bf-row">
+        <span class="bf-label">Jogos por lote</span>
+        <input type="number" class="bf-num" id="bfLimite" value="5" min="1" max="20">
+      </div>
+      <div class="bf-row">
+        <label class="bf-check">
+          <input type="checkbox" id="bfForcar">
+          Reprocessar jogos já processados (forçar)
+        </label>
+      </div>
+      <div class="bf-status" id="bfStatus">Pronto. Clique em Executar para iniciar.</div>
+    </div>
+    <div class="bf-foot">
+      <div class="bf-progress"><div class="bf-bar" id="bfBar"></div></div>
+      <span id="bfCont" style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;white-space:nowrap;min-width:80px;text-align:right;">—</span>
+      <button class="btn-pur" id="bfBtn" onclick="executarBackfill()">▶ Executar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Backfill UI ──────────────────────────────────────────────────────────
+let bfRodando = false;
+let bfTotal   = null;
+let bfFeitos  = 0;
+
+function abrirBackfill() {
+  document.getElementById('bfOverlay').classList.add('on');
+  document.getElementById('bfStatus').textContent = 'Pronto. Clique em Executar para iniciar.';
+  document.getElementById('bfBar').style.width = '0%';
+  document.getElementById('bfCont').textContent = '—';
+  document.getElementById('bfBtn').disabled = false;
+  bfRodando = false; bfTotal = null; bfFeitos = 0;
+}
+function fecharBackfill() {
+  if (bfRodando) return; // não fecha durante execução
+  document.getElementById('bfOverlay').classList.remove('on');
+}
+
+function bfLog(msg) {
+  const el = document.getElementById('bfStatus');
+  el.textContent += '\n' + msg;
+  el.scrollTop = el.scrollHeight;
+}
+function bfSet(msg) {
+  document.getElementById('bfStatus').textContent = msg;
+}
+
+async function executarBackfill() {
+  if (bfRodando) return;
+  bfRodando = true;
+  const btn    = document.getElementById('bfBtn');
+  const limite = parseInt(document.getElementById('bfLimite').value) || 5;
+  const forcar = document.getElementById('bfForcar').checked;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Processando...';
+  bfFeitos = 0; bfTotal = null;
+
+  bfSet('🔍 Iniciando backfill...');
+
+  try {
+    const fn  = firebase.functions().httpsCallable('backfillPadroesHistorico');
+    let continuar = true;
+    let rodada = 0;
+
+    while (continuar) {
+      rodada++;
+      bfLog(`\n─── Lote ${rodada} (${limite} jogos) ───`);
+
+      const res = await fn({ limite, forcarTodos: forcar });
+      const d   = res.data;
+
+      if (bfTotal === null) bfTotal = d.total || 0;
+
+      bfFeitos += d.processados || 0;
+
+      // Mostrar detalhes
+      if (d.detalhes && d.detalhes.length > 0) {
+        for (const det of d.detalhes) {
+          if (det.status === 'ok') {
+            bfLog(`  ✅ fixture ${det.fixtureId} → ${det.snaps} snaps / ${det.padroes} padrões${det.temEventos ? '' : ' ⚠️sem eventos'}`);
+          } else if (det.status === 'sem_snapshots') {
+            bfLog(`  ⚫ fixture ${det.fixtureId} — sem snapshots`);
+          } else {
+            bfLog(`  ❌ fixture ${det.fixtureId} — ${det.motivo}`);
+          }
+        }
+      }
+
+      // Progresso
+      const pct = bfTotal > 0 ? Math.min(100, Math.round(bfFeitos / bfTotal * 100)) : 0;
+      document.getElementById('bfBar').style.width = pct + '%';
+      document.getElementById('bfCont').textContent = `${bfFeitos}/${bfTotal}`;
+
+      if (d.processados === 0 || d.pendentes === 0 || d.motivo) {
+        bfLog('\n✅ Backfill completo! ' + (d.motivo || `${bfFeitos} jogos processados.`));
+        continuar = false;
+      } else {
+        bfLog(`  ⏩ ${d.pendentes} pendentes — aguardando 2s...`);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      if (rodada > 50) { bfLog('\n⚠️ Limite de rodadas atingido.'); continuar = false; }
+    }
+
+  } catch (err) {
+    bfLog('\n❌ Erro: ' + (err.message || JSON.stringify(err)));
+  }
+
+  bfRodando = false;
+  btn.disabled = false;
+  btn.textContent = '▶ Executar';
+  document.getElementById('bfBar').style.width = '100%';
+}
+</script>
 </body>
 </html>
