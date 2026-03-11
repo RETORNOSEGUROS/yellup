@@ -177,6 +177,31 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 
 .empty{text-align:center;padding:36px 20px;color:var(--t3);font-size:13px;font-family:"DM Mono",monospace;}
 .last-update{text-align:center;padding:8px;font-size:10px;color:var(--t3);font-family:"DM Mono",monospace;}
+/* SEQUÊNCIA ESCANTEIO */
+.seq-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--brd);}
+.seq-item:last-child{border-bottom:none;}
+.seq-corner-icon{font-size:18px;flex-shrink:0;}
+.seq-info{flex:1;}
+.seq-time{font-size:11px;color:var(--t2);font-weight:600;}
+.seq-team{font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;}
+.seq-timer{text-align:right;flex-shrink:0;}
+.seq-timer-val{font-size:20px;font-weight:800;font-family:'DM Mono',monospace;}
+.seq-timer-lbl{font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;}
+.seq-status{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;font-family:'DM Mono',monospace;margin-top:3px;}
+.seq-status.ativo{background:rgba(255,184,0,.12);color:var(--yel);border:1px solid rgba(255,184,0,.3);}
+.seq-status.gol{background:rgba(0,229,160,.12);color:var(--acc);border:1px solid rgba(0,229,160,.3);}
+.seq-status.expirado{background:var(--bg4);color:var(--t3);border:1px solid var(--brd);}
+.seq-taxa-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--brd);}
+.seq-taxa-row:last-child{border-bottom:none;}
+.seq-taxa-lbl{font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;flex:1;}
+.seq-taxa-bar{flex:2;height:6px;background:var(--bg4);border-radius:3px;overflow:hidden;}
+.seq-taxa-fill{height:100%;border-radius:3px;background:var(--yel);transition:width .5s;}
+.seq-taxa-val{font-size:11px;font-weight:700;font-family:'DM Mono',monospace;color:var(--t1);min-width:32px;text-align:right;}
+.seq-confianca{font-size:9px;font-family:'DM Mono',monospace;padding:1px 6px;border-radius:4px;margin-top:6px;display:inline-block;}
+.seq-confianca.alta{background:rgba(0,229,160,.1);color:var(--acc);}
+.seq-confianca.media{background:rgba(255,184,0,.1);color:var(--yel);}
+.seq-confianca.baixa{background:var(--bg4);color:var(--t3);}
+
 /* ODDS */
 .odds-trio{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;}
 .odds-box{background:var(--bg3);border:1px solid var(--brd);border-radius:10px;padding:12px 8px;text-align:center;position:relative;overflow:hidden;transition:all .3s;}
@@ -392,6 +417,13 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
       <div class="sinal-list" id="sinaisEl"><div class="empty">Aguardando dados ao vivo...</div></div>
     </div>
 
+    <!-- Tracker de sequência escanteio → gol -->
+    <div class="card" id="seqTrackerCard" style="display:none">
+      <div class="card-title">&#127937; Sequência Escanteio &#8594; Gol</div>
+      <div id="seqTrackerEl"></div>
+      <div id="seqTaxaEl" style="margin-top:10px;"></div>
+    </div>
+
   </div>
 
   <!-- ODDS -->
@@ -516,6 +548,7 @@ async function iniciar() {
     iniciarSinaisLoop();
     iniciarOddsLoop();
     carregarEstatisticasCenarios();
+    carregarTaxaSequencia();
   } else {
     buscarSinaisServidor();
   }
@@ -586,6 +619,7 @@ function iniciarAutoRefresh() {
     await buscarDados();
     renderTudo();
     renderSinaisLocais(); // recalcula sinais client-side a cada refresh
+    detectarEscanteiosNovos(); // detecta novos escanteios e atualiza tracker
     animarBarra();
   }, REFRESH_SEC * 1000);
 }
@@ -997,6 +1031,149 @@ function renderInsights() {
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────
+// ── SEQUÊNCIA ESCANTEIO → GOL ─────────────────────────────────────────────
+let SEQ_ESCANTEIOS = [];
+let SEQ_TAXA = null;
+let SEQ_CORNERS_PREV = {casa: 0, fora: 0};
+const SEQ_JANELA = 10;
+
+function detectarEscanteiosNovos() {
+  if (!DADOS) return;
+  const sts = DADOS.estatisticas || [], f = DADOS.fixture;
+  if (sts.length < 2) return;
+  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
+  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  const cornersC = parseInt(home['Corner Kicks']) || 0;
+  const cornersF = parseInt(away['Corner Kicks']) || 0;
+  const min = f.status.elapsed || 0;
+
+  const novosC = Math.max(0, cornersC - SEQ_CORNERS_PREV.casa);
+  const novosF = Math.max(0, cornersF - SEQ_CORNERS_PREV.fora);
+
+  if (novosC > 0) for (let i = 0; i < novosC; i++) {
+    SEQ_ESCANTEIOS.push({ min, team: f.timeCasa.nome, teamId: f.timeCasa.id, side: 'casa', status: 'ativo', golMin: null });
+    registrarEscanteioNoBanco(min, 'casa', f.timeCasa.id);
+  }
+  if (novosF > 0) for (let i = 0; i < novosF; i++) {
+    SEQ_ESCANTEIOS.push({ min, team: f.timeFora.nome, teamId: f.timeFora.id, side: 'fora', status: 'ativo', golMin: null });
+    registrarEscanteioNoBanco(min, 'fora', f.timeFora.id);
+  }
+  SEQ_CORNERS_PREV = {casa: cornersC, fora: cornersF};
+  atualizarStatusEscanteios(min);
+}
+
+function atualizarStatusEscanteios(minAtual) {
+  if (!DADOS) return;
+  const f = DADOS.fixture;
+  const eventos = DADOS.eventos || [];
+  SEQ_ESCANTEIOS = SEQ_ESCANTEIOS.filter(s => minAtual - s.min <= 30);
+  SEQ_ESCANTEIOS.forEach(s => {
+    if (s.status !== 'ativo') return;
+    const elapsed = minAtual - s.min;
+    const golDepois = eventos.find(e =>
+      e.type === 'Goal' &&
+      e.time?.elapsed > s.min &&
+      e.time?.elapsed <= s.min + SEQ_JANELA
+    );
+    if (golDepois) { s.status = 'gol'; s.golMin = golDepois.time.elapsed; }
+    else if (elapsed > SEQ_JANELA) { s.status = 'expirado'; }
+  });
+  renderSeqTracker(minAtual);
+}
+
+function registrarEscanteioNoBanco(min, side, timeId) {
+  if (!DADOS) return;
+  const f = DADOS.fixture;
+  fns.httpsCallable('registrarJanelaPreEvento')({
+    fixtureId:   parseInt(FIX_ID),
+    tipo:        `escanteio_${side}`,
+    detalhe:     `escanteio_sequencia_${side}`,
+    minuto:      min,
+    isCasa:      side === 'casa',
+    timeId:      timeId,
+    timeCasaId:  f.timeCasa.id,
+    timeForaId:  f.timeFora.id,
+    ligaId:      f.liga?.id || null,
+    placarCasa:  f.placar.casa ?? 0,
+    placarFora:  f.placar.fora ?? 0,
+    variacoes:   calcVariacoes5min(side),
+    oddsAntes: ODDS_ATUAL ? {
+      minuto: min, casa: ODDS_ATUAL.casa, fora: ODDS_ATUAL.fora,
+      empate: ODDS_ATUAL.empate, over25: ODDS_ATUAL.over25, fonte: ODDS_ATUAL.fonte || '',
+    } : null,
+  }).catch(() => {});
+}
+
+function calcVariacoes5min(side) {
+  if (STATS_HIST.length < 2) return {};
+  const cur = STATS_HIST[STATS_HIST.length - 1], prev = STATS_HIST[0];
+  const hk = side === 'casa' ? 'home' : 'away', ak = side === 'casa' ? 'away' : 'home';
+  return {
+    delta_ap_casa:    (cur[hk]?.ap||0)-(prev[hk]?.ap||0),
+    delta_ap_fora:    (cur[ak]?.ap||0)-(prev[ak]?.ap||0),
+    delta_xg_casa:    (cur[hk]?.xg||0)-(prev[hk]?.xg||0),
+    delta_chutes_casa:(cur[hk]?.shots||0)-(prev[hk]?.shots||0),
+    ap_casa_abs: cur[hk]?.ap||0, ap_fora_abs: cur[ak]?.ap||0,
+    xg_casa_abs: cur[hk]?.xg||0, n_snaps: STATS_HIST.length,
+  };
+}
+
+async function carregarTaxaSequencia() {
+  if (!DADOS) return;
+  const f = DADOS.fixture;
+  const min = f.status.elapsed || 0;
+  const fase = min < 45 ? '1t' : min < 75 ? '2t_inicio' : '2t_final';
+  try {
+    const r = await fns.httpsCallable('buscarTaxaSequencia')({
+      timeId: f.timeCasa.id, faseJogo: fase, localJogo: 'casa',
+      situacaoPlacar: calcSituacaoPlacar(),
+    });
+    if (r?.data) { SEQ_TAXA = r.data; renderSeqTaxa(); }
+  } catch(e) { console.warn('TaxaSeq:', e.message); }
+}
+
+function calcSituacaoPlacar() {
+  if (!DADOS) return 'empate';
+  const c = DADOS.fixture.placar?.casa??0, fo = DADOS.fixture.placar?.fora??0;
+  return c > fo ? 'vencendo' : fo > c ? 'perdendo' : 'empate';
+}
+
+function renderSeqTracker(minAtual) {
+  const ativos = SEQ_ESCANTEIOS.filter(s => minAtual - s.min <= 15);
+  if (!ativos.length) { gc('seqTrackerCard').style.display='none'; return; }
+  gc('seqTrackerCard').style.display='block';
+  gc('seqTrackerEl').innerHTML = ativos.slice(-5).reverse().map(s => {
+    const elapsed = minAtual - s.min;
+    const remaining = Math.max(0, SEQ_JANELA - elapsed);
+    const cor = s.status==='gol'?'var(--acc)':s.status==='expirado'?'var(--t3)':remaining<=3?'var(--red)':'var(--yel)';
+    const statusLabel = s.status==='gol'?`⚽ gol no ${s.golMin}'`:s.status==='expirado'?'× sem gol':`⏱ ${remaining}min restantes`;
+    const statusCls = s.status==='gol'?'gol':s.status==='expirado'?'expirado':'ativo';
+    return `<div class="seq-item">
+      <div class="seq-corner-icon">🚩</div>
+      <div class="seq-info">
+        <div class="seq-time">${s.min}' — ${s.team}</div>
+        <div><span class="seq-status ${statusCls}">${statusLabel}</span></div>
+      </div>
+      <div class="seq-timer">
+        <div class="seq-timer-val" style="color:${cor}">${s.status==='ativo'?remaining:s.status==='gol'?'⚽':'×'}</div>
+        <div class="seq-timer-lbl">${s.status==='ativo'?'min':''}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderSeqTaxa() {
+  if (!SEQ_TAXA) return;
+  const t = SEQ_TAXA.taxaGlobal || SEQ_TAXA.taxaCasa;
+  if (!t?.n) { gc('seqTaxaEl').innerHTML='<div class="empty" style="font-size:10px;">Sem dados históricos ainda</div>'; return; }
+  gc('seqTaxaEl').innerHTML =
+    `<div style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;margin-bottom:8px;">Base: ${t.n} escanteios registrados</div>`+
+    [['Gol em 5 min',t.pct5],['Gol em 10 min',t.pct10],['Gol em 15 min',t.pct15]].map(([lbl,val])=>
+      `<div class="seq-taxa-row"><div class="seq-taxa-lbl">${lbl}</div><div class="seq-taxa-bar"><div class="seq-taxa-fill" style="width:${val||0}%"></div></div><div class="seq-taxa-val">${val??'—'}%</div></div>`
+    ).join('')+
+    `<span class="seq-confianca ${t.confianca}">${t.confianca==='alta'?'✓ alta confiança':t.confianca==='media'?'~ média confiança':'~ poucos dados'}</span>`;
+}
+
 // ── ODDS STATE ────────────────────────────────────────────────────────────
 let ODDS_ATUAL = null, ODDS_ANTERIOR = null, ODDS_HIST = []; // últimas 10 leituras
 let oddsTimer = null;
