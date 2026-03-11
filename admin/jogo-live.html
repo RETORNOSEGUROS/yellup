@@ -855,6 +855,7 @@ function renderSinaisLocais() {
     fouls:   parseInt(home["Fouls"]) || 0,
     xg:      parseFloat(home["expected_goals"]) || 0,
     posse:   parseInt(home["Ball Possession"]) || 50,
+    passes:  parseInt(home["Total passes"]) || 0,
   };
   const aS = {
     corners: parseInt(away["Corner Kicks"]) || 0,
@@ -864,14 +865,31 @@ function renderSinaisLocais() {
     fouls:   parseInt(away["Fouls"]) || 0,
     xg:      parseFloat(away["expected_goals"]) || 0,
     posse:   parseInt(away["Ball Possession"]) || 50,
+    passes:  parseInt(away["Total passes"]) || 0,
   };
+
+  // YAI — fallback quando Dangerous Attacks não vem da API
+  const _yai = (s, raw) => {
+    if (s.ap > 0) return { val: s.ap, fonte: 'DA' };
+    const sOff = parseInt(raw["Shots off Goal"]) || 0;
+    const sBlk = parseInt(raw["Blocked Shots"]) || 0;
+    const calc = Math.round(s.shotsOn * 3.0 + sOff * 1.2 + sBlk * 1.0 + s.corners * 0.6);
+    if (!s.shotsOn && !sOff && !s.corners) return { val: 0, fonte: 'DA' };
+    return { val: calc, fonte: 'YAI' };
+  };
+  const yaiH = _yai(hS, home), yaiA = _yai(aS, away);
+  hS.apEfetivo = yaiH.val; aS.apEfetivo = yaiA.val;
+  const apFonte = yaiH.fonte === 'DA' && yaiA.fonte === 'DA' ? '' : '~';
 
   // Taxas por minuto
   const rH = {}, rA = {};
-  for (const k of ["corners","shots","shotsOn","ap"]) {
+  for (const k of ["corners","shots","shotsOn","ap","passes"]) {
     rH[k] = Math.round(hS[k] / min * 100) / 100;
     rA[k] = Math.round(aS[k] / min * 100) / 100;
   }
+  // AP efetivo (DA real ou YAI estimado)
+  rH.apEfetivo = Math.round(hS.apEfetivo / min * 100) / 100;
+  rA.apEfetivo = Math.round(aS.apEfetivo / min * 100) / 100;
 
   // Delta entre snaps (últimos 2 = ~15s, últimos 4 = ~60s)
   const dH = {}, dA = {};
@@ -949,10 +967,10 @@ function renderSinaisLocais() {
   };
 
   gc("ritmoGrid").innerHTML =
-    mkRitmo("Escanteios",     "🚩", "corners", "corners", "corners", "corners") +
-    mkRitmo("Chutes Totais",  "👟", "shots",   "shots",   "shots",   "shots")   +
-    mkRitmo("Chutes no Alvo", "🎯", "shotsOn", "shotsOn", "shotsOn", "shotsOn") +
-    mkRitmo("Passes",         "🔵", "passes",  "passes",  null,      "passes");
+    mkRitmo("Escanteios",             "🚩", "corners",    "corners",    "corners", "corners") +
+    mkRitmo("Ataques Per." + apFonte, "🔥", "apEfetivo",  "apEfetivo",  "ap",      null)     +
+    mkRitmo("Chutes Totais",          "👟", "shots",      "shots",      "shots",   "shots")   +
+    mkRitmo("Chutes no Alvo",         "🎯", "shotsOn",    "shotsOn",    "shotsOn", "shotsOn");
 
   // ── Momentum ─────────────────────────────────────────────────────────────
   // Calcula momentum baseado em AP + xG + escanteios com peso
