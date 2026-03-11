@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yellup · Acurácia</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+<style>
+:root{
+  --bg1:#0a0a0f;--bg2:#111118;--bg3:#17171f;--bg4:#1e1e28;
+  --brd:rgba(255,255,255,.07);--t1:#f0f0f8;--t2:#9898b0;--t3:#55556a;
+  --acc:#00E5A0;--red:#ff4560;--blu:#4b8eff;--yel:#ffb800;--pur:#9B6DFF;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg1);color:var(--t1);font-family:'Inter',sans-serif;min-height:100vh;}
+.topbar{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--brd);background:var(--bg2);position:sticky;top:0;z-index:100;}
+.logo{font-size:18px;font-weight:800;color:var(--acc);}
+.topbar-title{font-size:14px;font-weight:600;color:var(--t2);}
+.topbar-sub{font-size:10px;font-family:'DM Mono',monospace;color:var(--t3);margin-left:auto;}
+.btn{padding:6px 14px;border-radius:8px;border:1px solid var(--brd);background:var(--bg4);color:var(--t2);font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;}
+.btn:hover{border-color:var(--acc);color:var(--acc);}
+.btn-pur{border-color:rgba(155,109,255,.4);background:rgba(155,109,255,.08);color:var(--pur);}
+.page{max-width:860px;margin:0 auto;padding:16px;}
+.hero{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+.hero-card{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:16px 14px;text-align:center;}
+.hero-val{font-size:32px;font-weight:800;font-family:'DM Mono',monospace;line-height:1;}
+.hero-lbl{font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.5px;margin-top:4px;}
+.hero-sub{font-size:10px;color:var(--t3);margin-top:2px;}
+.card{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:16px;margin-bottom:12px;}
+.card-title{font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:14px;}
+.gauge-wrap{display:flex;justify-content:center;margin-bottom:16px;}
+.tipo-row{display:grid;grid-template-columns:1fr 120px auto auto;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--brd);}
+.tipo-row:last-child{border-bottom:none;}
+.tipo-nome{font-size:12px;color:var(--t2);font-weight:500;}
+.tipo-bar-wrap{height:6px;background:var(--bg4);border-radius:3px;overflow:hidden;}
+.tipo-bar-fill{height:100%;border-radius:3px;transition:width .6s;}
+.tipo-pct{font-size:13px;font-weight:700;font-family:'DM Mono',monospace;text-align:right;}
+.tipo-total{font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;text-align:right;}
+.calib-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--brd);}
+.calib-row:last-child{border-bottom:none;}
+.calib-faixa{font-size:10px;font-family:'DM Mono',monospace;color:var(--t3);width:60px;flex-shrink:0;}
+.calib-bar-wrap{flex:1;height:8px;background:var(--bg4);border-radius:4px;overflow:hidden;position:relative;}
+.calib-bar-fill{height:100%;border-radius:4px;transition:width .6s;}
+.calib-marker{position:absolute;top:0;width:2px;height:100%;background:rgba(255,255,255,.3);}
+.calib-pct{font-size:12px;font-weight:700;font-family:'DM Mono',monospace;min-width:36px;text-align:right;}
+.calib-gap{font-size:10px;font-family:'DM Mono',monospace;min-width:44px;text-align:right;}
+.calib-gap.pos{color:var(--acc);}
+.calib-gap.neg{color:var(--red);}
+.calib-gap.neu{color:var(--t3);}
+.calib-total{font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;min-width:44px;text-align:right;}
+.diag{background:var(--bg3);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:12px;}
+.insight{display:flex;gap:10px;padding:10px 12px;background:rgba(0,229,160,.05);border:1px solid rgba(0,229,160,.15);border-radius:8px;margin-bottom:8px;}
+.insight-icon{font-size:16px;flex-shrink:0;}
+.insight-text{font-size:11px;color:var(--t2);line-height:1.5;}
+.empty{text-align:center;padding:32px 16px;color:var(--t3);font-size:13px;}
+.spin{display:inline-block;width:20px;height:20px;border:2px solid var(--brd);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite;margin-bottom:8px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:600px){.hero{grid-template-columns:repeat(2,1fr);}.tipo-bar-wrap{display:none;}.tipo-row{grid-template-columns:1fr auto auto;}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">Y</div>
+  <div>
+    <div class="topbar-title">📊 Acurácia do Algoritmo</div>
+    <div class="topbar-sub" id="subAtual">carregando...</div>
+  </div>
+  <button class="btn" onclick="carregar()">↻ Atualizar</button>
+  <button class="btn btn-pur" id="btnProcessar" style="display:none" onclick="processarPendentes()">⚙️ Processar Pendentes</button>
+</div>
+
+<div class="page">
+  <div class="diag" id="diagEl" style="display:none"></div>
+
+  <div class="hero">
+    <div class="hero-card">
+      <div class="hero-val" id="hTotal" style="color:var(--t2)">—</div>
+      <div class="hero-lbl">Previsões</div>
+      <div class="hero-sub" id="hPend"></div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-val" id="hPct" style="color:var(--acc)">—</div>
+      <div class="hero-lbl">Acurácia Geral</div>
+      <div class="hero-sub" id="hAcertos"></div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-val" id="hMelhor" style="color:var(--acc)">—</div>
+      <div class="hero-lbl">Melhor Tipo</div>
+      <div class="hero-sub" id="hMelhorNome"></div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-val" id="hPior" style="color:var(--red)">—</div>
+      <div class="hero-lbl">Pior Tipo</div>
+      <div class="hero-sub" id="hPiorNome"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Gauge de Acurácia</div>
+    <div class="gauge-wrap">
+      <svg viewBox="0 0 180 100" style="width:200px;height:110px;">
+        <path d="M20,90 A70,70 0 0,1 160,90" fill="none" stroke="var(--bg4)" stroke-width="14" stroke-linecap="round"/>
+        <path id="gaugePath" d="M20,90 A70,70 0 0,1 20,90" fill="none" stroke="var(--acc)" stroke-width="14" stroke-linecap="round" style="transition:all 1.2s cubic-bezier(.4,0,.2,1)"/>
+        <text x="90" y="78" text-anchor="middle" font-size="26" font-weight="800" font-family="DM Mono,monospace" fill="var(--t1)" id="gaugeVal">—</text>
+        <text x="90" y="94" text-anchor="middle" font-size="9" font-family="DM Mono,monospace" fill="var(--t3)">acurácia geral</text>
+        <text x="16" y="102" text-anchor="middle" font-size="8" font-family="DM Mono,monospace" fill="var(--t3)">0%</text>
+        <text x="164" y="102" text-anchor="middle" font-size="8" font-family="DM Mono,monospace" fill="var(--t3)">100%</text>
+      </svg>
+    </div>
+    <div id="insightsEl"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Acurácia por Tipo de Previsão</div>
+    <div id="tiposEl"><div class="empty"><div class="spin"></div><br>Carregando...</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Calibração por Faixa de Confiança</div>
+    <div style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;margin-bottom:10px;">
+      A linha branca mostra a confiança esperada. Gap + = subestimado (acerta mais do que diz). Gap − = superestimado.
+    </div>
+    <div id="calibEl"><div class="empty"><div class="spin"></div><br>Carregando...</div></div>
+  </div>
+</div>
+
+<script>
+const gc = id => document.getElementById(id);
+firebase.initializeApp({apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",authDomain:"painel-yellup.firebaseapp.com",projectId:"painel-yellup",storageBucket:"painel-yellup.appspot.com",messagingSenderId:"608347210297",appId:"1:608347210297:web:75092713724e617c7203e8"});
+const auth = firebase.auth(), fns = firebase.functions();
+
+const TIPO_LABELS = {
+  gol_casa:'⚽ Gol Casa', gol_fora:'⚽ Gol Fora', cartao:'🟨 Cartão',
+  substituicao:'🔄 Substituição', expulsao:'🟥 Expulsão',
+  escanteio:'🚩 Escanteio', pressao:'🔥 Pressão', virada:'⚡ Virada',
+};
+
+auth.onAuthStateChanged(u => { if (!u) window.location.href='login.html'; else carregar(); });
+
+async function carregar() {
+  gc('subAtual').textContent = 'atualizando...';
+  ['tiposEl','calibEl'].forEach(id => gc(id).innerHTML = "<div class='empty'><div class='spin'></div><br>Carregando...</div>");
+  try {
+    const r = await fns.httpsCallable('buscarCalibracaoAlgoritmo')({}).then(r => r.data);
+    render(r);
+    gc('subAtual').textContent = 'atualizado ' + new Date().toLocaleTimeString('pt-BR');
+  } catch(e) {
+    gc('tiposEl').innerHTML = "<div class='empty'>Erro: " + e.message + "</div>";
+    gc('subAtual').textContent = 'erro';
+  }
+}
+
+async function processarPendentes() {
+  gc('btnProcessar').textContent = '⚙️ Processando...';
+  gc('btnProcessar').disabled = true;
+  try {
+    const r = await fns.httpsCallable('processarPrevisoesManual')({}).then(r => r.data);
+    alert('✅ ' + (r.msg || 'Processadas: ' + r.processadas));
+    carregar();
+  } catch(e) { alert('Erro: ' + e.message); }
+  finally { gc('btnProcessar').textContent = '⚙️ Processar Pendentes'; gc('btnProcessar').disabled = false; }
+}
+
+function render(r) {
+  const d = r.diagnostico;
+  if (d) {
+    gc('diagEl').style.display = 'block';
+    gc('diagEl').innerHTML = `<strong>${d.totalReal}</strong> previsões totais · <strong>${d.processadas}</strong> processadas · <strong>${d.pendentes}</strong> pendentes. ${d.msg}`;
+    if (d.pendentes > 0) gc('btnProcessar').style.display = 'block';
+  }
+
+  if (!r.dados) {
+    gc('tiposEl').innerHTML = "<div class='empty'>Nenhuma previsão processada ainda.<br><span style='font-size:11px;color:var(--t3);'>Previsões são registradas automaticamente durante jogos ao vivo monitorados.</span></div>";
+    gc('calibEl').innerHTML = "<div class='empty'>Sem dados</div>";
+    return;
+  }
+
+  const dados = r.dados;
+  gc('hTotal').textContent = dados.total;
+  gc('hPend').textContent = d?.pendentes > 0 ? d.pendentes + ' pendentes' : '';
+  gc('hPct').textContent = dados.pct != null ? dados.pct + '%' : '—';
+  gc('hPct').style.color = cor(dados.pct);
+  gc('hAcertos').textContent = dados.acertos + ' acertos';
+  gc('hMelhor').textContent = dados.melhorTipo ? dados.melhorTipo.pct + '%' : '—';
+  gc('hMelhorNome').textContent = dados.melhorTipo ? tlabel(dados.melhorTipo.tipo) : '';
+  gc('hPior').textContent = dados.piorTipo ? dados.piorTipo.pct + '%' : '—';
+  gc('hPiorNome').textContent = dados.piorTipo ? tlabel(dados.piorTipo.tipo) : '';
+
+  animarGauge(dados.pct || 0);
+  renderInsights(dados);
+  renderTipos(dados.porTipo);
+  renderCalib(dados.calibracaoConfianca);
+}
+
+function animarGauge(pct) {
+  gc('gaugeVal').textContent = pct + '%';
+  gc('gaugeVal').setAttribute('fill', cor(pct));
+  const cx = 90, cy = 90, r = 70;
+  const a = Math.PI - (Math.PI * Math.min(pct,99.9) / 100);
+  const ex = cx - r * Math.cos(a);
+  const ey = cy - r * Math.sin(a);
+  const la = pct > 50 ? 1 : 0;
+  if (pct < 1) gc('gaugePath').setAttribute('d','M20,90 A70,70 0 0,1 20.01,90');
+  else gc('gaugePath').setAttribute('d',`M20,90 A70,70 0 ${la},1 ${ex.toFixed(2)},${ey.toFixed(2)}`);
+  gc('gaugePath').setAttribute('stroke', cor(pct));
+}
+
+function renderInsights(d) {
+  const ins = [];
+  if (d.pct >= 70) ins.push({i:'🏆', t:`Algoritmo com <strong>${d.pct}% de acurácia</strong> — acima da média esperada (~60%) para previsões de futebol.`});
+  else if (d.pct >= 55) ins.push({i:'📈', t:`Acurácia de <strong>${d.pct}%</strong> — razoável. Continue monitorando jogos para crescer a base.`});
+  else if (d.pct != null) ins.push({i:'⚠️', t:`Acurácia de <strong>${d.pct}%</strong> — pode ser amostra pequena ou tipos difíceis.`});
+  if (d.melhorTipo?.pct >= 75) ins.push({i:'✅', t:`Melhor em <strong>${tlabel(d.melhorTipo.tipo)}</strong> com ${d.melhorTipo.pct}% de acerto.`});
+  const oc = (d.calibracaoConfianca||[]).filter(f => f.gap < -15 && f.total >= 5);
+  if (oc.length) ins.push({i:'📉', t:`Superestimado nas faixas ${oc.map(f=>f.faixa).join(', ')} — acerta menos do que indica.`});
+  const uc = (d.calibracaoConfianca||[]).filter(f => f.gap > 15 && f.total >= 5);
+  if (uc.length) ins.push({i:'📊', t:`Subestimado nas faixas ${uc.map(f=>f.faixa).join(', ')} — pode aumentar a confiança nesses casos.`});
+  gc('insightsEl').innerHTML = ins.map(i=>`<div class="insight"><div class="insight-icon">${i.i}</div><div class="insight-text">${i.t}</div></div>`).join('');
+}
+
+function renderTipos(pt) {
+  if (!pt || !Object.keys(pt).length) { gc('tiposEl').innerHTML="<div class='empty'>Sem dados por tipo ainda</div>"; return; }
+  const sorted = Object.entries(pt).filter(([,v])=>v.total>0).sort((a,b)=>(b[1].pct||0)-(a[1].pct||0));
+  gc('tiposEl').innerHTML = sorted.map(([tipo,v]) => {
+    const p = v.pct ?? 0, c = cor(p);
+    return `<div class="tipo-row">
+      <div class="tipo-nome">${tlabel(tipo)}</div>
+      <div class="tipo-bar-wrap"><div class="tipo-bar-fill" style="width:${p}%;background:${c}"></div></div>
+      <div class="tipo-pct" style="color:${c}">${p}%</div>
+      <div class="tipo-total">${v.acertos}/${v.total}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderCalib(calib) {
+  if (!calib?.length) { gc('calibEl').innerHTML="<div class='empty'>Sem dados de calibração ainda</div>"; return; }
+  const cd = calib.filter(f=>f.total>0);
+  if (!cd.length) { gc('calibEl').innerHTML="<div class='empty'>Sem dados suficientes</div>"; return; }
+  gc('calibEl').innerHTML = cd.map(f => {
+    const p = f.pct ?? 0, c = cor(p);
+    const gap = f.gap, gcls = gap > 5 ? 'pos' : gap < -5 ? 'neg' : 'neu';
+    const gstr = gap == null ? '—' : (gap>0?'+':'')+gap+'%';
+    const mid = parseInt(f.faixa||'0') + 5;
+    return `<div class="calib-row">
+      <div class="calib-faixa">${f.faixa}</div>
+      <div class="calib-bar-wrap">
+        <div class="calib-bar-fill" style="width:${p}%;background:${c}"></div>
+        <div class="calib-marker" style="left:${mid}%" title="esperado: ${mid}%"></div>
+      </div>
+      <div class="calib-pct" style="color:${c}">${p}%</div>
+      <div class="calib-gap ${gcls}">${gstr}</div>
+      <div class="calib-total">${f.acertos}/${f.total}</div>
+    </div>`;
+  }).join('');
+}
+
+const cor = p => p==null?'var(--t3)':p>=70?'var(--acc)':p>=55?'var(--yel)':'var(--red)';
+const tlabel = t => TIPO_LABELS[t] || (t||'?').replace(/_/g,' ');
+</script>
+</body>
+</html>
