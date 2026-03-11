@@ -1101,10 +1101,10 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
 </head>
 <body>
 
-<div id="pgLoad" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:14px;">
+<div id="pgLoad" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:10px;">
   <div class="ld" style="width:36px;height:36px;"></div>
   <p id="pgLoadMsg" style="color:var(--t3);font-size:13px;">Carregando partida...</p>
-  <p id="pgLoadSub" style="color:var(--t3);font-size:10px;display:none;">Conectando ao servidor...</p>
+  <div id="pgLoadLog" style="margin-top:8px;width:340px;max-height:220px;overflow-y:auto;background:var(--bg2);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;font-size:11px;font-family:'DM Mono',monospace;color:var(--t3);display:none;"></div>
   <button id="pgLoadRetry" onclick="location.reload()" style="display:none;margin-top:8px;padding:6px 18px;border:1px solid var(--brd);border-radius:8px;background:transparent;color:var(--t2);font-size:12px;cursor:pointer;">↺ Tentar novamente</button>
 </div>
 
@@ -1750,17 +1750,24 @@ auth.onAuthStateChanged(async u=>{
 
 async function load(fId, dId) {
   try {
+    _pgLoadMsg('🔑 Verificando autenticação...');
     let fixtureId = fId;
+
     if (!fixtureId && dId) {
+      _pgLoadMsg('📄 Buscando fixtureId no Firestore (doc: ' + dId + ')...');
       const s = await db.collection('jogos-admin').doc(dId).get();
-      if (s.exists) fixtureId = s.data().apiFixtureId;
+      if (s.exists) {
+        fixtureId = s.data().apiFixtureId;
+        _pgLoadMsg('✓ fixtureId encontrado: ' + fixtureId);
+      } else {
+        _pgLoadMsg('⚠️ Documento não encontrado no Firestore', true);
+      }
     }
-    if (!fixtureId) { errPage('Sem API Fixture ID'); return; }
 
-    // Para loops do jogo anterior (se admin abrir novo jogo sem o outro ter encerrado)
+    if (!fixtureId) { errPage('Sem API Fixture ID — verifique a URL (parâmetros doc= e id=)'); return; }
+
+    _pgLoadMsg('🔄 Resetando estado anterior...');
     _pararLoopsEncerrado();
-
-    // Reset de flags ao abrir qualquer jogo (corrige tela presa em "carregando")
     _LOOPS_INICIADOS     = false;
     RELATORIO_SALVO      = false;
     ENRIQUECIMENTO_FEITO = false;
@@ -1776,61 +1783,59 @@ async function load(fId, dId) {
 
     CURRENT_DOC_ID = dId; CURRENT_FIX_ID = fixtureId;
 
-    // ── Busca dados frescos da API com timeout de 25s ──
-    _pgLoadMsg('Conectando ao Firebase...');
-    await new Promise(r => setTimeout(r, 200)); // deixa UI respirar
+    _pgLoadMsg('🌐 Chamando CF buscarDadosJogo (fixture #' + fixtureId + ')...');
+    await new Promise(r => setTimeout(r, 100));
 
-    _pgLoadMsg('Buscando dados da partida...');
-    const fn = fns.httpsCallable('buscarDadosJogo', { timeout: 25000 });
+    const fn = fns.httpsCallable('buscarDadosJogo', { timeout: 30000 });
 
     let r;
     try {
       r = await Promise.race([
         fn({ fixtureId: parseInt(fixtureId) }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout — servidor demorou mais de 25s. Verifique o deploy das Cloud Functions.')), 25000))
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 30s — CF não respondeu. Verifique deploy e logs do Firebase.')), 30000))
       ]);
+      _pgLoadMsg('✓ CF respondeu com sucesso');
     } catch(cfErr) {
-      // Timeout ou erro da CF — mostrar botão de retry
-      const sub = gc('pgLoadSub'); if(sub) { sub.textContent = 'Fixture ID: ' + fixtureId + ' · Verifique o deploy das Cloud Functions.'; sub.style.display='block'; }
-      const btn = gc('pgLoadRetry'); if(btn) btn.style.display='block';
-      errPage('Erro ao carregar: ' + cfErr.message);
+      errPage('CF buscarDadosJogo falhou: ' + cfErr.message);
+      gc('pgLoadRetry').style.display = 'block';
       return;
     }
 
     if (!r?.data?.fixture) {
-      errPage('Dados inválidos retornados pelo servidor. Verifique se o fixtureId ' + fixtureId + ' existe.');
+      errPage('CF retornou dados inválidos (sem fixture). fixtureId=' + fixtureId + ' existe na API-Football?');
       return;
     }
-    DADOS = r.data;
-    _pgLoadMsg('Montando interface...');
 
-    // ── Primeira vez: montar UI e iniciar todos os loops ──
+    DADOS = r.data;
+    _pgLoadMsg('✓ Dados recebidos — montando interface...');
+    await new Promise(r => setTimeout(r, 50));
+
     if (!_LOOPS_INICIADOS) {
+      _pgLoadMsg('⚙️ Iniciando loops...');
       _iniciarLoops(fixtureId, dId);
       gc('pgLoad').style.display = 'none';
       gc('pgMain').style.display = 'block';
     }
 
-    // ── Todas as vezes: re-renderizar com dados novos ──
+    _pgLoadMsg('🎨 Renderizando painéis...');
     renderAll();
     verificarGolParaSnapshot();
-    verificarJanelaPreEvento();   // 🆕 detectar e registrar contexto pré-evento
+    verificarJanelaPreEvento();
     verificarResultadosPrevisoes();
 
-    // Encerrou? Salvar relatório + ajustar pesos automaticamente
     const isFt = ['FT','AET','PEN'].includes(DADOS.fixture.status.short);
     if (isFt) {
       salvarRelatorioFn();
-      ajustarPesosAutomatico(); // 🆕 ajuste automático de pesos pós-jogo
-      _verificarResultadosCenarios(); // 📐 registra acertos/erros dos cenários
-      _registrarResultadoPreOdds();   // 🏦 associa resultado real às pré-odds salvas
-      vincularResultadoSnapshotsFn(); // 🔗 batch update em todos os snapshots com resultado
-      _enriquecerSnapshotsPosFTFn();  // 🧠 Pattern Engine: enriquece snapshots com golNos10/15
+      ajustarPesosAutomatico();
+      _verificarResultadosCenarios();
+      _registrarResultadoPreOdds();
+      vincularResultadoSnapshotsFn();
+      _enriquecerSnapshotsPosFTFn();
       _pararLoopsEncerrado();
     }
 
   } catch(e) {
-    errPage('Erro: ' + e.message + ' | ' + (e.stack ? e.stack.split('\n')[1] : ''));
+    errPage('Erro inesperado: ' + e.message + (e.stack ? ' | ' + e.stack.split('\n')[1] : ''));
   }
 }
 
@@ -2311,13 +2316,26 @@ async function _salvarJanelaPreEventoFirestore(janela) {
   } catch(e) { console.warn('salvarJanelaPreEvento CF:', e.message); }
 }
 
-function _pgLoadMsg(msg, sub) {
+function _pgLoadMsg(msg, isErr) {
   const el = gc('pgLoadMsg'); if(el) el.textContent = msg;
-  const s  = gc('pgLoadSub'); if(s && sub) { s.textContent = sub; s.style.display = 'block'; }
+  // Log acumulativo
+  const log = gc('pgLoadLog');
+  if (log) {
+    log.style.display = 'block';
+    const ts = new Date().toLocaleTimeString('pt-BR');
+    const line = document.createElement('div');
+    line.style.cssText = `padding:2px 0;border-bottom:1px solid var(--bd2);color:${isErr?'var(--red)':'var(--t2)'}`;
+    line.textContent = `[${ts}] ${msg}`;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+  console.log('[LOAD]', msg);
 }
 
 function errPage(m){
-  gc('pgLoad').innerHTML=`<div class="empty"><div class="ico">⚠️</div><p style="color:var(--red)">${m}</p><button onclick="location.reload()" class="back-btn" style="margin-top:12px;">↺ Tentar novamente</button><button onclick="history.back()" class="back-btn" style="margin-top:8px;margin-left:8px;">← Voltar</button></div>`;
+  _pgLoadMsg('❌ ' + m, true);
+  const btn = gc('pgLoadRetry'); if(btn) btn.style.display='block';
+  const ld = document.querySelector('#pgLoad .ld'); if(ld) ld.style.display='none';
 }
 
 // ═══ RENDER ALL ═══
