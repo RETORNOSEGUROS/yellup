@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yellup · Partida ao Vivo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+
+<style>
+/* ── RESET + TOKENS ─────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:    #07090F;
+  --bg2:   #0D1018;
+  --bg3:   #131620;
+  --bg4:   #1A1E2E;
+  --brd:   #232840;
+  --brd2:  #2E3550;
+  --t1:    #F0F2FF;
+  --t2:    #A8AECB;
+  --t3:    #5A6080;
+  --acc:   #00E5A0;   /* verde casa */
+  --blu:   #4B8EFF;   /* azul fora */
+  --red:   #FF4560;
+  --yel:   #FFB800;
+  --pur:   #9B6DFF;
+  --r: 12px;
+}
+
+html, body { height: 100%; background: var(--bg); color: var(--t1); font-family: 'Syne', sans-serif; }
+
+/* ── LOADING ────────────────────────────────────────────── */
+#pgLoad {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  z-index: 999;
+}
+.spinner {
+  width: 40px; height: 40px; border: 2px solid var(--brd2);
+  border-top-color: var(--acc); border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#pgLoadMsg { color: var(--t3); font-size: 13px; font-family: 'DM Mono', monospace; }
+#pgLoadLog {
+  width: 360px; max-height: 200px; overflow-y: auto;
+  background: var(--bg2); border: 1px solid var(--brd); border-radius: 10px;
+  padding: 10px 12px; font-size: 11px; font-family: 'DM Mono', monospace;
+  color: var(--t3); display: none;
+}
+#pgLoadLog div { padding: 2px 0; border-bottom: 1px solid var(--brd); }
+.retry-btn {
+  display: none; margin-top: 8px; padding: 8px 24px;
+  border: 1px solid var(--brd2); border-radius: 8px;
+  background: transparent; color: var(--t2); font-size: 12px; cursor: pointer;
+  font-family: 'Syne', sans-serif;
+}
+.retry-btn:hover { background: var(--bg3); }
+
+/* ── MAIN ───────────────────────────────────────────────── */
+#pgMain { display: none; min-height: 100vh; padding-bottom: 60px; }
+
+/* ── HEADER / HERO ──────────────────────────────────────── */
+.hero {
+  background: linear-gradient(180deg, #0E1220 0%, var(--bg) 100%);
+  border-bottom: 1px solid var(--brd);
+  padding: 24px 20px 20px;
+  position: relative;
+}
+
+.hero-league {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-family: 'DM Mono', monospace;
+  color: var(--t3); text-transform: uppercase; letter-spacing: 1px;
+  margin-bottom: 20px;
+}
+.hero-league img { width: 16px; height: 16px; object-fit: contain; opacity: .7; }
+
+.hero-match {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+}
+
+.hero-team {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.hero-team.away { }
+.hero-team img {
+  width: 56px; height: 56px; object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,.5));
+}
+.hero-team-name {
+  font-size: 14px; font-weight: 700; text-align: center;
+  color: var(--t1); line-height: 1.2;
+}
+
+.hero-center { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
+.hero-score {
+  font-size: 52px; font-weight: 800;
+  font-family: 'DM Mono', monospace;
+  letter-spacing: -2px; line-height: 1;
+  background: linear-gradient(135deg, var(--t1) 60%, var(--t3));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+.hero-minute {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-family: 'DM Mono', monospace; color: var(--t2);
+}
+.pulse-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--red);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .4; transform: scale(.7); }
+}
+
+.status-badge {
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 10px; font-weight: 700; letter-spacing: .5px;
+  text-transform: uppercase; font-family: 'DM Mono', monospace;
+}
+.status-live   { background: rgba(255,69,96,.15); color: var(--red); border: 1px solid rgba(255,69,96,.3); }
+.status-ft     { background: rgba(0,229,160,.1);  color: var(--acc); border: 1px solid rgba(0,229,160,.2); }
+.status-ht     { background: rgba(255,184,0,.1);  color: var(--yel); border: 1px solid rgba(255,184,0,.2); }
+.status-ns     { background: var(--bg3); color: var(--t3); border: 1px solid var(--brd); }
+
+/* HT score */
+.hero-ht { font-size: 10px; color: var(--t3); font-family: 'DM Mono', monospace; }
+
+/* Auto-refresh bar */
+.refresh-bar {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: var(--brd);
+}
+.refresh-progress {
+  height: 100%; background: var(--acc); width: 100%;
+  transition: width linear;
+}
+
+/* ── TABS ───────────────────────────────────────────────── */
+.tabs {
+  display: flex; gap: 2px; padding: 12px 16px;
+  background: var(--bg); border-bottom: 1px solid var(--brd);
+  overflow-x: auto; scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  padding: 7px 16px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+  border: 1px solid transparent; cursor: pointer;
+  transition: all .15s; color: var(--t3); background: transparent;
+  font-family: 'Syne', sans-serif;
+}
+.tab:hover { color: var(--t2); background: var(--bg3); }
+.tab.on { color: var(--t1); background: var(--bg3); border-color: var(--brd2); }
+
+.pane { display: none; padding: 16px; }
+.pane.on { display: block; }
+
+/* ── SECTION CARD ───────────────────────────────────────── */
+.card {
+  background: var(--bg2); border: 1px solid var(--brd);
+  border-radius: var(--r); padding: 16px; margin-bottom: 12px;
+}
+.card-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--t3); margin-bottom: 14px;
+  font-family: 'DM Mono', monospace;
+}
+
+/* ── STAT ROWS ──────────────────────────────────────────── */
+.stat-row {
+  display: grid;
+  grid-template-columns: 1fr 120px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.stat-row:last-child { margin-bottom: 0; }
+
+.stat-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 15px; font-weight: 500;
+}
+.stat-val.home { text-align: right; color: var(--acc); }
+.stat-val.away { text-align: left; color: var(--blu); }
+
+.stat-bar-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.stat-label {
+  font-size: 9px; color: var(--t3); text-align: center;
+  font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .5px;
+}
+.stat-bar {
+  width: 100%; height: 4px; background: var(--brd);
+  border-radius: 2px; overflow: hidden; display: flex;
+}
+.stat-bar-home { background: var(--acc); border-radius: 2px 0 0 2px; transition: width .6s ease; }
+.stat-bar-away { background: var(--blu); border-radius: 0 2px 2px 0; transition: width .6s ease; }
+
+/* ── DONUT CHART ────────────────────────────────────────── */
+.donuts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 12px;
+}
+.donut-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.donut-wrap { position: relative; width: 80px; height: 80px; }
+.donut-wrap svg { transform: rotate(-90deg); }
+.donut-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px;
+}
+.donut-num {
+  font-size: 16px; font-weight: 700;
+  font-family: 'DM Mono', monospace; line-height: 1;
+}
+.donut-sub { font-size: 8px; color: var(--t3); font-family: 'DM Mono', monospace; }
+.donut-label {
+  font-size: 10px; color: var(--t2); text-align: center;
+  font-family: 'DM Mono', monospace; line-height: 1.3;
+}
+
+/* ── EVENTOS / TIMELINE ─────────────────────────────────── */
+.event-list { display: flex; flex-direction: column; gap: 6px; }
+.event-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--bg3); border: 1px solid var(--brd);
+}
+.event-min {
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  color: var(--t3); width: 36px; flex-shrink: 0; text-align: center;
+}
+.event-ico { font-size: 14px; width: 20px; text-align: center; flex-shrink: 0; }
+.event-desc { font-size: 12px; color: var(--t2); flex: 1; }
+.event-desc strong { color: var(--t1); font-weight: 600; }
+.event-team-bar {
+  width: 3px; height: 28px; border-radius: 2px; flex-shrink: 0;
+}
+
+/* ── POSSE GRANDE ───────────────────────────────────────── */
+.posse-big {
+  display: flex; align-items: center; gap: 0; height: 40px;
+  border-radius: 10px; overflow: hidden; margin: 12px 0;
+}
+.posse-home {
+  background: linear-gradient(90deg, rgba(0,229,160,.3), rgba(0,229,160,.15));
+  display: flex; align-items: center; justify-content: flex-start;
+  padding: 0 14px; font-size: 18px; font-weight: 800;
+  font-family: 'DM Mono', monospace; color: var(--acc);
+  transition: width .8s cubic-bezier(.4,0,.2,1);
+}
+.posse-away {
+  background: linear-gradient(90deg, rgba(75,142,255,.15), rgba(75,142,255,.3));
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 0 14px; font-size: 18px; font-weight: 800;
+  font-family: 'DM Mono', monospace; color: var(--blu);
+  transition: width .8s cubic-bezier(.4,0,.2,1);
+}
+
+/* ── INSIGHTS ───────────────────────────────────────────── */
+.insight-list { display: flex; flex-direction: column; gap: 8px; }
+.insight {
+  padding: 10px 12px; border-radius: 8px;
+  display: flex; gap: 10px; align-items: flex-start;
+  border-left: 3px solid transparent;
+}
+.insight.positive { background: rgba(0,229,160,.06); border-color: var(--acc); }
+.insight.warning  { background: rgba(255,184,0,.06);  border-color: var(--yel); }
+.insight.info     { background: rgba(75,142,255,.06); border-color: var(--blu); }
+.insight.neutral  { background: var(--bg3); border-color: var(--brd2); }
+.insight-ico { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+.insight-text { font-size: 12px; color: var(--t2); line-height: 1.5; }
+.insight-text strong { color: var(--t1); font-weight: 600; }
+
+/* ── EMPTY ──────────────────────────────────────────────── */
+.empty {
+  text-align: center; padding: 40px 20px; color: var(--t3);
+  font-size: 13px; font-family: 'DM Mono', monospace;
+}
+
+/* ── LAST UPDATE ────────────────────────────────────────── */
+.last-update {
+  text-align: center; padding: 8px;
+  font-size: 10px; color: var(--t3); font-family: 'DM Mono', monospace;
+}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="pgLoad">
+  <div class="spinner"></div>
+  <p id="pgLoadMsg">Conectando...</p>
+  <div id="pgLoadLog"></div>
+  <button class="retry-btn" id="pgLoadRetry" onclick="location.reload()">↺ Tentar novamente</button>
+</div>
+
+<!-- MAIN -->
+<div id="pgMain">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-league">
+      <img id="hLigaLogo" src="" style="display:none">
+      <span id="hLigaNome">—</span>
+      <span id="hRodada" style="margin-left:4px"></span>
+    </div>
+
+    <div class="hero-match">
+      <div class="hero-team">
+        <img id="hLogoCasa" src="" onerror="this.style.display='none'">
+        <div class="hero-team-name" id="hNomeCasa">—</div>
+      </div>
+
+      <div class="hero-center">
+        <div class="hero-score" id="hPlacar">– : –</div>
+        <div id="hHt" class="hero-ht" style="display:none"></div>
+        <div class="hero-minute" id="hMinuto">
+          <span class="pulse-dot" id="hDot" style="display:none"></span>
+          <span id="hMinStr">—</span>
+        </div>
+        <span class="status-badge status-ns" id="hStatus">—</span>
+      </div>
+
+      <div class="hero-team away">
+        <img id="hLogoFora" src="" onerror="this.style.display='none'">
+        <div class="hero-team-name" id="hNomeFora">—</div>
+      </div>
+    </div>
+
+    <div class="refresh-bar"><div class="refresh-progress" id="refreshBar"></div></div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab on"  onclick="switchTab('stats',this)">📊 Estatísticas</button>
+    <button class="tab"     onclick="switchTab('eventos',this)">⚡ Eventos</button>
+    <button class="tab"     onclick="switchTab('insights',this)">🧠 Análise</button>
+  </div>
+
+  <!-- PANE: STATS -->
+  <div class="pane on" id="pane-stats">
+
+    <!-- Posse de bola -->
+    <div class="card">
+      <div class="card-title">Posse de Bola</div>
+      <div class="posse-big">
+        <div class="posse-home" id="posseCasaBar" style="width:50%">50%</div>
+        <div class="posse-away" id="posseForaBar" style="width:50%">50%</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;margin-top:4px;">
+        <span id="hNomeCasaSmall">Casa</span>
+        <span id="hNomeForaSmall">Fora</span>
+      </div>
+    </div>
+
+    <!-- Stats comparativas -->
+    <div class="card" id="statsCard">
+      <div class="card-title">Comparativo de Jogo</div>
+      <div id="statsRows"><div class="empty">Aguardando dados...</div></div>
+    </div>
+
+    <!-- Donuts: métricas-chave -->
+    <div class="card">
+      <div class="card-title">Métricas-Chave</div>
+      <div class="donuts-grid" id="donutsGrid">
+        <div class="empty" style="grid-column:1/-1">Aguardando dados...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- PANE: EVENTOS -->
+  <div class="pane" id="pane-eventos">
+    <div class="card">
+      <div class="card-title">Linha do Tempo</div>
+      <div class="event-list" id="eventList">
+        <div class="empty">Nenhum evento ainda</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANE: INSIGHTS -->
+  <div class="pane" id="pane-insights">
+    <div class="card">
+      <div class="card-title">O que está acontecendo</div>
+      <div class="insight-list" id="insightList">
+        <div class="empty">Aguardando dados suficientes...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="last-update" id="lastUpdate"></div>
+
+</div><!-- /pgMain -->
+
+<script>
+// ── HELPER ──────────────────────────────────────────────────────────────
+const gc = id => document.getElementById(id);
+
+// ── FIREBASE ────────────────────────────────────────────────────────────
+firebase.initializeApp({
+  apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain:"painel-yellup.firebaseapp.com",
+  projectId:"painel-yellup",
+  storageBucket:"painel-yellup.appspot.com",
+  messagingSenderId:"608347210297",
+  appId:"1:608347210297:web:75092713724e617c7203e8"
+});
+const auth = firebase.auth();
+const db   = firebase.firestore();
+const fns  = firebase.functions();
+
+// ── STATE ────────────────────────────────────────────────────────────────
+let DADOS         = null;
+let FIX_ID        = null;
+let DOC_ID        = null;
+let refreshTimer  = null;
+let snapTimer     = null;
+let progressTimer = null;
+const REFRESH_SEC = 15;  // atualiza a cada 15 segundos
+
+// ── LOG ──────────────────────────────────────────────────────────────────
+function log(msg, isErr) {
+  gc('pgLoadMsg').textContent = msg;
+  const box = gc('pgLoadLog');
+  box.style.display = 'block';
+  const d = document.createElement('div');
+  d.style.color = isErr ? 'var(--red)' : 'var(--t2)';
+  d.textContent = '[' + new Date().toLocaleTimeString('pt-BR') + '] ' + msg;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+  console.log('[LIVE]', msg);
+}
+function errPage(msg) {
+  log('❌ ' + msg, true);
+  gc('pgLoadRetry').style.display = 'block';
+  const s = gc('pgLoad').querySelector('.spinner');
+  if (s) s.style.display = 'none';
+}
+
+// ── AUTH ─────────────────────────────────────────────────────────────────
+auth.onAuthStateChanged(async u => {
+  if (!u || u.email !== 'admin@yellup.com') {
+    window.location.href = 'login.html'; return;
+  }
+  const p = new URLSearchParams(location.search);
+  FIX_ID = p.get('id');
+  DOC_ID = p.get('doc');
+  if (!FIX_ID) { errPage('Parâmetro id= não encontrado na URL'); return; }
+  await iniciar();
+});
+
+// ── INICIAR ───────────────────────────────────────────────────────────────
+async function iniciar() {
+  log('🌐 Buscando dados da partida #' + FIX_ID + '...');
+  const ok = await buscarDados();
+  if (!ok) return;
+
+  gc('pgLoad').style.display = 'none';
+  gc('pgMain').style.display = 'block';
+
+  renderTudo();
+
+  const isLive = isAoVivo();
+  if (isLive) {
+    iniciarAutoRefresh();
+    iniciarSnapshot();
+  }
+}
+
+// ── BUSCAR DADOS ──────────────────────────────────────────────────────────
+async function buscarDados() {
+  try {
+    const fn = fns.httpsCallable('buscarDadosJogo', { timeout: 30000 });
+    const r = await Promise.race([
+      fn({ fixtureId: parseInt(FIX_ID) }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 30s')), 30000))
+    ]);
+    if (!r?.data?.fixture) { errPage('Dados inválidos — fixture #' + FIX_ID); return false; }
+    DADOS = r.data;
+    log('✓ Dados recebidos');
+    return true;
+  } catch(e) {
+    errPage('Erro: ' + e.message);
+    return false;
+  }
+}
+
+// ── AUTO-REFRESH (15s) ────────────────────────────────────────────────────
+function iniciarAutoRefresh() {
+  clearInterval(refreshTimer);
+  iniciarProgressBar();
+  refreshTimer = setInterval(async () => {
+    await buscarDados();
+    renderTudo();
+    iniciarProgressBar(); // reinicia barra
+  }, REFRESH_SEC * 1000);
+}
+
+function iniciarProgressBar() {
+  clearInterval(progressTimer);
+  const bar = gc('refreshBar');
+  if (!bar) return;
+  bar.style.transition = 'none';
+  bar.style.width = '100%';
+  // força reflow
+  bar.getBoundingClientRect();
+  bar.style.transition = `width ${REFRESH_SEC}s linear`;
+  bar.style.width = '0%';
+}
+
+// ── SNAPSHOT (1/min) ──────────────────────────────────────────────────────
+function iniciarSnapshot() {
+  clearInterval(snapTimer);
+  registrarSnap(); // imediato
+  snapTimer = setInterval(registrarSnap, 60000);
+}
+
+async function registrarSnap() {
+  if (!DADOS || !DOC_ID) return;
+  try {
+    const fn = fns.httpsCallable('registrarSnapshot');
+    await fn({ fixtureId: parseInt(FIX_ID), docId: DOC_ID });
+  } catch(e) { console.warn('Snap error:', e.message); }
+}
+
+// ── STATUS DO JOGO ────────────────────────────────────────────────────────
+function isAoVivo() {
+  const s = DADOS?.fixture?.status?.short;
+  return ['1H','HT','2H','ET','BT','P'].includes(s);
+}
+
+function fmtMinuto(status) {
+  const { short, elapsed, extra } = status;
+  if (['NS','TBD'].includes(short)) return { str: 'Não iniciado', dot: false, cls: 'status-ns' };
+  if (short === 'HT')  return { str: 'Intervalo', dot: false, cls: 'status-ht' };
+  if (short === 'FT')  return { str: 'Encerrado', dot: false, cls: 'status-ft' };
+  if (short === 'AET') return { str: 'Encerrado (Prór.)', dot: false, cls: 'status-ft' };
+  if (short === 'PEN') return { str: 'Pênaltis', dot: false, cls: 'status-ft' };
+  if (['CANC','ABD','AWD','WO'].includes(short)) return { str: 'Cancelado', dot: false, cls: 'status-ns' };
+  if (['SUSP','INT','PST'].includes(short)) return { str: 'Suspenso', dot: false, cls: 'status-ht' };
+
+  // Ao vivo
+  const base = elapsed || 0;
+  let minStr = base + "'";
+
+  // Acréscimos
+  if (extra && extra > 0) {
+    const over = base > 90 ? base - 90 : base > 45 ? base - 45 : 0;
+    if (base === 45 || (base > 45 && base <= 45 + extra)) {
+      minStr = `45+${over > 0 ? over : '…'}'`;
+    } else if (base === 90 || base > 90) {
+      minStr = `90+${over > 0 ? over : '…'}'`;
+    }
+  }
+  if (short === 'ET') minStr = `Prór. ${base}'`;
+  if (short === 'BT') minStr = `Prór. ${base}'`;
+  if (short === 'P')  minStr = `Pênaltis`;
+
+  return { str: minStr, dot: true, cls: 'status-live' };
+}
+
+// ── RENDER TUDO ────────────────────────────────────────────────────────────
+function renderTudo() {
+  if (!DADOS) return;
+  renderHero();
+  renderStats();
+  renderEventos();
+  renderInsights();
+  gc('lastUpdate').textContent = 'Atualizado às ' + new Date().toLocaleTimeString('pt-BR');
+}
+
+// ── RENDER HERO ────────────────────────────────────────────────────────────
+function renderHero() {
+  const f = DADOS.fixture;
+  const l = DADOS.fixture.liga || {};
+
+  // Liga
+  if (l.logo) { gc('hLigaLogo').src = l.logo; gc('hLigaLogo').style.display = 'block'; }
+  gc('hLigaNome').textContent = l.nome || '';
+  gc('hRodada').textContent = l.rodada ? '· ' + l.rodada : '';
+
+  // Times
+  gc('hLogoCasa').src  = f.timeCasa.logo || '';
+  gc('hLogoFora').src  = f.timeFora.logo || '';
+  gc('hNomeCasa').textContent = f.timeCasa.nome;
+  gc('hNomeFora').textContent = f.timeFora.nome;
+  gc('hNomeCasaSmall').textContent = f.timeCasa.nome;
+  gc('hNomeForaSmall').textContent = f.timeFora.nome;
+
+  // Placar
+  const pc = f.placar.casa ?? '–';
+  const pf = f.placar.fora ?? '–';
+  gc('hPlacar').textContent = pc + ' : ' + pf;
+
+  // HT score
+  const ht = f.placar.meioTempo;
+  if (ht && (ht.casa !== null || ht.fora !== null)) {
+    gc('hHt').textContent = 'Intervalo: ' + (ht.casa ?? 0) + ' – ' + (ht.fora ?? 0);
+    gc('hHt').style.display = 'block';
+  }
+
+  // Minuto e status
+  const m = fmtMinuto(f.status);
+  gc('hMinStr').textContent = m.str;
+  gc('hDot').style.display  = m.dot ? 'block' : 'none';
+  const sb = gc('hStatus');
+  sb.textContent = m.dot ? '● Ao Vivo' : m.str;
+  sb.className = 'status-badge ' + m.cls;
+}
+
+// ── RENDER STATS ──────────────────────────────────────────────────────────
+function renderStats() {
+  const sts = DADOS.estatisticas || [];
+  const f   = DADOS.fixture;
+  if (sts.length < 2) {
+    gc('statsRows').innerHTML = '<div class="empty">Estatísticas ainda não disponíveis</div>';
+    gc('donutsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1">Aguardando dados...</div>';
+    return;
+  }
+
+  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
+  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+
+  // Posse de bola
+  const posseC = parseInt(home['Ball Possession']) || 50;
+  const posseF = parseInt(away['Ball Possession']) || (100 - posseC);
+  gc('posseCasaBar').style.width = posseC + '%';
+  gc('posseCasaBar').textContent = posseC + '%';
+  gc('posseForaBar').style.width = posseF + '%';
+  gc('posseForaBar').textContent = posseF + '%';
+
+  // Linhas de stats
+  const linhas = [
+    { label: 'Chutes',          hk: 'Total Shots',         ak: 'Total Shots',         fmt: v => v ?? 0 },
+    { label: 'No gol',          hk: 'Shots on Goal',       ak: 'Shots on Goal',       fmt: v => v ?? 0 },
+    { label: 'Ataques perigosos', hk: 'Dangerous Attacks', ak: 'Dangerous Attacks',   fmt: v => v ?? 0 },
+    { label: 'Passes',          hk: 'Total passes',        ak: 'Total passes',        fmt: v => v ?? 0 },
+    { label: 'Passes certos',   hk: 'Passes accurate',     ak: 'Passes accurate',     fmt: v => v ?? 0 },
+    { label: 'Precisão passes', hk: 'Passes %',            ak: 'Passes %',            fmt: v => v ? (v + '') : '0%' },
+    { label: 'Faltas',          hk: 'Fouls',               ak: 'Fouls',               fmt: v => v ?? 0 },
+    { label: 'Escanteios',      hk: 'Corner Kicks',        ak: 'Corner Kicks',        fmt: v => v ?? 0 },
+    { label: 'Cartões amarelos',hk: 'Yellow Cards',        ak: 'Yellow Cards',        fmt: v => v ?? 0 },
+    { label: 'xG',              hk: 'expected_goals',      ak: 'expected_goals',      fmt: v => v ? parseFloat(v).toFixed(2) : '—' },
+  ];
+
+  let html = '';
+  linhas.forEach(({ label, hk, ak, fmt }) => {
+    const hv = fmt(home[hk]); const av = fmt(away[ak]);
+    const hn = parseFloat(hv) || 0; const an = parseFloat(av) || 0;
+    const total = hn + an || 1;
+    const hPct  = Math.round(hn / total * 100);
+    html += `
+    <div class="stat-row">
+      <div class="stat-val home">${hv}</div>
+      <div class="stat-bar-wrap">
+        <div class="stat-label">${label}</div>
+        <div class="stat-bar">
+          <div class="stat-bar-home" style="width:${hPct}%"></div>
+          <div class="stat-bar-away" style="width:${100-hPct}%"></div>
+        </div>
+      </div>
+      <div class="stat-val away">${av}</div>
+    </div>`;
+  });
+  gc('statsRows').innerHTML = html;
+
+  // Donuts: métricas mais visuais
+  const donutData = [
+    { label: 'Posse',        homeVal: posseC, awayVal: posseF, unit: '%', color: '#00E5A0' },
+    { label: 'Chutes a gol', homeVal: parseInt(home['Shots on Goal'])||0, awayVal: parseInt(away['Shots on Goal'])||0, unit: '', color: '#4B8EFF' },
+    { label: 'Ataques per.', homeVal: parseInt(home['Dangerous Attacks'])||0, awayVal: parseInt(away['Dangerous Attacks'])||0, unit: '', color: '#9B6DFF' },
+    { label: 'Precisão passes', homeVal: parseInt(home['Passes %'])||0, awayVal: parseInt(away['Passes %'])||0, unit: '%', color: '#FFB800' },
+  ];
+
+  gc('donutsGrid').innerHTML = donutData.map(d => {
+    const total = d.homeVal + d.awayVal || 1;
+    const pctH  = Math.round(d.homeVal / total * 100);
+    return donutSVG(d.label, d.homeVal + d.unit, d.awayVal + d.unit, pctH, d.color);
+  }).join('');
+}
+
+function donutSVG(label, valH, valA, pctH, color) {
+  const r = 30, cx = 40, cy = 40, stroke = 7;
+  const circ = 2 * Math.PI * r;
+  const dashH = (pctH / 100) * circ;
+  const dashA = circ - dashH;
+
+  return `<div class="donut-item">
+    <div class="donut-wrap">
+      <svg width="80" height="80" viewBox="0 0 80 80">
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--brd2)" stroke-width="${stroke}"/>
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}"
+          stroke-dasharray="${dashH.toFixed(1)} ${dashA.toFixed(1)}" stroke-linecap="round"/>
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--blu)" stroke-width="${stroke}" opacity=".5"
+          stroke-dasharray="${dashA.toFixed(1)} ${dashH.toFixed(1)}"
+          stroke-dashoffset="${-dashH.toFixed(1)}" stroke-linecap="round"/>
+      </svg>
+      <div class="donut-center">
+        <div class="donut-num" style="color:${color}">${valH}</div>
+        <div class="donut-sub">vs ${valA}</div>
+      </div>
+    </div>
+    <div class="donut-label">${label}</div>
+  </div>`;
+}
+
+// ── RENDER EVENTOS ────────────────────────────────────────────────────────
+function renderEventos() {
+  const evs = DADOS.eventos || [];
+  const f   = DADOS.fixture;
+  if (!evs.length) {
+    gc('eventList').innerHTML = '<div class="empty">Nenhum evento registrado</div>';
+    return;
+  }
+
+  const evIco = {
+    'Goal': '⚽', 'Normal Goal': '⚽', 'Own Goal': '🙈', 'Penalty': '⚽',
+    'Yellow Card': '🟨', 'Red Card': '🟥', 'Yellow Red Card': '🟥',
+    'subst': '🔄', 'Substitution 1': '🔄',
+    'Var': '📺', 'Goal cancelled': '🚫',
+  };
+
+  const evLabel = {
+    'Normal Goal': 'Gol', 'Own Goal': 'Gol contra', 'Penalty': 'Gol de pênalti',
+    'Yellow Card': 'Cartão amarelo', 'Red Card': 'Cartão vermelho',
+    'Yellow Red Card': 'Segundo amarelo', 'subst': 'Substituição', 'Var': 'VAR',
+    'Goal cancelled': 'Gol anulado',
+  };
+
+  const html = [...evs].reverse().map(e => {
+    const isHome = e.time?.id === f.timeCasa.id;
+    const cor    = isHome ? 'var(--acc)' : 'var(--blu)';
+    const ico    = evIco[e.detalhe] || evIco[e.tipo] || '•';
+    const lbl    = evLabel[e.detalhe] || evLabel[e.tipo] || e.tipo;
+    const min    = e.minuto ? e.minuto + (e.minutoExtra ? '+' + e.minutoExtra : '') + "'" : '—';
+    const jogador = e.jogador?.nome || '';
+    const assist  = e.assistente?.nome ? ' <span style="color:var(--t3)">→ ' + e.assistente.nome + '</span>' : '';
+
+    return `<div class="event-item">
+      <div class="event-min">${min}</div>
+      <div class="event-ico">${ico}</div>
+      <div class="event-desc">
+        <strong>${jogador}</strong>${assist}
+        <br><span style="font-size:10px;color:var(--t3)">${lbl} · ${e.time?.nome || ''}</span>
+      </div>
+      <div class="event-team-bar" style="background:${cor}"></div>
+    </div>`;
+  }).join('');
+
+  gc('eventList').innerHTML = html || '<div class="empty">Nenhum evento</div>';
+}
+
+// ── RENDER INSIGHTS ────────────────────────────────────────────────────────
+function renderInsights() {
+  const sts = DADOS.estatisticas || [];
+  const f   = DADOS.fixture;
+  const evs = DADOS.eventos || [];
+  const insights = [];
+
+  if (sts.length < 2) {
+    gc('insightList').innerHTML = '<div class="empty">Dados insuficientes para análise</div>';
+    return;
+  }
+
+  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
+  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  const min  = f.status.elapsed || 0;
+
+  const posseC  = parseInt(home['Ball Possession']) || 50;
+  const posseF  = 100 - posseC;
+  const chutsH  = parseInt(home['Total Shots']) || 0;
+  const chutsA  = parseInt(away['Total Shots']) || 0;
+  const golH    = parseInt(home['Shots on Goal']) || 0;
+  const golA    = parseInt(away['Shots on Goal']) || 0;
+  const apH     = parseInt(home['Dangerous Attacks']) || 0;
+  const apA     = parseInt(away['Dangerous Attacks']) || 0;
+  const xgH     = parseFloat(home['expected_goals']) || 0;
+  const xgA     = parseFloat(away['expected_goals']) || 0;
+  const placarC = f.placar.casa ?? 0;
+  const placarF = f.placar.fora ?? 0;
+
+  const nC = f.timeCasa.nome;
+  const nF = f.timeFora.nome;
+
+  // Posse dominante
+  if (posseC >= 58) insights.push({ cls: 'positive', ico: '🟢', text: `<strong>${nC}</strong> domina a bola com <strong>${posseC}%</strong> de posse. Jogo territorialemente controlado.` });
+  else if (posseF >= 58) insights.push({ cls: 'positive', ico: '🔵', text: `<strong>${nF}</strong> domina a bola com <strong>${posseF}%</strong> de posse.` });
+  else insights.push({ cls: 'neutral', ico: '⚖️', text: `Partida equilibrada na posse — <strong>${nC} ${posseC}% × ${posseF}% ${nF}</strong>.` });
+
+  // Pressão sem eficiência
+  if (posseC >= 55 && xgH < 0.3 && min > 25) insights.push({ cls: 'warning', ico: '⚠️', text: `<strong>${nC}</strong> tem bola mas cria pouco. Alta posse com xG de apenas <strong>${xgH.toFixed(2)}</strong> — pressão sem criatividade.` });
+  if (posseF >= 55 && xgA < 0.3 && min > 25) insights.push({ cls: 'warning', ico: '⚠️', text: `<strong>${nF}</strong> tem bola mas cria pouco. xG de <strong>${xgA.toFixed(2)}</strong>.` });
+
+  // Eficiência de chutes
+  if (chutsH > 5) {
+    const eff = Math.round(golH / chutsH * 100);
+    const cls = eff >= 40 ? 'positive' : eff <= 20 ? 'warning' : 'info';
+    insights.push({ cls, ico: '🎯', text: `<strong>${nC}</strong>: ${golH} de ${chutsH} chutes no alvo — eficiência de <strong>${eff}%</strong>${eff >= 40 ? ' — muito perigoso' : eff <= 20 ? ' — desperdiçando chances' : ''}.` });
+  }
+  if (chutsA > 5) {
+    const eff = Math.round(golA / chutsA * 100);
+    const cls = eff >= 40 ? 'positive' : eff <= 20 ? 'warning' : 'info';
+    insights.push({ cls, ico: '🎯', text: `<strong>${nF}</strong>: ${golA} de ${chutsA} chutes no alvo — eficiência de <strong>${eff}%</strong>.` });
+  }
+
+  // xG vs gols marcados
+  if (xgH > 0.5 && placarC === 0 && min > 30) insights.push({ cls: 'warning', ico: '📉', text: `<strong>${nC}</strong> criou xG de <strong>${xgH.toFixed(2)}</strong> mas não marcou ainda. Azarado ou goleiro adversário excepcional.` });
+  if (xgA > 0.5 && placarF === 0 && min > 30) insights.push({ cls: 'warning', ico: '📉', text: `<strong>${nF}</strong> criou xG de <strong>${xgA.toFixed(2)}</strong> mas não balançou a rede.` });
+
+  // Ataques perigosos dispares
+  if (apH > apA * 2 && apA > 0) insights.push({ cls: 'positive', ico: '🔥', text: `<strong>${nC}</strong> com <strong>${apH}</strong> ataques perigosos vs ${apA} do adversário — pressão ofensiva muito superior.` });
+  else if (apA > apH * 2 && apH > 0) insights.push({ cls: 'info', ico: '🔥', text: `<strong>${nF}</strong> com <strong>${apA}</strong> ataques perigosos vs ${apH} — domínio ofensivo do visitante.` });
+
+  // Gols da partida
+  const gols = evs.filter(e => e.tipo === 'Goal' || (e.tipo && e.tipo.toLowerCase().includes('goal')));
+  if (gols.length > 0) insights.push({ cls: 'info', ico: '⚽', text: `<strong>${gols.length} gol(s)</strong> marcado(s) na partida. Ritmo de ${(gols.length / Math.max(min,1) * 90).toFixed(1)} gols/90min.` });
+
+  // Placar
+  if (placarC > placarF) insights.push({ cls: 'positive', ico: '🏆', text: `<strong>${nC}</strong> está vencendo por <strong>${placarC}–${placarF}</strong>.` });
+  else if (placarF > placarC) insights.push({ cls: 'info', ico: '🏆', text: `<strong>${nF}</strong> está vencendo por <strong>${placarF}–${placarC}</strong>.` });
+  else if (placarC === placarF && (placarC + placarF) > 0) insights.push({ cls: 'neutral', ico: '🤝', text: `Empate em <strong>${placarC}–${placarF}</strong>. Qualquer gol muda o jogo.` });
+
+  if (!insights.length) {
+    gc('insightList').innerHTML = '<div class="empty">Coletando dados para análise...</div>';
+    return;
+  }
+
+  gc('insightList').innerHTML = insights.map(i =>
+    `<div class="insight ${i.cls}">
+      <div class="insight-ico">${i.ico}</div>
+      <div class="insight-text">${i.text}</div>
+    </div>`
+  ).join('');
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('on'));
+  btn.classList.add('on');
+  gc('pane-' + id).classList.add('on');
+}
+</script>
+</body>
+</html>
