@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yellup · Algoritmo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07090F;--bg2:#0D1018;--bg3:#131620;--bg4:#1A1E2E;
+  --brd:#232840;--brd2:#2E3550;
+  --t1:#F0F2FF;--t2:#A8AECB;--t3:#5A6080;
+  --acc:#00E5A0;--blu:#4B8EFF;--red:#FF4560;--yel:#FFB800;--pur:#9B6DFF;
+  --r:12px;
+}
+html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne",sans-serif;}
+#pgLoad{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:999;}
+.spinner{width:36px;height:36px;border:2px solid var(--brd2);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+#pgLoadMsg{color:var(--t3);font-size:13px;font-family:"DM Mono",monospace;}
+#pgLoadLog{width:340px;max-height:200px;overflow-y:auto;background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:10px 12px;font-size:11px;font-family:"DM Mono",monospace;color:var(--t3);display:none;}
+#pgLoadLog div{padding:2px 0;border-bottom:1px solid var(--brd);}
+.retry-btn{display:none;margin-top:8px;padding:8px 24px;border:1px solid var(--brd2);border-radius:8px;background:transparent;color:var(--t2);font-size:12px;cursor:pointer;}
+#pgMain{display:none;min-height:100vh;padding-bottom:60px;}
+
+/* HEADER */
+.header{background:linear-gradient(180deg,#0F1828 0%,var(--bg) 100%);border-bottom:1px solid var(--brd);padding:16px 16px 18px;position:relative;overflow:hidden;}
+.back-link{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--t3);font-family:"DM Mono",monospace;text-decoration:none;margin-bottom:12px;transition:color .15s;}
+.back-link:hover{color:var(--t2);}
+.match-header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px;}
+.mh-team{display:flex;flex-direction:column;align-items:center;gap:8px;}
+.mh-team img{width:52px;height:52px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(0,0,0,.5));}
+.mh-name{font-size:14px;font-weight:700;text-align:center;color:var(--t1);line-height:1.2;max-width:110px;}
+.mh-sub{font-size:10px;font-family:"DM Mono",monospace;text-align:center;}
+.mh-vs{font-size:22px;font-weight:800;font-family:"DM Mono",monospace;color:var(--t3);}
+
+/* TABS */
+.tabs{display:flex;gap:2px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--brd);overflow-x:auto;scrollbar-width:none;}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;border:1px solid transparent;cursor:pointer;transition:all .15s;color:var(--t3);background:transparent;font-family:"Syne",sans-serif;}
+.tab:hover{color:var(--t2);background:var(--bg3);}
+.tab.on{color:var(--t1);background:var(--bg3);border-color:var(--brd2);}
+.pane{display:none;padding:14px;}
+.pane.on{display:block;}
+
+/* CARD */
+.card{background:var(--bg2);border:1px solid var(--brd);border-radius:var(--r);padding:14px;margin-bottom:12px;}
+.card-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:12px;font-family:"DM Mono",monospace;}
+
+/* DNA CARDS */
+.dna-duo{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+.dna-card{background:var(--bg3);border:1px solid var(--brd);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;}
+.dna-card.home{border-top:2px solid var(--acc);}
+.dna-card.away{border-top:2px solid var(--blu);}
+.dna-arquetipo{font-size:28px;line-height:1;}
+.dna-nome{font-size:11px;font-weight:700;line-height:1.2;}
+.dna-tipo{font-size:10px;font-family:"DM Mono",monospace;margin-top:2px;}
+.dna-desc{font-size:10px;color:var(--t3);line-height:1.4;font-family:"DM Mono",monospace;}
+.dna-attr-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;}
+.dna-attr-lbl{font-size:9px;color:var(--t3);width:70px;flex-shrink:0;font-family:"DM Mono",monospace;}
+.dna-attr-track{flex:1;height:4px;background:var(--brd);border-radius:2px;overflow:hidden;}
+.dna-attr-bar{height:100%;border-radius:2px;transition:width .7s cubic-bezier(.4,0,.2,1);}
+.dna-attr-val{font-size:9px;color:var(--t3);width:22px;text-align:right;font-family:"DM Mono",monospace;}
+
+/* CRUZAMENTO */
+.cruz-box{background:linear-gradient(135deg,rgba(0,229,160,.05),rgba(75,142,255,.05));border:1px solid var(--brd2);border-radius:12px;padding:14px;margin-bottom:12px;}
+.cruz-title{font-size:12px;font-weight:700;color:var(--t1);margin-bottom:6px;}
+.cruz-desc{font-size:12px;color:var(--t2);line-height:1.6;}
+.cruz-gols{display:inline-block;margin-top:8px;padding:3px 10px;border-radius:20px;font-size:10px;font-family:"DM Mono",monospace;}
+.cruz-gols.alto{background:rgba(255,69,96,.15);color:var(--red);}
+.cruz-gols.medio{background:rgba(255,184,0,.12);color:var(--yel);}
+.cruz-gols.baixo{background:rgba(75,142,255,.12);color:var(--blu);}
+
+/* PROBABILIDADES */
+.prob-main{display:flex;gap:6px;margin-bottom:14px;}
+.prob-box{flex:1;border-radius:12px;padding:14px 10px;text-align:center;position:relative;overflow:hidden;border:1px solid var(--brd);}
+.prob-box.casa{background:linear-gradient(135deg,rgba(0,229,160,.12),rgba(0,229,160,.04));border-color:rgba(0,229,160,.25);}
+.prob-box.empate{background:var(--bg3);}
+.prob-box.fora{background:linear-gradient(135deg,rgba(75,142,255,.12),rgba(75,142,255,.04));border-color:rgba(75,142,255,.25);}
+.prob-num{font-size:32px;font-weight:800;font-family:"DM Mono",monospace;line-height:1;}
+.prob-lbl{font-size:9px;color:var(--t3);font-family:"DM Mono",monospace;text-transform:uppercase;letter-spacing:.5px;margin-top:4px;}
+.prob-nome{font-size:10px;color:var(--t2);margin-top:3px;font-weight:600;}
+.prob-bar-wrap{height:5px;background:var(--brd);border-radius:3px;margin-top:8px;overflow:hidden;}
+.prob-bar-fill{height:100%;border-radius:3px;transition:width .8s cubic-bezier(.4,0,.2,1);}
+
+/* CONFIANÇA */
+.conf-strip{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.conf-pill{padding:3px 10px;border-radius:12px;font-size:10px;font-family:"DM Mono",monospace;}
+.conf-alta{background:rgba(0,229,160,.12);color:var(--acc);}
+.conf-media{background:rgba(255,184,0,.1);color:var(--yel);}
+.conf-baixa{background:rgba(255,69,96,.1);color:var(--red);}
+.conf-insuf{background:var(--bg3);color:var(--t3);}
+
+/* FONTES */
+.fonte-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--brd);}
+.fonte-lbl{font-size:11px;color:var(--t2);}
+.fonte-val{font-size:11px;font-family:"DM Mono",monospace;color:var(--t1);}
+.fonte-conf{font-size:9px;font-family:"DM Mono",monospace;margin-left:6px;}
+.fonte-peso{display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-family:"DM Mono",monospace;background:var(--bg4);color:var(--t3);}
+
+/* GOLS CRUZADOS */
+.gol-janela-duo{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+.gj-card{background:var(--bg3);border:1px solid var(--brd);border-radius:10px;padding:10px;}
+.gj-title{font-size:9px;color:var(--t3);font-family:"DM Mono",monospace;text-transform:uppercase;margin-bottom:8px;}
+.gj-bars{display:flex;align-items:flex-end;gap:3px;height:60px;}
+.gj-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.gj-bar{width:100%;border-radius:3px 3px 0 0;min-height:3px;transition:height .5s ease;}
+.gj-lbl{font-size:7px;color:var(--t3);font-family:"DM Mono",monospace;}
+
+/* EXPLICAÇÃO */
+.explain-list{display:flex;flex-direction:column;gap:7px;}
+.explain-item{padding:10px 12px;border-radius:8px;border-left:3px solid;display:flex;gap:9px;align-items:flex-start;}
+.explain-item.pos{background:rgba(0,229,160,.06);border-color:var(--acc);}
+.explain-item.neg{background:rgba(255,69,96,.06);border-color:var(--red);}
+.explain-item.neu{background:rgba(75,142,255,.05);border-color:var(--blu);}
+.explain-item.warn{background:rgba(255,184,0,.05);border-color:var(--yel);}
+.explain-ico{font-size:14px;flex-shrink:0;}
+.explain-text{font-size:12px;color:var(--t2);line-height:1.5;}
+.explain-text strong{color:var(--t1);}
+
+.empty{text-align:center;padding:36px 20px;color:var(--t3);font-size:13px;font-family:"DM Mono",monospace;}
+</style>
+</head>
+<body>
+<div id="pgLoad">
+  <div class="spinner"></div>
+  <p id="pgLoadMsg">Carregando dados...</p>
+  <div id="pgLoadLog"></div>
+  <button class="retry-btn" onclick="location.reload()">&#8635; Tentar novamente</button>
+</div>
+<div id="pgMain">
+  <div class="header">
+    <a class="back-link" href="#" onclick="history.back();return false;">&#8592; Voltar</a>
+    <div class="match-header">
+      <div class="mh-team">
+        <img id="hLogoCasa" src="" onerror="this.style.display='none'">
+        <div class="mh-name" id="hNomeCasa">&#8212;</div>
+        <div class="mh-sub" id="hSubCasa" style="color:var(--acc)">DNA em calculo...</div>
+      </div>
+      <div class="mh-vs">VS</div>
+      <div class="mh-team">
+        <img id="hLogoFora" src="" onerror="this.style.display='none'">
+        <div class="mh-name" id="hNomeFora">&#8212;</div>
+        <div class="mh-sub" id="hSubFora" style="color:var(--blu)">DNA em calculo...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" onclick="switchTab('prob',this)">&#127919; Probabilidades</button>
+    <button class="tab"    onclick="switchTab('dna',this)">&#129516; DNA T&#225;tico</button>
+    <button class="tab"    onclick="switchTab('gols',this)">&#9917; Janela de Gols</button>
+    <button class="tab"    onclick="switchTab('fontes',this)">&#128202; Fontes</button>
+  </div>
+
+  <!-- PROBABILIDADES -->
+  <div class="pane on" id="pane-prob">
+    <div id="probMainEl"><div class="empty">Calculando...</div></div>
+    <div class="card" id="cruzCard" style="display:none">
+      <div class="card-title">Previs&#227;o de Estilo</div>
+      <div id="cruzEl"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Por que essa previs&#227;o?</div>
+      <div class="explain-list" id="explainEl"><div class="empty">Aguardando c&#225;lculo...</div></div>
+    </div>
+  </div>
+
+  <!-- DNA -->
+  <div class="pane" id="pane-dna">
+    <div class="dna-duo" id="dnaDuo">
+      <div class="empty" style="grid-column:1/-1">Calculando DNA...</div>
+    </div>
+    <div class="card" id="fpCard" style="display:none">
+      <div class="card-title">&#129504; Fingerprint Hist&#243;rico (Banco Pr&#243;prio)</div>
+      <div id="fpEl"></div>
+    </div>
+  </div>
+
+  <!-- JANELA DE GOLS -->
+  <div class="pane" id="pane-gols">
+    <div class="card">
+      <div class="card-title">Quando cada time costuma marcar</div>
+      <div class="gol-janela-duo" id="goJanelaDuo">
+        <div class="empty" style="grid-column:1/-1">Carregando historico...</div>
+      </div>
+    </div>
+    <div class="card" style="background:rgba(255,184,0,.03);border-color:rgba(255,184,0,.2);">
+      <div class="card-title" style="color:var(--yel)">&#128269; Janela de Risco Cruzada</div>
+      <div id="goRiscoEl" style="font-size:13px;color:var(--t2);line-height:1.6;"></div>
+    </div>
+  </div>
+
+  <!-- FONTES -->
+  <div class="pane" id="pane-fontes">
+    <div class="card">
+      <div class="card-title">Fontes de Dados Usadas</div>
+      <div id="fontesEl"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Peso de Cada Fonte no C&#225;lculo</div>
+      <div id="pesosEl"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const gc = id => document.getElementById(id);
+firebase.initializeApp({apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",authDomain:"painel-yellup.firebaseapp.com",projectId:"painel-yellup",storageBucket:"painel-yellup.appspot.com",messagingSenderId:"608347210297",appId:"1:608347210297:web:75092713724e617c7203e8"});
+const auth=firebase.auth(),fns=firebase.functions();
+
+// ── ESTADO ───────────────────────────────────────────────────────────────
+let DADOS_JOGO=null, HIST_CASA=null, HIST_FORA=null;
+let CTX_CASA=null,   CTX_FORA=null;
+let CTX_GLOBAL=null, FP=null;
+let DNA_CASA=null,   DNA_FORA=null;
+let PARAMS={};
+
+// ── LOG ──────────────────────────────────────────────────────────────────
+function log(msg,e){
+  gc("pgLoadMsg").textContent=msg;
+  const b=gc("pgLoadLog");b.style.display="block";
+  const d=document.createElement("div");
+  d.style.color=e?"var(--red)":"var(--t2)";
+  d.textContent="["+new Date().toLocaleTimeString("pt-BR")+"] "+msg;
+  b.appendChild(d);b.scrollTop=b.scrollHeight;
+}
+function errPage(m){
+  log("X "+m,true);
+  document.querySelector(".retry-btn").style.display="block";
+  gc("pgLoad").querySelector(".spinner").style.display="none";
+}
+
+// ── AUTH ─────────────────────────────────────────────────────────────────
+auth.onAuthStateChanged(async u=>{
+  if(!u||u.email!=="admin@yellup.com"){window.location.href="login.html";return;}
+  const p=new URLSearchParams(location.search);
+  PARAMS={
+    casaId:   parseInt(p.get("casaId")),
+    foraId:   parseInt(p.get("foraId")),
+    casaNome: p.get("casaNome")||"Casa",
+    foraNome: p.get("foraNome")||"Fora",
+    casaLogo: p.get("casaLogo")||"",
+    foraLogo: p.get("foraLogo")||"",
+    fixId:    parseInt(p.get("fixId"))||null,
+    minuto:   parseInt(p.get("min"))||null,
+    placarC:  parseInt(p.get("pc"))||0,
+    placarF:  parseInt(p.get("pf"))||0,
+  };
+  if(!PARAMS.casaId||!PARAMS.foraId){errPage("Parametros casaId= e foraId= obrigatorios");return;}
+  gc("hLogoCasa").src=PARAMS.casaLogo;gc("hLogoFora").src=PARAMS.foraLogo;
+  gc("hNomeCasa").textContent=PARAMS.casaNome;
+  gc("hNomeFora").textContent=PARAMS.foraNome;
+  await carregarTudo();
+});
+
+// ── CARREGAR TUDO ─────────────────────────────────────────────────────────
+async function carregarTudo(){
+  // Situação do placar (para query no banco)
+  const pc=PARAMS.placarC,pf=PARAMS.placarF;
+  const situacao = pc>pf?"vencendo":pc<pf?"perdendo":"empatando";
+  // Fase do jogo
+  const min=PARAMS.minuto;
+  const fase = min?min<=25?"0_25":min<=45?"26_45":min<=65?"46_65":"66_mais":null;
+
+  log("Buscando historico dos dois times...");
+  const promises=[
+    fns.httpsCallable("buscarHistoricoTime",{timeout:60000})({teamId:PARAMS.casaId}).catch(e=>{log("Hist casa erro: "+e.message,true);return null;}),
+    fns.httpsCallable("buscarHistoricoTime",{timeout:60000})({teamId:PARAMS.foraId}).catch(e=>{log("Hist fora erro: "+e.message,true);return null;}),
+    fns.httpsCallable("buscarContextoGol",{timeout:20000})({timeId:PARAMS.casaId,situacaoPlacar:situacao,faseJogo:fase,localJogo:"casa"}).catch(()=>null),
+    fns.httpsCallable("buscarContextoGol",{timeout:20000})({timeId:PARAMS.foraId,situacaoPlacar:situacao,faseJogo:fase,localJogo:"fora"}).catch(()=>null),
+    fns.httpsCallable("buscarContextoGlobal",{timeout:20000})({situacaoPlacar:situacao,faseJogo:fase}).catch(()=>null),
+    fns.httpsCallable("buscarFingerprint",{timeout:15000})({timeCasaId:PARAMS.casaId,timeForaId:PARAMS.foraId}).catch(()=>null),
+    PARAMS.fixId ? fns.httpsCallable("buscarDadosJogo",{timeout:20000})({fixtureId:PARAMS.fixId}).catch(()=>null) : Promise.resolve(null),
+  ];
+
+  const [rHC,rHF,rCC,rCF,rCG,rFP,rJogo] = await Promise.all(promises);
+
+  HIST_CASA = rHC?.data?.jogos||[];
+  HIST_FORA = rHF?.data?.jogos||[];
+  CTX_CASA  = rCC?.data||null;
+  CTX_FORA  = rCF?.data||null;
+  CTX_GLOBAL= rCG?.data||null;
+  FP        = rFP?.data||null;
+  DADOS_JOGO= rJogo?.data||null;
+
+  log("OK todos os dados recebidos. Calculando...");
+
+  // DNA a partir dos dados do jogo ao vivo (se disponível) ou do histórico
+  if(DADOS_JOGO?.estatisticas?.length>=2){
+    const f=DADOS_JOGO.fixture,sts=DADOS_JOGO.estatisticas,evs=DADOS_JOGO.eventos||[];
+    const minAtual=f.status.elapsed||90;
+    DNA_CASA=calcularDNA(PARAMS.casaId,PARAMS.casaNome,sts,evs,minAtual,FP?.casa);
+    DNA_FORA=calcularDNA(PARAMS.foraId,PARAMS.foraNome,sts,evs,minAtual,FP?.fora);
+  } else {
+    DNA_CASA=calcularDNAHistorico(HIST_CASA,PARAMS.casaNome,"casa",FP?.casa);
+    DNA_FORA=calcularDNAHistorico(HIST_FORA,PARAMS.foraNome,"fora",FP?.fora);
+  }
+
+  gc("hSubCasa").textContent=DNA_CASA?DNA_CASA.emoji+" "+DNA_CASA.arquetipo:"DNA insuficiente";
+  gc("hSubFora").textContent=DNA_FORA?DNA_FORA.emoji+" "+DNA_FORA.arquetipo:"DNA insuficiente";
+
+  gc("pgLoad").style.display="none";
+  gc("pgMain").style.display="block";
+  renderTudo();
+}
+
+// ── DNA A PARTIR DO JOGO ATUAL ────────────────────────────────────────────
+function getStat(sts,teamId,key){
+  const t=sts.find(t=>t.time.id===teamId);
+  if(!t)return null;
+  const s=t.stats?.[key]??null;
+  if(s===null)return null;
+  return typeof s==="string"?parseFloat(s.replace("%",""))||0:s;
+}
+
+function calcularDNA(teamId,nome,sts,evs,minAtual,fp){
+  const g=k=>getStat(sts,teamId,k)||0;
+  const posse=g("Ball Possession")||50;
+  const chutes=g("Total Shots")||0;
+  const chutesAlvo=g("Shots on Goal")||0;
+  const passes=g("Total passes")||1;
+  const passesOk=g("Passes accurate")||0;
+  const precisao=passes>0?passesOk/passes*100:0;
+  const ap=g("Dangerous Attacks")||0;
+  const faltas=g("Fouls")||0;
+  const xg=parseFloat(g("expected_goals"))||0;
+  const defesas=g("Goalkeeper Saves")||0;
+  const gols=(evs||[]).filter(e=>e.tipo==="Goal"&&e.time?.id===teamId).length;
+
+  const dominancia=Math.min(100,posse);
+  const clinicismo=chutes>0?Math.min(100,Math.round(xg/chutes*100*2)):20;
+  const intensidade=Math.min(100,Math.round(ap/(minAtual||90)*150));
+  const organizacao=Math.min(100,Math.round(precisao));
+  const agressividade=Math.min(100,Math.round(faltas/(minAtual||90)*600));
+  const conversao=chutesAlvo>0?Math.min(100,Math.round(gols/chutesAlvo*100*2)):20;
+
+  return mkDNA(nome,fp,dominancia,intensidade,organizacao,clinicismo,agressividade,conversao,defesas);
+}
+
+function calcularDNAHistorico(jogos,nome,local,fp){
+  if(!jogos||jogos.length<3)return mkDNA(nome,fp,50,50,75,30,30,20,0);
+  const n=jogos.length,avg=k=>{const v=jogos.map(j=>parseFloat(j.stats?.time?.[k])||0);return v.reduce((a,b)=>a+b,0)/n;};
+  const posse=avg("Ball Possession")||50;
+  const chutes=avg("Total Shots")||0;
+  const chutesAlvo=avg("Shots on Goal")||0;
+  const precisao=avg("Passes %")||75;
+  const ap=avg("Dangerous Attacks")||0;
+  const faltas=avg("Fouls")||0;
+  const xg=parseFloat(avg("expected_goals"))||0;
+  const golsM=jogos.reduce((a,j)=>a+(j.gols||0),0)/n;
+
+  const dominancia=Math.min(100,posse);
+  const clinicismo=chutes>0?Math.min(100,Math.round(xg/chutes*100*2)):Math.min(100,golsM/2.5*100);
+  const intensidade=Math.min(100,Math.round(ap/90*150));
+  const organizacao=Math.min(100,Math.round(precisao));
+  const agressividade=Math.min(100,Math.round(faltas/90*600));
+  const conversao=chutesAlvo>0?Math.min(100,Math.round(golsM/chutesAlvo*100*2)):20;
+
+  return mkDNA(nome,fp,dominancia,intensidade,organizacao,clinicismo,agressividade,conversao,0);
+}
+
+function mkDNA(nome,fp,dominancia,intensidade,organizacao,clinicismo,agressividade,conversao,defesas){
+  let arquetipo,emoji,desc;
+  if(dominancia>=60&&organizacao>=75){arquetipo="Dominante";emoji="🌊";desc="Controla pelo passe e posse. Sufoca sem bola.";}
+  else if(intensidade>=65&&agressividade>=50){arquetipo="Alta Intensidade";emoji="⚡";desc="Pressao constante e ritmo fisico alto.";}
+  else if(conversao>=60&&clinicismo>=50){arquetipo="Clinico";emoji="🎯";desc="Poucos chutes, alta conversao. Nao perdoa.";}
+  else if(dominancia<45&&defesas>=3){arquetipo="Reativo";emoji="🏰";desc="Bloco baixo e contra-ataque.";}
+  else if(intensidade>=50&&dominancia>=45){arquetipo="Equilibrado";emoji="⚖️";desc="Adapta o estilo conforme o jogo.";}
+  else if(fp?.totalJogos>=5){
+    const tgf=fp.mediaGolsMarcados||0;
+    if(tgf>=2.0){arquetipo="Ofensivo (hist.)";emoji="🔥";desc="Media "+tgf.toFixed(1)+" gols/jogo em "+fp.totalJogos+" partidas no banco.";}
+    else if(fp.mediaGolsSofridos<=0.7){arquetipo="Defensivo (hist.)";emoji="🏰";desc="Sofre apenas "+fp.mediaGolsSofridos?.toFixed(1)+"/jogo historicamente.";}
+    else{arquetipo="Cauteloso (hist.)";emoji="⚖️";desc="Historicamente cauteloso: "+tgf.toFixed(1)+" gols/jogo.";}
+  } else {arquetipo="Indefinido";emoji="❓";desc="Dados insuficientes para classificar.";}
+
+  const fpInsight=fp?.totalJogos>=5?("Banco proprio: "+fp.totalJogos+" jogos, media "+( fp.mediaGolsMarcados||0).toFixed(1)+" gols/jogo"+(fp.janelaMaisPerigosa?" · janela quente "+fp.janelaMaisPerigosa+"'":"")):null;
+
+  return{
+    nome,arquetipo,emoji,desc,fpInsight,
+    attrs:[
+      {l:"Dominancia",   v:dominancia,   c:"var(--blu)"},
+      {l:"Intensidade",  v:intensidade,  c:"var(--red)"},
+      {l:"Organizacao",  v:organizacao,  c:"var(--acc)"},
+      {l:"Clinicismo",   v:clinicismo,   c:"var(--pur)"},
+      {l:"Agressividade",v:agressividade,c:"var(--yel)"},
+    ]
+  };
+}
+
+// ── CRUZAMENTO ────────────────────────────────────────────────────────────
+function calcularCruzamento(dnaC,dnaF){
+  const pares={
+    "Dominante_Reativo":      {prev:"Jogo de paciencia — dominante tera posse mas o Reativo aguarda contra-ataque. Historico: 65% termina com menos de 3 gols.",gols:"baixo"},
+    "Dominante_Dominante":    {prev:"Batalha de posse — truncado, poucas finalizacoes de qualidade.",gols:"baixo"},
+    "Alta Intensidade_Alta Intensidade":{prev:"Jogo aberto e fisico. Alta chance de gols em transicao.",gols:"alto"},
+    "Alta Intensidade_Reativo":{prev:"Intenso vs Organizado. Reativo pode marcar em contra-ataque.",gols:"medio"},
+    "Clinico_Reativo":        {prev:"Dois times que esperam a chance. Cada finalizacao conta.",gols:"baixo"},
+    "Clinico_Alta Intensidade":{prev:"Muitas chances criadas — Clinico converte com menos tentativas.",gols:"alto"},
+    "Dominante_Alta Intensidade":{prev:"Posse vs Pressao. Jogo intenso com transicoes rapidas.",gols:"medio"},
+    "Clinico_Dominante":      {prev:"Eficiencia vs Controle. O Clinico pode surpreender em contra-ataque.",gols:"medio"},
+    "Equilibrado_Equilibrado":{prev:"Jogo imprevisivel. Sem padrao fixo — tudo pode acontecer.",gols:"medio"},
+  };
+  const k1=dnaC.arquetipo+"_"+dnaF.arquetipo;
+  const k2=dnaF.arquetipo+"_"+dnaC.arquetipo;
+  return pares[k1]||pares[k2]||{prev:dnaC.arquetipo+" vs "+dnaF.arquetipo+" — combinacao incomum.",gols:"indefinido"};
+}
+
+// ── CALCULAR PROBABILIDADES ───────────────────────────────────────────────
+function calcularProbs(){
+  const situacao=PARAMS.placarC>PARAMS.placarF?"vencendo":PARAMS.placarC<PARAMS.placarF?"perdendo":"empatando";
+
+  // Fontes de dados para montagem
+  const fontes={};
+
+  // ── BASE 1: Yellup Score dos dois times ──────────────────────────────────
+  const ysC=calcYS(HIST_CASA),ysF=calcYS(HIST_FORA);
+  fontes.ysC=ysC;fontes.ysF=ysF;
+
+  // Probabilidade base por Yellup Score (normalizado)
+  const ysTotal=(ysC||5)+(ysF||5)||10;
+  let probCasaYS=Math.round((ysC||5)/ysTotal*100);
+  let probForaYS=Math.round((ysF||5)/ysTotal*100);
+  // Vantagem de jogar em casa (~+5%)
+  probCasaYS=Math.min(90,probCasaYS+5);
+  probForaYS=Math.max(10,probForaYS-3);
+
+  // ── BASE 2: Banco Contexto do Time (buscarContextoGol) ───────────────────
+  const pVitC=CTX_CASA?.resultados?.pctVitoria??null;
+  const pVitF=CTX_FORA?.resultados?.pctVitoria??null;
+  fontes.ctxCasa={vitoria:pVitC,amostras:CTX_CASA?.totalAmostras??0,conf:CTX_CASA?.confianca};
+  fontes.ctxFora={vitoria:pVitF,amostras:CTX_FORA?.totalAmostras??0,conf:CTX_FORA?.confianca};
+
+  // ── BASE 3: Banco Global (buscarContextoGlobal) ──────────────────────────
+  const pVitGlobal=CTX_GLOBAL?.resultados?.pctVitoria??null;
+  const pEmpGlobal=CTX_GLOBAL?.resultados?.pctEmpate??null;
+  fontes.global={vitoria:pVitGlobal,empate:pEmpGlobal,amostras:CTX_GLOBAL?.totalAmostras??0,conf:CTX_GLOBAL?.confianca};
+
+  // ── BLEND PONDERADO ───────────────────────────────────────────────────────
+  // Pesos dependem da confianca de cada fonte
+  const wYS = 0.25;  // Yellup Score sempre disponível, peso base
+  const nC = CTX_CASA?.totalAmostras||0, nF = CTX_FORA?.totalAmostras||0;
+  const wCtxC = nC>=30?0.35:nC>=10?0.20:0.05;
+  const wCtxF = nF>=30?0.35:nF>=10?0.20:0.05;
+  const nG = CTX_GLOBAL?.totalAmostras||0;
+  const wGlob = nG>=100?0.30:nG>=30?0.20:0.10;
+
+  // Normalizar pesos
+  const wTotal = wYS + wCtxC + wCtxF + wGlob||1;
+  const wYSn=wYS/wTotal, wCtxCn=wCtxC/wTotal, wCtxFn=wCtxF/wTotal, wGlobn=wGlob/wTotal;
+  fontes.pesos={ys:Math.round(wYSn*100),ctxC:Math.round(wCtxCn*100),ctxF:Math.round(wCtxFn*100),global:Math.round(wGlobn*100)};
+
+  // Probabilidade de vitória da casa (de cada fonte)
+  const probsV=[
+    {v:probCasaYS, w:wYSn},
+    {v:pVitC, w:wCtxCn},
+    {v:pVitF!==null?Math.max(5,100-pVitF-20):null, w:wCtxFn}, // inverso da vitória do visitante
+    {v:pVitGlobal, w:wGlobn},
+  ].filter(x=>x.v!==null);
+
+  let probCasa=50,wUsado=0;
+  probsV.forEach(({v,w})=>{probCasa+=v*w;wUsado+=w;});
+  if(wUsado>0)probCasa=Math.round(probCasa);
+  else probCasa=probCasaYS; // fallback puro no YS
+
+  // Empate: base no global ou ~25%
+  let probEmpate=pEmpGlobal||25;
+  // Ajuste: time com maior histórico de empates
+  const empC=HIST_CASA.filter(j=>j.resultado==="E").length/(HIST_CASA.length||1)*100;
+  const empF=HIST_FORA.filter(j=>j.resultado==="E").length/(HIST_FORA.length||1)*100;
+  probEmpate=Math.round((probEmpate+(empC+empF)/2)/2);
+
+  // Fora = 100 - casa - empate
+  let probFora=100-probCasa-probEmpate;
+  // Normalizar para somar 100%
+  const total=probCasa+probEmpate+probFora;
+  probCasa=Math.round(probCasa/total*100);
+  probEmpate=Math.round(probEmpate/total*100);
+  probFora=100-probCasa-probEmpate;
+
+  // Confiança geral
+  const confScore = (nC>=30?3:nC>=10?2:nC>=5?1:0) + (nF>=30?3:nF>=10?2:nF>=5?1:0) + (nG>=100?3:nG>=30?2:nG>=5?1:0);
+  const confGeral = confScore>=7?"alta":confScore>=4?"media":confScore>=2?"baixa":"insuficiente";
+
+  // Alerta de contexto especial
+  const contextoExtra=[];
+  const pc=PARAMS.placarC,pf=PARAMS.placarF;
+  if(pc!==pf)contextoExtra.push("Placar atual "+pc+"-"+pf+" ("+situacao+") aplicado na query do banco.");
+  if(PARAMS.minuto)contextoExtra.push("Minuto "+PARAMS.minuto+"' considera fase "+( PARAMS.minuto<=25?"0-25":PARAMS.minuto<=45?"26-45":PARAMS.minuto<=65?"46-65":"66+")+".");
+
+  return {probCasa,probEmpate,probFora,confGeral,fontes,contextoExtra,ysC,ysF,wYSn,wCtxCn,wCtxFn,wGlobn};
+}
+
+function calcYS(jogos){
+  if(!jogos?.length)return null;
+  const js=jogos.slice(0,20),n=js.length||1;
+  const avg=k=>{const v=js.map(j=>parseFloat(j.stats?.time?.[k])||0);return v.reduce((a,b)=>a+b,0)/n;};
+  const wins=js.filter(j=>j.resultado==="V").length,draws=js.filter(j=>j.resultado==="E").length;
+  const aproveit=(wins*3+draws)/(n*3);
+  const golsM=js.reduce((a,j)=>a+(j.gols||0),0)/n;
+  const golsS=js.reduce((a,j)=>a+(j.golsSofridos||0),0)/n;
+  const xg=avg("expected_goals")||golsM*0.8;
+  const shots=avg("Shots on Goal")||0;
+  const poss=avg("Ball Possession")||50;
+  const passAcc=avg("Passes %")||75;
+  let ys=0;
+  ys+=aproveit*3.5;ys+=Math.min(1,golsM/2.5)*1.5;ys+=Math.max(0,1-golsS/2.5)*1.5;
+  ys+=Math.min(1,xg/1.8)*1.5;ys+=Math.min(1,shots/7)*0.8;ys+=Math.min(1,(poss-30)/40)*0.4;ys+=Math.min(1,(passAcc-60)/35)*0.3;
+  return Math.min(10,Math.max(0,ys));
+}
+
+// ── RENDER TUDO ───────────────────────────────────────────────────────────
+function renderTudo(){
+  const r=calcularProbs();
+  const cruz=DNA_CASA&&DNA_FORA?calcularCruzamento(DNA_CASA,DNA_FORA):null;
+  renderProbs(r,cruz);
+  renderDNA();
+  renderJanelaGols();
+  renderFontes(r);
+}
+
+// ── RENDER PROBABILIDADES ─────────────────────────────────────────────────
+function renderProbs(r,cruz){
+  const{probCasa,probEmpate,probFora,confGeral,fontes,contextoExtra,ysC,ysF}=r;
+  const nC=PARAMS.casaNome,nF=PARAMS.foraNome;
+
+  // Conf badge
+  const confClass="conf-"+confGeral;
+  const confLabels={alta:"Confianca ALTA",media:"Confianca MEDIA",baixa:"Confianca BAIXA",insuficiente:"Dados insuficientes"};
+
+  let html="<div class='card'><div class='card-title'>Resultado Final</div>";
+  html+="<div class='conf-strip'><span class='conf-pill "+confClass+"'>"+confLabels[confGeral]+"</span>";
+  if(ysC)html+="<span class='conf-pill conf-alta'>YS "+nC+": "+(Math.round(ysC*10)/10).toFixed(1)+"</span>";
+  if(ysF)html+="<span class='conf-pill conf-alta'>YS "+nF+": "+(Math.round(ysF*10)/10).toFixed(1)+"</span>";
+  html+="</div>";
+  html+="<div class='prob-main'>";
+  html+=mkProbBox(probCasa,nC,"var(--acc)","casa");
+  html+=mkProbBox(probEmpate,"Empate","var(--t2)","empate");
+  html+=mkProbBox(probFora,nF,"var(--blu)","fora");
+  html+="</div>";
+  if(contextoExtra.length)html+="<div style='font-size:10px;color:var(--t3);font-family:\"DM Mono\",monospace;padding:8px;background:var(--bg3);border-radius:8px;line-height:1.6;'>"+contextoExtra.join("<br>")+"</div>";
+  html+="</div>";
+  gc("probMainEl").innerHTML=html;
+
+  // Cruzamento
+  if(cruz){
+    gc("cruzEl").innerHTML="<div class='cruz-box'><div class='cruz-title'>"+DNA_CASA.emoji+" "+DNA_CASA.arquetipo+" vs "+DNA_FORA.emoji+" "+DNA_FORA.arquetipo+"</div><div class='cruz-desc'>"+cruz.prev+"</div><span class='cruz-gols "+cruz.gols+"'>Volume de gols esperado: <strong>"+cruz.gols+"</strong></span></div>";
+    gc("cruzCard").style.display="block";
+  }
+
+  // Explicação
+  const itens=[];
+  if(ysC&&ysF){
+    const diff=ysC-ysF;
+    if(Math.abs(diff)>=1.5){
+      const melhor=diff>0?nC:nF,val=Math.round(Math.abs(diff)*10)/10;
+      itens.push({cls:"pos",ico:"⭐",txt:"<strong>"+melhor+"</strong> tem Yellup Score "+val+" pontos maior — desempenho recente significativamente superior."});
+    }else{
+      itens.push({cls:"neu",ico:"⭐",txt:"Yellup Score equilibrado: <strong>"+nC+" "+(Math.round(ysC*10)/10).toFixed(1)+"</strong> vs <strong>"+nF+" "+(Math.round(ysF*10)/10).toFixed(1)+"</strong>."});
+    }
+  }
+  if(fontes.ctxCasa.vitoria!==null){
+    const v=fontes.ctxCasa.vitoria;
+    itens.push({cls:v>=55?"pos":v<=35?"neg":"neu",ico:"📊",txt:"<strong>"+nC+"</strong> neste contexto: taxa de vitoria de <strong>"+v+"%</strong> ("+fontes.ctxCasa.amostras+" amostras no banco)."});
+  }
+  if(fontes.ctxFora.vitoria!==null){
+    const v=fontes.ctxFora.vitoria;
+    itens.push({cls:v>=55?"pos":v<=35?"neg":"neu",ico:"📊",txt:"<strong>"+nF+"</strong> neste contexto: taxa de vitoria de <strong>"+v+"%</strong> ("+fontes.ctxFora.amostras+" amostras)."});
+  }
+  if(fontes.global.vitoria!==null){
+    itens.push({cls:"neu",ico:"🌍",txt:"Media global neste contexto: vitoria do mandante em <strong>"+fontes.global.vitoria+"%</strong> dos jogos ("+fontes.global.amostras+" amostras)."});
+  }
+  // Taxa de casa vs fora nos historicos
+  const taxaVitCasa=HIST_CASA.filter(j=>j.casa&&j.resultado==="V").length/(HIST_CASA.filter(j=>j.casa).length||1)*100;
+  const taxaVitFora=HIST_FORA.filter(j=>!j.casa&&j.resultado==="V").length/(HIST_FORA.filter(j=>!j.casa).length||1)*100;
+  if(HIST_CASA.filter(j=>j.casa).length>=5)
+    itens.push({cls:taxaVitCasa>=55?"pos":"warn",ico:"🏠",txt:"<strong>"+nC+"</strong> joga em casa: "+Math.round(taxaVitCasa)+"% de vitorias como mandante nos ultimos "+HIST_CASA.length+" jogos."});
+  if(HIST_FORA.filter(j=>!j.casa).length>=5)
+    itens.push({cls:taxaVitFora>=45?"neu":"neg",ico:"✈️",txt:"<strong>"+nF+"</strong> fora de casa: "+Math.round(taxaVitFora)+"% de vitorias como visitante."});
+  // DNA clash
+  if(cruz&&cruz.gols==="alto")itens.push({cls:"warn",ico:"⚽",txt:"Cruzamento de arquétipos sugere <strong>volume alto de gols</strong>. Apostar em 'menos gols' e mais arriscado."});
+  if(cruz&&cruz.gols==="baixo")itens.push({cls:"neu",ico:"🔒",txt:"Cruzamento sugere jogo <strong>de baixo volume</strong>. Tendencia a poucos gols."});
+
+  gc("explainEl").innerHTML=itens.map(i=>"<div class='explain-item "+i.cls+"'><div class='explain-ico'>"+i.ico+"</div><div class='explain-text'>"+i.txt+"</div></div>").join("")||"<div class='empty'>Poucas fontes disponiveis</div>";
+}
+
+function mkProbBox(pct,nome,cor,tipo){
+  return "<div class='prob-box "+tipo+"'><div class='prob-num' style='color:"+cor+"'>"+pct+"%</div><div class='prob-lbl'>vitoria</div><div class='prob-nome'>"+nome+"</div><div class='prob-bar-wrap'><div class='prob-bar-fill' style='width:"+pct+"%;background:"+cor+"'></div></div></div>";
+}
+
+// ── RENDER DNA ────────────────────────────────────────────────────────────
+function renderDNA(){
+  if(!DNA_CASA&&!DNA_FORA){gc("dnaDuo").innerHTML="<div class='empty' style='grid-column:1/-1'>DNA insuficiente</div>";return;}
+  gc("dnaDuo").innerHTML=mkDNACard(DNA_CASA,"home","var(--acc)")+mkDNACard(DNA_FORA,"away","var(--blu)");
+  // FP
+  const fpC=FP?.casa,fpF=FP?.fora;
+  if(fpC||fpF){
+    gc("fpEl").innerHTML=
+      (fpC?"<div style='margin-bottom:10px;'><strong style='color:var(--acc)'>"+PARAMS.casaNome+"</strong> — "+fpC.totalJogos+" jogos no banco. Gols/jogo: "+( fpC.mediaGolsMarcados||0).toFixed(1)+" marcados, "+( fpC.mediaGolsSofridos||0).toFixed(1)+" sofridos."+(fpC.janelaMaisPerigosa?" Janela quente: "+fpC.janelaMaisPerigosa+"'.":"")+"</div>":"")+
+      (fpF?"<div><strong style='color:var(--blu)'>"+PARAMS.foraNome+"</strong> — "+fpF.totalJogos+" jogos no banco. Gols/jogo: "+( fpF.mediaGolsMarcados||0).toFixed(1)+" marcados, "+( fpF.mediaGolsSofridos||0).toFixed(1)+" sofridos."+(fpF.janelaMaisPerigosa?" Janela quente: "+fpF.janelaMaisPerigosa+"'.":"")+"</div>":"");
+    gc("fpCard").style.display="block";
+  }
+}
+
+function mkDNACard(dna,cls,cor){
+  if(!dna)return"<div class='dna-card "+cls+"'><div class='empty'>Sem dados</div></div>";
+  return "<div class='dna-card "+cls+"'>"+
+    "<div class='dna-arquetipo'>"+dna.emoji+"</div>"+
+    "<div class='dna-nome' style='color:"+cor+"'>"+dna.nome+"</div>"+
+    "<div class='dna-tipo' style='color:"+cor+"'>"+dna.arquetipo+"</div>"+
+    "<div class='dna-desc'>"+dna.desc+"</div>"+
+    dna.attrs.map(a=>"<div class='dna-attr-row'><div class='dna-attr-lbl'>"+a.l+"</div><div class='dna-attr-track'><div class='dna-attr-bar' style='width:"+a.v+"%;background:"+a.c+"'></div></div><div class='dna-attr-val'>"+a.v+"</div></div>").join("")+
+    (dna.fpInsight?"<div style='font-size:9px;color:var(--acc);font-family:\"DM Mono\",monospace;margin-top:6px;padding-top:6px;border-top:1px solid var(--brd);'>"+dna.fpInsight+"</div>":"")+
+  "</div>";
+}
+
+// ── JANELA DE GOLS ────────────────────────────────────────────────────────
+function renderJanelaGols(){
+  if(!HIST_CASA.length&&!HIST_FORA.length){gc("goJanelaDuo").innerHTML="<div class='empty' style='grid-column:1/-1'>Sem historico</div>";return;}
+  gc("goJanelaDuo").innerHTML=mkJanelaCard(HIST_CASA,PARAMS.casaNome,"var(--acc)")+mkJanelaCard(HIST_FORA,PARAMS.foraNome,"var(--blu)");
+
+  // Janela de risco cruzada
+  const faixas=["0-9","10-19","20-29","30-39","40-49","50-59","60-69","70-79","80+"];
+  const fMin=[0,10,20,30,40,50,60,70,80],fMax=[10,20,30,40,50,60,70,80,200];
+  const nC=HIST_CASA.length||1,nF=HIST_FORA.length||1;
+  const marcaC=faixas.map((_,i)=>HIST_CASA.reduce((a,j)=>(j.golsMinuto||[]).filter(m=>m>=fMin[i]&&m<fMax[i]).length+a,0)/nC);
+  const sofC=faixas.map((_,i)=>HIST_CASA.reduce((a,j)=>(j.golsSofridosMinuto||[]).filter(m=>m>=fMin[i]&&m<fMax[i]).length+a,0)/nC);
+  const marcaF=faixas.map((_,i)=>HIST_FORA.reduce((a,j)=>(j.golsMinuto||[]).filter(m=>m>=fMin[i]&&m<fMax[i]).length+a,0)/nF);
+  const sofF=faixas.map((_,i)=>HIST_FORA.reduce((a,j)=>(j.golsSofridosMinuto||[]).filter(m=>m>=fMin[i]&&m<fMax[i]).length+a,0)/nF);
+
+  // Faixas mais perigosas (marca casa + sofre fora ou vice-versa)
+  const risco=faixas.map((_,i)=>({
+    faixa:faixas[i],
+    riscoCasaGol: Math.round((marcaC[i]+sofF[i])*100)/100,   // casa marca + fora sofre
+    riscoForaGol: Math.round((marcaF[i]+sofC[i])*100)/100,   // fora marca + casa sofre
+  }));
+  const peakCasa=risco.reduce((b,d)=>d.riscoCasaGol>b.riscoCasaGol?d:b,risco[0]);
+  const peakFora=risco.reduce((b,d)=>d.riscoForaGol>b.riscoForaGol?d:b,risco[0]);
+
+  gc("goRiscoEl").innerHTML=
+    "Janela mais critica para gol da <strong style='color:var(--acc)'>"+PARAMS.casaNome+"</strong>: <strong>"+peakCasa.faixa+"'</strong> ("+PARAMS.casaNome+" marca + "+PARAMS.foraNome+" sofre nessa faixa, soma = "+peakCasa.riscoCasaGol.toFixed(2)+" gols/jogo).<br><br>"+
+    "Janela mais critica para gol de <strong style='color:var(--blu)'>"+PARAMS.foraNome+"</strong>: <strong>"+peakFora.faixa+"'</strong> ("+PARAMS.foraNome+" marca + "+PARAMS.casaNome+" sofre, soma = "+peakFora.riscoForaGol.toFixed(2)+" gols/jogo).";
+}
+
+function mkJanelaCard(jogos,nome,cor){
+  const faixas=["0-9","10-19","20-29","30-39","40-49","50-59","60-69","70-79","80+"];
+  const fMin=[0,10,20,30,40,50,60,70,80],fMax=[10,20,30,40,50,60,70,80,200];
+  const n=jogos.length||1;
+  const vals=faixas.map((_,i)=>Math.round(jogos.reduce((a,j)=>(j.golsMinuto||[]).filter(m=>m>=fMin[i]&&m<fMax[i]).length+a,0)/n*100)/100);
+  const max=Math.max(...vals,0.01);
+  return "<div class='gj-card'>"+
+    "<div class='gj-title' style='color:"+cor+"'>"+nome+"</div>"+
+    "<div class='gj-bars'>"+vals.map((v,i)=>{
+      const h=Math.round((v/max)*55)+5;
+      return "<div class='gj-bar-wrap'><div class='gj-bar' style='height:"+h+"px;background:"+cor+";opacity:"+(0.4+0.6*(v/max)).toFixed(2)+"'></div><div class='gj-lbl'>"+faixas[i].split("-")[0]+"</div></div>";
+    }).join("")+
+    "</div></div>";
+}
+
+// ── FONTES ────────────────────────────────────────────────────────────────
+function renderFontes(r){
+  const{fontes}=r;
+  const confClass=c=>"fonte-conf conf-pill conf-"+(c||"insuf");
+  gc("fontesEl").innerHTML=
+    mkFonteRow("Historico "+PARAMS.casaNome,HIST_CASA.length+" jogos",fontes.ctxCasa?.conf||"insuficiente")+
+    mkFonteRow("Historico "+PARAMS.foraNome,HIST_FORA.length+" jogos",fontes.ctxFora?.conf||"insuficiente")+
+    mkFonteRow("Contexto Banco ("+PARAMS.casaNome+")",(fontes.ctxCasa?.amostras||0)+" amostras · vitoria "+( fontes.ctxCasa?.vitoria??'--')+"%",fontes.ctxCasa?.conf||"insuficiente")+
+    mkFonteRow("Contexto Banco ("+PARAMS.foraNome+")",(fontes.ctxFora?.amostras||0)+" amostras · vitoria "+( fontes.ctxFora?.vitoria??'--')+"%",fontes.ctxFora?.conf||"insuficiente")+
+    mkFonteRow("Banco Global",(fontes.global?.amostras||0)+" amostras · mandante "+( fontes.global?.vitoria??'--')+"%",fontes.global?.conf||"insuficiente")+
+    mkFonteRow("Fingerprint (banco proprio)",FP?.casa||FP?.fora?"Sim":"Nao disponivel",FP?.casa||FP?.fora?"media":"insuficiente");
+
+  const p=fontes.pesos||{};
+  gc("pesosEl").innerHTML=
+    "<div style='font-size:11px;color:var(--t3);font-family:\"DM Mono\",monospace;margin-bottom:10px;'>Como cada fonte contribuiu no calculo das probabilidades:</div>"+
+    mkPesoRow("Yellup Score (desempenho recente)",p.ys||0)+
+    mkPesoRow("Contexto Banco — "+PARAMS.casaNome,p.ctxC||0)+
+    mkPesoRow("Contexto Banco — "+PARAMS.foraNome,p.ctxF||0)+
+    mkPesoRow("Banco Global (todos os times)",p.global||0);
+}
+
+function mkFonteRow(lbl,val,conf){
+  return "<div class='fonte-row'><div class='fonte-lbl'>"+lbl+"</div><div><span class='fonte-val'>"+val+"</span><span class='fonte-conf conf-pill conf-"+( conf||"insuf")+"'>"+conf+"</span></div></div>";
+}
+function mkPesoRow(lbl,pct){
+  return "<div style='margin-bottom:10px;'><div style='display:flex;justify-content:space-between;font-size:11px;color:var(--t2);margin-bottom:4px;'><span>"+lbl+"</span><strong style='font-family:\"DM Mono\",monospace'>"+pct+"%</strong></div><div style='height:4px;background:var(--brd);border-radius:2px;overflow:hidden;'><div style='height:100%;width:"+pct+"%;background:var(--acc);border-radius:2px;transition:width .6s;'></div></div></div>";
+}
+
+function switchTab(id,btn){
+  document.querySelectorAll(".tab").forEach(b=>b.classList.remove("on"));
+  document.querySelectorAll(".pane").forEach(p=>p.classList.remove("on"));
+  btn.classList.add("on");gc("pane-"+id).classList.add("on");
+}
+</script>
+</body>
+</html>
