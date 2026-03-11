@@ -915,6 +915,7 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
 /* ── HISTÓRICO ── */
 .hist-loading{display:flex;align-items:center;gap:10px;padding:16px;background:var(--c2);border:1px solid var(--bd1);border-radius:12px;margin-bottom:16px;font-size:12px;color:var(--t3);}
 .hist-panel{background:var(--c2);border:1px solid var(--bd1);border-radius:12px;padding:16px;margin-bottom:16px;}
+.ys-card{background:var(--bg3);border:1px solid var(--bd1);border-radius:10px;padding:14px;}
 .hist-panel h4{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
 .hist-badge{font-size:9px;padding:2px 8px;border-radius:8px;font-weight:700;}
 .hist-form{display:flex;gap:3px;flex-wrap:wrap;}
@@ -1519,7 +1520,7 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
 <!-- ══════════════════════════════════════════════════════════════ -->
 <!-- 🏦 PRÉ-ODDS MULTI-BOOKMAKER                                   -->
 <!-- ══════════════════════════════════════════════════════════════ -->
-<div id="sec-preodds" class="sec" style="display:none;">
+<div id="sec-preodds" class="sec">
 
   <!-- Cabeçalho -->
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
@@ -1599,6 +1600,9 @@ input.sts-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:
     <!-- Mini tabela do último snapshot -->
     <div id="snapLastData" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px;"></div>
   </div>
+
+  <!-- Yellup Score — nota 0-10 por time -->
+  <div id="yellupScoreEl" class="hist-panel" style="display:none;margin-bottom:16px;"></div>
 
   <!-- Distribuição de gols histórica -->
   <div class="hist-panel" id="histGolDist" style="display:none;">
@@ -2013,24 +2017,60 @@ function normalizarSnapshot(s){
   // Cloud Function grava formato aninhado: s.posse.casa
   // HTML usa formato flat: s.posseCasa
   // Esta função converte ambos os formatos para flat
-  if(s.posseCasa!==undefined) return s; // já está flat
+  if(s.posseCasa!==undefined && s.placarCasa!==undefined) return s; // já está completamente flat
+  // Para snaps locais que têm posseCasa mas não placarCasa (versão antiga)
+  if(s.posseCasa!==undefined){
+    // Completa campos faltando
+    if(s.placarCasa===undefined){
+      s.placarCasa = s.placar?.casa ?? null;
+      s.placarFora = s.placar?.fora ?? null;
+    }
+    return s;
+  }
+  // Preservar distinção null (não capturado) vs 0 (capturado e é zero)
+  const _ap = (nested, flat) => nested !== undefined ? nested : (flat !== undefined ? flat : null);
   return {
     minuto:              s.minuto||0,
-    posseCasa:           s.posse?.casa ?? s.posseCasa ?? null, // null = sem dado real
+    // ── Placar: novo campo obrigatório ──────────────────────────────
+    placarCasa:          s.placar?.casa ?? s.placarCasa ?? null,
+    placarFora:          s.placar?.fora ?? s.placarFora ?? null,
+    // ── Stats ────────────────────────────────────────────────────────
+    posseCasa:           s.posse?.casa ?? s.posseCasa ?? null,
     posseFora:           s.posse?.fora ?? s.posseFora ?? null,
-    ataquesPerigososCasa:s.ataquePerigoso?.casa ?? (s.ataquesPerigososCasa??0),
-    ataquesPerigososFora:s.ataquePerigoso?.fora ?? (s.ataquesPerigososFora??0),
-    chutesAlvoCasa:      s.chutesAlvo?.casa ?? (s.chutesAlvoCasa??0),
-    chutesAlvoFora:      s.chutesAlvo?.fora ?? (s.chutesAlvoFora??0),
-    escanteiosCasa:      s.escanteios?.casa ?? (s.escanteiosCasa??0),
-    escanteiosFora:      s.escanteios?.fora ?? (s.escanteiosFora??0),
-    xgCasa:              s.xg?.casa ?? (s.xgCasa??0),
-    xgFora:              s.xg?.fora ?? (s.xgFora??0),
-    ataquesCasa:         s.ataques?.casa ?? 0,
-    ataquesFora:         s.ataques?.fora ?? 0,
-    faltasCasa:          s.faltas?.casa ?? 0,
-    faltasFora:          s.faltas?.fora ?? 0,
+    // AP: preserva null (sem dado) vs 0 (dado capturado = zero)
+    ataquesPerigososCasa:_ap(s.ataquePerigoso?.casa, s.ataquesPerigososCasa),
+    ataquesPerigososFora:_ap(s.ataquePerigoso?.fora, s.ataquesPerigososFora),
+    chutesAlvoCasa:      s.chutesAlvo?.casa ?? s.chutesAlvoCasa ?? null,
+    chutesAlvoFora:      s.chutesAlvo?.fora ?? s.chutesAlvoFora ?? null,
+    escanteiosCasa:      s.escanteios?.casa ?? s.escanteiosCasa ?? null,
+    escanteiosFora:      s.escanteios?.fora ?? s.escanteiosFora ?? null,
+    xgCasa:              s.xg?.casa ?? s.xgCasa ?? null,
+    xgFora:              s.xg?.fora ?? s.xgFora ?? null,
+    ataquesCasa:         s.ataques?.casa ?? s.ataquesCasa ?? null,
+    ataquesFora:         s.ataques?.fora ?? s.ataquesFora ?? null,
+    faltasCasa:          s.faltas?.casa ?? s.faltasCasa ?? null,
+    faltasFora:          s.faltas?.fora ?? s.faltasFora ?? null,
   };
+}
+
+// Reconstrói placarCasa/placarFora de snaps que vieram do Firestore sem esses campos
+// Usa os eventos do jogo (sempre disponíveis via buscarDadosJogo)
+function reconstruirPlacarSnaps(snaps){
+  if(!DADOS?.eventos || !DADOS?.fixture) return;
+  const evs = DADOS.eventos;
+  const f   = DADOS.fixture;
+  snaps.forEach(s => {
+    if(s.placarCasa !== null && s.placarCasa !== undefined) return; // já tem
+    const gols = evs.filter(e => e.tipo==='Goal' && (e.minuto||0) <= (s.minuto||0));
+    let sc = [0,0];
+    gols.forEach(e => {
+      const own    = e.detalhe==='Own Goal';
+      const isCasa = e.time?.id === f.timeCasa?.id;
+      if(own){ isCasa ? sc[1]++ : sc[0]++; } else { isCasa ? sc[0]++ : sc[1]++; }
+    });
+    s.placarCasa = sc[0];
+    s.placarFora = sc[1];
+  });
 }
 
 async function carregarSnapshots(fixtureId){
@@ -2039,6 +2079,8 @@ async function carregarSnapshots(fixtureId){
     const r=await fn({fixtureId:parseInt(fixtureId)});
     if(r.data.sucesso){
       SNAPSHOTS=(r.data.snapshots||[]).map(normalizarSnapshot);
+      // Reconstruir placar dos eventos (snapshots antigos não têm esse campo)
+      reconstruirPlacarSnaps(SNAPSHOTS);
       // Se já temos odds ao vivo, preencher snaps que vieram sem odds do Firestore
       if(ODDS_LIVE) SNAPSHOTS.forEach(s => {
         if(!s.oddsCasa) {
@@ -3498,7 +3540,28 @@ function stsAtualizar(min) {
 
   // Encontrar snapshot mais próximo
   const snap = stsBuscarSnap(minNum);
-  if (!snap) return;
+
+  // Sem snapshot antes deste minuto (ex: arraste p/ min 7 e snapshots começam em 72')
+  if (!snap) {
+    const badge = gc('stsBadge');
+    if (badge) { badge.textContent = `⏪ ${minNum}'`; badge.className = 'sts-badge historico'; }
+    const title = gc('stsTitle');
+    if (title) title.textContent = `Stats no minuto ${minNum}'`;
+    const btnLive = gc('stsBtnLive');
+    if (btnLive) btnLive.style.display = 'block';
+    const firstSnap = SNAPSHOTS.length ? Math.min(...SNAPSHOTS.map(s=>s.minuto||0)) : '—';
+    gc('statsEl').innerHTML = `
+      <div class="empty">
+        <div class="ico">📭</div>
+        <p>Sem dados para o minuto ${minNum}'</p>
+        <p style="font-size:11px;color:var(--t3);margin-top:6px;">
+          O primeiro snapshot capturado é do <strong>${firstSnap}'</strong>.<br>
+          Para análise pré-gol, a página precisava estar aberta durante o jogo.
+        </p>
+      </div>`;
+    stsRenderMiniChart();
+    return;
+  }
 
   // Mostrar badge histórico
   const badge = gc('stsBadge');
@@ -3539,7 +3602,7 @@ function stsBuscarSnap(minAlvo) {
   if (!SNAPSHOTS.length) return null;
   // Pegar o snapshot mais próximo do minuto alvo (sem passar)
   const candidatos = SNAPSHOTS.filter(s => (s.minuto||0) <= minAlvo);
-  if (!candidatos.length) return SNAPSHOTS[0];
+  if (!candidatos.length) return null; // Sem dados antes deste minuto
   return candidatos.reduce((a,b) => (b.minuto||0) > (a.minuto||0) ? b : a);
 }
 
@@ -8645,8 +8708,109 @@ function renderHistorico(){
   gc('histFormaGrid').style.display='grid';
   renderHistStats(HIST_CASA, gc('histStatsCasa'), f.timeCasa.nome, 'var(--acc)');
   renderHistStats(HIST_FORA, gc('histStatsFora'), f.timeFora.nome, 'var(--blu)');
+  renderYellupScore();
   renderHistGolDist();
   renderCruzamento();
+}
+
+// ── Yellup Score: nota 0–10 por time, inspirado no Sofascore ───────────────
+function calcYellupScore(hist){
+  if(!hist?.jogos?.length) return null;
+  const jogos = hist.jogos.slice(0,20);
+  const total = jogos.length || 1;
+  const avgT = (key) => {
+    const vals = jogos.map(j=>{
+      const v = j.stats?.time?.[key];
+      return v!=null ? parseFloat(String(v).replace('%','')) : null;
+    }).filter(v=>v!=null);
+    return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+  };
+
+  // Componentes (cada um normalizado para 0–10)
+  const wins  = jogos.filter(j=>j.resultado==='V').length;
+  const draws = jogos.filter(j=>j.resultado==='E').length;
+  const aproveit = (wins*3+draws)/(total*3); // 0–1
+
+  const golsM = jogos.reduce((a,j)=>a+(j.gols||0),0)/total;
+  const golsS = jogos.reduce((a,j)=>a+(j.golsSofridos||0),0)/total;
+
+  const xg   = avgT('expected_goals') || (golsM * 0.8); // fallback da média de gols
+  const shots = avgT('Shots on Goal') || 0;
+  const poss  = avgT('Ball Possession') || 50;
+  const passAcc = avgT('Passes %') || 75;
+
+  // Fórmula ponderada (0–10)
+  let ys = 0;
+  ys += aproveit * 3.5;                         // Aproveitamento  → até 3.5
+  ys += Math.min(1, golsM / 2.5) * 1.5;        // Gols marcados   → até 1.5
+  ys += Math.max(0, 1 - golsS/2.5) * 1.5;      // Gols sofridos   → até 1.5
+  ys += Math.min(1, xg / 1.8) * 1.5;           // xG              → até 1.5
+  ys += Math.min(1, shots / 7) * 0.8;          // Chutes a gol    → até 0.8
+  ys += Math.min(1, (poss-30)/40) * 0.4;       // Posse           → até 0.4
+  ys += Math.min(1, (passAcc-60)/35) * 0.3;    // Precisão passes → até 0.3
+
+  return { ys: Math.min(10, Math.max(0, ys)), aproveit, golsM, golsS, xg, shots, poss, passAcc, total };
+}
+
+function renderYellupScore(){
+  const el = gc('yellupScoreEl');
+  if(!el||!DADOS) return;
+  const f = DADOS.fixture;
+  const ysC = calcYellupScore(HIST_CASA);
+  const ysF = calcYellupScore(HIST_FORA);
+  if(!ysC && !ysF){ el.style.display='none'; return; }
+  el.style.display='block';
+
+  const mkCard = (ys, nome, cor, logo) => {
+    if(!ys) return `<div class="ys-card"><div style="font-size:11px;color:var(--t3)">Sem dados</div></div>`;
+    const nota = ys.ys.toFixed(1);
+    const cor2 = ys.ys>=7?'var(--grn)':ys.ys>=5?'var(--acc)':'var(--red)';
+    const pct  = ys.ys/10*100;
+
+    // Anel SVG
+    const R=32, circ=2*Math.PI*R;
+    const dash=circ*pct/100;
+    const ringHtml=`<svg viewBox="0 0 80 80" width="80" height="80" style="display:block">
+      <circle cx="40" cy="40" r="${R}" fill="none" stroke="var(--bg3)" stroke-width="8"/>
+      <circle cx="40" cy="40" r="${R}" fill="none" stroke="${cor2}" stroke-width="8"
+        stroke-dasharray="${dash.toFixed(1)} ${circ.toFixed(1)}"
+        stroke-linecap="round" transform="rotate(-90 40 40)" style="transition:stroke-dasharray .6s"/>
+      <text x="40" y="44" text-anchor="middle" font-family="Syne,sans-serif" font-size="17" font-weight="800" fill="${cor2}">${nota}</text>
+    </svg>`;
+
+    const rows = [
+      {l:'Aproveitamento', v: Math.round(ys.aproveit*100)+'%', cor:'var(--t2)'},
+      {l:'Gols/jogo',      v: ys.golsM.toFixed(1), cor:'var(--acc)'},
+      {l:'Sofreu/jogo',    v: ys.golsS.toFixed(1), cor:'var(--red)'},
+      {l:'xG médio',       v: ys.xg.toFixed(2), cor:'var(--pur)'},
+      {l:'Chutes certos',  v: ys.shots.toFixed(1), cor:'var(--t2)'},
+      {l:'Posse média',    v: ys.poss.toFixed(0)+'%', cor:'var(--t2)'},
+    ];
+
+    return `<div class="ys-card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+        ${logo?`<img src="${logo}" style="width:28px;height:28px;object-fit:contain" onerror="this.style.display='none'">`:''}
+        <div>
+          <div style="font-weight:800;font-size:13px;font-family:'Syne',sans-serif;color:${cor}">${nome}</div>
+          <div style="font-size:9px;color:var(--t3);">Yellup Score · ${ys.total} jogos</div>
+        </div>
+        <div style="margin-left:auto">${ringHtml}</div>
+      </div>
+      ${rows.map(r=>`<div class="hist-stat-row"><span class="hist-stat-lbl">${r.l}</span><span class="hist-stat-val" style="color:${r.cor}">${r.v}</span></div>`).join('')}
+    </div>`;
+  };
+
+  el.innerHTML = `
+    <div style="font-family:'Syne',sans-serif;font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">
+      🏆 Yellup Score — Performance dos Times
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      ${mkCard(ysC, f.timeCasa.nome, 'var(--acc)', f.timeCasa.logo)}
+      ${mkCard(ysF, f.timeFora.nome, 'var(--blu)', f.timeFora.logo)}
+    </div>
+    <div style="font-size:9px;color:var(--t3);margin-top:6px;text-align:center;">
+      Nota calculada pelo Yellup · aproveitamento + gols + xG + eficiência ofensiva
+    </div>`;
 }
 
 function renderHistForma(hist, el, nome){
@@ -11122,11 +11286,18 @@ function snapParaPulso(s) {
   const min = s.minuto || 0;
   const oh  = ODDS_HISTORY[min] || {};
 
-  const apCRaw = s.ataquesPerigososCasa ?? null;
-  const apFRaw = s.ataquesPerigososFora ?? null;
-  const usandoFallbackAP = (!apCRaw && !apFRaw) && (s.ataquesCasa > 0 || s.ataquesFora > 0);
-  const apC = apCRaw || (usandoFallbackAP ? (s.ataquesCasa ?? null) : null);
-  const apF = apFRaw || (usandoFallbackAP ? (s.ataquesFora ?? null) : null);
+  // ── AP: preserva distinção entre 0 real vs dado ausente (null) ──
+  // Se ataquesPerigososCasa é null/undefined → dado não capturado → tenta fallback
+  // Se é 0 → foi capturado e realmente era 0 (ex: Libertadores sem DA na API)
+  const apCRaw = s.ataquesPerigososCasa; // null = não capturado, 0 = capturado = zero
+  const apFRaw = s.ataquesPerigososFora;
+  const apCIsKnown = apCRaw !== null && apCRaw !== undefined;
+  const apFIsKnown = apFRaw !== null && apFRaw !== undefined;
+  // Só usa fallback se DA completamente ausente E ataques totais disponíveis
+  const usandoFallbackAP = !apCIsKnown && !apFIsKnown &&
+    ((s.ataquesCasa !== null && s.ataquesCasa > 0) || (s.ataquesFora !== null && s.ataquesFora > 0));
+  const apC = apCIsKnown ? apCRaw : (usandoFallbackAP ? (s.ataquesCasa ?? null) : null);
+  const apF = apFIsKnown ? apFRaw : (usandoFallbackAP ? (s.ataquesFora ?? null) : null);
 
   // ── YAI (Yellup Attack Index) ──────────────────────────────────
   // Substituto calculado para Dangerous Attacks, usando stats disponíveis
@@ -11246,6 +11417,8 @@ function pulsoRender() {
     el.innerHTML = '<div class="pulso-loading">Aguardando dados — chegam a cada minuto ao vivo.</div>';
     return;
   }
+  // Garantir placar reconstruído (snaps do Firestore podem não ter)
+  reconstruirPlacarSnaps(SNAPSHOTS);
   const snaps = SNAPSHOTS.map(snapParaPulso).sort((a,b)=>a.minuto-b.minuto);
   pulsoInjetarMin0(snaps);
   const vars = pulsoCalcVar(snaps);
