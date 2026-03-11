@@ -356,7 +356,6 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
     <button class="tab"    onclick="switchTab('eventos',this)">&#9889; Eventos</button>
     <button class="tab"    onclick="switchTab('sinais',this)" id="tabSinais">&#128308; Sinais</button>
     <button class="tab"    onclick="switchTab('termo',this)">&#127777;&#65039; Termo</button>
-    <button class="tab"    onclick="switchTab('odds',this)" id="tabOdds">&#127922; Odds</button>
     <button class="tab"    onclick="switchTab('insights',this)">&#129504; An&#225;lise</button>
     <button class="tab"    onclick="abrirAlgoritmo()" style="background:linear-gradient(135deg,rgba(155,109,255,.2),rgba(75,142,255,.15));border-color:rgba(155,109,255,.4);color:var(--pur);">&#127919; Algoritmo</button>
   </div>
@@ -455,28 +454,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 
   </div>
 
-  <!-- ODDS -->
-  <div class="pane" id="pane-odds">
 
-    <!-- Odds ao vivo -->
-    <div class="card" id="oddsLiveCard">
-      <div class="card-title">&#127922; Odds ao Vivo <span id="oddsFonte" style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;margin-left:6px;"></span></div>
-      <div id="oddsLiveEl"><div class="empty">Carregando odds...</div></div>
-    </div>
-
-    <!-- Speed of Odds -->
-    <div class="card" id="speedCard" style="display:none">
-      <div class="card-title">&#9889; Speed of Odds &#8212; Movimento do Mercado</div>
-      <div id="speedEl"></div>
-    </div>
-
-    <!-- Fingerprint pré-jogo -->
-    <div class="card" id="fpOddsCard" style="display:none">
-      <div class="card-title">&#129516; Fingerprint Pré-Jogo</div>
-      <div id="fpOddsEl"></div>
-    </div>
-
-  </div>
 
   <!-- TERMÔMETRO + CENÁRIOS -->
   <div class="pane" id="pane-termo">
@@ -527,6 +505,7 @@ firebase.initializeApp({
 const auth = firebase.auth(), fns = firebase.functions();
 
 let DADOS = null, FIX_ID = null, DOC_ID = null;
+let HIST_MEDIAS = { casa: null, fora: null }; // médias históricas por 90min
 let refreshTimer = null, sinaisTimer = null;
 const REFRESH_SEC = 15;
 
@@ -579,10 +558,10 @@ async function iniciar() {
   gc("pgLoad").style.display = "none";
   gc("pgMain").style.display = "block";
   renderTudo();
+  carregarMediasHistoricas(); // sempre, ao vivo ou não
   if (isAoVivo()) {
     iniciarAutoRefresh();
     iniciarSinaisLoop();
-    iniciarOddsLoop();
     carregarEstatisticasCenarios();
     carregarTaxaSequencia();
   } else {
@@ -591,6 +570,38 @@ async function iniciar() {
 }
 
 // ── BUSCAR DADOS ──────────────────────────────────────────────────────────
+// ── CARREGAR MÉDIAS HISTÓRICAS ────────────────────────────────────────────
+async function carregarMediasHistoricas() {
+  if (!DADOS) return;
+  const f = DADOS.fixture;
+  const fn = fns.httpsCallable('buscarHistoricoTime', { timeout: 60000 });
+  try {
+    const [rC, rF] = await Promise.all([
+      fn({ teamId: f.timeCasa.id }).catch(() => null),
+      fn({ teamId: f.timeFora.id }).catch(() => null),
+    ]);
+    const calcMedias = (jogos) => {
+      if (!jogos?.length) return null;
+      const n = jogos.length;
+      const avg = k => jogos.reduce((a, j) => a + (parseFloat(j.stats?.time?.[k]) || 0), 0) / n;
+      return {
+        corners:  avg('Corner Kicks'),
+        shots:    avg('Total Shots'),
+        shotsOn:  avg('Shots on Goal'),
+        passes:   avg('Total passes'),
+        precisao: avg('Passes %'),
+        faltas:   avg('Fouls'),
+        xg:       avg('expected_goals'),
+        n,
+      };
+    };
+    HIST_MEDIAS.casa = calcMedias(rC?.data?.jogos);
+    HIST_MEDIAS.fora = calcMedias(rF?.data?.jogos);
+    // Re-renderizar ritmo com médias agora disponíveis
+    if (DADOS.estatisticas?.length >= 2) renderStats();
+  } catch(e) { console.warn('Hist médias:', e); }
+}
+
 async function buscarDados() {
   try {
     const fn = fns.httpsCallable("buscarDadosJogo", { timeout: 30000 });
@@ -624,6 +635,7 @@ function pushStatsHist() {
       fouls:    parseInt(home["Fouls"]) || 0,
       xg:       parseFloat(home["expected_goals"]) || 0,
       posse:    parseInt(home["Ball Possession"]) || 50,
+      passes:   parseInt(home["Total passes"]) || 0,
     },
     away: {
       corners:  parseInt(away["Corner Kicks"]) || 0,
@@ -633,6 +645,7 @@ function pushStatsHist() {
       fouls:    parseInt(away["Fouls"]) || 0,
       xg:       parseFloat(away["expected_goals"]) || 0,
       posse:    parseInt(away["Ball Possession"]) || 50,
+      passes:   parseInt(away["Total passes"]) || 0,
     }
   };
   STATS_HIST.push(snap);
@@ -882,28 +895,64 @@ function renderSinaisLocais() {
     return { lbl:"normal", cls:"normal" };
   };
 
-  const mkRitmo = (label, ico, keyH, keyA, expKey) => {
+  // ── mkRitmo: atual/min vs média histórica do time (90min) ────────────────
+  const mkRitmo = (label, ico, keyH, keyA, expKey, histKey) => {
     const exp = exp_per_min[expKey];
     const rh = rH[keyH], ra = rA[keyA];
-    const lbH = ratioLabel(rh, exp), lbA = ratioLabel(ra, exp);
-    const maxV = Math.max(rh, ra, exp * 1.5, 0.01);
+    const min = DADOS.fixture.status.elapsed || 1;
+
+    // Médias históricas do time em ritmo/min (total do jogo ÷ 90)
+    const histH = histKey && HIST_MEDIAS.casa ? (HIST_MEDIAS.casa[histKey] || 0) / 90 : null;
+    const histA = histKey && HIST_MEDIAS.fora ? (HIST_MEDIAS.fora[histKey] || 0) / 90 : null;
+
+    // Comparação: ritmo atual vs histórico do time (se disponível) ou benchmark
+    const refH = histH !== null ? histH : exp;
+    const refA = histA !== null ? histA : exp;
+    const lbH = ratioLabel(rh, refH), lbA = ratioLabel(ra, refA);
+
+    // Projeção para 90min com ritmo atual
+    const projH = (rh * 90).toFixed(1), projA = (ra * 90).toFixed(1);
+
+    const maxV = Math.max(rh, ra, refH * 1.5, refA * 1.5, 0.01);
+
+    // Linha de referência histórica (posição % na barra)
+    const refLineH = histH ? Math.min(histH / maxV * 100, 100) : null;
+    const refLineA = histA ? Math.min(histA / maxV * 100, 100) : null;
+
+    const mkBar = (val, ref, cor) => {
+      const pct = Math.min(val / maxV * 100, 100);
+      const refPct = ref !== null ? Math.min(ref / maxV * 100, 100) : null;
+      return "<div class='ritmo-bar' style='position:relative'>" +
+        "<div class='ritmo-bar-fill' style='width:" + pct + "%;background:" + cor + "'></div>" +
+        (refPct !== null ? "<div style='position:absolute;top:0;left:" + refPct + "%;width:2px;height:100%;background:rgba(255,255,255,.35);border-radius:1px' title='média histórica'></div>" : "") +
+      "</div>";
+    };
+
+    const histLabelH = histH !== null
+      ? "<span style='color:rgba(255,255,255,.3)'>hist: " + (histH * 90).toFixed(1) + "/90' · " + HIST_MEDIAS.casa.n + "j</span>"
+      : "<span style='color:rgba(255,255,255,.2)'>sem hist</span>";
+    const histLabelA = histA !== null
+      ? "<span style='color:rgba(255,255,255,.3)'>hist: " + (histA * 90).toFixed(1) + "/90' · " + HIST_MEDIAS.fora.n + "j</span>"
+      : "<span style='color:rgba(255,255,255,.2)'>sem hist</span>";
+
     return "<div class='ritmo-card'>" +
       "<div class='ritmo-header'><span class='ritmo-label'>" + label + "</span><span class='ritmo-ico'>" + ico + "</span></div>" +
       "<div class='ritmo-row'><span class='ritmo-nome' style='color:var(--acc)'>" + nC + "</span>" +
         "<span class='ritmo-val' style='color:var(--acc)'>" + rh + "/min<span class='ritmo-badge " + lbH.cls + "'>" + lbH.lbl + "</span></span></div>" +
-      "<div class='ritmo-bar'><div class='ritmo-bar-fill' style='width:" + Math.min(rh/maxV*100,100) + "%;background:var(--acc)'></div></div>" +
+      mkBar(rh, histH, 'var(--acc)') +
+      "<div class='ritmo-expected'>" + histLabelH + " &nbsp;·&nbsp; proj: <strong>" + projH + "</strong>/90'</div>" +
       "<div class='ritmo-row' style='margin-top:8px'><span class='ritmo-nome' style='color:var(--blu)'>" + nF + "</span>" +
         "<span class='ritmo-val' style='color:var(--blu)'>" + ra + "/min<span class='ritmo-badge " + lbA.cls + "'>" + lbA.lbl + "</span></span></div>" +
-      "<div class='ritmo-bar'><div class='ritmo-bar-fill' style='width:" + Math.min(ra/maxV*100,100) + "%;background:var(--blu)'></div></div>" +
-      "<div class='ritmo-expected'>media esperada: " + exp.toFixed(2) + "/min (" + (exp*90).toFixed(0) + "/90min)</div>" +
+      mkBar(ra, histA, 'var(--blu)') +
+      "<div class='ritmo-expected'>" + histLabelA + " &nbsp;·&nbsp; proj: <strong>" + projA + "</strong>/90'</div>" +
     "</div>";
   };
 
   gc("ritmoGrid").innerHTML =
-    mkRitmo("Escanteios", "🚩", "corners", "corners", "corners") +
-    mkRitmo("Ataques Per.", "🔥", "ap", "ap", "ap") +
-    mkRitmo("Chutes Totais", "👟", "shots", "shots", "shots") +
-    mkRitmo("Chutes no Alvo", "🎯", "shotsOn", "shotsOn", "shotsOn");
+    mkRitmo("Escanteios",     "🚩", "corners", "corners", "corners", "corners") +
+    mkRitmo("Chutes Totais",  "👟", "shots",   "shots",   "shots",   "shots")   +
+    mkRitmo("Chutes no Alvo", "🎯", "shotsOn", "shotsOn", "shotsOn", "shotsOn") +
+    mkRitmo("Passes",         "🔵", "passes",  "passes",  null,      "passes");
 
   // ── Momentum ─────────────────────────────────────────────────────────────
   // Calcula momentum baseado em AP + xG + escanteios com peso
@@ -1740,7 +1789,6 @@ function switchTab(id, btn) {
   document.querySelectorAll(".tab").forEach(b => b.classList.remove("on"));
   document.querySelectorAll(".pane").forEach(p => p.classList.remove("on"));
   btn.classList.add("on"); gc("pane-" + id).classList.add("on");
-  if (id === 'odds' && !ODDS_ATUAL) { buscarOdds(); buscarFingerprintOdds(); }
   if (id === 'campo') { renderCampo(); }
 }
 
