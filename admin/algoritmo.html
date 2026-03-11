@@ -174,6 +174,14 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 
   <!-- DNA -->
   <div class="pane" id="pane-dna">
+    <!-- Radar comparativo -->
+    <div class="card" id="radarCard" style="display:none">
+      <div class="card-title">&#128311; Radar DNA &#8212; Comparativo</div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+        <svg id="radarSvg" viewBox="0 0 320 300" style="width:100%;max-width:320px;"></svg>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;" id="radarLegend"></div>
+      </div>
+    </div>
     <div class="dna-duo" id="dnaDuo">
       <div class="empty" style="grid-column:1/-1">Calculando DNA...</div>
     </div>
@@ -384,12 +392,14 @@ function mkDNA(nome,fp,dominancia,intensidade,organizacao,clinicismo,agressivida
 
   return{
     nome,arquetipo,emoji,desc,fpInsight,
+    conversao,
     attrs:[
       {l:"Dominancia",   v:dominancia,   c:"var(--blu)"},
       {l:"Intensidade",  v:intensidade,  c:"var(--red)"},
       {l:"Organizacao",  v:organizacao,  c:"var(--acc)"},
       {l:"Clinicismo",   v:clinicismo,   c:"var(--pur)"},
       {l:"Agressividade",v:agressividade,c:"var(--yel)"},
+      {l:"Conversao",    v:conversao,    c:"var(--t2)"},
     ]
   };
 }
@@ -598,15 +608,51 @@ function mkProbBox(pct,nome,cor,tipo){
 function renderDNA(){
   if(!DNA_CASA&&!DNA_FORA){gc("dnaDuo").innerHTML="<div class='empty' style='grid-column:1/-1'>DNA insuficiente</div>";return;}
   gc("dnaDuo").innerHTML=mkDNACard(DNA_CASA,"home","var(--acc)")+mkDNACard(DNA_FORA,"away","var(--blu)");
-  // FP
+  if(DNA_CASA||DNA_FORA) renderRadar(DNA_CASA,DNA_FORA);
   const fpC=FP?.casa,fpF=FP?.fora;
   if(fpC||fpF){
     gc("fpEl").innerHTML=
-      (fpC?"<div style='margin-bottom:10px;'><strong style='color:var(--acc)'>"+PARAMS.casaNome+"</strong> — "+fpC.totalJogos+" jogos no banco. Gols/jogo: "+( fpC.mediaGolsMarcados||0).toFixed(1)+" marcados, "+( fpC.mediaGolsSofridos||0).toFixed(1)+" sofridos."+(fpC.janelaMaisPerigosa?" Janela quente: "+fpC.janelaMaisPerigosa+"'.":"")+"</div>":"")+
-      (fpF?"<div><strong style='color:var(--blu)'>"+PARAMS.foraNome+"</strong> — "+fpF.totalJogos+" jogos no banco. Gols/jogo: "+( fpF.mediaGolsMarcados||0).toFixed(1)+" marcados, "+( fpF.mediaGolsSofridos||0).toFixed(1)+" sofridos."+(fpF.janelaMaisPerigosa?" Janela quente: "+fpF.janelaMaisPerigosa+"'.":"")+"</div>":"");
+      (fpC?"<div style='margin-bottom:10px;'><strong style='color:var(--acc)'>"+PARAMS.casaNome+"</strong> — "+fpC.totalJogos+" jogos no banco. Gols/jogo: "+(fpC.mediaGolsMarcados||0).toFixed(1)+" marcados, "+(fpC.mediaGolsSofridos||0).toFixed(1)+" sofridos."+(fpC.janelaMaisPerigosa?" Janela quente: "+fpC.janelaMaisPerigosa+"'.":"")+"</div>":"")+
+      (fpF?"<div><strong style='color:var(--blu)'>"+PARAMS.foraNome+"</strong> — "+fpF.totalJogos+" jogos no banco. Gols/jogo: "+(fpF.mediaGolsMarcados||0).toFixed(1)+" marcados, "+(fpF.mediaGolsSofridos||0).toFixed(1)+" sofridos."+(fpF.janelaMaisPerigosa?" Janela quente: "+fpF.janelaMaisPerigosa+"'.":"")+"</div>":"");
     gc("fpCard").style.display="block";
   }
 }
+
+// ── RADAR DNA ─────────────────────────────────────────────────────────────
+function renderRadar(dnaC, dnaF) {
+  const card = gc('radarCard');
+  if (!dnaC && !dnaF) { card.style.display='none'; return; }
+  card.style.display = 'block';
+  const EIXOS = ['Dominancia','Intensidade','Organizacao','Clinicismo','Agressividade','Conversao'];
+  const EMOJIS = ['\u{1F30A}','\u{26A1}','\u{1F5C2}\uFE0F','\u{1F3AF}','\u{1F4A5}','\u26BD'];
+  const getVals = (dna) => dna ? dna.attrs.slice(0,6).map(a=>a.v/100) : [0,0,0,0,0,0];
+  const vC = getVals(dnaC), vF = getVals(dnaF);
+  const CX=160, CY=150, R=100, N=6;
+  const ang = i => (Math.PI*2*i/N) - Math.PI/2;
+  const ptStr = (val,i) => { const a=ang(i); return `${(CX+val*R*Math.cos(a)).toFixed(1)},${(CY+val*R*Math.sin(a)).toFixed(1)}`; };
+  const pt = (val,i) => { const a=ang(i); return {x:CX+val*R*Math.cos(a), y:CY+val*R*Math.sin(a)}; };
+  let svg = '';
+  [0.25,0.5,0.75,1.0].forEach(lvl=>{
+    const pts=EIXOS.map((_,i)=>ptStr(lvl,i)).join(' ');
+    const op=lvl===1.0?'0.22':'0.1';
+    svg+=`<polygon points="${pts}" fill="none" stroke="rgba(255,255,255,${op})" stroke-width="${lvl===1.0?1.2:0.6}"/>`;
+    if(lvl<1.0){const lp=pt(lvl,0);svg+=`<text x="${(lp.x+4).toFixed(1)}" y="${(lp.y).toFixed(1)}" font-size="7" font-family="DM Mono,monospace" fill="rgba(255,255,255,0.25)">${Math.round(lvl*100)}</text>`;}
+  });
+  EIXOS.forEach((_,i)=>{ const p=pt(1,i); svg+=`<line x1="${CX}" y1="${CY}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}" stroke="rgba(255,255,255,0.1)" stroke-width="0.8"/>`; });
+  EIXOS.forEach((label,i)=>{
+    const a=ang(i), dist=R+20;
+    const lx=CX+dist*Math.cos(a), ly=CY+dist*Math.sin(a);
+    const anchor=Math.cos(a)>0.15?'start':Math.cos(a)<-0.15?'end':'middle';
+    svg+=`<text x="${lx.toFixed(1)}" y="${(ly+1).toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="9" font-family="DM Mono,monospace" fill="rgba(255,255,255,0.5)">${EMOJIS[i]} ${label}</text>`;
+  });
+  if(dnaF){ const ptsF=vF.map((v,i)=>ptStr(v,i)).join(' '); svg+=`<polygon points="${ptsF}" fill="rgba(75,142,255,0.15)" stroke="rgba(75,142,255,0.85)" stroke-width="2" stroke-linejoin="round"/>`; vF.forEach((v,i)=>{const p=pt(v,i);svg+=`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#4b8eff" stroke="#0a0a0f" stroke-width="1.2"><title>${EIXOS[i]}: ${Math.round(v*100)}</title></circle>`;});}
+  if(dnaC){ const ptsC=vC.map((v,i)=>ptStr(v,i)).join(' '); svg+=`<polygon points="${ptsC}" fill="rgba(0,229,160,0.12)" stroke="rgba(0,229,160,0.9)" stroke-width="2" stroke-linejoin="round"/>`; vC.forEach((v,i)=>{const p=pt(v,i);svg+=`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#00E5A0" stroke="#0a0a0f" stroke-width="1.2"><title>${EIXOS[i]}: ${Math.round(v*100)}</title></circle>`;});}
+  gc('radarSvg').innerHTML=svg;
+  gc('radarLegend').innerHTML=
+    (dnaC?`<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.7)"><span style="width:14px;height:3px;background:#00E5A0;border-radius:2px;display:inline-block;"></span>${dnaC.emoji} ${dnaC.nome} <span style="color:rgba(255,255,255,.35)">(${dnaC.arquetipo})</span></div>`:'')+
+    (dnaF?`<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.7)"><span style="width:14px;height:3px;background:#4b8eff;border-radius:2px;display:inline-block;"></span>${dnaF.emoji} ${dnaF.nome} <span style="color:rgba(255,255,255,.35)">(${dnaF.arquetipo})</span></div>`:'');
+}
+
 
 function mkDNACard(dna,cls,cor){
   if(!dna)return"<div class='dna-card "+cls+"'><div class='empty'>Sem dados</div></div>";
