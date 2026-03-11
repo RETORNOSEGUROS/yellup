@@ -1795,66 +1795,84 @@ function mkField(esc, idx) {
 
   // ── stats de jogadores ────────────────────────────────────────────────
   const jogStats = DADOS.jogadoresStats?.find(t => t.time.id === esc.time.id)?.jogadores || [];
-  const statsMap = {}; // id → stats object + foto
+  const statsMap = {};
   jogStats.forEach(p => { statsMap[p.id] = p; });
 
-  // ── gols marcados ─────────────────────────────────────────────────────
+  // ── gols marcados (por id e por nome, conta quantos) ─────────────────
   const golsDoTime = evs.filter(e => e.tipo === 'Goal' && e.time.id === esc.time.id && e.detalhe !== 'Own Goal');
-  const golsIds = new Set(golsDoTime.map(g => g.jogador?.id).filter(Boolean));
-  const golsNomes = new Set(golsDoTime.map(g => g.jogador?.nome).filter(Boolean));
-  // contar quantos gols por jogador
   const golsCount = {};
   golsDoTime.forEach(g => {
     const k = g.jogador?.id || g.jogador?.nome;
     if (k) golsCount[k] = (golsCount[k] || 0) + 1;
   });
 
-  // ── substituições ─────────────────────────────────────────────────────
-  // API: tipo='subst', jogador = quem ENTROU, assistente = quem SAIU
+  // ── substituições: mapa saiu_id → {entrou, minuto} ───────────────────
   const subs = evs.filter(e => e.tipo === 'subst' && e.time.id === esc.time.id)
                   .sort((a, b) => (a.minuto || 0) - (b.minuto || 0));
+  // saiu_id → {entrou: {id,nome}, minuto}
+  const subsMap = {};
+  subs.forEach(s => {
+    const saiuId = s.assistente?.id;
+    const saiuNome = s.assistente?.nome;
+    const k = saiuId || saiuNome;
+    if (k) subsMap[k] = { entrou: s.jogador, minuto: s.minuto };
+  });
+  // entrou_id → {saiu, minuto} (para lookup reverso)
+  const entrouMap = {};
+  subs.forEach(s => {
+    const entrouId = s.jogador?.id;
+    if (entrouId) entrouMap[entrouId] = { saiu: s.assistente, minuto: s.minuto };
+  });
 
-  const subsOutIds   = new Set(subs.map(s => s.assistente?.id).filter(Boolean));
-  const subsOutNomes = new Set(subs.map(s => s.assistente?.nome).filter(Boolean));
-  const subsInIds    = new Set(subs.map(s => s.jogador?.id).filter(Boolean));
-
-  // ── tempo jogado de cada jogador ──────────────────────────────────────
-  // Titulares: saíram no minuto da sub, ou jogaram até o fim
-  // Reservas: entraram no minuto da sub
-  function tempoJogado(pId, pNome, isTitular) {
-    if (!minAtual) return null;
-    if (isTitular) {
-      const subEvt = subs.find(s => s.assistente?.id === pId || s.assistente?.nome === pNome);
-      const saiu = subEvt ? (subEvt.minuto || 0) : minAtual;
-      return saiu;
-    } else {
-      // reserva que entrou
-      const subEvt = subs.find(s => s.jogador?.id === pId || s.jogador?.nome === pNome);
-      if (!subEvt) return null;
-      return minAtual - (subEvt.minuto || 0);
-    }
+  // ── tempo jogado ──────────────────────────────────────────────────────
+  function tempoTitular(pId, pNome) {
+    // titular: jogou desde o 0' até sair ou até minAtual
+    const sub = subsMap[pId] || subsMap[pNome];
+    return sub ? (sub.minuto || 0) : (minAtual || 0);
+  }
+  function tempoReserva(pId, pNome) {
+    // reserva: jogou desde que entrou até minAtual
+    const sub = entrouMap[pId];
+    if (!sub) return null;
+    return Math.max(0, (minAtual || 0) - (sub.minuto || 0));
   }
 
-  // ── campo SVG ─────────────────────────────────────────────────────────
+  // ── montar lista de 11 para o campo ──────────────────────────────────
+  // Começa com os titulares. Se alguém foi substituído, TROCA pelo que entrou,
+  // mantendo a mesma posição/grade no campo.
   const titulares = esc.titulares || [];
 
-  // Agrupar por linha (grid)
   const linhas = {};
   titulares.forEach(p => {
     const l = (p.grade || '1:1').split(':')[0];
     if (!linhas[l]) linhas[l] = [];
-    linhas[l].push(p);
+    const subEvt = subsMap[p.id] || subsMap[p.nome];
+    if (subEvt) {
+      // Substituído: colocar o que entrou na mesma posição
+      const entrouInfo = subEvt.entrou; // {id, nome}
+      // Tentar encontrar nos reservas para pegar numero/posicao
+      const entrouReserva = (esc.reservas || []).find(r => r.id === entrouInfo?.id || r.nome === entrouInfo?.nome);
+      linhas[l].push({
+        id:       entrouReserva?.id || entrouInfo?.id,
+        nome:     entrouReserva?.nome || entrouInfo?.nome,
+        numero:   entrouReserva?.numero || '',
+        posicao:  entrouReserva?.posicao || p.posicao,
+        grade:    p.grade,
+        _entrou:  subEvt.minuto,
+        _substituiu: p, // titular que saiu
+      });
+    } else {
+      linhas[l].push(p);
+    }
   });
+
   const lKeys = Object.keys(linhas).sort((a, b) => +a - +b);
   const nL = lKeys.length;
   const svgW = 260, svgH = 400;
-
   let circles = '';
 
   lKeys.forEach((lk, li) => {
     const jogLine = linhas[lk];
-    // idx=0 → casa → joga de baixo (goleiro em baixo)
-    // idx=1 → fora → joga de cima (goleiro em cima)
     const yPct = idx === 0
       ? 0.87 - (li / (nL - 1 || 1)) * 0.72
       : 0.13 + (li / (nL - 1 || 1)) * 0.72;
@@ -1862,199 +1880,143 @@ function mkField(esc, idx) {
 
     jogLine.forEach((p, pi) => {
       const xp = svgW * (pi + 1) / (jogLine.length + 1);
-      const isSub = subsOutIds.has(p.id) || subsOutNomes.has(p.nome);
-      const isGoal = golsIds.has(p.id) || golsNomes.has(p.nome);
+      const entrou = !!p._entrou;      // é substituto
+      const substituiu = p._substituiu; // titular que saiu
+      const isGoal = !!(golsCount[p.id] || golsCount[p.nome]);
       const qGoals = golsCount[p.id] || golsCount[p.nome] || 0;
 
-      // stats e foto
       const st = statsMap[p.id];
       const foto = st?.foto;
       const rVal = parseFloat(st?.stats?.games?.rating) || 0;
-      const rColor = rVal >= 8 ? '#00E5A0' : rVal >= 6.5 ? '#ffb800' : rVal > 0 ? '#ff4560' : 'rgba(255,255,255,.2)';
-      const timpo = tempoJogado(p.id, p.nome, true);
+      const rColor = rVal >= 8 ? '#00E5A0' : rVal >= 6.5 ? '#ffb800' : rVal > 0 ? '#ff4560' : null;
 
-      // cor do círculo
-      const cirColor = isSub ? 'rgba(255,255,255,.12)' : (idx === 0 ? 'rgba(0,229,160,.85)' : 'rgba(75,142,255,.85)');
+      // Cor: verde/azul se atual; se titular ainda em campo, cor normal
+      const cirColor = idx === 0 ? 'rgba(0,229,160,.85)' : 'rgba(75,142,255,.85)';
+      const cirColorSub = idx === 0 ? 'rgba(0,229,160,.65)' : 'rgba(75,142,255,.65)';
       const nomeCurto = x(_nCurto(p.nome));
 
+      // ── círculo ──────────────────────────────────────────────────────
       if (foto) {
-        circles += `<defs>
-          <clipPath id="cp-${p.id||pi}-${idx}">
-            <circle cx="${xp.toFixed(1)}" cy="${y.toFixed(1)}" r="14"/>
-          </clipPath>
-        </defs>
-        <circle cx="${xp.toFixed(1)}" cy="${y.toFixed(1)}" r="15" fill="${cirColor}" opacity="${isSub ? 0.4 : 0.9}"/>
+        circles += `<defs><clipPath id="cp-${p.id||pi+lk}-${idx}"><circle cx="${xp.toFixed(1)}" cy="${y.toFixed(1)}" r="14"/></clipPath></defs>
+        <circle cx="${xp.toFixed(1)}" cy="${y.toFixed(1)}" r="15" fill="${entrou?cirColorSub:cirColor}"/>
         <image href="${foto}" x="${(xp-14).toFixed(1)}" y="${(y-14).toFixed(1)}" width="28" height="28"
-          clip-path="url(#cp-${p.id||pi}-${idx})" style="opacity:${isSub ? 0.4 : 1}"/>`;
+          clip-path="url(#cp-${p.id||pi+lk}-${idx})"/>`;
         // badge número
-        circles += `<rect x="${(xp-8).toFixed(1)}" y="${(y-25).toFixed(1)}" width="16" height="11" rx="3" fill="rgba(0,0,0,.75)"/>
-        <text x="${xp.toFixed(1)}" y="${(y-19).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-          fill="#eceef6" font-size="7" font-weight="700" font-family="DM Mono,monospace">${p.numero || ''}</text>`;
+        circles += `<rect x="${(xp-8).toFixed(1)}" y="${(y-26).toFixed(1)}" width="16" height="11" rx="3" fill="rgba(0,0,0,.8)"/>
+        <text x="${xp.toFixed(1)}" y="${(y-20).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          fill="#eceef6" font-size="7" font-weight="700" font-family="DM Mono,monospace">${p.numero||''}</text>`;
       } else {
-        circles += `<circle cx="${xp.toFixed(1)}" cy="${y.toFixed(1)}" r="15" fill="${cirColor}" opacity="${isSub ? 0.4 : 0.9}"/>
+        circles += `<circle cx="${xp.toFixed(1)}" cy="${y.toFixed(1)}" r="15" fill="${entrou?cirColorSub:cirColor}"/>
         <text x="${xp.toFixed(1)}" y="${(y+1).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-          fill="${isSub ? 'rgba(255,255,255,.3)' : '#000'}" font-size="8" font-weight="800"
-          font-family="DM Mono,monospace">${p.numero || (pi + 1)}</text>`;
+          fill="#000" font-size="8" font-weight="800" font-family="DM Mono,monospace">${p.numero||(pi+1)}</text>`;
       }
 
-      // nome
-      circles += `<text x="${xp.toFixed(1)}" y="${(y+25).toFixed(1)}" text-anchor="middle"
-        fill="${isSub ? 'rgba(255,255,255,.25)' : 'rgba(255,255,255,.85)'}"
-        font-size="8" font-family="DM Sans,sans-serif" font-weight="600">${nomeCurto}</text>`;
+      // ── nome ─────────────────────────────────────────────────────────
+      circles += `<text x="${xp.toFixed(1)}" y="${(y+26).toFixed(1)}" text-anchor="middle"
+        fill="rgba(255,255,255,.85)" font-size="8" font-family="DM Sans,sans-serif" font-weight="600">${nomeCurto}</text>`;
 
-      // nota
-      if (rVal > 0) {
-        circles += `<rect x="${(xp+8).toFixed(1)}" y="${(y-27).toFixed(1)}" width="17" height="12" rx="3" fill="${rColor}" opacity=".95"/>
-        <text x="${(xp+16.5).toFixed(1)}" y="${(y-21).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+      // ── nota ─────────────────────────────────────────────────────────
+      if (rColor) {
+        circles += `<rect x="${(xp+9).toFixed(1)}" y="${(y-27).toFixed(1)}" width="17" height="12" rx="3" fill="${rColor}" opacity=".95"/>
+        <text x="${(xp+17.5).toFixed(1)}" y="${(y-21).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
           fill="#000" font-size="7" font-weight="800" font-family="DM Mono,monospace">${rVal.toFixed(1)}</text>`;
       }
 
-      // ⚽ gols
+      // ── gols ─────────────────────────────────────────────────────────
       for (let g = 0; g < qGoals; g++) {
-        circles += `<text x="${(xp - 17 - g * 10).toFixed(1)}" y="${(y - 14).toFixed(1)}" font-size="10">⚽</text>`;
+        circles += `<text x="${(xp-18-g*11).toFixed(1)}" y="${(y-13).toFixed(1)}" font-size="10">⚽</text>`;
       }
 
-      // ↓ substituído
-      if (isSub) {
-        const subEvt = subs.find(s => s.assistente?.id === p.id || s.assistente?.nome === p.nome);
-        const minSub = subEvt?.minuto || '';
-        circles += `<text x="${(xp + 10).toFixed(1)}" y="${(y + 3).toFixed(1)}" font-size="11" fill="#ff4560">↓</text>`;
-        if (minSub) circles += `<text x="${(xp + 10).toFixed(1)}" y="${(y + 14).toFixed(1)}" font-size="7"
-          fill="rgba(255,69,96,.7)" font-family="DM Mono,monospace">${minSub}'</text>`;
+      // ── indicador de substituição ────────────────────────────────────
+      if (entrou) {
+        // ↑ verde com minuto de entrada
+        circles += `<text x="${(xp-16).toFixed(1)}" y="${(y+3).toFixed(1)}" font-size="10" fill="${idx===0?'#00E5A0':'#4b8eff'}">↑</text>`;
+        circles += `<text x="${(xp-15).toFixed(1)}" y="${(y+14).toFixed(1)}" font-size="7"
+          fill="rgba(0,229,160,.75)" font-family="DM Mono,monospace">${p._entrou}'</text>`;
+        // nome de quem saiu bem pequenininho
+        if (substituiu?.nome) {
+          const nSaiu = x(_nCurto(substituiu.nome));
+          circles += `<text x="${xp.toFixed(1)}" y="${(y+36).toFixed(1)}" text-anchor="middle"
+            fill="rgba(255,69,96,.55)" font-size="7" font-family="DM Sans,sans-serif">↓${nSaiu}</text>`;
+        }
       }
     });
   });
 
-  // ── jogadores que entraram como sub — mostrar no campo ────────────────
-  // Posicionar abaixo do time na mesma área (linha extra)
-  const subEntradas = subs.filter(s => s.jogador?.id).map(s => ({
-    ...esc.titulares.find(p => p.id === s.jogador.id) || 
-    esc.reservas.find(p => p.id === s.jogador.id) || 
-    { id: s.jogador.id, nome: s.jogador.nome, numero: '', posicao: 'SUB', grade: null },
-    _entrou: s.minuto,
-    _subId: s.jogador.id,
-  }));
-
-  if (subEntradas.length) {
-    const yExtra = idx === 0 ? svgH * 0.08 : svgH * 0.92;
-    subEntradas.forEach((p, pi) => {
-      const xp = svgW * (pi + 1) / (subEntradas.length + 1);
-      const st2 = statsMap[p.id || p._subId];
-      const rVal2 = parseFloat(st2?.stats?.games?.rating) || 0;
-      const rColor2 = rVal2 >= 8 ? '#00E5A0' : rVal2 >= 6.5 ? '#ffb800' : rVal2 > 0 ? '#ff4560' : 'rgba(255,255,255,.2)';
-      const isGoal2 = golsIds.has(p.id) || golsNomes.has(p.nome);
-      const qGoals2 = golsCount[p.id] || golsCount[p.nome] || 0;
-      const foto2 = st2?.foto;
-      const cirColor2 = idx === 0 ? 'rgba(0,229,160,.6)' : 'rgba(75,142,255,.6)';
-      const nomeCurto2 = x(_nCurto(p.nome));
-
-      if (foto2) {
-        circles += `<defs><clipPath id="cp-sub-${p.id||pi}-${idx}"><circle cx="${xp.toFixed(1)}" cy="${yExtra.toFixed(1)}" r="13"/></clipPath></defs>
-          <circle cx="${xp.toFixed(1)}" cy="${yExtra.toFixed(1)}" r="14" fill="${cirColor2}" opacity=".8"/>
-          <image href="${foto2}" x="${(xp-13).toFixed(1)}" y="${(yExtra-13).toFixed(1)}" width="26" height="26" clip-path="url(#cp-sub-${p.id||pi}-${idx})"/>`;
-      } else {
-        circles += `<circle cx="${xp.toFixed(1)}" cy="${yExtra.toFixed(1)}" r="14" fill="${cirColor2}" opacity=".8"/>
-          <text x="${xp.toFixed(1)}" y="${(yExtra+1).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-            fill="#000" font-size="7" font-weight="800" font-family="DM Mono,monospace">${p.numero || '?'}</text>`;
-      }
-      circles += `<text x="${xp.toFixed(1)}" y="${(yExtra + (idx===0?-20:20)).toFixed(1)}" text-anchor="middle"
-        fill="rgba(255,255,255,.7)" font-size="7" font-family="DM Sans,sans-serif">${nomeCurto2}</text>`;
-      circles += `<text x="${(xp-2).toFixed(1)}" y="${(yExtra + (idx===0?-9:10)).toFixed(1)}" font-size="9" fill="${idx===0?'var(--acc)':'var(--blu)'}">↑</text>`;
-      if (p._entrou) circles += `<text x="${(xp+8).toFixed(1)}" y="${(yExtra + (idx===0?-9:9)).toFixed(1)}"
-        font-size="7" fill="rgba(0,229,160,.7)" font-family="DM Mono,monospace">${p._entrou}'</text>`;
-      if (rVal2 > 0) {
-        circles += `<rect x="${(xp+8).toFixed(1)}" y="${(yExtra-(idx===0?28:4)).toFixed(1)}" width="17" height="12" rx="3" fill="${rColor2}" opacity=".95"/>
-          <text x="${(xp+16.5).toFixed(1)}" y="${(yExtra-(idx===0?22:-2)).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-            fill="#000" font-size="7" font-weight="800" font-family="DM Mono,monospace">${rVal2.toFixed(1)}</text>`;
-      }
-      for (let g = 0; g < qGoals2; g++) {
-        circles += `<text x="${(xp-17-g*10).toFixed(1)}" y="${(yExtra-(idx===0?16:-5)).toFixed(1)}" font-size="10">⚽</text>`;
-      }
-    });
-  }
-
   // ── SVG campo ──────────────────────────────────────────────────────────
   const fieldSVG = `<svg class="field-svg-wrap" viewBox="0 0 ${svgW} ${svgH}"
     xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;">
-    <!-- gramado listrado -->
     <rect width="${svgW}" height="${svgH}" fill="#1a4a2a"/>
-    ${Array.from({length:8},(_,i)=>`<rect x="0" y="${i*svgH/8}" width="${svgW}" height="${svgH/16}"
+    ${Array.from({length:8},(_,i)=>`<rect x="0" y="${(i*svgH/8).toFixed(1)}" width="${svgW}" height="${(svgH/16).toFixed(1)}"
       fill="${i%2?'#1e5530':'#1a4a2a'}" opacity=".5"/>`).join('')}
-    <!-- bordas e linhas -->
     <rect x="3" y="3" width="${svgW-6}" height="${svgH-6}" fill="none"
       stroke="rgba(255,255,255,.25)" stroke-width="1.5" rx="2"/>
     <line x1="3" y1="${svgH/2}" x2="${svgW-3}" y2="${svgH/2}"
       stroke="rgba(255,255,255,.15)" stroke-width="1"/>
-    <circle cx="${svgW/2}" cy="${svgH/2}" r="${svgW*.12}"
+    <circle cx="${svgW/2}" cy="${svgH/2}" r="${(svgW*.12).toFixed(1)}"
       fill="none" stroke="rgba(255,255,255,.15)" stroke-width="1"/>
     <circle cx="${svgW/2}" cy="${svgH/2}" r="3" fill="rgba(255,255,255,.25)"/>
-    <!-- grande área cima -->
-    <rect x="${svgW*.18}" y="3" width="${svgW*.64}" height="${svgH*.16}"
+    <rect x="${(svgW*.18).toFixed(1)}" y="3" width="${(svgW*.64).toFixed(1)}" height="${(svgH*.16).toFixed(1)}"
       fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1"/>
-    <!-- pequena área cima -->
-    <rect x="${svgW*.33}" y="3" width="${svgW*.34}" height="${svgH*.07}"
+    <rect x="${(svgW*.33).toFixed(1)}" y="3" width="${(svgW*.34).toFixed(1)}" height="${(svgH*.07).toFixed(1)}"
       fill="none" stroke="rgba(255,255,255,.15)" stroke-width="1"/>
-    <!-- grande área baixo -->
-    <rect x="${svgW*.18}" y="${svgH-svgH*.16}" width="${svgW*.64}" height="${svgH*.16}"
+    <rect x="${(svgW*.18).toFixed(1)}" y="${(svgH-svgH*.16).toFixed(1)}" width="${(svgW*.64).toFixed(1)}" height="${(svgH*.16).toFixed(1)}"
       fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1"/>
-    <!-- pequena área baixo -->
-    <rect x="${svgW*.33}" y="${svgH-svgH*.07}" width="${svgW*.34}" height="${svgH*.07}"
+    <rect x="${(svgW*.33).toFixed(1)}" y="${(svgH-svgH*.07).toFixed(1)}" width="${(svgW*.34).toFixed(1)}" height="${(svgH*.07).toFixed(1)}"
       fill="none" stroke="rgba(255,255,255,.15)" stroke-width="1"/>
     ${circles}
   </svg>`;
 
-  // ── subs section ──────────────────────────────────────────────────────
+  // ── seção substituições ───────────────────────────────────────────────
   const subsHtml = subs.length ? `<div class="subs-section">
     <div class="subs-title">🔄 Substituições</div>
     ${subs.map(s => `<div class="sub-row">
-      <span class="sub-in">↑ ${x(s.jogador?.nome || '?')}</span>
+      <span class="sub-in">↑ ${x(s.jogador?.nome||'?')}</span>
       <span style="color:var(--t3);margin:0 4px">por</span>
-      <span class="sub-out">↓ ${x(s.assistente?.nome || '?')}</span>
+      <span class="sub-out">↓ ${x(s.assistente?.nome||'?')}</span>
       <span class="sub-min">${s.minuto}'</span>
     </div>`).join('')}
   </div>` : '';
 
-  // ── reservas com quem entrou destacado ────────────────────────────────
-  const reservas = esc.reservas || [];
+  // ── técnico ───────────────────────────────────────────────────────────
+  const coachHtml = esc.tecnico?.nome ? `<div class="coach-row">
+    ${esc.tecnico.foto ? `<img src="${x(esc.tecnico.foto)}" onerror="this.style.display='none'">` :
+      `<div style="width:28px;height:28px;background:var(--bg4);border-radius:50%"></div>`}
+    <div><div class="coach-name">${x(esc.tecnico.nome)}</div><div class="coach-label">Técnico</div></div>
+  </div>` : '';
+
+  // ── banco de reservas ─────────────────────────────────────────────────
+  // Apenas quem NÃO entrou fica no banco exibido
+  const reservas = (esc.reservas || []);
+  const entrouIds = new Set(subs.map(s => s.jogador?.id).filter(Boolean));
   const benchHtml = reservas.length ? `<div class="bench-wrap">
     <div class="bench-title">Banco de Reservas</div>
     <div class="bench-list">
       ${reservas.map(p => {
-        const entrou = subsInIds.has(p.id);
+        const entrou = entrouIds.has(p.id);
         const st3 = statsMap[p.id];
         const rVal3 = parseFloat(st3?.stats?.games?.rating) || 0;
         const rColor3 = rVal3 >= 8 ? '#00E5A0' : rVal3 >= 6.5 ? '#ffb800' : '#ff4560';
-        const subEvt3 = subs.find(s => s.jogador?.id === p.id || s.jogador?.nome === p.nome);
-        const minEntrou = subEvt3?.minuto || null;
-        const tmpJogado = (minAtual && minEntrou) ? (minAtual - minEntrou) : null;
-        const isGoal3 = golsIds.has(p.id) || golsNomes.has(p.nome);
-        return `<div class="bench-p" style="${entrou?'color:var(--t1)':''}">
-          <span class="bench-num">${p.numero || '—'}</span>
+        const subEvt3 = entrouMap[p.id];
+        const minEntrou3 = subEvt3?.minuto || null;
+        const tmpJogado3 = (minAtual && minEntrou3) ? Math.max(0, minAtual - minEntrou3) : null;
+        const isGoal3 = !!(golsCount[p.id] || golsCount[p.nome]);
+        return `<div class="bench-p" style="${entrou?'color:var(--t1);opacity:.5;text-decoration:line-through':''}">
+          <span class="bench-num">${p.numero||'—'}</span>
           <span>${x(_nCurto(p.nome))}${isGoal3?' ⚽':''}</span>
-          ${entrou && minEntrou ? `<span style="font-size:9px;color:var(--acc)">↑${minEntrou}'</span>` : ''}
-          ${tmpJogado ? `<span class="bench-mins">${tmpJogado}'</span>` : ''}
-          ${rVal3 > 0 ? `<span class="bench-rating" style="background:${rColor3};color:#000">${rVal3.toFixed(1)}</span>` : ''}
+          ${entrou && minEntrou3 ? `<span style="font-size:9px;color:var(--acc);text-decoration:none">↑${minEntrou3}'</span>` : ''}
+          ${tmpJogado3 ? `<span class="bench-mins">${tmpJogado3}'</span>` : ''}
+          ${rVal3 > 0 ? `<span class="bench-rating" style="background:${rColor3};color:#000;text-decoration:none">${rVal3.toFixed(1)}</span>` : ''}
         </div>`;
       }).join('')}
-    </div>
-  </div>` : '';
-
-  // ── técnico ───────────────────────────────────────────────────────────
-  const coachHtml = esc.tecnico?.nome ? `<div class="coach-row">
-    ${esc.tecnico.foto
-      ? `<img src="${x(esc.tecnico.foto)}" onerror="this.style.display='none'">`
-      : `<div style="width:28px;height:28px;background:var(--bg4);border-radius:50%"></div>`}
-    <div>
-      <div class="coach-name">${x(esc.tecnico.nome)}</div>
-      <div class="coach-label">Técnico</div>
     </div>
   </div>` : '';
 
   return `<div class="field-box">
     <div class="field-top">
       ${esc.time?.logo ? `<img src="${x(esc.time.logo)}" onerror="this.style.display='none'">` : ''}
-      <span class="fn">${x(esc.time?.nome || '')}</span>
-      <span class="form-tag">${esc.formacao || '?'}</span>
+      <span class="fn">${x(esc.time?.nome||'')}</span>
+      <span class="form-tag">${esc.formacao||'?'}</span>
       <div style="width:10px;height:10px;border-radius:50%;background:${timeCor}"></div>
     </div>
     ${fieldSVG}
@@ -2063,6 +2025,7 @@ function mkField(esc, idx) {
     ${benchHtml}
   </div>`;
 }
+
 
 function abrirPerfil(lado) {
   if (!DADOS) return;
