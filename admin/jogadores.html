@@ -122,6 +122,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);displ
 .rb-mid{background:var(--adim);color:var(--acc);}
 .rb-low{background:rgba(239,95,95,.13);color:var(--red);}
 .rb-na{background:var(--c3);color:var(--t3);}
+.conf-alta{color:var(--grn);font-size:9px;}
+.conf-media{color:var(--acc);font-size:9px;}
+.conf-baixa{color:var(--t3);font-size:9px;}
+.rat-cell{display:flex;align-items:center;gap:3px;justify-content:flex-end;}
+.rat-pond{font-size:8px;color:var(--t3);font-family:'DM Mono',monospace;}
 
 /* ── CARDS GRID ── */
 .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;}
@@ -298,6 +303,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);displ
       <span class="filt-label">Buscar nome / time</span>
       <input class="filt-input" type="text" id="fBusca" placeholder="Nome ou clube..." oninput="renderJogadores()">
     </div>
+    <div class="filt-group">
+      <span class="filt-label">Mín. jogos: <span id="minJogosVal" style="color:var(--acc);font-family:'DM Mono',monospace">3</span></span>
+      <input type="range" id="fMinJogos" min="1" max="20" value="3"
+        style="width:100%;accent-color:var(--acc);cursor:pointer"
+        oninput="setMinJogos(this.value)">
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--t3);margin-top:1px">
+        <span>1</span><span>5</span><span>10</span><span>15</span><span>20</span>
+      </div>
+    </div>
   </div>
 </aside>
 
@@ -373,6 +387,22 @@ let ABA = 'lista';
 let MODO = 'notas'; // 'notas' | 'ranking' | 'lista'
 let RANKING_TIPO = '';
 let SCOPE = 'liga'; // 'liga' | 'brasil' | 'europa' | 'americas' | 'mundo'
+let MIN_JOGOS = 3; // mínimo de jogos para aparecer no ranking
+
+// ── NOTA PONDERADA ──
+// Penaliza jogadores com poucos jogos: nota cresce em confiança de forma logarítmica
+// Com 1 jogo: 40% do peso | 5 jogos: 75% | 10 jogos: 90% | 20+: 100%
+function ratingPonderado(rating, jogos) {
+  if (!rating || !jogos) return 0;
+  const confianca = Math.min(1, Math.log10(jogos + 1) / Math.log10(21)); // 0→1 escala log até 20 jogos
+  return parseFloat(rating) * (0.4 + 0.6 * confianca);
+}
+
+function confiancaInfo(jogos) {
+  if (jogos >= 15) return { label: '🔒', tip: 'Alta confiança', cls: 'conf-alta' };
+  if (jogos >= 7)  return { label: '⚡', tip: 'Média confiança', cls: 'conf-media' };
+  return             { label: '❓', tip: 'Poucos jogos', cls: 'conf-baixa' };
+}
 
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', async () => {
@@ -585,10 +615,19 @@ async function buscarRanking(tipo, btn) {
   }
 }
 
+function setMinJogos(v) {
+  MIN_JOGOS = parseInt(v);
+  gc('minJogosVal').textContent = v;
+  renderJogadores();
+}
+
 // ── RENDER JOGADORES ──
 function jogadoresFiltrados() {
   let lista = [...JOGADORES];
   const busca = gc('fBusca').value.toLowerCase().trim();
+
+  // Filtro mínimo de jogos
+  lista = lista.filter(j => (j.stats?.jogos || 0) >= MIN_JOGOS);
 
   if (POSICAO) lista = lista.filter(j => {
     const p = j.posicao || j.stats?.games?.position || '';
@@ -601,10 +640,13 @@ function jogadoresFiltrados() {
     j.nacionalidade?.toLowerCase().includes(busca)
   );
 
-  // Ordenar
+  // Ordenar: rating usa nota ponderada, demais usam valor bruto
   lista.sort((a, b) => {
-    const va = a.stats?.[SORT_KEY] ?? a.stats?.games?.[SORT_KEY] ?? -1;
-    const vb = b.stats?.[SORT_KEY] ?? b.stats?.games?.[SORT_KEY] ?? -1;
+    if (SORT_KEY === 'rating') {
+      return ratingPonderado(b.stats?.rating, b.stats?.jogos) - ratingPonderado(a.stats?.rating, a.stats?.jogos);
+    }
+    const va = a.stats?.[SORT_KEY] ?? -1;
+    const vb = b.stats?.[SORT_KEY] ?? -1;
     const na = typeof va === 'string' ? parseFloat(va) || 0 : va || 0;
     const nb = typeof vb === 'string' ? parseFloat(vb) || 0 : vb || 0;
     return nb - na;
@@ -629,7 +671,7 @@ function renderJogadores() {
 function renderTabelaJogadores(lista) {
   const isGlobal = SCOPE !== 'liga' && MODO === 'notas';
   const cols = [
-    { key: 'rating', label: 'Nota', suffix: '' },
+    { key: 'rating', label: 'Nota ★', suffix: '' },
     { key: 'gols', label: '⚽ Gols', suffix: '' },
     { key: 'assistencias', label: '🎯 Ast', suffix: '' },
     { key: 'passes', label: 'Passes', suffix: '' },
@@ -673,7 +715,10 @@ function renderTabelaJogadores(lista) {
           </div>
         </div></td>
         <td><span class="pos-tag pos-${posKey}">${x(pos.slice(0,3).toUpperCase())}</span></td>
-        <td class="r"><span class="rating-badge ${ratClass}">${rat}</span></td>
+        <td class="r"><div class="rat-cell">
+          <span class="rating-badge ${ratClass}">${rat}</span>
+          <span class="${confiancaInfo(s.jogos||0).cls}" title="${confiancaInfo(s.jogos||0).tip}">${confiancaInfo(s.jogos||0).label}</span>
+        </div></td>
         <td class="r${SORT_KEY==='gols'?' accent':''}">${s.gols||0}</td>
         <td class="r${SORT_KEY==='assistencias'?' accent':''}">${s.assistencias||0}</td>
         <td class="r${SORT_KEY==='passes'?' accent':''}">${s.passes||0}</td>
