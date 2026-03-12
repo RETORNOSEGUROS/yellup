@@ -126,6 +126,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);displ
 .rd-hdr::after{content:'';flex:1;height:1px;background:var(--bd1);}
 .jogo-card{background:var(--c2);border:1px solid var(--bd1);border-radius:9px;margin-bottom:5px;overflow:hidden;transition:border-color .15s;}
 .jogo-card:hover{border-color:var(--bd3);}
+.prox-header{display:flex;align-items:center;gap:8px;padding:10px 16px 6px;}
+.prox-title{font-size:10px;font-weight:700;color:var(--acc);text-transform:uppercase;letter-spacing:.5px;}
+.proximos-list{display:flex;gap:8px;padding:0 16px 12px;overflow-x:auto;scrollbar-width:none;}
+.proximos-list::-webkit-scrollbar{display:none;}
+.prox-card{flex-shrink:0;background:var(--c2);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;min-width:155px;cursor:pointer;transition:border-color .15s;}
+.prox-card:hover{border-color:var(--acc);}
+.prox-card.live{border-color:var(--red);background:rgba(239,68,68,.06);}
+.prox-card.hoje{border-color:rgba(250,204,21,.3);}
+.prox-badge{font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;margin-bottom:5px;display:inline-block;}
+.prox-badge.hoje{background:rgba(250,204,21,.15);color:#facc15;}
+.prox-badge.amanha{background:rgba(100,116,139,.15);color:var(--t3);}
+.prox-badge.live{background:rgba(239,68,68,.15);color:var(--red);animation:pulse 1.2s infinite;}
+.prox-times{display:flex;flex-direction:column;gap:4px;margin:4px 0;}
+.prox-time{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:600;}
+.prox-hora{font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;margin-top:4px;}
+.jogo-actions{display:flex;gap:6px;padding:6px 10px 8px;border-top:1px solid var(--bd1);}
+.btn-live{padding:4px 10px;border-radius:5px;border:none;background:var(--red);color:#fff;font-size:9px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.btn-analise{padding:4px 10px;border-radius:5px;border:1px solid var(--bd2);background:var(--c3);color:var(--t2);font-size:9px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.btn-analise:hover{border-color:var(--acc);color:var(--acc);}
+.live-card{border-color:rgba(239,68,68,.4) !important;background:rgba(239,68,68,.03);}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 .jogo-card.expandido{border-color:var(--bd3);}
 .jogo-main{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;padding:9px 12px;cursor:pointer;}
 .time-lado{display:flex;align-items:center;gap:7px;}
@@ -299,6 +320,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);displ
     <div class="class-wrap" id="classBody"><div class="empty"><div class="ico">🏆</div><p>Selecione um campeonato</p></div></div>
   </div>
   <div class="pane" id="pane-jogos">
+    <div id="proximosWrap" style="display:none">
+      <div class="prox-header">
+        <span class="prox-title">⚡ Próximos Jogos</span>
+        <span id="proximosCt" style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace"></span>
+      </div>
+      <div id="proximosBody" class="proximos-list"></div>
+      <div style="height:1px;background:var(--bd1);margin:0 16px 4px"></div>
+    </div>
     <div class="jogos-head">
       <select class="rodada-select" id="rodadaSel" onchange="filtrarRodada()"><option value="">Todas as rodadas</option></select>
       <div class="status-btns">
@@ -575,6 +604,8 @@ function abrirTimePerfil(teamId, teamNome) {
 async function carregarJogos(pag){
   PAG=pag;
   gc('jogosBody').innerHTML='<div class="empty"><div class="ld-big"></div><p>Carregando jogos...</p></div>';
+  // Carregar próximos jogos na primeira página
+  if(pag===1) carregarProximos();
   try{
     const p={leagueId:LIGA.id,season:getApiSeason(),pagina:pag};
     if(RODADA_F)p.rodada=RODADA_F;
@@ -585,6 +616,39 @@ async function carregarJogos(pag){
     if(!RODADAS.length)await carregarRodadas();
     renderJogos();
   }catch(e){gc('jogosBody').innerHTML=`<div class="empty"><div class="ico">⚠️</div><p>${e.message}</p></div>`;}
+}
+
+async function carregarProximos(){
+  const wrap=gc('proximosWrap'),body=gc('proximosBody'),ct=gc('proximosCt');
+  wrap.style.display='none';
+  try{
+    const r=await fns.httpsCallable('buscarJogosCampeonato')({
+      leagueId:LIGA.id, season:getApiSeason(), status:'NS', pagina:1
+    });
+    const todos=(r.data.jogos||[])
+      .filter(j=>new Date(j.data)>new Date())
+      .sort((a,b)=>new Date(a.data)-new Date(b.data))
+      .slice(0,8);
+    if(!todos.length){wrap.style.display='none';return;}
+    const agora=new Date();
+    const isHoje=d=>{const jd=new Date(d);return jd.toDateString()===agora.toDateString();};
+    const isAmanha=d=>{const am=new Date(agora);am.setDate(am.getDate()+1);return new Date(d).toDateString()===am.toDateString();};
+    ct.textContent=`${todos.length} agendados`;
+    body.innerHTML=todos.map(j=>{
+      const live=['1H','2H','HT','ET','BT','P'].includes(j.status?.short);
+      const classCard=live?'live':isHoje(j.data)?'hoje':'';
+      const badge=live?'<span class="prox-badge live">● AO VIVO</span>':isHoje(j.data)?'<span class="prox-badge hoje">HOJE</span>':isAmanha(j.data)?'<span class="prox-badge amanha">AMANHÃ</span>':'';
+      return `<div class="prox-card ${classCard}" onclick="window.open('jogo-live.html?fixtureId=${j.id}','_blank')">
+        ${badge}
+        <div class="prox-times">
+          <div class="prox-time"><img src="${x(j.casa.logo)}" width="14" height="14" style="object-fit:contain" onerror="this.style.display='none'">${x(j.casa.nome.split(' ').slice(0,2).join(' '))}</div>
+          <div class="prox-time"><img src="${x(j.fora.logo)}" width="14" height="14" style="object-fit:contain" onerror="this.style.display='none'">${x(j.fora.nome.split(' ').slice(0,2).join(' '))}</div>
+        </div>
+        <div class="prox-hora">${fmtD(j.data)} ${fmtH(j.data)}</div>
+      </div>`;
+    }).join('');
+    wrap.style.display='';
+  }catch(e){wrap.style.display='none';}
 }
 async function carregarRodadas(){
   try{
@@ -630,7 +694,18 @@ function mkCard(j){
      ${hasPen?`<span class="placar-pen">Pen ${j.placarPen.casa}:${j.placarPen.fora}</span>`:''}`
     :`<span style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace">${fmtH(j.data)}</span>`;
   const vC=j.casa.vencedor===true,vF=j.fora.vencedor===true;
-  return `<div class="jogo-card" id="jc-${j.id}">
+  const url=`jogo-live.html?fixtureId=${j.id}`;
+  const hoje=new Date(),jData=new Date(j.data),diffH=(jData-hoje)/3600000;
+  let actions='';
+  if(isLive){
+    actions=`<div class="jogo-actions"><button class="btn-live" onclick="event.stopPropagation();window.open('${url}','_blank')">🔴 Ao Vivo</button></div>`;
+  }else if(isNs){
+    const lbl=diffH>0&&diffH<48?'📊 Pré-Análise':'📋 Ver Jogo';
+    actions=`<div class="jogo-actions"><button class="btn-analise" onclick="event.stopPropagation();window.open('${url}','_blank')">${lbl}</button></div>`;
+  }else if(isFt){
+    actions=`<div class="jogo-actions"><button class="btn-analise" onclick="event.stopPropagation();window.open('${url}','_blank')">📋 Relatório</button><span class="expand-btn" onclick="toggleJ(${j.id})" style="margin-left:auto">▸ Stats</span></div>`;
+  }
+  return `<div class="jogo-card${isLive?' live-card':''}" id="jc-${j.id}">
     <div class="jogo-main" onclick="toggleJ(${j.id})">
       <div class="time-lado">
         <img src="${x(j.casa.logo)}" onerror="this.src=''" width="22" height="22" style="object-fit:contain">
@@ -645,8 +720,8 @@ function mkCard(j){
     <div class="jogo-meta">
       <span class="jogo-meta-info">${j.local?'🏟 '+x(j.local.split(' ').slice(0,3).join(' ')):''}</span>
       <span class="jogo-meta-info">${fmtD(j.data)}</span>
-      ${isFt?`<span class="expand-btn" onclick="toggleJ(${j.id})">▸ Stats</span>`:''}
     </div>
+    ${actions}
     <div class="jogo-detail" id="jd-${j.id}"><div class="empty"><div class="ld"></div></div></div>
   </div>`;
 }
