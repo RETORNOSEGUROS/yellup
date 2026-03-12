@@ -57,6 +57,16 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 .status-ht{background:rgba(255,184,0,.1);color:var(--yel);border:1px solid rgba(255,184,0,.2);}
 .status-ns{background:var(--bg3);color:var(--t3);border:1px solid var(--brd);}
 .refresh-bar{position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--brd);}
+/* ── ÁRBITRO BAR ── */
+.arb-bar{display:flex;align-items:center;gap:8px;padding:7px 16px;background:var(--c2);border-bottom:1px solid var(--bd1);flex-wrap:wrap;}
+.arb-icon{font-size:13px;}
+.arb-nome{font-size:11px;font-weight:700;color:var(--t2);}
+.arb-perfil-tag{font-size:9px;padding:2px 7px;border-radius:10px;background:var(--c3);color:var(--t3);font-family:'DM Mono',monospace;}
+.arb-perfil-tag.rigoroso{background:rgba(239,95,95,.12);color:var(--red);}
+.arb-perfil-tag.permissivo{background:rgba(39,212,155,.1);color:var(--grn);}
+.arb-stats{display:flex;gap:10px;margin-left:auto;flex-wrap:wrap;}
+.arb-stat{font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;display:flex;flex-direction:column;align-items:center;gap:1px;}
+.arb-stat strong{font-size:12px;color:var(--t2);}
 .refresh-progress{height:100%;background:var(--acc);transition:width linear;}
 
 /* TABS */
@@ -351,6 +361,16 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
     <div class="refresh-bar"><div class="refresh-progress" id="refreshBar" style="width:100%"></div></div>
   </div>
 
+  <!-- ÁRBITRO BAR -->
+  <div id="arbitroBar" style="display:none">
+    <div class="arb-bar">
+      <span class="arb-icon">🏳️</span>
+      <span id="arbNome" class="arb-nome">—</span>
+      <span id="arbPerfil" class="arb-perfil-tag"></span>
+      <div id="arbStats" class="arb-stats"></div>
+    </div>
+  </div>
+
   <div class="tabs">
     <button class="tab on" onclick="switchTab('stats',this)">&#128202; Stats</button>
     <button class="tab"    onclick="switchTab('campo',this)" id="tabCampo">&#127967;&#65039; Campo</button>
@@ -560,6 +580,7 @@ async function iniciar() {
   gc("pgMain").style.display = "block";
   renderTudo();
   carregarMediasHistoricas(); // sempre, ao vivo ou não
+  carregarPerfilArbitro();    // sempre — árbitro está definido antes do jogo
   if (isAoVivo()) {
     iniciarAutoRefresh();
     iniciarSinaisLoop();
@@ -1226,6 +1247,53 @@ function calcVariacoes5min(side) {
     ap_casa_abs: cur[hk]?.ap||0, ap_fora_abs: cur[ak]?.ap||0,
     xg_casa_abs: cur[hk]?.xg||0, n_snaps: STATS_HIST.length,
   };
+}
+
+// ── PERFIL DO ÁRBITRO ────────────────────────────────────────────────────
+async function carregarPerfilArbitro() {
+  if (!DADOS) return;
+  const f = DADOS.fixture;
+  const nomeArbitro = f.arbitro || f.referee;
+  if (!nomeArbitro) return;
+
+  // Mostrar nome imediatamente, mesmo sem perfil
+  gc('arbitroBar').style.display = 'block';
+  gc('arbNome').textContent = nomeArbitro;
+  gc('arbPerfil').textContent = '';
+  gc('arbStats').innerHTML = '';
+
+  try {
+    const r = await fns.httpsCallable('buscarPerfilArbitro', { timeout: 8000 })({
+      nomeArbitro, ligaId: f.liga?.id ? String(f.liga.id) : null
+    });
+    if (r?.data?.dados) renderArbitro(r.data.dados, nomeArbitro);
+  } catch(e) { console.warn('Arbitro:', e.message); }
+}
+
+function renderArbitro(p, nome) {
+  gc('arbNome').textContent = nome;
+  const n = p.totalJogos || 0;
+  if (!n) return;
+
+  // Tag de perfil
+  const perfilTag = gc('arbPerfil');
+  const isRig = (p.mediaAmarelos || 0) >= 5;
+  const isPerm = (p.mediaAmarelos || 0) <= 2;
+  perfilTag.textContent = p.perfil || (isRig ? 'Rigoroso' : isPerm ? 'Permissivo' : 'Equilibrado');
+  perfilTag.className = 'arb-perfil-tag' + (isRig ? ' rigoroso' : isPerm ? ' permissivo' : '');
+
+  // Stats compactos
+  const stats = [
+    { v: n,                                    l: 'jogos' },
+    { v: (p.mediaAmarelos||0).toFixed(1),      l: '🟡/jogo' },
+    { v: (p.mediaVermelhos||0).toFixed(2),     l: '🔴/jogo' },
+    { v: Math.round((p.pctJogosComPenalti||0)*100)+'%', l: 'c/pênalti' },
+    { v: (p.mediaVar||0).toFixed(1),           l: 'VAR/jogo' },
+  ];
+
+  gc('arbStats').innerHTML = stats.map(s =>
+    `<div class="arb-stat"><strong>${s.v}</strong>${s.l}</div>`
+  ).join('');
 }
 
 async function carregarTaxaSequencia() {
