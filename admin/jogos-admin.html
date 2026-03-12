@@ -415,6 +415,12 @@ select:focus{border-color:var(--acc);}
 .btn-pur{background:var(--pur);color:#0a0a14;border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s;}
 .btn-pur:disabled{opacity:.4;cursor:not-allowed;}
 .btn-pur:hover:not(:disabled){opacity:.85;}
+.bf-step{display:flex;align-items:flex-start;gap:12px;background:var(--c3);border:1px solid var(--bd2);border-radius:10px;padding:12px 14px;}
+.bf-step-num{width:22px;height:22px;border-radius:50%;background:var(--bd3);color:var(--t2);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+.bf-step-info{flex:1;}
+.bf-step-title{font-size:12px;font-weight:700;color:var(--t1);margin-bottom:3px;}
+.bf-step-desc{font-size:11px;color:var(--t3);line-height:1.5;}
+.bf-step-desc code{font-family:'DM Mono',monospace;color:var(--acc);font-size:10px;}
 </style>
 </head>
 <body>
@@ -2179,30 +2185,45 @@ document.addEventListener('keydown',e=>{
 <div class="bf-overlay" id="bfOverlay" onclick="if(event.target===this)fecharBackfill()">
   <div class="bf-box">
     <div class="bf-head">
-      <h3>🧠 Backfill de Padrões Históricos</h3>
+      <h3>🧠 Banco de Padrões — Pipeline</h3>
       <button class="bf-close" onclick="fecharBackfill()">✕</button>
     </div>
     <div class="bf-body">
-      <p style="font-size:12px;color:var(--t2);margin-bottom:14px;line-height:1.6;">
-        Processa jogos encerrados que ainda não têm padrões no banco global.<br>
-        Cada lote busca eventos da API (1 call por jogo) e salva os padrões.
-      </p>
-      <div class="bf-row">
-        <span class="bf-label">Jogos por lote</span>
-        <input type="number" class="bf-num" id="bfLimite" value="5" min="1" max="20">
+      <!-- ETAPA 1 -->
+      <div class="bf-step">
+        <div class="bf-step-num">1</div>
+        <div class="bf-step-info">
+          <div class="bf-step-title">🔗 Vincular Resultados</div>
+          <div class="bf-step-desc">Para jogos FT que ainda não têm resultado no Firestore (<code>partidas-live</code>). Necessário antes do backfill.</div>
+        </div>
+        <button class="btn-sm" id="btnVincular" onclick="executarVincular()"
+          style="white-space:nowrap;color:var(--blu);border-color:var(--blu);flex-shrink:0;">
+          ▶ Vincular
+        </button>
       </div>
-      <div class="bf-row">
+      <!-- ETAPA 2 -->
+      <div class="bf-step" style="margin-top:10px;">
+        <div class="bf-step-num">2</div>
+        <div class="bf-step-info">
+          <div class="bf-step-title">🧠 Backfill de Padrões</div>
+          <div class="bf-step-desc">Processa jogos encerrados que ainda não têm padrões em <code>padroes-globais</code>. Cada lote faz 1 call à API por jogo.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          <input type="number" class="bf-num" id="bfLimite" value="5" min="1" max="20" style="width:52px;">
+          <button class="btn-pur" id="bfBtn" onclick="executarBackfill()">▶ Executar</button>
+        </div>
+      </div>
+      <div class="bf-row" style="margin-top:8px;">
         <label class="bf-check">
           <input type="checkbox" id="bfForcar">
           Reprocessar jogos já processados (forçar)
         </label>
       </div>
-      <div class="bf-status" id="bfStatus">Pronto. Clique em Executar para iniciar.</div>
+      <div class="bf-status" id="bfStatus">Pronto. Execute a Etapa 1 primeiro se os jogos são novos.</div>
     </div>
     <div class="bf-foot">
       <div class="bf-progress"><div class="bf-bar" id="bfBar"></div></div>
       <span id="bfCont" style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;white-space:nowrap;min-width:80px;text-align:right;">—</span>
-      <button class="btn-pur" id="bfBtn" onclick="executarBackfill()">▶ Executar</button>
     </div>
   </div>
 </div>
@@ -2215,14 +2236,14 @@ let bfFeitos  = 0;
 
 function abrirBackfill() {
   document.getElementById('bfOverlay').classList.add('on');
-  document.getElementById('bfStatus').textContent = 'Pronto. Clique em Executar para iniciar.';
+  document.getElementById('bfStatus').textContent = 'Pronto. Execute a Etapa 1 primeiro se os jogos são novos.';
   document.getElementById('bfBar').style.width = '0%';
   document.getElementById('bfCont').textContent = '—';
   document.getElementById('bfBtn').disabled = false;
   bfRodando = false; bfTotal = null; bfFeitos = 0;
 }
 function fecharBackfill() {
-  if (bfRodando) return; // não fecha durante execução
+  if (bfRodando) return;
   document.getElementById('bfOverlay').classList.remove('on');
 }
 
@@ -2233,6 +2254,76 @@ function bfLog(msg) {
 }
 function bfSet(msg) {
   document.getElementById('bfStatus').textContent = msg;
+}
+
+// ── ETAPA 1: Vincular Resultados ─────────────────────────────────────────
+async function executarVincular() {
+  if (bfRodando) return;
+  bfRodando = true;
+  const btn = document.getElementById('btnVincular');
+  btn.disabled = true;
+  btn.textContent = '⏳ Vinculando...';
+  bfSet('🔍 Buscando jogos encerrados...');
+  document.getElementById('bfBar').style.width = '0%';
+
+  try {
+    // Buscar jogos encerrados do jogos-admin
+    const snap = await db.collection('jogos-admin')
+      .where('status', '==', 'encerrado')
+      .orderBy('dataInicio', 'desc')
+      .limit(200).get();
+
+    if (snap.empty) { bfLog('⚠️ Nenhum jogo encerrado encontrado.'); bfRodando = false; btn.disabled = false; btn.textContent = '▶ Vincular'; return; }
+
+    const fn = firebase.functions().httpsCallable('vincularResultadoSnapshots', { timeout: 120000 });
+
+    let ok = 0, skip = 0, err = 0;
+    const total = snap.docs.length;
+    bfLog(`📋 ${total} jogos encerrados encontrados. Verificando quais precisam de vínculo...`);
+
+    for (let i = 0; i < snap.docs.length; i++) {
+      const doc = snap.docs[i];
+      const j = doc.data();
+      const fixtureId = j.apiFixtureId;
+      if (!fixtureId) { skip++; continue; }
+
+      // Checar se já tem partidas-live com encerradoEm
+      const plSnap = await db.collection('partidas-live').doc(String(fixtureId)).get();
+      if (plSnap.exists && plSnap.data()?.encerradoEm) { skip++; continue; }
+
+      try {
+        await fn({
+          fixtureId,
+          placarCasa:  j.placarCasa  ?? 0,
+          placarFora:  j.placarFora  ?? 0,
+          ligaId:      j.liga?.apiId ?? null,
+          timeCasaId:  j.timeCasa?.apiId ?? null,
+          timeForaId:  j.timeFora?.apiId ?? null,
+          temporada:   j.temporada ?? null,
+          oddsPrejogo: j.oddsPrejogo ?? null,
+        });
+        ok++;
+        bfLog(`  ✅ ${fixtureId} — ${j.timeCasa?.nome} vs ${j.timeFora?.nome}`);
+      } catch(e) {
+        err++;
+        bfLog(`  ❌ ${fixtureId} — ${e.message}`);
+      }
+
+      document.getElementById('bfBar').style.width = Math.round((i+1)/total*50) + '%';
+      document.getElementById('bfCont').textContent = `${i+1}/${total}`;
+    }
+
+    bfLog(`\n✅ Vinculação concluída: ${ok} novos · ${skip} já vinculados · ${err} erros`);
+    bfLog('→ Agora execute a Etapa 2 (Backfill de Padrões).');
+    document.getElementById('bfBar').style.width = '50%';
+
+  } catch(e) {
+    bfLog('\n❌ Erro: ' + e.message);
+  }
+
+  bfRodando = false;
+  btn.disabled = false;
+  btn.textContent = '▶ Vincular';
 }
 
 async function executarBackfill() {
