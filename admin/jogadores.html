@@ -466,22 +466,36 @@ function setView(v) {
 // ── MELHORES NOTAS (nova CF, todos ordenados por rating) ──
 async function buscarMelhoresNotas() {
   const season = gc('fSeason').value;
+  const ano = parseInt(season);
   MODO = 'notas';
   RANKING_TIPO = '';
   TOTAL_PAGS = 1; PAG = 1;
   document.querySelectorAll('.rk-btn').forEach(b => b.classList.remove('on'));
   setSort('rating', gc('sBtn-rating'));
 
-  const scopeLabels = { liga:'Liga', brasil:'Brasil', europa:'Europa', americas:'Américas', mundo:'Mundo 🌍' };
+  // Label de temporada exibido: europeus mostram "25/26", brasileiros "2026"
+  const euroLabel = `${ano-1}/${String(ano).slice(2)}`; // ex: 25/26
+  const scopeLabels = {
+    liga:     '', // definido abaixo com nome da liga
+    brasil:   `Brasil ${season}`,
+    europa:   `Europa ${euroLabel}`,
+    americas: `Américas ${season}`,
+    mundo:    `Mundo (${euroLabel} / ${season})`,
+  };
 
   if (SCOPE === 'liga') {
     const liga = gc('fLiga').value;
     if (!liga) { toast('Selecione uma liga', 'err'); return; }
+    // Calcular ajuste da liga selecionada
+    const ligaObj = buscarLigaObj(parseInt(liga));
+    const ajuste = ligaObj?.ajuste ?? 0;
+    const apiSeason = String(ano + ajuste);
+    const seasonLabel = ajuste === -1 ? euroLabel : season;
     const ligaNome = gc('fLiga').selectedOptions[0]?.textContent || '';
-    gc('mainTitulo').textContent = `⭐ Melhores Notas — ${ligaNome} ${season}`;
+    gc('mainTitulo').textContent = `⭐ Melhores Notas — ${ligaNome} ${seasonLabel}`;
     gc('pane-lista').innerHTML = '<div class="empty"><div class="ld-big"></div><p>Buscando melhores notas da liga...</p></div>';
     try {
-      const r = await fns.httpsCallable('buscarMelhoresNotasLiga')({ leagueId: parseInt(liga), season });
+      const r = await fns.httpsCallable('buscarMelhoresNotasLiga')({ leagueId: parseInt(liga), season: apiSeason });
       JOGADORES = r.data.jogadores || [];
       gc('ctBadge').textContent = `${JOGADORES.length} jogadores`;
       renderJogadores();
@@ -490,9 +504,9 @@ async function buscarMelhoresNotas() {
       toast(e.message, 'err');
     }
   } else {
-    const scopeLbl = scopeLabels[SCOPE] || SCOPE;
-    gc('mainTitulo').textContent = `⭐ Melhores Notas — ${scopeLbl} ${season}`;
-    gc('pane-lista').innerHTML = `<div class="empty"><div class="ld-big"></div><p>Agregando dados de múltiplas ligas...<br><small style="color:var(--t3)">Pode demorar até 30s</small></p></div>`;
+    const lbl = scopeLabels[SCOPE] || SCOPE;
+    gc('mainTitulo').textContent = `⭐ Melhores Notas — ${lbl}`;
+    gc('pane-lista').innerHTML = `<div class="empty"><div class="ld-big"></div><p>Agregando dados de múltiplas ligas...<br><small style="color:var(--t3)">Pode demorar até 30s na primeira vez</small></p></div>`;
     try {
       const r = await fns.httpsCallable('buscarMelhoresNotasMundo')({ season, scope: SCOPE });
       JOGADORES = r.data.jogadores || [];
@@ -503,6 +517,16 @@ async function buscarMelhoresNotas() {
       toast(e.message, 'err');
     }
   }
+}
+
+// Busca o objeto da liga no LIGAS_YELLUP local (cache do init)
+function buscarLigaObj(id) {
+  if (!LIGAS) return null;
+  for (const grupo of Object.values(LIGAS)) {
+    const found = grupo.find(l => l.id === id);
+    if (found) return found;
+  }
+  return null;
 }
 
 // ── BUSCAR JOGADORES (lista paginada, sem ordenação global) ──
