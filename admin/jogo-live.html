@@ -177,6 +177,22 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 /* Insights */
 .insight-list{display:flex;flex-direction:column;gap:7px;}
 .insight{padding:10px 12px;border-radius:8px;display:flex;gap:9px;align-items:flex-start;border-left:3px solid transparent;}
+/* ── IA COMENTARISTA ── */
+.ia-msg{padding:11px 13px;border-radius:8px;background:var(--c3);border-left:3px solid var(--pur);position:relative;}
+.ia-msg.alerta{border-left-color:var(--red);background:var(--rdim);}
+.ia-msg.destaque{border-left-color:var(--acc);background:var(--adim);}
+.ia-msg.jogador{border-left-color:var(--blu);background:var(--bdim2);}
+.ia-msg.tatica{border-left-color:var(--grn);background:var(--gdim);}
+.ia-msg.previsao{border-left-color:var(--pur);background:var(--pdim);}
+.ia-msg-texto{font-size:13px;line-height:1.55;color:var(--t1);}
+.ia-msg-meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px;}
+.ia-msg-tipo{font-size:9px;font-family:'DM Mono',monospace;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;}
+.ia-msg-ts{font-size:9px;font-family:'DM Mono',monospace;color:var(--t3);}
+.ia-typing{display:flex;gap:4px;align-items:center;padding:10px 0;}
+.ia-typing span{width:6px;height:6px;border-radius:50%;background:var(--pur);animation:iaDot 1.2s infinite;}
+.ia-typing span:nth-child(2){animation-delay:.2s;}
+.ia-typing span:nth-child(3){animation-delay:.4s;}
+@keyframes iaDot{0%,80%,100%{transform:scale(.8);opacity:.4;}40%{transform:scale(1.2);opacity:1;}}
 .insight.positive{background:rgba(0,229,160,.06);border-color:var(--acc);}
 .insight.warning{background:rgba(255,184,0,.06);border-color:var(--yel);}
 .insight.info{background:rgba(75,142,255,.06);border-color:var(--blu);}
@@ -414,7 +430,13 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
   <!-- SINAIS -->
   <div class="pane" id="pane-sinais">
 
-    <!-- Score de Pressao -->
+    <!-- Controle de som -->
+    <div style="display:flex;justify-content:flex-end;padding:8px 16px 0;">
+      <button id="btnSom" onclick="toggleSom()" title="Notificação sonora para sinais fortes"
+        style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--bd2);background:var(--c3);color:var(--t3);cursor:pointer;display:flex;align-items:center;gap:5px;font-family:'DM Sans',sans-serif;">
+        🔕 Som desligado
+      </button>
+    </div>
     <div class="score-duo" id="scoreDuo">
       <div class="score-box" id="scoreCasaBox">
         <div class="score-num" id="scoreCasaNum" style="color:var(--acc)">&#8212;</div>
@@ -496,8 +518,25 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 
   <!-- INSIGHTS -->
   <div class="pane" id="pane-insights">
+    <!-- Comentarista IA -->
+    <div class="card" id="cardIA">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div class="card-title" style="margin:0;">🎙️ Comentarista IA</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span id="iaStatus" style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;"></span>
+          <button id="btnIA" onclick="pedirComentario(true)"
+            style="font-size:10px;padding:4px 12px;border-radius:6px;border:1px solid rgba(167,139,250,.35);background:var(--pdim);color:var(--pur);cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;">
+            ✨ Analisar
+          </button>
+        </div>
+      </div>
+      <div id="iaFeed" style="display:flex;flex-direction:column;gap:8px;">
+        <div class="empty">Clique em "Analisar" para gerar um insight com IA</div>
+      </div>
+    </div>
+    <!-- Insights estatísticos -->
     <div class="card">
-      <div class="card-title">O que est&#225; acontecendo</div>
+      <div class="card-title">Análise Estatística</div>
       <div class="insight-list" id="insightList"><div class="empty">Aguardando dados...</div></div>
     </div>
   </div>
@@ -584,6 +623,7 @@ async function iniciar() {
   if (isAoVivo()) {
     iniciarAutoRefresh();
     iniciarSinaisLoop();
+    iniciarIALoop();
     carregarEstatisticasCenarios();
     carregarTaxaSequencia();
   } else {
@@ -1090,6 +1130,7 @@ function renderSinaisLocais() {
   const serverContent = el.querySelector(".server-sinais");
   const localDiv = el.querySelector(".local-sinais") || (() => { const d=document.createElement("div"); d.className="local-sinais"; el.insertBefore(d, el.firstChild); return d; })();
   localDiv.innerHTML = htmlSinais || "<div class='empty' style='padding:12px;'>Nenhum padrao cliente detectado ainda</div>";
+  checarSomSinais(sinaisLocais); // 🔔 notificação sonora se som ligado
 }
 
 // ── SINAIS SERVIDOR ───────────────────────────────────────────────────────
@@ -1129,9 +1170,146 @@ function renderSinaisServidor(data) {
       "<div class='sinal-body'><div class='sinal-titulo'>" + (a.titulo||"") + "</div>" +
       "<div class='sinal-detalhe'>" + (a.detalhe||"") + "</div></div></div>"
     ).join("");
+  checarSomSinais(alertas); // 🔔 notificação sonora para sinais fortes do servidor
 }
 
 // ── INSIGHTS ──────────────────────────────────────────────────────────────
+// ── COMENTARISTA IA ──────────────────────────────────────────────────────
+let IA_FEED = [];           // histórico desta sessão
+let IA_LOADING = false;
+let _iaAutoTimer = null;
+const IA_AUTO_SEC = 45;     // auto-refresh a cada 45s durante ao vivo
+
+function _setIAStatus(txt) {
+  const el = gc('iaStatus');
+  if (el) el.textContent = txt;
+}
+
+function _renderIAFeed() {
+  const feed = gc('iaFeed');
+  if (!feed) return;
+  if (!IA_FEED.length) {
+    feed.innerHTML = "<div class='empty'>Clique em \"Analisar\" para gerar um insight com IA</div>";
+    return;
+  }
+  feed.innerHTML = IA_FEED.map(m => `
+    <div class="ia-msg ${m.tipo||'destaque'}">
+      <div class="ia-msg-texto">${m.texto}</div>
+      <div class="ia-msg-meta">
+        <span class="ia-msg-tipo">${_tipoLabel(m.tipo)}</span>
+        <span class="ia-msg-ts">${m.min ? m.min + "'" : ''} · ${m.hora}</span>
+      </div>
+    </div>`
+  ).join('');
+}
+
+function _tipoLabel(t) {
+  return { alerta:'🚨 Alerta', destaque:'⭐ Destaque', jogador:'👤 Jogador', tatica:'♟️ Tática', previsao:'🔮 Previsão' }[t] || '💬 Insight';
+}
+
+function _montarContexto() {
+  if (!DADOS) return null;
+  const f = DADOS.fixture;
+  const sts = DADOS.estatisticas || [];
+  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
+  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  const evs = (DADOS.eventos || []).slice(-15); // últimos 15 eventos
+  const min = f.status.elapsed || 0;
+
+  const contexto = {
+    placar: `${f.timeCasa.nome} ${f.placar.casa ?? 0} x ${f.placar.fora ?? 0} ${f.timeFora.nome}`,
+    minuto: min,
+    status: f.status.descricao || f.status.short,
+    liga: f.liga?.nome || '',
+    stats: {
+      casa: {
+        posse: home['Ball Possession'] || null,
+        chutesAlvo: home['Shots on Goal'] || 0,
+        chutesTotais: home['Total Shots'] || 0,
+        ataquesPer: home['Dangerous Attacks'] || 0,
+        xg: home['expected_goals'] || null,
+        escanteios: home['Corner Kicks'] || 0,
+        faltas: home['Fouls'] || 0,
+      },
+      fora: {
+        posse: away['Ball Possession'] || null,
+        chutesAlvo: away['Shots on Goal'] || 0,
+        chutesTotais: away['Total Shots'] || 0,
+        ataquesPer: away['Dangerous Attacks'] || 0,
+        xg: away['expected_goals'] || null,
+        escanteios: away['Corner Kicks'] || 0,
+        faltas: away['Fouls'] || 0,
+      }
+    },
+    eventos: evs.map(e => `${e.time?.elapsed||0}' ${e.team?.name||''}: ${e.type} - ${e.detail}`),
+    odds: ODDS_ATUAL ? {
+      casa: ODDS_ATUAL.casa, fora: ODDS_ATUAL.fora,
+      empate: ODDS_ATUAL.empate, over25: ODDS_ATUAL.over25,
+      fonte: ODDS_ATUAL.fonte
+    } : null,
+    mediasHistoricas: {
+      casa: HIST_MEDIAS.casa ? { chutesAlvo: HIST_MEDIAS.casa.chutesAlvo, escanteios: HIST_MEDIAS.casa.escanteios } : null,
+      fora: HIST_MEDIAS.fora ? { chutesAlvo: HIST_MEDIAS.fora.chutesAlvo, escanteios: HIST_MEDIAS.fora.escanteios } : null,
+    },
+    feedAnterior: IA_FEED.slice(-3).map(m => m.texto),
+  };
+  return contexto;
+}
+
+async function pedirComentario(manual = false) {
+  if (IA_LOADING || !DADOS) return;
+  IA_LOADING = true;
+  const btn = gc('btnIA');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Analisando...'; }
+  _setIAStatus('');
+
+  // Mostrar typing indicator
+  const feed = gc('iaFeed');
+  if (feed) feed.insertAdjacentHTML('afterbegin', "<div class='ia-typing' id='iaTyping'><span></span><span></span><span></span></div>");
+
+  try {
+    const contexto = _montarContexto();
+    if (!contexto) throw new Error('Dados não disponíveis');
+
+    const r = await fns.httpsCallable('gerarComentarioYellup', { timeout: 20000 })({ contexto });
+    const c = r?.data?.comentario;
+    if (!c?.texto) throw new Error('Resposta vazia');
+
+    const min = DADOS.fixture.status.elapsed || 0;
+    const hora = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    IA_FEED.unshift({ texto: c.texto, tipo: c.tipo || 'destaque', min, hora });
+    if (IA_FEED.length > 8) IA_FEED.pop(); // manter últimos 8
+
+    _setIAStatus('atualizado ' + hora);
+
+    // Auto-notificação sonora se tipo alerta
+    if (c.tipo === 'alerta') checarSomSinais([{ nivel:'alto', urgente: false, titulo:'IA-alerta' }]);
+
+  } catch(e) {
+    const msg = e.message?.includes('API key') ? '⚠️ API key não configurada' : '⚠️ ' + (e.message||'Erro');
+    _setIAStatus(msg);
+    if (!IA_FEED.length) gc('iaFeed').innerHTML = `<div class='empty' style='color:var(--red);'>${msg}</div>`;
+  } finally {
+    IA_LOADING = false;
+    const t = gc('iaTyping'); if (t) t.remove();
+    if (btn) { btn.disabled = false; btn.textContent = '✨ Analisar'; }
+    _renderIAFeed();
+  }
+}
+
+function iniciarIALoop() {
+  clearInterval(_iaAutoTimer);
+  if (!isAoVivo()) return;
+  // Primeiro comentário automático após 3s de carregamento
+  setTimeout(() => pedirComentario(false), 3000);
+  _iaAutoTimer = setInterval(() => pedirComentario(false), IA_AUTO_SEC * 1000);
+}
+
+function pararIALoop() {
+  clearInterval(_iaAutoTimer);
+  _iaAutoTimer = null;
+}
+
 function renderInsights() {
   const sts = DADOS.estatisticas || [], f = DADOS.fixture, insights = [];
   if (sts.length < 2) { gc("insightList").innerHTML = "<div class='empty'>Dados insuficientes</div>"; return; }
@@ -1249,7 +1427,101 @@ function calcVariacoes5min(side) {
   };
 }
 
-// ── PERFIL DO ÁRBITRO ────────────────────────────────────────────────────
+// ── NOTIFICAÇÃO SONORA ───────────────────────────────────────────────────
+let SOM_ATIVO = false;
+let _audioCtx = null;
+const _sinaisSoados = new Map(); // titulo → timestamp do último som
+
+function toggleSom() {
+  SOM_ATIVO = !SOM_ATIVO;
+  const btn = gc('btnSom');
+  if (SOM_ATIVO) {
+    btn.textContent = '🔔 Som ligado';
+    btn.style.color = 'var(--acc)';
+    btn.style.borderColor = 'rgba(245,165,36,.4)';
+    // Testar o som imediatamente para ativar o contexto de áudio (política do browser)
+    _tocarSom('activate');
+  } else {
+    btn.textContent = '🔕 Som desligado';
+    btn.style.color = 'var(--t3)';
+    btn.style.borderColor = 'var(--bd2)';
+  }
+}
+
+function _getAudioCtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return _audioCtx;
+}
+
+function _tocarSom(tipo) {
+  try {
+    const ctx = _getAudioCtx();
+    const now = ctx.currentTime;
+
+    if (tipo === 'activate') {
+      // Beep suave de confirmação: duas notas curtas
+      [440, 660].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0, now + i * 0.12);
+        gain.gain.linearRampToValueAtTime(0.15, now + i * 0.12 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.18);
+        osc.start(now + i * 0.12);
+        osc.stop(now + i * 0.12 + 0.2);
+      });
+    } else if (tipo === 'urgente') {
+      // Três pulsos rápidos descendentes — sinal de alerta forte
+      [880, 740, 660].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = 'square';
+        const t = now + i * 0.14;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.12, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+        osc.start(t);
+        osc.stop(t + 0.14);
+      });
+    } else {
+      // Sinal alto normal: dois tons suaves
+      [523, 659].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        const t = now + i * 0.18;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.18, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+        osc.start(t);
+        osc.stop(t + 0.25);
+      });
+    }
+  } catch(e) { console.warn('Audio:', e.message); }
+}
+
+// Chamada pelos render de sinais — passa lista de sinais novos detectados
+function checarSomSinais(sinais) {
+  if (!SOM_ATIVO) return;
+  const agora = Date.now();
+  const TTL = 2 * 60 * 1000; // não repetir o mesmo sinal em 2min
+
+  sinais.forEach(s => {
+    if (s.nivel !== 'alto') return;
+    const chave = s.titulo || s.tipo || '';
+    const ultimo = _sinaisSoados.get(chave) || 0;
+    if (agora - ultimo < TTL) return; // já tocou recentemente
+    _sinaisSoados.set(chave, agora);
+    _tocarSom(s.urgente ? 'urgente' : 'alto');
+  });
+}
+
 async function carregarPerfilArbitro() {
   if (!DADOS) return;
   const f = DADOS.fixture;
