@@ -264,6 +264,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);displ
       <div>
         <div class="liga-nome-big" id="hNome">Selecione um campeonato</div>
         <div class="liga-sub" id="hSub">← Use a barra lateral</div>
+        <div id="hUpdate" style="font-size:8px;color:var(--t3);margin-top:2px;display:none">🔄 <span id="hUpdateTxt"></span></div>
       </div>
     </div>
     <div class="season-sel" id="seasonWrap" style="display:none">
@@ -306,7 +307,7 @@ function x(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').re
 function fmtH(iso){try{return new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}catch(e){return'–';}}
 function fmtD(iso){try{return new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});}catch(e){return'–';}}
 
-let LIGAS=null,LIGA=null,SEASON='2025',ABA='class';
+let LIGAS=null,LIGA=null,SEASON='2026',ABA='class';
 let JOGOS=[],STATUS_F='',RODADA_F='',PAG=1,TOTAL_PAGS=1,RODADAS=[];
 const ABERT=new Set(),DCACHE={};
 const SEASONS=['2026','2025','2024','2023','2022','2021','2020'];
@@ -402,8 +403,29 @@ async function selecionarLiga(id,info){
   gc('tabChav').classList.toggle('hidden',!temChav);
   if(!temClass&&temChav)trocarAba('chav',gc('tabChav'));
   else trocarAba('class',gc('tabClass'));
+  iniciarAutoRefresh();
 }
 function trocarTemporada(){SEASON=gc('seasonSel').value;PAG=1;JOGOS=[];RODADAS=[];atualizarSubtitulo();carregarAbaAtual();}
+
+// Auto-refresh: a cada 5min se a temporada for ativa
+let _autoRefreshTimer = null;
+function iniciarAutoRefresh(){
+  clearInterval(_autoRefreshTimer);
+  const apiSeason = parseInt(getApiSeason());
+  const anoAtual = new Date().getFullYear();
+  const ativo = apiSeason >= anoAtual - 1;
+  if(!ativo || !LIGA) return;
+  _autoRefreshTimer = setInterval(() => {
+    if(document.visibilityState === 'hidden') return; // não atualiza se aba em background
+    carregarAbaAtual();
+  }, 5 * 60 * 1000);
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible' && LIGA) {
+    // Volta para aba: recarrega imediatamente
+    carregarAbaAtual();
+  }
+});
 function trocarAba(aba,btn){
   ABA=aba;
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));btn.classList.add('on');
@@ -416,6 +438,10 @@ function carregarAbaAtual(){
   else if(ABA==='jogos')carregarJogos(1);
   else if(ABA==='chav')carregarChav();
   else if(ABA==='stats')carregarStats();
+  // Marca timestamp de atualização
+  const agora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  gc('hUpdate').style.display='';
+  gc('hUpdateTxt').textContent = `Atualizado às ${agora}`;
 }
 
 // ── CLASSIFICAÇÃO
