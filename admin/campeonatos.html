@@ -310,6 +310,34 @@ let LIGAS=null,LIGA=null,SEASON='2025',ABA='class';
 let JOGOS=[],STATUS_F='',RODADA_F='',PAG=1,TOTAL_PAGS=1,RODADAS=[];
 const ABERT=new Set(),DCACHE={};
 const SEASONS=['2026','2025','2024','2023','2022','2021','2020'];
+
+// Retorna a season real para enviar à API (ajusta para ligas europeia ago-maio)
+function getApiSeason(){
+  const ajuste = LIGA?.ajuste ?? 0;
+  return String(parseInt(SEASON) + ajuste);
+}
+
+// Label exibido ao usuário: "2024-25" para ligas europeias, "2025" para brasileiras
+function getSeasonLabel(){
+  const ajuste = LIGA?.ajuste ?? 0;
+  if(ajuste === -1){
+    const y = parseInt(SEASON) + ajuste;
+    return `${y}-${String(y+1).slice(2)}`;
+  }
+  return SEASON;
+}
+
+function atualizarSubtitulo(){
+  if(!LIGA)return;
+  const tipo={liga:'Liga',copa:'Copa',misto:'Liga/Copa'}[LIGA.tipo]||'';
+  const lbl=getSeasonLabel();
+  gc('hSub').textContent=`${LIGA.pais} · ${tipo} · Temporada ${lbl}`;
+  // Atualizar selector: mostrar label correto no option selecionado
+  const ajuste=LIGA.ajuste??0;
+  if(ajuste===-1){
+    gc('seasonSel').title=`Temporada ${lbl} (API: ${getApiSeason()})`;
+  }
+}
 const GRUPOS=[
   {key:'brasil',label:'🇧🇷 Brasil'},
   {key:'internacional',label:'🌍 Internacional'},
@@ -360,10 +388,14 @@ async function selecionarLiga(id,info){
   gc('hLogo').src=`https://media.api-sports.io/football/leagues/${id}.png`;
   gc('hLogo').style.display='';
   gc('hNome').textContent=info.nome;
-  gc('hSub').textContent=info.pais+' · '+({liga:'Liga',copa:'Copa',misto:'Liga/Copa'}[info.tipo]||'');
+  atualizarSubtitulo();
   gc('mainTabs').style.display='flex';
   gc('seasonWrap').style.display='flex';
-  gc('seasonSel').innerHTML=SEASONS.map(s=>`<option value="${s}"${s===SEASON?' selected':''}>${s}</option>`).join('');
+  gc('seasonSel').innerHTML=SEASONS.map(s=>{
+    const ajuste=info.ajuste??0;
+    const lbl=ajuste===-1?`${parseInt(s)+ajuste}-${String(parseInt(s)+ajuste+1).slice(2)}`:s;
+    return `<option value="${s}"${s===SEASON?' selected':''}>${lbl}</option>`;
+  }).join('');
   const temClass=info.tipo==='liga'||info.tipo==='misto';
   const temChav=info.tipo==='copa'||info.tipo==='misto';
   gc('tabClass').classList.toggle('hidden',!temClass);
@@ -371,7 +403,7 @@ async function selecionarLiga(id,info){
   if(!temClass&&temChav)trocarAba('chav',gc('tabChav'));
   else trocarAba('class',gc('tabClass'));
 }
-function trocarTemporada(){SEASON=gc('seasonSel').value;PAG=1;JOGOS=[];RODADAS=[];carregarAbaAtual();}
+function trocarTemporada(){SEASON=gc('seasonSel').value;PAG=1;JOGOS=[];RODADAS=[];atualizarSubtitulo();carregarAbaAtual();}
 function trocarAba(aba,btn){
   ABA=aba;
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));btn.classList.add('on');
@@ -390,7 +422,7 @@ function carregarAbaAtual(){
 async function carregarClass(){
   gc('classBody').innerHTML='<div class="empty"><div class="ld-big"></div><p>Carregando...</p></div>';
   try{
-    const r=await fns.httpsCallable('buscarClassificacao')({leagueId:LIGA.id,season:SEASON});
+    const r=await fns.httpsCallable('buscarClassificacao')({leagueId:LIGA.id,season:getApiSeason()});
     renderClass(r.data.dados);
   }catch(e){gc('classBody').innerHTML=`<div class="empty"><div class="ico">⚠️</div><p>${e.message}</p></div>`;}
 }
@@ -430,7 +462,7 @@ async function carregarJogos(pag){
   PAG=pag;
   gc('jogosBody').innerHTML='<div class="empty"><div class="ld-big"></div><p>Carregando jogos...</p></div>';
   try{
-    const p={leagueId:LIGA.id,season:SEASON,pagina:pag};
+    const p={leagueId:LIGA.id,season:getApiSeason(),pagina:pag};
     if(RODADA_F)p.rodada=RODADA_F;
     if(STATUS_F)p.status=STATUS_F;
     const r=await fns.httpsCallable('buscarJogosCampeonato')(p);
@@ -442,7 +474,7 @@ async function carregarJogos(pag){
 }
 async function carregarRodadas(){
   try{
-    const r=await fns.httpsCallable('buscarRodasLiga')({leagueId:LIGA.id,season:SEASON});
+    const r=await fns.httpsCallable('buscarRodasLiga')({leagueId:LIGA.id,season:getApiSeason()});
     RODADAS=r.data.rodadas||[];
     gc('rodadaSel').innerHTML='<option value="">Todas as rodadas</option>'+RODADAS.map(rd=>`<option value="${x(rd)}">${x(rd)}</option>`).join('');
   }catch(e){}
@@ -588,7 +620,7 @@ let CHAV_DATA=null;
 async function carregarChav(){
   gc('chavBody').innerHTML='<div class="empty"><div class="ld-big"></div><p>Carregando chaveamento...</p></div>';
   try{
-    const r=await fns.httpsCallable('buscarChaveamento')({leagueId:LIGA.id,season:SEASON});
+    const r=await fns.httpsCallable('buscarChaveamento')({leagueId:LIGA.id,season:getApiSeason()});
     CHAV_DATA=r.data;
     renderChav(r.data);
   }catch(e){gc('chavBody').innerHTML=`<div class="empty"><div class="ico">⚠️</div><p>${e.message}</p></div>`;}
@@ -734,9 +766,9 @@ async function carregarStats(){
   gc('statsBody').innerHTML='<div class="empty"><div class="ld-big"></div><p>Carregando...</p></div>';
   try{
     const [aR,asR,amR]=await Promise.all([
-      fns.httpsCallable('buscarRankingJogadores')({leagueId:LIGA.id,season:SEASON,tipo:'topscorers'}),
-      fns.httpsCallable('buscarRankingJogadores')({leagueId:LIGA.id,season:SEASON,tipo:'topassists'}),
-      fns.httpsCallable('buscarRankingJogadores')({leagueId:LIGA.id,season:SEASON,tipo:'topyellowcards'}),
+      fns.httpsCallable('buscarRankingJogadores')({leagueId:LIGA.id,season:getApiSeason(),tipo:'topscorers'}),
+      fns.httpsCallable('buscarRankingJogadores')({leagueId:LIGA.id,season:getApiSeason(),tipo:'topassists'}),
+      fns.httpsCallable('buscarRankingJogadores')({leagueId:LIGA.id,season:getApiSeason(),tipo:'topyellowcards'}),
     ]);
     renderStats(aR.data.jogadores,asR.data.jogadores,amR.data.jogadores);
   }catch(e){gc('statsBody').innerHTML=`<div class="empty"><div class="ico">⚠️</div><p>${e.message}</p></div>`;}
