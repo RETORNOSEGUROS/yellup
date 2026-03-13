@@ -313,8 +313,8 @@ function renderCard(j, prev) {
   const statusLabel = j.status === 'ao_vivo' ? 'AO VIVO' : j.status === 'encerrado' ? 'FT' : hora;
   const statusBadge = j.status === 'ao_vivo' ? 'ao_vivo' : j.status === 'encerrado' ? 'encerrado' : 'agendado';
 
-  const formaC = renderForma(j.formaCasa || j.timeCasa?.forma);
-  const formaF = renderForma(j.formaFora  || j.timeFora?.forma);
+  const formaC = renderForma(prev?.formaC || j.formaCasa || j.timeCasa?.forma);
+  const formaF = renderForma(prev?.formaF || j.formaFora  || j.timeFora?.forma);
   const escC = j.timeCasa?.escudo || '';
   const escF = j.timeFora?.escudo || '';
 
@@ -519,7 +519,7 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
 
   // ── FONTE 1: Histórico Casa ──
   if (nC >= 3) {
-    const casa = jogosC.filter(j => j.local === 'casa');
+    const casa = jogosC.filter(j => j.casa === true);
     const n = casa.length || jogosC.length;
     const jogosRef = casa.length >= 3 ? casa : jogosC;
     const vit = jogosRef.filter(j => j.resultado === 'V').length / jogosRef.length * 100;
@@ -541,7 +541,7 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
 
   // ── FONTE 2: Histórico Visitante ──
   if (nF >= 3) {
-    const fora = jogosF.filter(j => j.local === 'fora');
+    const fora = jogosF.filter(j => j.casa === false);
     const n = fora.length || jogosF.length;
     const jogosRef = fora.length >= 3 ? fora : jogosF;
     const vitF = jogosRef.filter(j => j.resultado === 'V').length / jogosRef.length * 100;
@@ -640,18 +640,24 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
 
   // Força comparativa
   if (nC >= 5 && nF >= 5) {
-    const mediaGolsC = jogosC.reduce((a, j) => a + (j.golsMarcados || 0), 0) / nC;
-    const mediaGolsF = jogosF.reduce((a, j) => a + (j.golsMarcados || 0), 0) / nF;
+    const mediaGolsC = jogosC.reduce((a, j) => a + (j.gols || 0), 0) / nC;
+    const mediaGolsF = jogosF.reduce((a, j) => a + (j.gols || 0), 0) / nF;
     if (mediaGolsC > mediaGolsF + 0.5) explicacoes.push(`${j.timeCasa?.nome} mais eficiente — média ${mediaGolsC.toFixed(1)} gols/jogo vs ${mediaGolsF.toFixed(1)}`);
     else if (mediaGolsF > mediaGolsC + 0.5) explicacoes.push(`${j.timeFora?.nome} mais eficiente fora — média ${mediaGolsF.toFixed(1)} gols/jogo`);
   }
+
+  // Forma recente (últimos 5 de cada time)
+  const formaC = jogosC.slice(0, 5).map(jj => jj.resultado === 'V' ? 'V' : jj.resultado === 'E' ? 'E' : 'D');
+  const formaF = jogosF.slice(0, 5).map(jj => jj.resultado === 'V' ? 'V' : jj.resultado === 'E' ? 'E' : 'D');
 
   return {
     resultado: { casa: probCasa, empate: probEmpate, fora: probFora, veredito },
     gols,
     confianca,
     explicacoes: explicacoes.slice(0, 4),
-    fontes
+    fontes,
+    formaC,
+    formaF
   };
 }
 
@@ -662,14 +668,14 @@ function calcularGols(j, jogosC, jogosF, h2h) {
 
   // Média de gols marcados da casa
   if (n >= 3) {
-    const mg = jogosC.slice(0, n).reduce((a, j) => a + (j.golsMarcados || 0), 0) / n;
+    const mg = jogosC.slice(0, n).reduce((a, j) => a + (j.gols || 0), 0) / n;
     const ms = jogosF.slice(0, m).reduce((a, j) => a + (j.golsSofridos || 0), 0) / (m || 1);
     vals.push((mg + ms) / 2);
   }
 
   // Média de gols do visitante
   if (m >= 3) {
-    const mg = jogosF.slice(0, m).reduce((a, j) => a + (j.golsMarcados || 0), 0) / m;
+    const mg = jogosF.slice(0, m).reduce((a, j) => a + (j.gols || 0), 0) / m;
     const ms = jogosC.slice(0, n).reduce((a, j) => a + (j.golsSofridos || 0), 0) / (n || 1);
     vals.push((mg + ms) / 2);
   }
