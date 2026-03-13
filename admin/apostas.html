@@ -1077,6 +1077,7 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
         <option value="30">30 jogos/lote (lento)</option>
       </select>
       <button class="btn-analisar" id="btnBackfill" onclick="iniciarBackfill()">🔄 Iniciar importação</button>
+      <button class="btn-back" onclick="rodarDiagnostico()" title="Ver estrutura do banco">🔍 Diagnóstico</button>
     </div>
     <div id="backfillStatus" style="margin-top:10px;font-size:12px;color:var(--t2)"></div>
     <div id="backfillProgress" style="margin-top:8px;display:none">
@@ -1090,6 +1091,31 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
 
 // ── BACKFILL ──────────────────────────────────────────────────────────────
 let backfillRodando = false;
+
+async function rodarDiagnostico() {
+  const el = gc('backfillStatus');
+  el.textContent = 'Rodando diagnóstico...';
+  try {
+    const r = await fns.httpsCallable('diagnosticarBackfill')({});
+    const d = r.data;
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:8px;padding:12px;font-size:11px;font-family:monospace;line-height:1.8">
+        <b>Total docs em jogos-admin:</b> ${d.totalDocs}<br>
+        <b>Campos do doc:</b> ${d.campos.join(', ')}<br>
+        <b>timeCasa campos:</b> ${d.timeCasaCampos.join(', ')}<br>
+        <b>Encerrados (status=='encerrado'):</b> ${d.encerradosPorStatus}<br>
+        <b>Encerrados (statusCode=='FT'):</b> ${d.encerradosPorStatusCode}<br>
+        <hr style="border-color:var(--brd);margin:6px 0">
+        <b>Exemplo doc encerrado:</b><br>
+        status: ${d.exemploDoc.status} | statusCode: ${d.exemploDoc.statusCode}<br>
+        apiFootballId: ${d.exemploDoc.apiFootballId} | apiFixtureId: ${d.exemploDoc.apiFixtureId}<br>
+        placar: ${d.exemploDoc.placarCasa}-${d.exemploDoc.placarFora}<br>
+        timeCasa.apiId: ${d.exemploDoc.timeCasaApiId} | timeFora.apiId: ${d.exemploDoc.timeForaApiId}
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">Erro diagnóstico: ${e.message}</span>`;
+  }
+}
 
 async function iniciarBackfill() {
   if (backfillRodando) return;
