@@ -507,14 +507,22 @@ function calcYS(jogos) {
   const poss  = avg('Ball Possession') || 50;
   const passAcc = avg('Passes %') || 75;
   let ys = 0;
+  // Aproveitamento é o preditor mais forte — mantido
   ys += aproveit * 3.5;
-  ys += Math.min(1, golsM/2.5) * 1.5;
-  ys += Math.max(0, 1 - golsS/2.5) * 1.5;
-  ys += Math.min(1, xg/1.8) * 1.5;
-  ys += Math.min(1, shots/7) * 0.8;
-  ys += Math.min(1, (poss-30)/40) * 0.4;
-  ys += Math.min(1, (passAcc-60)/35) * 0.3;
-  return Math.min(10, Math.max(0, ys));
+  // Ataque: gols marcados + xG com leve boost
+  ys += Math.min(1, golsM/2.5) * 1.8;
+  // Defesa: aumentado — dados mostraram que não sofrer gols é mais preditivo que marcar
+  ys += Math.max(0, 1 - golsS/2.0) * 1.8;
+  // xG: mantido mas com threshold menor (mais sensitivo)
+  ys += Math.min(1, xg/1.5) * 1.2;
+  // Chutes: leve redução
+  ys += Math.min(1, shots/7) * 0.6;
+  // Posse: reduzida significativamente — dados mostraram posse ≠ resultado
+  ys += Math.min(1, (poss-30)/40) * 0.15;
+  // Passes: leve redução
+  ys += Math.min(1, (passAcc-60)/35) * 0.15;
+  // Reescalar para manter range ~0-10
+  return Math.min(10, Math.max(0, ys * 1.05));
 }
 
 // Classificar força pelo YS (substitui classForça por odds)
@@ -580,17 +588,30 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
   // ── FONTE 1: Yellup Score relativo ───────────────────────────────────
   if (ysC !== null && ysF !== null) {
     const ysTotal = (ysC + ysF) || 10;
+    const diffAbs = Math.abs(ysC - ysF);
     let probYS = (ysC / ysTotal) * 100 + 5; // +5 vantagem casa
-    const empYS = 22 + Math.max(0, 10 - Math.abs(ysC - ysF)) * 0.8; // times equilibrados = mais empate
-    const w = 0.30;
+
+    // Quando times são equilibrados (YS diff < 1.5) puxar para base 50/25/25
+    // Dados mostraram que YS sozinho não quebra empates próximos
+    if (diffAbs < 1.5) {
+      probYS = probYS * 0.6 + 50 * 0.4; // regredir à média
+    }
+
+    // Empate mais provável quando times equilibrados
+    const empYS = 24 + Math.max(0, 12 - diffAbs) * 0.9;
+
+    // Peso do YS: reduzido quando equilibrado (não temos certeza)
+    const w = diffAbs >= 3.0 ? 0.30 : diffAbs >= 1.5 ? 0.22 : 0.14;
+
     probCasa   += probYS * w;
     probEmpate += empYS * w;
     wTotal += w;
     fontes.push({ nome: `YS ${ysC?.toFixed(1)} vs ${ysF?.toFixed(1)}`, amostras: nC + nF, ativa: true });
     const diff = ysC - ysF;
-    if (diff >= 2.0)      explicacoes.push(`${j.timeCasa?.nome} muito superior em forma — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)}`);
-    else if (diff <= -2.0) explicacoes.push(`${j.timeFora?.nome} chega em melhor momento — YS ${ysF.toFixed(1)} vs ${ysC.toFixed(1)}`);
-    else                   explicacoes.push(`Times equilibrados em forma — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)}`);
+    if (diff >= 2.5)       explicacoes.push(`${j.timeCasa?.nome} muito superior em forma — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)}`);
+    else if (diff <= -2.5) explicacoes.push(`${j.timeFora?.nome} chega em melhor momento — YS ${ysF.toFixed(1)} vs ${ysC.toFixed(1)}`);
+    else if (diffAbs < 1.0) explicacoes.push(`Times praticamente iguais em forma — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)} (imprevisível)`);
+    else                   explicacoes.push(`${diff > 0 ? j.timeCasa?.nome : j.timeFora?.nome} ligeiramente melhor — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)}`);
   }
 
   // ── FONTE 2: Histórico em casa ────────────────────────────────────────
@@ -713,13 +734,36 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
   const max = Math.max(probCasa, probEmpate, probFora);
   const veredito = probCasa === max ? 'casa' : probEmpate === max ? 'empate' : 'fora';
 
-  // ── CONFIANÇA ─────────────────────────────────────────────────────────
-  const scoreConf = (nC >= 20 ? 3 : nC >= 8 ? 2 : nC >= 3 ? 1 : 0)
-                  + (nF >= 20 ? 3 : nF >= 8 ? 2 : nF >= 3 ? 1 : 0)
-                  + ((cC?.totalAmostras||0) >= 20 ? 3 : (cC?.totalAmostras||0) >= 8 ? 2 : 0)
-                  + (ysC !== null && ysF !== null ? 2 : 0)
-                  + (max >= 55 ? 2 : max >= 48 ? 1 : 0);
-  const confianca = scoreConf >= 11 ? 'alta' : scoreConf >= 7 ? 'media' : scoreConf >= 3 ? 'baixa' : 'insuficiente';
+  // Flag de alta incerteza — quando as 3 opções estão próximas
+  const segundoMax = [probCasa, probEmpate, probFora].sort((a,b)=>b-a)[1];
+  const altaIncerteza = (max - segundoMax) < 8; // menos de 8pp de margem
+
+  // ── CONFIANÇA recalibrada (v2) ──────────────────────────────────────────
+  // Dados de 206 jogos mostraram acurácia INVERTIDA — sistema estava superconfiante
+  // Nova lógica: exige muito mais dados E margem clara para subir de nível
+  const diffYS = ysC !== null && ysF !== null ? Math.abs(ysC - ysF) : 0;
+
+  let scoreConf = 0;
+  // Volume de dados do time da casa (mais exigente)
+  scoreConf += nC >= 25 ? 3 : nC >= 15 ? 2 : nC >= 8 ? 1 : 0;
+  // Volume de dados do visitante
+  scoreConf += nF >= 25 ? 3 : nF >= 15 ? 2 : nF >= 8 ? 1 : 0;
+  // Banco de contexto bem populado
+  scoreConf += (cC?.totalAmostras||0) >= 40 ? 3 : (cC?.totalAmostras||0) >= 15 ? 1 : 0;
+  // YS disponível para ambos
+  scoreConf += (ysC !== null && ysF !== null) ? 1 : 0;
+  // Diferença clara de YS (times não equilibrados) — penaliza equilíbrio
+  scoreConf += diffYS >= 3.0 ? 2 : diffYS >= 1.8 ? 1 : -1;
+  // Probabilidade máxima bem definida (margem clara)
+  scoreConf += max >= 60 ? 2 : max >= 52 ? 1 : max < 40 ? -2 : 0;
+  // H2H disponível
+  scoreConf += (h2h.length >= 5) ? 1 : 0;
+
+  // Limiares mais altos — "alta" agora exige muito mais
+  const confianca = scoreConf >= 13 ? 'alta'
+    : scoreConf >= 9  ? 'media'
+    : scoreConf >= 5  ? 'baixa'
+    : 'insuficiente';
 
   // Força comparativa (gols)
   if (nC >= 5 && nF >= 5) {
@@ -733,10 +777,20 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
   const formaC = jogosC.slice(0,5).map(jj => jj.resultado==='V'?'V':jj.resultado==='E'?'E':'D');
   const formaF = jogosF.slice(0,5).map(jj => jj.resultado==='V'?'V':jj.resultado==='E'?'E':'D');
 
+  // Se alta incerteza, rebaixar confiança um nível
+  const confiancaFinal = altaIncerteza && confianca === 'alta'  ? 'media'
+    : altaIncerteza && confianca === 'media' ? 'baixa'
+    : confianca;
+
+  if (altaIncerteza && !explicacoes.find(e => e.includes('imprevisível'))) {
+    explicacoes.push('Jogo imprevisível — margem pequena entre os resultados');
+  }
+
   return {
     resultado: { casa: probCasa, empate: probEmpate, fora: probFora, veredito },
     gols: calcularGols(j, jogosC, jogosF, hC?.h2h, periodoC, periodoF),
-    confianca,
+    confianca: confiancaFinal,
+    altaIncerteza,
     explicacoes: explicacoes.slice(0, 4),
     fontes,
     formaC, formaF,
@@ -781,9 +835,11 @@ function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF) {
   if (!vals.length) vals.push(2.5);
 
   const media = vals.reduce((a,b)=>a+b,0)/vals.length;
-  const est = Math.round(media * 10) / 10;
-  const baixo = Math.max(0, Math.round((est - 0.8) * 10) / 10);
-  const alto  = Math.round((est + 0.9) * 10) / 10;
+  // Calibração v2: dados históricos mostraram subestimação média de +0.1 gols
+  // Aplicar correção de +0.15 para compensar o viés
+  const est = Math.round((media + 0.15) * 10) / 10;
+  const baixo = Math.max(0, Math.round((est - 0.9) * 10) / 10);
+  const alto  = Math.round((est + 1.0) * 10) / 10;
   const tendencia = est >= 3.0 ? 'alto' : est <= 1.9 ? 'baixo' : 'medio';
 
   // Distribuição por período se disponível
