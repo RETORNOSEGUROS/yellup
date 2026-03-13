@@ -150,6 +150,23 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-ser
   .toolbar{gap:8px}
 }
 
+/* ── SIMULADOR ── */
+.sim-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.sim-card{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:16px}
+.sim-title{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.sim-table{width:100%;border-collapse:collapse;font-size:12px}
+.sim-table th{color:var(--t2);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--brd);text-align:left}
+.sim-table td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04)}
+.sim-table tr:last-child td{border-bottom:none}
+.sim-table tr:hover td{background:rgba(255,255,255,.03)}
+.sim-best{background:rgba(99,195,34,.08)!important;font-weight:600}
+.sim-pct{font-weight:700}
+.sim-roi-pos{color:var(--grn);font-weight:700}
+.sim-roi-neg{color:var(--red);font-weight:700}
+.desvio-bar{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px}
+.desvio-bar-fill{height:7px;border-radius:4px;min-width:2px}
+.filtro-sim{background:var(--bg2);border:1px solid var(--brd);border-radius:8px;padding:6px 10px;color:var(--t1);font-size:12px}
+@media(max-width:700px){.sim-grid{grid-template-columns:1fr}}
 /* ── APRENDIZADO ── */
 .apr-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
 .apr-card{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:16px}
@@ -183,6 +200,7 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-ser
   <div class="header-right">
     <button class="btn-back" id="btnTabPrevisoes" onclick="setTab('previsoes')" style="color:var(--acc);border-color:var(--acc)">📊 Previsões</button>
     <button class="btn-back" id="btnTabAprendizado" onclick="setTab('aprendizado')">🧠 O que aprendemos</button>
+    <button class="btn-back" id="btnTabSimulador" onclick="setTab('simulador')">🎰 Simulador</button>
     <a href="jogos-admin.html" class="btn-back">← Admin</a>
   </div>
 </div>
@@ -210,6 +228,7 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-ser
   <div class="resumo-item"><div class="resumo-num" id="rBaixa" style="color:var(--t2)">0</div><div class="resumo-label">Baixa/Insuf.</div></div>
 </div>
 
+<div id="painelSimulador" style="display:none;max-width:1100px;margin:0 auto;padding:20px 24px"><div id="simuladorContent"><div style="color:var(--t2);text-align:center;padding:40px">Configure os filtros e clique em Simular.</div></div></div>
 <div id="painelAprendizado" style="display:none;max-width:1100px;margin:0 auto;padding:20px 24px">
   <div id="aprendizadoContent"><div style="color:var(--t2);text-align:center;padding:40px">Carregando dados de aprendizado...</div></div>
 </div>
@@ -267,8 +286,16 @@ function mudarData(d) {
 }
 
 // ── CARREGAR JOGOS DO DIA ─────────────────────────────────────────────────
+let _livePollingInterval = null;
+let _snapshotUnsub = null;
+
 async function carregarJogos() {
   setStatus('Carregando jogos...');
+
+  // Cancelar snapshot anterior se existir
+  if (_snapshotUnsub) { _snapshotUnsub(); _snapshotUnsub = null; }
+  if (_livePollingInterval) { clearInterval(_livePollingInterval); _livePollingInterval = null; }
+
   try {
     const snap = await db.collection('jogos-admin')
       .orderBy('dataInicio', 'asc')
@@ -277,7 +304,6 @@ async function carregarJogos() {
 
     const todos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    // Filtrar pelo dia selecionado (fuso local)
     JOGOS = todos.filter(j => {
       if (!j.dataInicio) return false;
       const dt = j.dataInicio.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio);
@@ -297,9 +323,65 @@ async function carregarJogos() {
     if (JOGOS.length === 0) {
       gc('jogosGrid').innerHTML = '<div class="empty-state"><div class="icon">📅</div><p>Nenhum jogo encontrado para esta data</p></div>';
     }
+
+    // Iniciar polling de placar para jogos ao vivo ou de hoje
+    _iniciarLivePolling();
+
   } catch(e) {
     setStatus('Erro: ' + e.message, true);
   }
+}
+
+function _iniciarLivePolling() {
+  // Polling a cada 45 segundos — atualiza só placar/minuto/status dos cards
+  _livePollingInterval = setInterval(async () => {
+    const temAoVivo = JOGOS.some(j => j.status === 'ao_vivo');
+    const temHoje   = DATA_ATUAL === new Date().toLocaleDateString('en-CA');
+    if (!temAoVivo && !temHoje) return; // nada ao vivo e não é hoje — parar
+
+    try {
+      const ids = JOGOS.map(j => j.id);
+      if (!ids.length) return;
+
+      // Buscar em lotes de 10 (limite do Firestore)
+      const lotes = [];
+      for (let i = 0; i < ids.length; i += 10) lotes.push(ids.slice(i, i+10));
+
+      let atualizado = false;
+      for (const lote of lotes) {
+        const snap = await db.collection('jogos-admin')
+          .where(firebase.firestore.FieldPath.documentId(), 'in', lote)
+          .get();
+
+        snap.docs.forEach(d => {
+          const novo = d.data();
+          const idx = JOGOS.findIndex(j => j.id === d.id);
+          if (idx === -1) return;
+          const atual = JOGOS[idx];
+
+          // Só atualizar se mudou algo relevante
+          const mudou = novo.placarCasa !== atual.placarCasa
+            || novo.placarFora !== atual.placarFora
+            || novo.minuto !== atual.minuto
+            || novo.status !== atual.status;
+
+          if (mudou) {
+            JOGOS[idx] = { ...atual, ...novo };
+            atualizado = true;
+
+            // Re-render só o card deste jogo preservando a previsão
+            const cardEl = document.getElementById('card-' + d.id);
+            if (cardEl) cardEl.outerHTML = renderCard(JOGOS[idx], PREVISOES[d.id]);
+          }
+        });
+      }
+
+      if (atualizado) atualizarResumo();
+
+    } catch(e) {
+      console.warn('Live polling erro:', e.message);
+    }
+  }, 45000); // 45 segundos
 }
 
 // ── RENDER CARDS ──────────────────────────────────────────────────────────
@@ -365,7 +447,9 @@ function renderCard(j, prev) {
         </div>
         <div class="vs-area">
           <div class="vs-placar">${placar}</div>
-          <div class="vs-label">${j.status === 'ao_vivo' ? (j.minuto || '') + "'" : ''}</div>
+          <div class="vs-label">${j.status === 'ao_vivo' 
+            ? `<span style="color:#ef4444">${j.minuto || ''}' 🔴</span>` 
+            : ''}</div>
         </div>
         <div class="time-info fora">
           <img src="${escF}" class="time-escudo" onerror="this.style.display='none'">
@@ -879,15 +963,25 @@ function setStatus(msg, err) {
 
 // ── TABS ──────────────────────────────────────────────────────────────────
 function setTab(tab) {
-  const isPrevisoes = tab === 'previsoes';
-  gc('jogosGrid').style.display       = isPrevisoes ? 'flex' : 'none';
-  gc('resumoBar').style.display       = isPrevisoes && JOGOS.length ? 'flex' : 'none';
-  gc('painelAprendizado').style.display = isPrevisoes ? 'none' : 'block';
-  gc('btnTabPrevisoes').style.color   = isPrevisoes ? 'var(--acc)' : '';
-  gc('btnTabPrevisoes').style.borderColor = isPrevisoes ? 'var(--acc)' : '';
-  gc('btnTabAprendizado').style.color = !isPrevisoes ? 'var(--acc)' : '';
-  gc('btnTabAprendizado').style.borderColor = !isPrevisoes ? 'var(--acc)' : '';
-  if (!isPrevisoes) carregarAprendizado();
+  const isPrevisoes   = tab === 'previsoes';
+  const isAprendizado = tab === 'aprendizado';
+  const isSimulador   = tab === 'simulador';
+  gc('jogosGrid').style.display           = isPrevisoes ? 'flex' : 'none';
+  gc('resumoBar').style.display           = isPrevisoes && JOGOS.length ? 'flex' : 'none';
+  gc('painelAprendizado').style.display   = isAprendizado ? 'block' : 'none';
+  gc('painelSimulador').style.display     = isSimulador   ? 'block' : 'none';
+
+  const tabs = ['btnTabPrevisoes','btnTabAprendizado','btnTabSimulador'];
+  const ativo = isPrevisoes ? 0 : isAprendizado ? 1 : 2;
+  tabs.forEach((id, i) => {
+    const el = gc(id);
+    if (!el) return;
+    el.style.color       = i === ativo ? 'var(--acc)' : '';
+    el.style.borderColor = i === ativo ? 'var(--acc)' : '';
+  });
+
+  if (isAprendizado) carregarAprendizado();
+  if (isSimulador)   iniciarSimulador();
 }
 
 // ── SALVAR PREVISÃO PRÉ-JOGO ──────────────────────────────────────────────
@@ -1196,6 +1290,223 @@ async function rodarDiagnostico() {
   } catch(e) {
     el.innerHTML = `<span style="color:var(--red)">Erro diagnóstico: ${e.message}</span>`;
   }
+}
+
+
+// ── SIMULADOR DE ESTRATÉGIAS ──────────────────────────────────────────────
+let _simDados = null;
+
+function iniciarSimulador() {
+  const el = gc('simuladorContent');
+  el.innerHTML = _buildSimuladorUI();
+}
+
+function _buildSimuladorUI() {
+  return `
+  <div style="margin-bottom:20px">
+    <div style="font-size:18px;font-weight:700;margin-bottom:4px">🎰 Simulador de Estratégias</div>
+    <div style="font-size:12px;color:var(--t2)">Testa quanto cada estratégia teria rendido nos dados históricos reais</div>
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:4px">Liga</div>
+      <select id="simLiga" class="filtro-sim" style="min-width:180px">
+        <option value="">Todas as ligas</option>
+      </select>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:4px">Confiança</div>
+      <select id="simConf" class="filtro-sim">
+        <option value="">Todas</option>
+        <option value="alta">Alta</option>
+        <option value="media">Média</option>
+        <option value="baixa">Baixa</option>
+        <option value="insuficiente">Insuficiente</option>
+      </select>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:4px">Odd média simulada</div>
+      <input id="simOdd" type="number" class="filtro-sim" value="1.90" min="1.1" max="3.0" step="0.05" style="width:80px">
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:4px">Stake por aposta (R$)</div>
+      <input id="simStake" type="number" class="filtro-sim" value="10" min="1" step="1" style="width:80px">
+    </div>
+    <button class="btn-analisar" onclick="rodarSimulacao()">▶ Simular</button>
+  </div>
+  <div id="simResultado"></div>`;
+}
+
+async function rodarSimulacao() {
+  const el = gc('simResultado');
+  const liga   = gc('simLiga')?.value || null;
+  const conf   = gc('simConf')?.value || null;
+  const odd    = parseFloat(gc('simOdd')?.value || '1.90');
+  const stake  = parseFloat(gc('simStake')?.value || '10');
+
+  el.innerHTML = '<div style="color:var(--t2);padding:20px">Calculando...</div>';
+
+  try {
+    const r = await fns.httpsCallable('simularEstrategias')({
+      liga: liga || null, confianca: conf || null
+    });
+    const d = r.data;
+    if (!d.sucesso) { el.innerHTML = `<div style="color:var(--red)">${d.msg}</div>`; return; }
+
+    // Recalcular ROI com odd/stake da UI
+    const n = d.total;
+    const simFin = d.estrategiasGols.map(e => {
+      const ganhoOver  = e.over.acertos  * (stake * odd) - n * stake;
+      const ganhoUnder = e.under.acertos * (stake * odd) - n * stake;
+      return {
+        label:      e.label,
+        margem:     e.margem,
+        overPct:    e.over.pct,
+        underPct:   e.under.pct,
+        roiOver:    +((ganhoOver  / (n * stake)) * 100).toFixed(1),
+        roiUnder:   +((ganhoUnder / (n * stake)) * 100).toFixed(1),
+        lucroOver:  +ganhoOver.toFixed(2),
+        lucroUnder: +ganhoUnder.toFixed(2),
+      };
+    });
+
+    const melhorOverIdx  = simFin.reduce((bi, e, i) => e.roiOver  > simFin[bi].roiOver  ? i : bi, 0);
+    const melhorUnderIdx = simFin.reduce((bi, e, i) => e.roiUnder > simFin[bi].roiUnder ? i : bi, 0);
+
+    // Distribuição de desvios
+    const buckets = Object.entries(d.histDesvios).sort((a,b) => parseFloat(a[0])-parseFloat(b[0]));
+    const maxBucket = Math.max(...buckets.map(([,v]) => v));
+
+    el.innerHTML = `
+    <div class="sim-grid">
+
+      <!-- Card: Distribuição de erros -->
+      <div class="sim-card">
+        <div class="sim-title">📐 Distribuição dos desvios de gols</div>
+        <div style="font-size:12px;color:var(--t2);margin-bottom:12px">
+          Desvio médio: <b style="color:${d.desvioMedio>=0?'var(--grn)':'var(--red)'}">${d.desvioMedio>=0?'+':''}${d.desvioMedio}</b> &nbsp;·&nbsp;
+          Subestimou: <b>${d.desviosPositivos}</b> &nbsp;·&nbsp;
+          Superestimou: <b>${d.desviosNegativos}</b> &nbsp;·&nbsp;
+          Exato: <b>${d.desviosExatos}</b>
+        </div>
+        ${buckets.map(([k, v]) => {
+          const pctBar = Math.round(v / maxBucket * 100);
+          const cor = k.startsWith('+') ? '#ef4444' : k === '0' ? 'var(--grn)' : '#378ADD';
+          return `<div class="desvio-bar">
+            <div style="min-width:28px;text-align:right;color:var(--t2)">${k}</div>
+            <div class="desvio-bar-fill" style="width:${pctBar}%;background:${cor}"></div>
+            <div style="color:var(--t2)">${v}×</div>
+            <div style="color:var(--t3);font-size:10px">(${(v/n*100).toFixed(0)}%)</div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Card: Resultado por margem de probabilidade -->
+      <div class="sim-card">
+        <div class="sim-title">🎯 Acurácia de resultado por confiança do modelo</div>
+        <table class="sim-table">
+          <tr><th>Faixa de prob.</th><th>Jogos</th><th>Acertos</th><th>%</th></tr>
+          ${d.porMargem.filter(m => m.total > 0).map(m => {
+            const cor = m.pct>=60?'var(--grn)':m.pct>=48?'var(--acc)':'var(--red)';
+            return `<tr>
+              <td>${m.label}</td>
+              <td style="color:var(--t2)">${m.total}</td>
+              <td>${m.acertos}</td>
+              <td class="sim-pct" style="color:${cor}">${m.pct}%</td>
+            </tr>`;
+          }).join('')}
+        </table>
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--brd)">
+          <div class="sim-title">Por nível de confiança</div>
+          <table class="sim-table">
+            <tr><th>Confiança</th><th>Jogos</th><th>%</th><th>Desvio gols</th></tr>
+            ${['alta','media','baixa','insuficiente'].filter(k => d.porConf[k]).map(k => {
+              const m = d.porConf[k];
+              const cor = m.pct>=60?'var(--grn)':m.pct>=48?'var(--acc)':'var(--red)';
+              const label = k==='alta'?'Alta':k==='media'?'Média':k==='baixa'?'Baixa':'Insuf.';
+              return `<tr>
+                <td>${label}</td>
+                <td style="color:var(--t2)">${m.total}</td>
+                <td class="sim-pct" style="color:${cor}">${m.pct}%</td>
+                <td style="color:${m.golsDesvioMedio>=0?'var(--red)':'var(--grn)'}">${m.golsDesvioMedio>=0?'+':''}${m.golsDesvioMedio}</td>
+              </tr>`;
+            }).join('')}
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabela principal: estratégias de gols -->
+    <div class="sim-card" style="margin-bottom:16px">
+      <div class="sim-title">⚽ Estratégias de gols — ${n} jogos · odd ${odd} · R$${stake}/aposta</div>
+      <table class="sim-table">
+        <tr>
+          <th>Estratégia</th>
+          <th>Over %</th><th>ROI Over</th><th>Lucro Over</th>
+          <th>Under %</th><th>ROI Under</th><th>Lucro Under</th>
+        </tr>
+        ${simFin.map((e, i) => {
+          const bestO = i === melhorOverIdx;
+          const bestU = i === melhorUnderIdx;
+          return `<tr class="${bestO||bestU ? 'sim-best' : ''}">
+            <td style="font-weight:${bestO||bestU?'700':'400'}">${e.label} ${bestO&&bestU?'🏆 ★':bestO?'🏆':bestU?'★':''}</td>
+            <td class="sim-pct" style="color:${e.overPct>=55?'var(--grn)':e.overPct>=45?'var(--t1)':'var(--red)'}">${e.overPct}%</td>
+            <td class="${e.roiOver>=0?'sim-roi-pos':'sim-roi-neg'}">${e.roiOver>=0?'+':''}${e.roiOver}%</td>
+            <td style="color:${e.lucroOver>=0?'var(--grn)':'var(--red)'}">R$${e.lucroOver>=0?'+':''}${e.lucroOver}</td>
+            <td class="sim-pct" style="color:${e.underPct>=55?'var(--grn)':e.underPct>=45?'var(--t1)':'var(--red)'}">${e.underPct}%</td>
+            <td class="${e.roiUnder>=0?'sim-roi-pos':'sim-roi-neg'}">${e.roiUnder>=0?'+':''}${e.roiUnder}%</td>
+            <td style="color:${e.lucroUnder>=0?'var(--grn)':'var(--red)'}">R$${e.lucroUnder>=0?'+':''}${e.lucroUnder}</td>
+          </tr>`;
+        }).join('')}
+      </table>
+      <div style="font-size:11px;color:var(--t3);margin-top:10px">
+        🏆 = melhor ROI Over &nbsp;·&nbsp; ★ = melhor ROI Under &nbsp;·&nbsp;
+        Over: aposta que o jogo terá MAIS gols que o threshold &nbsp;·&nbsp;
+        Under: aposta que o jogo terá MENOS gols que o threshold
+      </div>
+    </div>
+
+    <div style="background:rgba(99,195,34,.06);border:1px solid rgba(99,195,34,.2);border-radius:10px;padding:14px;font-size:12px">
+      <b style="color:var(--grn)">💡 Melhor estratégia encontrada:</b><br>
+      <b>Over:</b> Apostando Over nos jogos onde estimamos ${simFin[melhorOverIdx].margem >= 0 ? 'mais de ' + (simFin[melhorOverIdx].margem > 0 ? 'est.+'+simFin[melhorOverIdx].margem : 'exato estimado') : 'est.'+simFin[melhorOverIdx].margem} gols →
+        acerto de <b>${simFin[melhorOverIdx].overPct}%</b>, ROI <b>${simFin[melhorOverIdx].roiOver >= 0 ? '+' : ''}${simFin[melhorOverIdx].roiOver}%</b>
+        (R$${simFin[melhorOverIdx].lucroOver >= 0 ? '+' : ''}${simFin[melhorOverIdx].lucroOver} em ${n} apostas)<br>
+      <b>Under:</b> Apostando Under no threshold <b>${simFin[melhorUnderIdx].label}</b> →
+        acerto de <b>${simFin[melhorUnderIdx].underPct}%</b>, ROI <b>${simFin[melhorUnderIdx].roiUnder >= 0 ? '+' : ''}${simFin[melhorUnderIdx].roiUnder}%</b>
+        (R$${simFin[melhorUnderIdx].lucroUnder >= 0 ? '+' : ''}${simFin[melhorUnderIdx].lucroUnder} em ${n} apostas)
+    </div>`;
+
+    // Popular select de ligas com dados reais
+    if (d.ligasDisponiveis) {
+      const sel = gc('simLiga');
+      if (sel) {
+        const current = sel.value;
+        sel.innerHTML = '<option value="">Todas as ligas</option>';
+        d.ligasDisponiveis.forEach(l => sel.innerHTML += `<option value="${l}" ${l===current?'selected':''}>${l}</option>`);
+      }
+    }
+
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red)">Erro: ${e.message}</div>`;
+  }
+}
+
+// Popular select de ligas do simulador quando aba é aberta
+async function _carregarLigasSimulador() {
+  try {
+    const snap = await db.collection('yellup-aprendizado').get();
+    const sel = gc('simLiga');
+    if (!sel) return;
+    const ligas = snap.docs.map(d => d.data().liga).filter(Boolean).sort();
+    sel.innerHTML = '<option value="">Todas as ligas</option>';
+    ligas.forEach(l => sel.innerHTML += `<option value="${l}">${l}</option>`);
+  } catch(e) {}
+}
+
+const _iniciarSimuladorOrig = iniciarSimulador;
+function iniciarSimulador() {
+  _iniciarSimuladorOrig();
+  setTimeout(_carregarLigasSimulador, 300);
 }
 
 async function iniciarBackfill() {
