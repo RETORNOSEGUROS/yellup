@@ -851,10 +851,23 @@ function renderStats() {
   const posseF = parseInt(away["Ball Possession"]) || (100 - posseC);
   gc("posseCasaBar").style.width = posseC + "%"; gc("posseCasaBar").textContent = posseC + "%";
   gc("posseForaBar").style.width = posseF + "%"; gc("posseForaBar").textContent = posseF + "%";
+  // YAI para a tabela de stats (fallback quando DA não vem da API)
+  const _calcYAI = (raw) => {
+    const da = parseInt(raw["Dangerous Attacks"]) || 0;
+    if (da > 0) return { val: da, yai: false };
+    const sOn  = parseInt(raw["Shots on Goal"])  || 0;
+    const sOff = parseInt(raw["Shots off Goal"]) || 0;
+    const sBlk = parseInt(raw["Blocked Shots"])  || 0;
+    const cor  = parseInt(raw["Corner Kicks"])   || 0;
+    if (!sOn && !sOff && !cor) return { val: null, yai: false };
+    return { val: Math.round(sOn * 3.0 + sOff * 1.2 + sBlk * 1.0 + cor * 0.6), yai: true };
+  };
+  const yaiStatH = _calcYAI(home), yaiStatA = _calcYAI(away);
+  const apLabelStats = (yaiStatH.yai || yaiStatA.yai) ? "Ataques Per.~" : "Ataques Per.";
+
   const linhas = [
     { label:"Chutes",       hk:"Total Shots",        ak:"Total Shots" },
     { label:"No Alvo",      hk:"Shots on Goal",      ak:"Shots on Goal" },
-    { label:"Ataques Per.", hk:"Dangerous Attacks",  ak:"Dangerous Attacks" },
     { label:"Passes",       hk:"Total passes",       ak:"Total passes" },
     { label:"Precisao",     hk:"Passes %",           ak:"Passes %", unit:"%" },
     { label:"Faltas",       hk:"Fouls",              ak:"Fouls" },
@@ -863,6 +876,13 @@ function renderStats() {
     { label:"xG",           hk:"expected_goals",     ak:"expected_goals", dec:2 },
   ];
   let html = "";
+  // Linha especial Ataques Perigosos com YAI
+  const apHval = yaiStatH.val, apAval = yaiStatA.val;
+  const apHn = apHval || 0, apAn = apAval || 0, apTotal = apHn + apAn || 1;
+  const apHpct = Math.round(apHn / apTotal * 100);
+  const fVap = v => v === null || v === undefined ? "--" : String(v);
+  html += "<div class='stat-row'><div class='stat-val home'>" + fVap(apHval) + "</div><div class='stat-bar-wrap'><div class='stat-label'>" + apLabelStats + "</div><div class='stat-bar'><div class='stat-bar-home' style='width:" + apHpct + "%'></div><div class='stat-bar-away' style='width:" + (100-apHpct) + "%'></div></div></div><div class='stat-val away'>" + fVap(apAval) + "</div></div>";
+
   linhas.forEach(({ label, hk, ak, unit, dec }) => {
     const hv = home[hk], av = away[ak];
     const hn = parseFloat(hv) || 0, an = parseFloat(av) || 0, total = hn + an || 1;
@@ -874,7 +894,7 @@ function renderStats() {
   const dd = [
     { label:"Posse",        hv:posseC, av:posseF, unit:"%", cor:"#00E5A0" },
     { label:"Chutes Alvo",  hv:parseInt(home["Shots on Goal"]) || 0, av:parseInt(away["Shots on Goal"]) || 0, unit:"", cor:"#4B8EFF" },
-    { label:"Ataques Per.", hv:parseInt(home["Dangerous Attacks"]) || 0, av:parseInt(away["Dangerous Attacks"]) || 0, unit:"", cor:"#9B6DFF" },
+    { label:"Ataques Per." + (yaiStatH.yai||yaiStatA.yai?"~":""), hv:yaiStatH.val||0, av:yaiStatA.val||0, unit:"", cor:"#9B6DFF" },
     { label:"Precisao",     hv:parseInt(home["Passes %"]) || 0, av:parseInt(away["Passes %"]) || 0, unit:"%", cor:"#FFB800" },
   ];
   gc("donutsGrid").innerHTML = dd.map(d => {
