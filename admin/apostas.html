@@ -217,10 +217,6 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-ser
   <div class="empty-state"><div class="icon">📅</div><p>Selecione uma data e clique em Analisar Todos</p></div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
 <script>
 firebase.initializeApp({
   apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
@@ -469,48 +465,6 @@ function renderPrevisaoArea(j, prev) {
   </div>`;
 }
 
-// ── ANALISAR TODOS ────────────────────────────────────────────────────────
-async function analisarTodos() {
-  if (ANALISANDO) return;
-  const filtroLiga = gc('filtroLiga').value;
-  const jogos = filtroLiga ? JOGOS.filter(j => j.liga?.nome === filtroLiga) : JOGOS;
-  if (!jogos.length) return;
-
-  ANALISANDO = true;
-  const btn = gc('btnAnalisar');
-  btn.disabled = true;
-  btn.textContent = '⏳ Analisando...';
-
-  // Marcar todos como loading
-  jogos.forEach(j => { PREVISOES[j.id] = { loading: true, step: 'buscando dados' }; });
-  renderCards();
-
-  let analisados = 0;
-  for (const j of jogos) {
-    try {
-      PREVISOES[j.id] = { loading: true, step: j.timeCasa?.nome };
-      // Re-render só o card afetado
-      const cardEl = document.getElementById('card-' + j.id);
-      if (cardEl) cardEl.outerHTML = renderCard(j, PREVISOES[j.id]);
-
-      const prev = await analisarJogo(j);
-      PREVISOES[j.id] = prev;
-      analisados++;
-      setStatus(`${analisados}/${jogos.length} analisados`);
-
-      const cardEl2 = document.getElementById('card-' + j.id);
-      if (cardEl2) cardEl2.outerHTML = renderCard(j, prev);
-    } catch(e) {
-      PREVISOES[j.id] = { resultado: null, gols: null, confianca: 'insuficiente', explicacoes: ['Erro: ' + e.message], fontes: [] };
-    }
-  }
-
-  atualizarResumo();
-  ANALISANDO = false;
-  btn.disabled = false;
-  btn.textContent = '🔄 Reanalisar';
-  setStatus('✓ Análise completa');
-}
 
 // ── ANALISAR UM JOGO ──────────────────────────────────────────────────────
 async function analisarJogo(j) {
@@ -913,7 +867,6 @@ async function salvarPrevisao(j, prev) {
 }
 
 // Sobrescrever analisarTodos para salvar previsões
-const _analisarTodosOriginal = analisarTodos;
 async function analisarTodos() {
   if (ANALISANDO) return;
   const filtroLiga = gc('filtroLiga').value;
