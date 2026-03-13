@@ -297,9 +297,17 @@ async function carregarJogos() {
   if (_livePollingInterval) { clearInterval(_livePollingInterval); _livePollingInterval = null; }
 
   try {
+    // Buscar só no intervalo ±3 dias da data selecionada
+    // Evita que limit(300) corte jogos futuros quando há muitos históricos
+    const dtAlvo   = new Date(DATA_ATUAL + 'T12:00:00');
+    const dtInicio = new Date(dtAlvo); dtInicio.setDate(dtInicio.getDate() - 3);
+    const dtFim    = new Date(dtAlvo); dtFim.setDate(dtFim.getDate() + 3);
+
     const snap = await db.collection('jogos-admin')
       .orderBy('dataInicio', 'asc')
-      .limit(300)
+      .startAt(firebase.firestore.Timestamp.fromDate(dtInicio))
+      .endAt(firebase.firestore.Timestamp.fromDate(dtFim))
+      .limit(200)
       .get();
 
     const todos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -307,10 +315,8 @@ async function carregarJogos() {
     JOGOS = todos.filter(j => {
       if (!j.dataInicio) return false;
       const dt = j.dataInicio.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio);
-      // Checar data local (fuso do browser) E data UTC — evita problema de timezone
       const dataLocal = dt.toLocaleDateString('en-CA');
       const dataUTC   = dt.toISOString().slice(0, 10);
-      // Também checar campo string se existir
       const dataStr   = j.dataStr || j.data || '';
       return dataLocal === DATA_ATUAL || dataUTC === DATA_ATUAL || dataStr.startsWith(DATA_ATUAL);
     });
