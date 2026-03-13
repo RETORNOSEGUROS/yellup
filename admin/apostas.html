@@ -149,6 +149,30 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-ser
   .previsao-area{grid-template-columns:1fr}
   .toolbar{gap:8px}
 }
+
+/* ── APRENDIZADO ── */
+.apr-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
+.apr-card{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:16px}
+.apr-card-title{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.apr-big{font-size:32px;font-weight:800}
+.apr-sub{font-size:11px;color:var(--t2);margin-top:2px}
+.liga-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd)}
+.liga-row:last-child{border-bottom:none}
+.liga-nome{font-size:13px;font-weight:600;min-width:160px}
+.liga-bar-wrap{flex:1;height:6px;background:var(--brd);border-radius:3px;overflow:hidden}
+.liga-bar-fill{height:100%;border-radius:3px;background:var(--grn)}
+.liga-pct{font-size:12px;font-weight:700;min-width:40px;text-align:right}
+.fator-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--brd)}
+.fator-item:last-child{border-bottom:none}
+.fator-nome{font-size:12px;color:var(--t1);flex:1}
+.fator-count{font-size:11px;background:rgba(239,95,95,.15);color:var(--red);padding:2px 8px;border-radius:20px}
+.prev-hist-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--brd);font-size:12px}
+.prev-hist-row:last-child{border-bottom:none}
+.prev-hist-times{flex:1;color:var(--t1)}
+.prev-hist-result{font-weight:700}
+.acertou{color:var(--grn)}
+.errou{color:var(--red)}
+@media(max-width:700px){.apr-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -157,6 +181,8 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-ser
   <div class="header-logo">⚽ Yellup</div>
   <div class="header-title">Previsões do Dia</div>
   <div class="header-right">
+    <button class="btn-back" id="btnTabPrevisoes" onclick="setTab('previsoes')" style="color:var(--acc);border-color:var(--acc)">📊 Previsões</button>
+    <button class="btn-back" id="btnTabAprendizado" onclick="setTab('aprendizado')">🧠 O que aprendemos</button>
     <a href="jogos-admin.html" class="btn-back">← Admin</a>
   </div>
 </div>
@@ -184,6 +210,9 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-ser
   <div class="resumo-item"><div class="resumo-num" id="rBaixa" style="color:var(--t2)">0</div><div class="resumo-label">Baixa/Insuf.</div></div>
 </div>
 
+<div id="painelAprendizado" style="display:none;max-width:1100px;margin:0 auto;padding:20px 24px">
+  <div id="aprendizadoContent"><div style="color:var(--t2);text-align:center;padding:40px">Carregando dados de aprendizado...</div></div>
+</div>
 <div class="jogos-grid" id="jogosGrid">
   <div class="empty-state"><div class="icon">📅</div><p>Selecione uma data e clique em Analisar Todos</p></div>
 </div>
@@ -836,6 +865,248 @@ function setStatus(msg, err) {
   el.innerHTML = msg.startsWith('✓') ? `<span style="color:var(--grn)">${msg}</span>`
     : err ? `<span style="color:var(--red)">${msg}</span>`
     : `<div class="dot-spin"></div><span>${msg}</span>`;
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────
+function setTab(tab) {
+  const isPrevisoes = tab === 'previsoes';
+  gc('jogosGrid').style.display       = isPrevisoes ? 'flex' : 'none';
+  gc('resumoBar').style.display       = isPrevisoes && JOGOS.length ? 'flex' : 'none';
+  gc('painelAprendizado').style.display = isPrevisoes ? 'none' : 'block';
+  gc('btnTabPrevisoes').style.color   = isPrevisoes ? 'var(--acc)' : '';
+  gc('btnTabPrevisoes').style.borderColor = isPrevisoes ? 'var(--acc)' : '';
+  gc('btnTabAprendizado').style.color = !isPrevisoes ? 'var(--acc)' : '';
+  gc('btnTabAprendizado').style.borderColor = !isPrevisoes ? 'var(--acc)' : '';
+  if (!isPrevisoes) carregarAprendizado();
+}
+
+// ── SALVAR PREVISÃO PRÉ-JOGO ──────────────────────────────────────────────
+async function salvarPrevisao(j, prev) {
+  try {
+    const dt = j.dataInicio?.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio||0);
+    await fns.httpsCallable('salvarPrevisao')({
+      fixtureId:     j.apiFootballId || j.id,
+      timeCasaId:    j.timeCasa?.apiId || j.timeCasa?.id,
+      timeForaId:    j.timeFora?.apiId || j.timeFora?.id,
+      timeCasaNome:  j.timeCasa?.nome,
+      timeForaNome:  j.timeFora?.nome,
+      liga:          j.liga?.nome,
+      dataJogo:      dt.toISOString(),
+      previsao: {
+        probCasa:     prev.resultado.casa,
+        probEmpate:   prev.resultado.empate,
+        probFora:     prev.resultado.fora,
+        veredito:     prev.resultado.veredito,
+        golsEstimado: prev.gols?.estimado,
+        golsRange:    prev.gols?.range,
+        confianca:    prev.confianca,
+        ysC:          prev.ysC,
+        ysF:          prev.ysF,
+        forcaC:       prev.forcaC,
+        forcaF:       prev.forcaF,
+        fontes:       (prev.fontes||[]).map(f => f.nome),
+      }
+    });
+  } catch(e) {
+    console.warn('Erro ao salvar previsão:', e.message);
+  }
+}
+
+// Sobrescrever analisarTodos para salvar previsões
+const _analisarTodosOriginal = analisarTodos;
+async function analisarTodos() {
+  if (ANALISANDO) return;
+  const filtroLiga = gc('filtroLiga').value;
+  const jogos = filtroLiga ? JOGOS.filter(j => j.liga?.nome === filtroLiga) : JOGOS;
+  if (!jogos.length) return;
+
+  ANALISANDO = true;
+  const btn = gc('btnAnalisar');
+  btn.disabled = true;
+  btn.textContent = '⏳ Analisando...';
+
+  jogos.forEach(j => { PREVISOES[j.id] = { loading: true, step: 'buscando dados' }; });
+  renderCards();
+
+  let analisados = 0;
+  for (const j of jogos) {
+    try {
+      PREVISOES[j.id] = { loading: true, step: j.timeCasa?.nome };
+      const cardEl = document.getElementById('card-' + j.id);
+      if (cardEl) cardEl.outerHTML = renderCard(j, PREVISOES[j.id]);
+
+      const prev = await analisarJogo(j);
+      PREVISOES[j.id] = prev;
+      analisados++;
+      setStatus(`${analisados}/${jogos.length} analisados`);
+
+      const cardEl2 = document.getElementById('card-' + j.id);
+      if (cardEl2) cardEl2.outerHTML = renderCard(j, prev);
+
+      // Salvar previsão no banco (só jogos não encerrados)
+      if (j.status !== 'encerrado' && j.apiFootballId) {
+        salvarPrevisao(j, prev); // assíncrono, não bloqueia
+      }
+    } catch(e) {
+      PREVISOES[j.id] = { resultado: null, gols: null, confianca: 'insuficiente', explicacoes: ['Erro: ' + e.message], fontes: [] };
+    }
+  }
+
+  atualizarResumo();
+  ANALISANDO = false;
+  btn.disabled = false;
+  btn.textContent = '🔄 Reanalisar';
+  setStatus('✓ Análise completa — previsões salvas');
+}
+
+// ── CARREGAR APRENDIZADO ──────────────────────────────────────────────────
+async function carregarAprendizado() {
+  const el = gc('aprendizadoContent');
+  el.innerHTML = '<div style="color:var(--t2);text-align:center;padding:40px">Carregando...</div>';
+  try {
+    const r = await fns.httpsCallable('buscarAprendizado')({});
+    const { ligas, ultimas, fatorGlobal } = r.data;
+    renderAprendizado(ligas, ultimas, fatorGlobal);
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);padding:20px">Erro: ${e.message}</div>`;
+  }
+}
+
+function renderAprendizado(ligas, ultimas, fatorGlobal) {
+  const el = gc('aprendizadoContent');
+
+  // Totais globais
+  const totalJogos  = ligas.reduce((a,l) => a + (l.totalJogos||0), 0);
+  const totalAcertos = ligas.reduce((a,l) => a + (l.acertosResultado||0), 0);
+  const totalGols   = ligas.reduce((a,l) => a + (l.acertosGols||0), 0);
+  const pctResultado = totalJogos ? Math.round(totalAcertos/totalJogos*100) : 0;
+  const pctGols      = totalJogos ? Math.round(totalGols/totalJogos*100) : 0;
+  const desvioMedio  = totalJogos ? ligas.reduce((a,l) => a + (l.desvioGolsAcum||0), 0) / totalJogos : 0;
+
+  // Fator labels
+  const fatorLabel = {
+    yellup_score:        'YS favorecia mas perdeu',
+    xg_contra_resultado: 'Venceu com xG inferior',
+    gols_acima:          'Mais gols que o previsto',
+    gols_abaixo:         'Menos gols que o previsto',
+    posse_sem_eficiencia:'Posse sem eficiência',
+    baixa_confianca_correta: 'Resultado de baixa probabilidade',
+  };
+
+  const fatoresOrdenados = Object.entries(fatorGlobal)
+    .sort((a,b) => b[1]-a[1]).slice(0, 6);
+  const maxFator = fatoresOrdenados[0]?.[1] || 1;
+
+  // Ligas ordenadas por acurácia
+  const ligasOrdenadas = ligas
+    .filter(l => l.totalJogos >= 2)
+    .sort((a,b) => (b.acertosResultado/b.totalJogos) - (a.acertosResultado/a.totalJogos));
+
+  // Por confiança (global)
+  const confGlobal = { alta:{total:0,acertos:0}, media:{total:0,acertos:0}, baixa:{total:0,acertos:0}, insuficiente:{total:0,acertos:0} };
+  ligas.forEach(l => {
+    Object.entries(l.porConfianca||{}).forEach(([k,v]) => {
+      if (!confGlobal[k]) confGlobal[k] = {total:0,acertos:0};
+      confGlobal[k].total   += v.total||0;
+      confGlobal[k].acertos += v.acertos||0;
+    });
+  });
+
+  el.innerHTML = `
+  <div style="margin-bottom:16px">
+    <div style="font-size:18px;font-weight:700;margin-bottom:4px">🧠 O que a Yellup aprendeu</div>
+    <div style="font-size:12px;color:var(--t2)">${totalJogos} jogos analisados até agora</div>
+  </div>
+
+  ${totalJogos === 0 ? `<div style="text-align:center;padding:40px;color:var(--t2)">
+    <div style="font-size:32px;margin-bottom:12px">📊</div>
+    <div style="font-size:14px">Nenhum jogo analisado ainda.</div>
+    <div style="font-size:12px;margin-top:8px">Vá em Previsões, analise os jogos do dia e aguarde os resultados. O sistema aprende automaticamente a cada jogo encerrado.</div>
+  </div>` : `
+
+  <div class="apr-grid">
+    <div class="apr-card">
+      <div class="apr-card-title">🎯 Acurácia de resultado</div>
+      <div class="apr-big" style="color:${pctResultado>=60?'var(--grn)':pctResultado>=45?'var(--acc)':'var(--red)'}">${pctResultado}%</div>
+      <div class="apr-sub">${totalAcertos} de ${totalJogos} acertos</div>
+    </div>
+    <div class="apr-card">
+      <div class="apr-card-title">⚽ Acurácia de gols (±1)</div>
+      <div class="apr-big" style="color:${pctGols>=60?'var(--grn)':pctGols>=45?'var(--acc)':'var(--red)'}">${pctGols}%</div>
+      <div class="apr-sub">Dentro de 1 gol da estimativa</div>
+    </div>
+    <div class="apr-card">
+      <div class="apr-card-title">📐 Desvio médio de gols</div>
+      <div class="apr-big" style="color:var(--acc)">${desvioMedio >= 0 ? '+' : ''}${desvioMedio.toFixed(1)}</div>
+      <div class="apr-sub">${desvioMedio > 0 ? 'Subestimamos gols' : desvioMedio < 0 ? 'Superestimamos gols' : 'Calibrado'}</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+    <div class="apr-card">
+      <div class="apr-card-title">⚠️ Principais causas de erro</div>
+      ${fatoresOrdenados.length === 0 ? '<div style="color:var(--t3);font-size:12px">Sem dados suficientes ainda</div>' :
+        fatoresOrdenados.map(([tipo, count]) => `
+        <div class="fator-item">
+          <div class="fator-nome">${fatorLabel[tipo] || tipo}</div>
+          <div style="flex:1;height:4px;background:var(--brd);border-radius:2px;overflow:hidden;margin:0 8px">
+            <div style="height:100%;width:${Math.round(count/maxFator*100)}%;background:var(--red);border-radius:2px"></div>
+          </div>
+          <div class="fator-count">${count}×</div>
+        </div>`).join('')}
+    </div>
+
+    <div class="apr-card">
+      <div class="apr-card-title">🎖️ Acurácia por confiança</div>
+      ${['alta','media','baixa','insuficiente'].map(k => {
+        const d = confGlobal[k];
+        if (!d || !d.total) return '';
+        const pct = Math.round(d.acertos/d.total*100);
+        const cor = pct>=65?'var(--grn)':pct>=45?'var(--acc)':'var(--red)';
+        const label = k === 'alta' ? 'Alta' : k === 'media' ? 'Média' : k === 'baixa' ? 'Baixa' : 'Insuficiente';
+        return `<div class="liga-row">
+          <div class="liga-nome">${label} confiança</div>
+          <div class="liga-bar-wrap"><div class="liga-bar-fill" style="width:${pct}%;background:${cor}"></div></div>
+          <div class="liga-pct" style="color:${cor}">${pct}%</div>
+          <div style="font-size:10px;color:var(--t3);min-width:50px;text-align:right">${d.total} jogos</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+
+  ${ligasOrdenadas.length > 0 ? `<div class="apr-card" style="margin-bottom:16px">
+    <div class="apr-card-title">🏆 Acurácia por liga</div>
+    ${ligasOrdenadas.slice(0,10).map(l => {
+      const pct = Math.round(l.acertosResultado/l.totalJogos*100);
+      const cor = pct>=65?'var(--grn)':pct>=45?'var(--acc)':'var(--red)';
+      return `<div class="liga-row">
+        <div class="liga-nome">${l.liga}</div>
+        <div class="liga-bar-wrap"><div class="liga-bar-fill" style="width:${pct}%;background:${cor}"></div></div>
+        <div class="liga-pct" style="color:${cor}">${pct}%</div>
+        <div style="font-size:10px;color:var(--t3);min-width:50px;text-align:right">${l.totalJogos} jogos</div>
+      </div>`;
+    }).join('')}
+  </div>` : ''}
+
+  ${ultimas.length > 0 ? `<div class="apr-card">
+    <div class="apr-card-title">🕐 Últimas análises</div>
+    ${ultimas.slice(0,15).map(p => {
+      const acertouR = p.acertouResultado;
+      const acertouG = p.acertouGols;
+      const ver = p.veredito === 'casa' ? p.timeCasaNome : p.veredito === 'fora' ? p.timeForaNome : 'Empate';
+      const real = p.resultadoReal === 'casa' ? p.timeCasaNome : p.resultadoReal === 'fora' ? p.timeForaNome : 'Empate';
+      return `<div class="prev-hist-row">
+        <div class="prev-hist-times">${p.timeCasaNome} × ${p.timeForaNome}</div>
+        <div style="font-size:11px;color:var(--t2)">${p.liga||''}</div>
+        <div class="prev-hist-result ${acertouR?'acertou':'errou'}">
+          ${acertouR ? '✓' : '✗'} ${real} (${p.golsCasaReal}-${p.golsForaReal})
+        </div>
+        <div style="font-size:10px;color:var(--t3)">prev: ${ver}</div>
+        <div style="font-size:10px;color:${acertouG?'var(--grn)':'var(--red)'}">⚽${acertouG?'✓':'✗'} est.${p.golsEstimado}</div>
+      </div>`;
+    }).join('')}
+  </div>` : ''}
+  `}`;
 }
 </script>
 </body>
