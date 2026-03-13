@@ -319,7 +319,8 @@ function renderCard(j, prev) {
   const escF = j.timeFora?.escudo || '';
 
   let placar = 'vs';
-  if (j.placarCasa !== undefined && j.placarFora !== undefined) {
+  if (j.placarCasa !== null && j.placarCasa !== undefined &&
+      j.placarFora !== null && j.placarFora !== undefined) {
     placar = j.placarCasa + ' - ' + j.placarFora;
   }
 
@@ -419,6 +420,7 @@ function renderPrevisaoArea(j, prev) {
       <div class="veredito ${verdClass}">
         <span class="veredito-icon">${verdIcon}</span>
         <span class="veredito-text">${verdLabel}</span>
+        ${prev.ysC != null ? `<span style="font-size:10px;color:var(--t3);margin-left:4px">YS ${prev.ysC.toFixed(1)} vs ${prev.ysF.toFixed(1)}</span>` : ''}
         <span class="veredito-conf ${confClass}">${confLabel}</span>
       </div>
     </div>
@@ -429,6 +431,7 @@ function renderPrevisaoArea(j, prev) {
         <div class="gols-info">
           <div class="gols-range">Faixa: ${golsRange}</div>
           <div class="gols-tendencia ${tendClass}">${tendLabel}</div>
+          ${gols?.periodo ? `<div class="gols-range" style="margin-top:2px">⏱ ${gols.periodo}</div>` : ''}
         </div>
       </div>
       <div class="explicacao">${exps}</div>
@@ -506,6 +509,66 @@ async function analisarJogo(j) {
   return calcularPrevisao(j, hC, hF, cC, cF, cG);
 }
 
+// ── YELLUP SCORE (mesma lógica do algoritmo.html) ─────────────────────────
+function calcYS(jogos) {
+  if (!jogos?.length) return null;
+  const js = jogos.slice(0, 20), n = js.length || 1;
+  const avg = k => js.map(jj => parseFloat(jj.stats?.time?.[k]) || 0).reduce((a,b)=>a+b,0)/n;
+  const wins  = js.filter(jj => jj.resultado === 'V').length;
+  const draws = js.filter(jj => jj.resultado === 'E').length;
+  const aproveit = (wins*3 + draws) / (n*3);
+  const golsM = js.reduce((a,jj) => a+(jj.gols||0),0) / n;
+  const golsS = js.reduce((a,jj) => a+(jj.golsSofridos||0),0) / n;
+  const xg    = avg('expected_goals') || golsM*0.8;
+  const shots = avg('Shots on Goal') || 0;
+  const poss  = avg('Ball Possession') || 50;
+  const passAcc = avg('Passes %') || 75;
+  let ys = 0;
+  ys += aproveit * 3.5;
+  ys += Math.min(1, golsM/2.5) * 1.5;
+  ys += Math.max(0, 1 - golsS/2.5) * 1.5;
+  ys += Math.min(1, xg/1.8) * 1.5;
+  ys += Math.min(1, shots/7) * 0.8;
+  ys += Math.min(1, (poss-30)/40) * 0.4;
+  ys += Math.min(1, (passAcc-60)/35) * 0.3;
+  return Math.min(10, Math.max(0, ys));
+}
+
+// Classificar força pelo YS (substitui classForça por odds)
+function classForçaYS(ys) {
+  if (ys === null) return 'medio';
+  if (ys >= 7.5) return 'top';
+  if (ys >= 5.5) return 'forte';
+  if (ys >= 3.5) return 'equilibrado';
+  return 'fraco';
+}
+
+// Sequência atual (quantas vitórias/derrotas consecutivas)
+function calcSequencia(jogos) {
+  if (!jogos?.length) return { tipo: null, count: 0 };
+  const primResult = jogos[0].resultado;
+  let count = 0;
+  for (const jj of jogos) {
+    if (jj.resultado === primResult) count++;
+    else break;
+  }
+  return { tipo: primResult, count };
+}
+
+// Gols por período (1T vs 2T)
+function calcGolsPorTempo(jogos) {
+  if (!jogos?.length) return { primeiro: 0, segundo: 0 };
+  let g1 = 0, g2 = 0, n = 0;
+  for (const jj of jogos) {
+    if (!jj.golsMinuto?.length) continue;
+    g1 += jj.golsMinuto.filter(m => m <= 45).length;
+    g2 += jj.golsMinuto.filter(m => m > 45).length;
+    n++;
+  }
+  if (!n) return { primeiro: 0, segundo: 0 };
+  return { primeiro: +(g1/n).toFixed(2), segundo: +(g2/n).toFixed(2) };
+}
+
 // ── CALCULAR PREVISÃO ─────────────────────────────────────────────────────
 function calcularPrevisao(j, hC, hF, cC, cF, cG) {
   const explicacoes = [];
@@ -517,109 +580,148 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
   const jogosF = hF?.jogos || [];
   const nC = jogosC.length, nF = jogosF.length;
 
-  // ── FONTE 1: Histórico Casa ──
+  // ── YELLUP SCORE de cada time ─────────────────────────────────────────
+  const ysC = calcYS(jogosC);
+  const ysF = calcYS(jogosF);
+  const forcaC = classForçaYS(ysC);
+  const forcaF = classForçaYS(ysF);
+
+  // Sequência atual
+  const seqC = calcSequencia(jogosC);
+  const seqF = calcSequencia(jogosF);
+
+  // Gols por período
+  const periodoC = calcGolsPorTempo(jogosC);
+  const periodoF = calcGolsPorTempo(jogosF);
+
+  // ── FONTE 1: Yellup Score relativo ───────────────────────────────────
+  if (ysC !== null && ysF !== null) {
+    const ysTotal = (ysC + ysF) || 10;
+    let probYS = (ysC / ysTotal) * 100 + 5; // +5 vantagem casa
+    const empYS = 22 + Math.max(0, 10 - Math.abs(ysC - ysF)) * 0.8; // times equilibrados = mais empate
+    const w = 0.30;
+    probCasa   += probYS * w;
+    probEmpate += empYS * w;
+    wTotal += w;
+    fontes.push({ nome: `YS ${ysC?.toFixed(1)} vs ${ysF?.toFixed(1)}`, amostras: nC + nF, ativa: true });
+    const diff = ysC - ysF;
+    if (diff >= 2.0)      explicacoes.push(`${j.timeCasa?.nome} muito superior em forma — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)}`);
+    else if (diff <= -2.0) explicacoes.push(`${j.timeFora?.nome} chega em melhor momento — YS ${ysF.toFixed(1)} vs ${ysC.toFixed(1)}`);
+    else                   explicacoes.push(`Times equilibrados em forma — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)}`);
+  }
+
+  // ── FONTE 2: Histórico em casa ────────────────────────────────────────
   if (nC >= 3) {
-    const casa = jogosC.filter(j => j.casa === true);
-    const n = casa.length || jogosC.length;
-    const jogosRef = casa.length >= 3 ? casa : jogosC;
-    const vit = jogosRef.filter(j => j.resultado === 'V').length / jogosRef.length * 100;
-    const emp = jogosRef.filter(j => j.resultado === 'E').length / jogosRef.length * 100;
-    const w = n >= 15 ? 0.25 : n >= 7 ? 0.15 : 0.08;
-    probCasa  += vit * w;
+    const emCasa = jogosC.filter(jj => jj.casa === true);
+    const ref = emCasa.length >= 3 ? emCasa : jogosC;
+    const n = ref.length;
+    const vit = ref.filter(jj => jj.resultado === 'V').length / n * 100;
+    const emp = ref.filter(jj => jj.resultado === 'E').length / n * 100;
+    const w = n >= 15 ? 0.20 : n >= 7 ? 0.13 : 0.07;
+    probCasa   += vit * w;
     probEmpate += emp * w;
     wTotal += w;
     fontes.push({ nome: 'Hist.Casa', amostras: n, ativa: true });
-
-    // Forma recente (últimos 5)
-    const ultimos5 = jogosC.slice(0, 5);
-    const vit5 = ultimos5.filter(j => j.resultado === 'V').length;
-    if (vit5 >= 4) explicacoes.push(`${j.timeCasa?.nome} em excelente forma — ${vit5} vitórias nos últimos 5 jogos`);
-    else if (vit5 <= 1) explicacoes.push(`${j.timeCasa?.nome} em má fase — só ${vit5} vitória nos últimos 5`);
+    // Forma recente
+    const vit5 = jogosC.slice(0, 5).filter(jj => jj.resultado === 'V').length;
+    if (vit5 >= 4) explicacoes.push(`${j.timeCasa?.nome} em excelente forma — ${vit5}V nos últimos 5`);
+    else if (vit5 <= 1) explicacoes.push(`${j.timeCasa?.nome} em má fase — só ${vit5}V nos últimos 5`);
   } else {
     fontes.push({ nome: 'Hist.Casa', amostras: nC, ativa: false });
   }
 
-  // ── FONTE 2: Histórico Visitante ──
+  // ── FONTE 3: Histórico visitante ──────────────────────────────────────
   if (nF >= 3) {
-    const fora = jogosF.filter(j => j.casa === false);
-    const n = fora.length || jogosF.length;
-    const jogosRef = fora.length >= 3 ? fora : jogosF;
-    const vitF = jogosRef.filter(j => j.resultado === 'V').length / jogosRef.length * 100;
-    const empF = jogosRef.filter(j => j.resultado === 'E').length / jogosRef.length * 100;
-    const w = n >= 15 ? 0.20 : n >= 7 ? 0.12 : 0.06;
-    // Vitória do visitante reduz prob casa
-    probCasa  += (100 - vitF - empF) * w;
+    const emFora = jogosF.filter(jj => jj.casa === false);
+    const ref = emFora.length >= 3 ? emFora : jogosF;
+    const n = ref.length;
+    const vitF = ref.filter(jj => jj.resultado === 'V').length / n * 100;
+    const empF = ref.filter(jj => jj.resultado === 'E').length / n * 100;
+    const w = n >= 15 ? 0.18 : n >= 7 ? 0.11 : 0.05;
+    probCasa   += (100 - vitF - empF) * w;
     probEmpate += empF * w;
     wTotal += w;
     fontes.push({ nome: 'Hist.Fora', amostras: n, ativa: true });
+    const vit5F = jogosF.slice(0, 5).filter(jj => jj.resultado === 'V').length;
+    if (vit5F >= 4) explicacoes.push(`${j.timeFora?.nome} em grande fase fora — ${vit5F}V nos últimos 5`);
   } else {
     fontes.push({ nome: 'Hist.Fora', amostras: nF, ativa: false });
   }
 
-  // ── FONTE 3: H2H ──
+  // ── FONTE 4: H2H ──────────────────────────────────────────────────────
   const h2h = hC?.h2h || [];
   if (h2h.length >= 3) {
     const foraId = j.timeFora?.apiId || j.timeFora?.id;
-    const h2hFilt = h2h.filter(g => String(g.timeForaId) === String(foraId) || String(g.timeCasaId) === String(foraId));
+    const h2hFilt = h2h.filter(g =>
+      String(g.timeForaId) === String(foraId) || String(g.timeCasaId) === String(foraId)
+    );
     if (h2hFilt.length >= 3) {
+      const casaId2 = j.timeCasa?.apiId || j.timeCasa?.id;
       const vitH2H = h2hFilt.filter(g => {
-        const isCasa = String(g.timeCasaId) === String(j.timeCasa?.apiId || j.timeCasa?.id);
+        const isCasa = String(g.timeCasaId) === String(casaId2);
         return (isCasa && g.resultado === '1') || (!isCasa && g.resultado === '2');
       }).length / h2hFilt.length * 100;
       const empH2H = h2hFilt.filter(g => g.resultado === 'X').length / h2hFilt.length * 100;
-      const w = h2hFilt.length >= 8 ? 0.20 : 0.12;
-      probCasa  += vitH2H * w;
+      const w = h2hFilt.length >= 8 ? 0.18 : 0.10;
+      probCasa   += vitH2H * w;
       probEmpate += empH2H * w;
       wTotal += w;
       fontes.push({ nome: 'H2H', amostras: h2hFilt.length, ativa: true });
-      if (vitH2H >= 60) explicacoes.push(`${j.timeCasa?.nome} domina os confrontos diretos — ${Math.round(vitH2H)}% de vitórias`);
+      if (vitH2H >= 65) explicacoes.push(`${j.timeCasa?.nome} domina o histórico direto — ${Math.round(vitH2H)}% de vitórias em ${h2hFilt.length} jogos`);
+      else if (vitH2H <= 25) explicacoes.push(`${j.timeFora?.nome} vence mais os confrontos diretos — ${Math.round(100-vitH2H-empH2H)}% de vitórias`);
     }
   }
 
-  // ── FONTE 4: Contexto Banco (buscarContextoGol) ──
+  // ── FONTE 5: Banco de contexto (com força dinâmica) ───────────────────
   if (cC?.totalAmostras >= 5) {
     const vitC = cC.resultados?.pctVitoria || 0;
     const empC = cC.resultados?.pctEmpate  || 25;
-    const w = cC.totalAmostras >= 30 ? 0.25 : cC.totalAmostras >= 10 ? 0.15 : 0.08;
-    probCasa  += vitC * w;
+    const w = cC.totalAmostras >= 30 ? 0.22 : cC.totalAmostras >= 10 ? 0.14 : 0.07;
+    probCasa   += vitC * w;
     probEmpate += empC * w;
     wTotal += w;
     fontes.push({ nome: 'Banco', amostras: cC.totalAmostras, ativa: true });
-    if (vitC >= 70) explicacoes.push(`Banco de padrões: ${j.timeCasa?.nome} vence ${Math.round(vitC)}% neste contexto`);
+    if (vitC >= 70) explicacoes.push(`Banco próprio: ${j.timeCasa?.nome} vence ${Math.round(vitC)}% vs adversários ${forcaF}`);
   } else {
     fontes.push({ nome: 'Banco', amostras: cC?.totalAmostras || 0, ativa: false });
   }
 
-  // ── FONTE 5: Banco Global ──
+  // ── FONTE 6: Banco Global ─────────────────────────────────────────────
   if (cG?.totalAmostras >= 30) {
-    const vitG = cG.resultados?.pctVitoria || 50;
-    const empG = cG.resultados?.pctEmpate  || 25;
-    const w = cG.totalAmostras >= 100 ? 0.15 : 0.10;
-    probCasa  += vitG * w;
+    const vitG = cG.resultados?.pctVitoria || 46;
+    const empG = cG.resultados?.pctEmpate  || 26;
+    const w = cG.totalAmostras >= 100 ? 0.12 : 0.08;
+    probCasa   += vitG * w;
     probEmpate += empG * w;
     wTotal += w;
     fontes.push({ nome: 'Global', amostras: cG.totalAmostras, ativa: true });
   }
 
-  // ── NORMALIZAR ──
-  // Vantagem de jogar em casa
-  probCasa += 5;
+  // ── SEQUÊNCIA — ajuste fino ───────────────────────────────────────────
+  if (seqC.tipo === 'V' && seqC.count >= 3) {
+    probCasa += 3;
+    explicacoes.push(`${j.timeCasa?.nome} em série de ${seqC.count} vitórias consecutivas`);
+  } else if (seqC.tipo === 'D' && seqC.count >= 3) {
+    probCasa -= 3;
+    explicacoes.push(`${j.timeCasa?.nome} vem de ${seqC.count} derrotas seguidas`);
+  }
+  if (seqF.tipo === 'V' && seqF.count >= 3) {
+    probCasa -= 3;
+    explicacoes.push(`${j.timeFora?.nome} em série de ${seqF.count} vitórias`);
+  }
 
+  // ── NORMALIZAR ────────────────────────────────────────────────────────
   if (wTotal < 0.1) {
-    // Sem dados suficientes — base estatística futebol mundial
     probCasa = 46; probEmpate = 26;
-    explicacoes.push('Poucos dados disponíveis — usando base estatística geral');
+    explicacoes.push('Dados insuficientes — base estatística mundial (46/26/28)');
   } else {
-    // Normalizar pelo peso usado
-    probCasa  = probCasa  / wTotal;
+    probCasa   = probCasa   / wTotal;
     probEmpate = probEmpate / wTotal;
   }
 
-  // Clamp
   probCasa   = Math.min(88, Math.max(8,  Math.round(probCasa)));
   probEmpate = Math.min(45, Math.max(8,  Math.round(probEmpate)));
   let probFora = Math.max(4, 100 - probCasa - probEmpate);
-  // Renormalizar
   const tot = probCasa + probEmpate + probFora;
   probCasa   = Math.round(probCasa   / tot * 100);
   probEmpate = Math.round(probEmpate / tot * 100);
@@ -628,79 +730,88 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
   const max = Math.max(probCasa, probEmpate, probFora);
   const veredito = probCasa === max ? 'casa' : probEmpate === max ? 'empate' : 'fora';
 
-  // ── GOLS ESTIMADOS ──
-  const gols = calcularGols(j, jogosC, jogosF, hC?.h2h);
+  // ── CONFIANÇA ─────────────────────────────────────────────────────────
+  const scoreConf = (nC >= 20 ? 3 : nC >= 8 ? 2 : nC >= 3 ? 1 : 0)
+                  + (nF >= 20 ? 3 : nF >= 8 ? 2 : nF >= 3 ? 1 : 0)
+                  + ((cC?.totalAmostras||0) >= 20 ? 3 : (cC?.totalAmostras||0) >= 8 ? 2 : 0)
+                  + (ysC !== null && ysF !== null ? 2 : 0)
+                  + (max >= 55 ? 2 : max >= 48 ? 1 : 0);
+  const confianca = scoreConf >= 11 ? 'alta' : scoreConf >= 7 ? 'media' : scoreConf >= 3 ? 'baixa' : 'insuficiente';
 
-  // ── CONFIANÇA ──
-  const score = (nC >= 20 ? 3 : nC >= 8 ? 2 : nC >= 3 ? 1 : 0)
-              + (nF >= 20 ? 3 : nF >= 8 ? 2 : nF >= 3 ? 1 : 0)
-              + ((cC?.totalAmostras || 0) >= 20 ? 3 : (cC?.totalAmostras || 0) >= 8 ? 2 : 0)
-              + (max >= 55 ? 2 : max >= 48 ? 1 : 0);
-  const confianca = score >= 9 ? 'alta' : score >= 6 ? 'media' : score >= 3 ? 'baixa' : 'insuficiente';
-
-  // Força comparativa
+  // Força comparativa (gols)
   if (nC >= 5 && nF >= 5) {
-    const mediaGolsC = jogosC.reduce((a, j) => a + (j.gols || 0), 0) / nC;
-    const mediaGolsF = jogosF.reduce((a, j) => a + (j.gols || 0), 0) / nF;
-    if (mediaGolsC > mediaGolsF + 0.5) explicacoes.push(`${j.timeCasa?.nome} mais eficiente — média ${mediaGolsC.toFixed(1)} gols/jogo vs ${mediaGolsF.toFixed(1)}`);
-    else if (mediaGolsF > mediaGolsC + 0.5) explicacoes.push(`${j.timeFora?.nome} mais eficiente fora — média ${mediaGolsF.toFixed(1)} gols/jogo`);
+    const mgC = jogosC.reduce((a,jj)=>a+(jj.gols||0),0)/nC;
+    const mgF = jogosF.reduce((a,jj)=>a+(jj.gols||0),0)/nF;
+    if (mgC > mgF + 0.6) explicacoes.push(`${j.timeCasa?.nome} mais eficiente — ${mgC.toFixed(1)} gols/jogo vs ${mgF.toFixed(1)}`);
+    else if (mgF > mgC + 0.6) explicacoes.push(`${j.timeFora?.nome} marca mais — ${mgF.toFixed(1)} gols/jogo fora`);
   }
 
-  // Forma recente (últimos 5 de cada time)
-  const formaC = jogosC.slice(0, 5).map(jj => jj.resultado === 'V' ? 'V' : jj.resultado === 'E' ? 'E' : 'D');
-  const formaF = jogosF.slice(0, 5).map(jj => jj.resultado === 'V' ? 'V' : jj.resultado === 'E' ? 'E' : 'D');
+  // Forma
+  const formaC = jogosC.slice(0,5).map(jj => jj.resultado==='V'?'V':jj.resultado==='E'?'E':'D');
+  const formaF = jogosF.slice(0,5).map(jj => jj.resultado==='V'?'V':jj.resultado==='E'?'E':'D');
 
   return {
     resultado: { casa: probCasa, empate: probEmpate, fora: probFora, veredito },
-    gols,
+    gols: calcularGols(j, jogosC, jogosF, hC?.h2h, periodoC, periodoF),
     confianca,
     explicacoes: explicacoes.slice(0, 4),
     fontes,
-    formaC,
-    formaF
+    formaC, formaF,
+    ysC, ysF, forcaC, forcaF
   };
 }
 
 // ── CALCULAR GOLS ─────────────────────────────────────────────────────────
-function calcularGols(j, jogosC, jogosF, h2h) {
+function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF) {
   const vals = [];
   const n = Math.min(jogosC.length, 20), m = Math.min(jogosF.length, 20);
 
-  // Média de gols marcados da casa
+  // Método 1: Ataque casa × Defesa visitante + Ataque visitante × Defesa casa
+  if (n >= 3 && m >= 3) {
+    const atqC = jogosC.slice(0,n).reduce((a,jj)=>a+(jj.gols||0),0)/n;
+    const defC = jogosC.slice(0,n).reduce((a,jj)=>a+(jj.golsSofridos||0),0)/n;
+    const atqF = jogosF.slice(0,m).reduce((a,jj)=>a+(jj.gols||0),0)/m;
+    const defF = jogosF.slice(0,m).reduce((a,jj)=>a+(jj.golsSofridos||0),0)/m;
+    // Média global de referência (~1.35 gols por time por jogo)
+    const ref = 1.35;
+    const xGC = (atqC / ref) * (defF / ref) * ref; // gols esperados da casa
+    const xGF = (atqF / ref) * (defC / ref) * ref; // gols esperados do visitante
+    vals.push(xGC + xGF);
+  }
+
+  // Método 2: Média simples de gols por jogo de cada time
   if (n >= 3) {
-    const mg = jogosC.slice(0, n).reduce((a, j) => a + (j.gols || 0), 0) / n;
-    const ms = jogosF.slice(0, m).reduce((a, j) => a + (j.golsSofridos || 0), 0) / (m || 1);
-    vals.push((mg + ms) / 2);
+    const mg = jogosC.slice(0,n).reduce((a,jj)=>a+(jj.gols||0)+(jj.golsSofridos||0),0)/n;
+    vals.push(mg);
   }
-
-  // Média de gols do visitante
   if (m >= 3) {
-    const mg = jogosF.slice(0, m).reduce((a, j) => a + (j.gols || 0), 0) / m;
-    const ms = jogosC.slice(0, n).reduce((a, j) => a + (j.golsSofridos || 0), 0) / (n || 1);
-    vals.push((mg + ms) / 2);
+    const mg = jogosF.slice(0,m).reduce((a,jj)=>a+(jj.gols||0)+(jj.golsSofridos||0),0)/m;
+    vals.push(mg);
   }
 
-  // H2H média de gols
-  if (h2h && h2h.length >= 3) {
-    const mgH2H = h2h.slice(0, 8).reduce((a, g) => a + (g.golsCasa || 0) + (g.golsFora || 0), 0) / Math.min(h2h.length, 8);
+  // Método 3: H2H média de gols totais
+  if (h2h?.length >= 3) {
+    const mgH2H = h2h.slice(0,8).reduce((a,g)=>a+(g.golsCasa||0)+(g.golsFora||0),0)/Math.min(h2h.length,8);
     if (mgH2H > 0) vals.push(mgH2H);
   }
 
-  // Base estatística se sem dados
   if (!vals.length) vals.push(2.5);
 
-  const media = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const media = vals.reduce((a,b)=>a+b,0)/vals.length;
   const est = Math.round(media * 10) / 10;
-  const baixo = Math.max(0, Math.round((est - 0.7) * 10) / 10);
-  const alto  = Math.round((est + 0.8) * 10) / 10;
+  const baixo = Math.max(0, Math.round((est - 0.8) * 10) / 10);
+  const alto  = Math.round((est + 0.9) * 10) / 10;
+  const tendencia = est >= 3.0 ? 'alto' : est <= 1.9 ? 'baixo' : 'medio';
 
-  const tendencia = est >= 3.0 ? 'alto' : est <= 1.8 ? 'baixo' : 'medio';
+  // Distribuição por período se disponível
+  let periodo = null;
+  if (periodoC && periodoF && (periodoC.primeiro + periodoF.primeiro) > 0) {
+    const g1 = +((periodoC.primeiro + periodoF.primeiro) / 2 * (est / Math.max(0.1, (periodoC.primeiro+periodoC.segundo+periodoF.primeiro+periodoF.segundo)/2))).toFixed(1);
+    const g2 = +(est - g1).toFixed(1);
+    if (g1 > 0 && g2 > 0) periodo = `${g1} no 1T · ${g2} no 2T`;
+  }
 
-  return {
-    estimado: est.toFixed(1),
-    range: `${baixo}–${alto}`,
-    tendencia
-  };
+  return { estimado: est.toFixed(1), range: `${baixo}–${alto}`, tendencia, periodo };
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
