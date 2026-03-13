@@ -1259,6 +1259,7 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
       <button class="btn-analisar" id="btnBackfill" onclick="iniciarBackfill()">🔄 Iniciar importação</button>
       <button class="btn-back" onclick="rodarDiagnostico()" title="Ver estrutura do banco">🔍 Diagnóstico</button>
       <button class="btn-back" onclick="listarLigasBanco()" title="Ver ligas no banco">🏆 Ver ligas</button>
+      <button class="btn-back" onclick="corrigirJogosPresos()" title="Corrigir jogos presos como ao_vivo" style="border-color:#f59e0b;color:#f59e0b">⚠️ Corrigir ao vivo presos</button>
     </div>
     <div id="backfillStatus" style="margin-top:10px;font-size:12px;color:var(--t2)"></div>
     <div id="backfillProgress" style="margin-top:8px;display:none">
@@ -1272,6 +1273,24 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
 
 // ── BACKFILL ──────────────────────────────────────────────────────────────
 let backfillRodando = false;
+
+async function corrigirJogosPresos() {
+  const el = gc('backfillStatus');
+  el.textContent = 'Verificando jogos presos... (pode demorar ~1min)';
+  try {
+    const r = await fns.httpsCallable('corrigirJogosPresos')({});
+    const d = r.data;
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:8px;padding:12px;font-size:11px;line-height:1.9">
+        <b style="color:var(--grn)">✓ ${d.corrigidos} jogos corrigidos de ${d.total} ao_vivo</b><br>
+        ${(d.detalhes || []).join('<br>')}
+      </div>`;
+    // Recarregar jogos se algo foi corrigido
+    if (d.corrigidos > 0) setTimeout(() => carregarJogos(), 1500);
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">Erro: ${e.message}</span>`;
+  }
+}
 
 async function listarLigasBanco() {
   const el = gc('backfillStatus');
