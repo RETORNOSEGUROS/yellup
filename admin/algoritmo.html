@@ -382,15 +382,18 @@ function calcularDNA(teamId,nome,sts,evs,minAtual,fp){
   const passes=g("Total passes")||1;
   const passesOk=g("Passes accurate")||0;
   const precisao=passes>0?passesOk/passes*100:0;
-  const ap=g("Dangerous Attacks")||0;
+  const apRaw=g("Dangerous Attacks")||0;
   const faltas=g("Fouls")||0;
   const xg=parseFloat(g("expected_goals"))||0;
   const defesas=g("Goalkeeper Saves")||0;
   const gols=(evs||[]).filter(e=>e.tipo==="Goal"&&e.time?.id===teamId).length;
+  // YAI fallback quando Dangerous Attacks não vem da API
+  const sOff=g("Shots off Goal")||0, sBlk=g("Blocked Shots")||0;
+  const ap=apRaw>0?apRaw:Math.round(chutesAlvo*3.0+sOff*1.2+sBlk*1.0+(g("Corner Kicks")||0)*0.6);
 
   const dominancia=Math.min(100,posse);
   const clinicismo=chutes>0?Math.min(100,Math.round(xg/chutes*100*2)):20;
-  const intensidade=Math.min(100,Math.round(ap/(minAtual||90)*150));
+  const intensidade=Math.min(100,Math.max(10,Math.round(ap/(minAtual||90)*150)));
   const organizacao=Math.min(100,Math.round(precisao));
   const agressividade=Math.min(100,Math.round(faltas/(minAtual||90)*600));
   const conversao=chutesAlvo>0?Math.min(100,Math.round(gols/chutesAlvo*100*2)):20;
@@ -405,14 +408,17 @@ function calcularDNAHistorico(jogos,nome,local,fp){
   const chutes=avg("Total Shots")||0;
   const chutesAlvo=avg("Shots on Goal")||0;
   const precisao=avg("Passes %")||75;
-  const ap=avg("Dangerous Attacks")||0;
+  const apRawH=avg("Dangerous Attacks")||0;
   const faltas=avg("Fouls")||0;
   const xg=parseFloat(avg("expected_goals"))||0;
   const golsM=jogos.reduce((a,j)=>a+(j.gols||0),0)/n;
+  // YAI fallback no histórico quando DA é 0
+  const sOffH=avg("Shots off Goal")||0, sBlkH=avg("Blocked Shots")||0;
+  const ap=apRawH>0?apRawH:Math.round(chutesAlvo*3.0+sOffH*1.2+sBlkH*1.0+avg("Corner Kicks")*0.6)||Math.round(chutesAlvo*2.5);
 
   const dominancia=Math.min(100,posse);
   const clinicismo=chutes>0?Math.min(100,Math.round(xg/chutes*100*2)):Math.min(100,golsM/2.5*100);
-  const intensidade=Math.min(100,Math.round(ap/90*150));
+  const intensidade=Math.min(100,Math.max(10,Math.round(ap/90*150)));
   const organizacao=Math.min(100,Math.round(precisao));
   const agressividade=Math.min(100,Math.round(faltas/90*600));
   const conversao=chutesAlvo>0?Math.min(100,Math.round(golsM/chutesAlvo*100*2)):20;
@@ -532,9 +538,13 @@ function calcularProbs(){
   const empF=HIST_FORA.filter(j=>j.resultado==="E").length/(HIST_FORA.length||1)*100;
   probEmpate=Math.round((probEmpate+(empC+empF)/2)/2);
 
+  // Clamp antes de calcular fora (evita probabilidade negativa)
+  probCasa=Math.min(92,Math.max(5,probCasa));
+  probEmpate=Math.min(50,Math.max(5,probEmpate));
   // Fora = 100 - casa - empate
   let probFora=100-probCasa-probEmpate;
-  // Normalizar para somar 100%
+  // Garantir que fora também é positivo e normalizar
+  probFora=Math.max(3,probFora);
   const total=probCasa+probEmpate+probFora;
   probCasa=Math.round(probCasa/total*100);
   probEmpate=Math.round(probEmpate/total*100);
