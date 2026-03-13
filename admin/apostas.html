@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yellup · Previsões</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0B0D15;--bg2:#131622;--bg3:#1A1D2E;--brd:#252840;
+  --acc:#F5A524;--grn:#27D49B;--blu:#4F96F4;--red:#EF5F5F;--pur:#A78BFA;
+  --t1:#F0F2FF;--t2:#858BA5;--t3:#4A4F6A;
+}
+body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-serif;min-height:100vh}
+
+/* ── HEADER ── */
+.header{background:var(--bg2);border-bottom:1px solid var(--brd);padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:100}
+.header-logo{font-size:20px;font-weight:800;color:var(--acc);letter-spacing:-0.5px}
+.header-title{font-size:14px;color:var(--t2)}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.btn-back{background:var(--bg3);border:1px solid var(--brd);color:var(--t2);padding:6px 14px;border-radius:8px;font-size:12px;cursor:pointer;text-decoration:none;display:flex;align-items:center;gap:6px}
+.btn-back:hover{color:var(--t1);border-color:var(--acc)}
+
+/* ── TOOLBAR ── */
+.toolbar{padding:16px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--brd)}
+.date-nav{display:flex;align-items:center;gap:8px}
+.date-btn{background:var(--bg3);border:1px solid var(--brd);color:var(--t2);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.date-btn:hover{border-color:var(--acc);color:var(--acc)}
+.date-display{background:var(--bg3);border:1px solid var(--brd);padding:6px 16px;border-radius:8px;font-size:13px;font-weight:600;color:var(--t1);min-width:130px;text-align:center}
+.btn-analisar{background:var(--acc);color:#000;border:none;padding:8px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px}
+.btn-analisar:hover{opacity:.9}
+.btn-analisar:disabled{opacity:.5;cursor:not-allowed}
+.filtro-liga{background:var(--bg3);border:1px solid var(--brd);color:var(--t1);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer}
+.status-bar{margin-left:auto;font-size:12px;color:var(--t2);display:flex;align-items:center;gap:8px}
+.dot-spin{width:8px;height:8px;border-radius:50%;background:var(--acc);animation:spin .8s linear infinite}
+@keyframes spin{0%{opacity:1}50%{opacity:.2}100%{opacity:1}}
+
+/* ── RESUMO TOPO ── */
+.resumo-bar{padding:12px 24px;display:flex;gap:24px;border-bottom:1px solid var(--brd);background:var(--bg2)}
+.resumo-item{text-align:center}
+.resumo-num{font-size:20px;font-weight:700}
+.resumo-label{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px}
+
+/* ── GRID DE JOGOS ── */
+.jogos-grid{padding:20px 24px;display:flex;flex-direction:column;gap:12px;max-width:1100px;margin:0 auto}
+
+/* ── CARD DE JOGO ── */
+.jogo-card{background:var(--bg2);border:1px solid var(--brd);border-radius:14px;overflow:hidden;transition:border-color .2s}
+.jogo-card:hover{border-color:var(--acc)}
+.jogo-card.loading{opacity:.7}
+.jogo-card.analisado{border-color:var(--brd)}
+
+.card-header{padding:12px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--brd)}
+.card-liga{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px}
+.card-hora{font-size:12px;color:var(--t3);margin-left:auto}
+.card-status-badge{font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600}
+.badge-agendado{background:rgba(79,150,244,.15);color:var(--blu)}
+.badge-ao_vivo{background:rgba(239,95,95,.2);color:var(--red);animation:pulse 1.5s infinite}
+.badge-encerrado{background:rgba(133,139,165,.1);color:var(--t2)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+.card-body{padding:16px}
+.times-row{display:flex;align-items:center;gap:12px}
+.time-info{flex:1;display:flex;flex-direction:column;gap:4px}
+.time-info.fora{align-items:flex-end}
+.time-escudo{width:36px;height:36px;object-fit:contain}
+.time-nome{font-size:14px;font-weight:600}
+.time-forma{display:flex;gap:3px}
+.forma-dot{width:14px;height:14px;border-radius:50%;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.forma-V{background:rgba(39,212,155,.2);color:var(--grn)}
+.forma-E{background:rgba(79,150,244,.2);color:var(--blu)}
+.forma-D{background:rgba(239,95,95,.2);color:var(--red)}
+
+.vs-area{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px}
+.vs-placar{font-size:22px;font-weight:800;letter-spacing:2px}
+.vs-label{font-size:10px;color:var(--t3)}
+
+/* ── PREVISÃO ── */
+.previsao-area{margin-top:14px;padding-top:14px;border-top:1px solid var(--brd);display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.prev-bloco{background:var(--bg3);border-radius:10px;padding:12px 14px}
+.prev-titulo{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+
+/* Resultado */
+.resultado-bars{display:flex;flex-direction:column;gap:6px}
+.res-item{display:flex;align-items:center;gap:8px}
+.res-label{font-size:11px;color:var(--t2);width:80px}
+.res-bar-wrap{flex:1;height:6px;background:var(--brd);border-radius:3px;overflow:hidden}
+.res-bar-fill{height:100%;border-radius:3px;transition:width 1s cubic-bezier(.4,0,.2,1)}
+.res-pct{font-size:12px;font-weight:700;min-width:36px;text-align:right}
+.res-item.destaque .res-label{color:var(--t1);font-weight:600}
+.res-item.destaque .res-pct{color:var(--acc)}
+
+/* Gols */
+.gols-display{display:flex;align-items:center;gap:12px}
+.gols-num{font-size:32px;font-weight:800;color:var(--acc)}
+.gols-info{display:flex;flex-direction:column;gap:2px}
+.gols-range{font-size:11px;color:var(--t2)}
+.gols-tendencia{font-size:11px;font-weight:600}
+.tend-alto{color:var(--red)}
+.tend-medio{color:var(--acc)}
+.tend-baixo{color:var(--grn)}
+
+/* Previsão veredito */
+.veredito{margin-top:10px;padding:8px 12px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:8px}
+.veredito-home{background:rgba(39,212,155,.1);border-left:3px solid var(--grn)}
+.veredito-draw{background:rgba(79,150,244,.1);border-left:3px solid var(--blu)}
+.veredito-away{background:rgba(239,95,95,.1);border-left:3px solid var(--red)}
+.veredito-icon{font-size:16px}
+.veredito-text{color:var(--t1);font-weight:600}
+.veredito-conf{margin-left:auto;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600}
+.conf-alta{background:rgba(39,212,155,.2);color:var(--grn)}
+.conf-media{background:rgba(245,165,36,.2);color:var(--acc)}
+.conf-baixa{background:rgba(133,139,165,.2);color:var(--t2)}
+.conf-insuficiente{background:rgba(133,139,165,.1);color:var(--t3)}
+
+/* Explicação */
+.explicacao{margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.exp-item{font-size:11px;color:var(--t2);display:flex;align-items:flex-start;gap:6px;line-height:1.4}
+.exp-item::before{content:"•";color:var(--acc);flex-shrink:0;margin-top:1px}
+
+/* Fontes mini */
+.fontes-mini{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.fonte-tag{font-size:9px;padding:2px 6px;border-radius:4px;background:var(--bg);color:var(--t3);border:1px solid var(--brd)}
+.fonte-tag.ativa{color:var(--grn);border-color:rgba(39,212,155,.3)}
+
+/* Loading state */
+.prev-loading{display:flex;align-items:center;gap:8px;color:var(--t2);font-size:12px;padding:8px 0}
+.prev-loading::before{content:"";width:12px;height:12px;border:2px solid var(--brd);border-top-color:var(--acc);border-radius:50%;animation:rotate .8s linear infinite;flex-shrink:0}
+@keyframes rotate{to{transform:rotate(360deg)}}
+
+/* Sem dados */
+.sem-dados{color:var(--t3);font-size:12px;padding:8px 0;display:flex;align-items:center;gap:6px}
+
+/* Empty state */
+.empty-state{text-align:center;padding:60px 20px;color:var(--t2)}
+.empty-state .icon{font-size:48px;margin-bottom:12px}
+.empty-state p{font-size:14px}
+
+/* Acurácia rodapé */
+.acuracia-footer{margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between}
+.ac-label{font-size:10px;color:var(--t3)}
+.ac-valor{font-size:12px;font-weight:700}
+
+@media(max-width:640px){
+  .previsao-area{grid-template-columns:1fr}
+  .toolbar{gap:8px}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">⚽ Yellup</div>
+  <div class="header-title">Previsões do Dia</div>
+  <div class="header-right">
+    <a href="jogos-admin.html" class="btn-back">← Admin</a>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="date-nav">
+    <button class="date-btn" onclick="mudarData(-1)">‹</button>
+    <div class="date-display" id="dateDisplay">—</div>
+    <button class="date-btn" onclick="mudarData(1)">›</button>
+  </div>
+  <button class="btn-analisar" id="btnAnalisar" onclick="analisarTodos()">
+    🔍 Analisar Todos
+  </button>
+  <select class="filtro-liga" id="filtroLiga" onchange="renderCards()">
+    <option value="">Todas as ligas</option>
+  </select>
+  <div class="status-bar" id="statusBar"></div>
+</div>
+
+<div class="resumo-bar" id="resumoBar" style="display:none">
+  <div class="resumo-item"><div class="resumo-num" id="rTotal" style="color:var(--acc)">0</div><div class="resumo-label">Jogos</div></div>
+  <div class="resumo-item"><div class="resumo-num" id="rAnalisados" style="color:var(--grn)">0</div><div class="resumo-label">Analisados</div></div>
+  <div class="resumo-item"><div class="resumo-num" id="rAlta" style="color:var(--grn)">0</div><div class="resumo-label">Alta Conf.</div></div>
+  <div class="resumo-item"><div class="resumo-num" id="rMedia" style="color:var(--acc)">0</div><div class="resumo-label">Média Conf.</div></div>
+  <div class="resumo-item"><div class="resumo-num" id="rBaixa" style="color:var(--t2)">0</div><div class="resumo-label">Baixa/Insuf.</div></div>
+</div>
+
+<div class="jogos-grid" id="jogosGrid">
+  <div class="empty-state"><div class="icon">📅</div><p>Selecione uma data e clique em Analisar Todos</p></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain:"painel-yellup.firebaseapp.com",
+  projectId:"painel-yellup",
+  storageBucket:"painel-yellup.appspot.com",
+  messagingSenderId:"608347210297",
+  appId:"1:608347210297:web:75092713724e617c7203e8"
+});
+const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions();
+
+// ── ESTADO ────────────────────────────────────────────────────────────────
+let JOGOS = [];        // jogos do dia carregados
+let PREVISOES = {};    // { fixtureId: { resultado, gols, confianca, ... } }
+let DATA_ATUAL = new Date().toLocaleDateString('en-CA');
+let ANALISANDO = false;
+
+// ── AUTH ──────────────────────────────────────────────────────────────────
+auth.onAuthStateChanged(u => {
+  if (!u || u.email !== 'admin@yellup.com') { window.location.href = 'login.html'; return; }
+  init();
+});
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+async function init() {
+  gc('dateDisplay').textContent = formatarData(DATA_ATUAL);
+  await carregarJogos();
+}
+
+function gc(id) { return document.getElementById(id); }
+
+function formatarData(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  const hoje = new Date().toLocaleDateString('en-CA');
+  const amanha = new Date(Date.now() + 86400000).toLocaleDateString('en-CA');
+  const ontem  = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
+  const label = iso === hoje ? ' (Hoje)' : iso === amanha ? ' (Amanhã)' : iso === ontem ? ' (Ontem)' : '';
+  return d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'2-digit'}) + label;
+}
+
+function mudarData(d) {
+  const dt = new Date(DATA_ATUAL + 'T12:00:00');
+  dt.setDate(dt.getDate() + d);
+  DATA_ATUAL = dt.toLocaleDateString('en-CA');
+  gc('dateDisplay').textContent = formatarData(DATA_ATUAL);
+  JOGOS = []; PREVISOES = {};
+  carregarJogos();
+}
+
+// ── CARREGAR JOGOS DO DIA ─────────────────────────────────────────────────
+async function carregarJogos() {
+  setStatus('Carregando jogos...');
+  try {
+    const snap = await db.collection('jogos-admin')
+      .orderBy('dataInicio', 'asc')
+      .limit(300)
+      .get();
+
+    const todos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // Filtrar pelo dia selecionado (fuso local)
+    JOGOS = todos.filter(j => {
+      if (!j.dataInicio) return false;
+      const dt = j.dataInicio.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio);
+      return dt.toLocaleDateString('en-CA') === DATA_ATUAL;
+    });
+
+    // Popular filtro de ligas
+    const ligas = [...new Set(JOGOS.map(j => j.liga?.nome).filter(Boolean))].sort();
+    const sel = gc('filtroLiga');
+    sel.innerHTML = '<option value="">Todas as ligas (' + JOGOS.length + ')</option>';
+    ligas.forEach(l => sel.innerHTML += `<option value="${l}">${l}</option>`);
+
+    setStatus('');
+    gc('resumoBar').style.display = JOGOS.length ? 'flex' : 'none';
+    renderCards();
+
+    if (JOGOS.length === 0) {
+      gc('jogosGrid').innerHTML = '<div class="empty-state"><div class="icon">📅</div><p>Nenhum jogo encontrado para esta data</p></div>';
+    }
+  } catch(e) {
+    setStatus('Erro: ' + e.message, true);
+  }
+}
+
+// ── RENDER CARDS ──────────────────────────────────────────────────────────
+function renderCards() {
+  const filtroLiga = gc('filtroLiga').value;
+  const jogos = filtroLiga ? JOGOS.filter(j => j.liga?.nome === filtroLiga) : JOGOS;
+
+  if (!jogos.length) {
+    gc('jogosGrid').innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>Nenhum jogo para este filtro</p></div>';
+    return;
+  }
+
+  // Agrupar por liga
+  const grupos = {};
+  jogos.forEach(j => {
+    const liga = j.liga?.nome || 'Sem liga';
+    if (!grupos[liga]) grupos[liga] = [];
+    grupos[liga].push(j);
+  });
+
+  let html = '';
+  Object.entries(grupos).forEach(([liga, gs]) => {
+    gs.forEach(j => {
+      const prev = PREVISOES[j.id] || null;
+      html += renderCard(j, prev);
+    });
+  });
+
+  gc('jogosGrid').innerHTML = html;
+  atualizarResumo();
+}
+
+function renderCard(j, prev) {
+  const dt = j.dataInicio?.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio || 0);
+  const hora = dt.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+  const statusLabel = j.status === 'ao_vivo' ? 'AO VIVO' : j.status === 'encerrado' ? 'FT' : hora;
+  const statusBadge = j.status === 'ao_vivo' ? 'ao_vivo' : j.status === 'encerrado' ? 'encerrado' : 'agendado';
+
+  const formaC = renderForma(j.formaCasa || j.timeCasa?.forma);
+  const formaF = renderForma(j.formaFora  || j.timeFora?.forma);
+  const escC = j.timeCasa?.escudo || '';
+  const escF = j.timeFora?.escudo || '';
+
+  let placar = 'vs';
+  if (j.placarCasa !== undefined && j.placarFora !== undefined) {
+    placar = j.placarCasa + ' - ' + j.placarFora;
+  }
+
+  return `<div class="jogo-card ${prev ? 'analisado' : ''}" id="card-${j.id}">
+    <div class="card-header">
+      <span style="font-size:14px">${j.liga?.escudo || '🏆'}</span>
+      <span class="card-liga">${j.liga?.nome || 'Liga'}</span>
+      <span class="card-status-badge badge-${statusBadge}">${statusLabel}</span>
+      <span class="card-hora">${j.rodada || ''}</span>
+    </div>
+    <div class="card-body">
+      <div class="times-row">
+        <div class="time-info">
+          <img src="${escC}" class="time-escudo" onerror="this.style.display='none'">
+          <div class="time-nome">${j.timeCasa?.nome || '—'}</div>
+          <div class="time-forma">${formaC}</div>
+        </div>
+        <div class="vs-area">
+          <div class="vs-placar">${placar}</div>
+          <div class="vs-label">${j.status === 'ao_vivo' ? (j.minuto || '') + "'" : ''}</div>
+        </div>
+        <div class="time-info fora">
+          <img src="${escF}" class="time-escudo" onerror="this.style.display='none'">
+          <div class="time-nome">${j.timeFora?.nome || '—'}</div>
+          <div class="time-forma">${formaF}</div>
+        </div>
+      </div>
+      ${renderPrevisaoArea(j, prev)}
+    </div>
+  </div>`;
+}
+
+function renderForma(forma) {
+  if (!forma || !Array.isArray(forma)) return '';
+  return forma.slice(-5).map(r => `<div class="forma-dot forma-${r}">${r}</div>`).join('');
+}
+
+function renderPrevisaoArea(j, prev) {
+  if (!prev) {
+    return `<div class="previsao-area">
+      <div class="prev-bloco" style="grid-column:1/-1">
+        <div class="sem-dados">⚪ Clique em "Analisar Todos" para gerar previsão</div>
+      </div>
+    </div>`;
+  }
+
+  if (prev.loading) {
+    return `<div class="previsao-area">
+      <div class="prev-bloco" style="grid-column:1/-1">
+        <div class="prev-loading">Analisando ${prev.step || ''}...</div>
+      </div>
+    </div>`;
+  }
+
+  const { resultado, gols, confianca, explicacoes, fontes } = prev;
+
+  // Resultado
+  const r = resultado || { casa: 33, empate: 34, fora: 33, veredito: 'empate' };
+  const max = Math.max(r.casa, r.empate, r.fora);
+  const veredito = r.veredito || (r.casa === max ? 'casa' : r.empate === max ? 'empate' : 'fora');
+  const verdLabel = veredito === 'casa' ? j.timeCasa?.nome : veredito === 'fora' ? j.timeFora?.nome : 'Empate';
+  const verdClass = veredito === 'casa' ? 'veredito-home' : veredito === 'fora' ? 'veredito-away' : 'veredito-draw';
+  const verdIcon = veredito === 'casa' ? '🏠' : veredito === 'fora' ? '✈️' : '🤝';
+  const confClass = confianca === 'alta' ? 'conf-alta' : confianca === 'media' ? 'conf-media' : confianca === 'baixa' ? 'conf-baixa' : 'conf-insuficiente';
+  const confLabel = confianca === 'alta' ? 'Alta' : confianca === 'media' ? 'Média' : confianca === 'baixa' ? 'Baixa' : 'Insuf.';
+
+  // Gols
+  const golsEst = gols?.estimado ?? '?';
+  const golsRange = gols?.range || '—';
+  const golsTend = gols?.tendencia || 'medio';
+  const tendClass = golsTend === 'alto' ? 'tend-alto' : golsTend === 'baixo' ? 'tend-baixo' : 'tend-medio';
+  const tendLabel = golsTend === 'alto' ? '🔥 Jogo aberto' : golsTend === 'baixo' ? '🔒 Jogo fechado' : '⚖️ Equilibrado';
+
+  const exps = (explicacoes || []).slice(0, 3).map(e => `<div class="exp-item">${e}</div>`).join('');
+  const fontesTags = (fontes || []).map(f => `<span class="fonte-tag ${f.ativa ? 'ativa' : ''}">${f.nome} ${f.amostras ? '('+f.amostras+')' : ''}</span>`).join('');
+
+  return `<div class="previsao-area">
+    <div class="prev-bloco">
+      <div class="prev-titulo">📊 Resultado Provável</div>
+      <div class="resultado-bars">
+        <div class="res-item ${veredito === 'casa' ? 'destaque' : ''}">
+          <div class="res-label">${j.timeCasa?.nome?.split(' ')[0] || 'Casa'}</div>
+          <div class="res-bar-wrap"><div class="res-bar-fill" style="width:${r.casa}%;background:var(--grn)"></div></div>
+          <div class="res-pct" style="color:var(--grn)">${r.casa}%</div>
+        </div>
+        <div class="res-item ${veredito === 'empate' ? 'destaque' : ''}">
+          <div class="res-label">Empate</div>
+          <div class="res-bar-wrap"><div class="res-bar-fill" style="width:${r.empate}%;background:var(--blu)"></div></div>
+          <div class="res-pct" style="color:var(--blu)">${r.empate}%</div>
+        </div>
+        <div class="res-item ${veredito === 'fora' ? 'destaque' : ''}">
+          <div class="res-label">${j.timeFora?.nome?.split(' ')[0] || 'Fora'}</div>
+          <div class="res-bar-wrap"><div class="res-bar-fill" style="width:${r.fora}%;background:var(--red)"></div></div>
+          <div class="res-pct" style="color:var(--red)">${r.fora}%</div>
+        </div>
+      </div>
+      <div class="veredito ${verdClass}">
+        <span class="veredito-icon">${verdIcon}</span>
+        <span class="veredito-text">${verdLabel}</span>
+        <span class="veredito-conf ${confClass}">${confLabel}</span>
+      </div>
+    </div>
+    <div class="prev-bloco">
+      <div class="prev-titulo">⚽ Gols Estimados</div>
+      <div class="gols-display">
+        <div class="gols-num">${golsEst}</div>
+        <div class="gols-info">
+          <div class="gols-range">Faixa: ${golsRange}</div>
+          <div class="gols-tendencia ${tendClass}">${tendLabel}</div>
+        </div>
+      </div>
+      <div class="explicacao">${exps}</div>
+      <div class="fontes-mini">${fontesTags}</div>
+    </div>
+  </div>`;
+}
+
+// ── ANALISAR TODOS ────────────────────────────────────────────────────────
+async function analisarTodos() {
+  if (ANALISANDO) return;
+  const filtroLiga = gc('filtroLiga').value;
+  const jogos = filtroLiga ? JOGOS.filter(j => j.liga?.nome === filtroLiga) : JOGOS;
+  if (!jogos.length) return;
+
+  ANALISANDO = true;
+  const btn = gc('btnAnalisar');
+  btn.disabled = true;
+  btn.textContent = '⏳ Analisando...';
+
+  // Marcar todos como loading
+  jogos.forEach(j => { PREVISOES[j.id] = { loading: true, step: 'buscando dados' }; });
+  renderCards();
+
+  let analisados = 0;
+  for (const j of jogos) {
+    try {
+      PREVISOES[j.id] = { loading: true, step: j.timeCasa?.nome };
+      // Re-render só o card afetado
+      const cardEl = document.getElementById('card-' + j.id);
+      if (cardEl) cardEl.outerHTML = renderCard(j, PREVISOES[j.id]);
+
+      const prev = await analisarJogo(j);
+      PREVISOES[j.id] = prev;
+      analisados++;
+      setStatus(`${analisados}/${jogos.length} analisados`);
+
+      const cardEl2 = document.getElementById('card-' + j.id);
+      if (cardEl2) cardEl2.outerHTML = renderCard(j, prev);
+    } catch(e) {
+      PREVISOES[j.id] = { resultado: null, gols: null, confianca: 'insuficiente', explicacoes: ['Erro: ' + e.message], fontes: [] };
+    }
+  }
+
+  atualizarResumo();
+  ANALISANDO = false;
+  btn.disabled = false;
+  btn.textContent = '🔄 Reanalisar';
+  setStatus('✓ Análise completa');
+}
+
+// ── ANALISAR UM JOGO ──────────────────────────────────────────────────────
+async function analisarJogo(j) {
+  const casaId = j.timeCasa?.apiId || j.timeCasa?.id;
+  const foraId = j.timeFora?.apiId || j.timeFora?.id;
+  if (!casaId || !foraId) {
+    return { resultado: base5050(), gols: golsDefault(), confianca: 'insuficiente', explicacoes: ['IDs de time não encontrados'], fontes: [] };
+  }
+
+  // Buscar histórico dos dois times e contexto em paralelo
+  const [histCasa, histFora, ctxCasa, ctxFora, ctxGlobal] = await Promise.allSettled([
+    fns.httpsCallable('buscarHistoricoTime')({ teamId: casaId, limit: 30 }).then(r => r.data),
+    fns.httpsCallable('buscarHistoricoTime')({ teamId: foraId, limit: 30 }).then(r => r.data),
+    fns.httpsCallable('buscarContextoGol')({ timeId: String(casaId), situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'casa', forcaAdversario: 'medio' }).then(r => r.data).catch(() => null),
+    fns.httpsCallable('buscarContextoGol')({ timeId: String(foraId), situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'fora', forcaAdversario: 'medio' }).then(r => r.data).catch(() => null),
+    fns.httpsCallable('buscarContextoGlobal')({ situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'casa', forcaAdversario: 'medio' }).then(r => r.data).catch(() => null),
+  ]);
+
+  const hC = histCasa.status === 'fulfilled' ? histCasa.value : null;
+  const hF = histFora.status === 'fulfilled'  ? histFora.value  : null;
+  const cC = ctxCasa.status === 'fulfilled'   ? ctxCasa.value   : null;
+  const cF = ctxFora.status === 'fulfilled'   ? ctxFora.value   : null;
+  const cG = ctxGlobal.status === 'fulfilled' ? ctxGlobal.value : null;
+
+  return calcularPrevisao(j, hC, hF, cC, cF, cG);
+}
+
+// ── CALCULAR PREVISÃO ─────────────────────────────────────────────────────
+function calcularPrevisao(j, hC, hF, cC, cF, cG) {
+  const explicacoes = [];
+  const fontes = [];
+  let wTotal = 0;
+  let probCasa = 0, probEmpate = 0;
+
+  const jogosC = hC?.jogos || [];
+  const jogosF = hF?.jogos || [];
+  const nC = jogosC.length, nF = jogosF.length;
+
+  // ── FONTE 1: Histórico Casa ──
+  if (nC >= 3) {
+    const casa = jogosC.filter(j => j.local === 'casa');
+    const n = casa.length || jogosC.length;
+    const jogosRef = casa.length >= 3 ? casa : jogosC;
+    const vit = jogosRef.filter(j => j.resultado === 'V').length / jogosRef.length * 100;
+    const emp = jogosRef.filter(j => j.resultado === 'E').length / jogosRef.length * 100;
+    const w = n >= 15 ? 0.25 : n >= 7 ? 0.15 : 0.08;
+    probCasa  += vit * w;
+    probEmpate += emp * w;
+    wTotal += w;
+    fontes.push({ nome: 'Hist.Casa', amostras: n, ativa: true });
+
+    // Forma recente (últimos 5)
+    const ultimos5 = jogosC.slice(0, 5);
+    const vit5 = ultimos5.filter(j => j.resultado === 'V').length;
+    if (vit5 >= 4) explicacoes.push(`${j.timeCasa?.nome} em excelente forma — ${vit5} vitórias nos últimos 5 jogos`);
+    else if (vit5 <= 1) explicacoes.push(`${j.timeCasa?.nome} em má fase — só ${vit5} vitória nos últimos 5`);
+  } else {
+    fontes.push({ nome: 'Hist.Casa', amostras: nC, ativa: false });
+  }
+
+  // ── FONTE 2: Histórico Visitante ──
+  if (nF >= 3) {
+    const fora = jogosF.filter(j => j.local === 'fora');
+    const n = fora.length || jogosF.length;
+    const jogosRef = fora.length >= 3 ? fora : jogosF;
+    const vitF = jogosRef.filter(j => j.resultado === 'V').length / jogosRef.length * 100;
+    const empF = jogosRef.filter(j => j.resultado === 'E').length / jogosRef.length * 100;
+    const w = n >= 15 ? 0.20 : n >= 7 ? 0.12 : 0.06;
+    // Vitória do visitante reduz prob casa
+    probCasa  += (100 - vitF - empF) * w;
+    probEmpate += empF * w;
+    wTotal += w;
+    fontes.push({ nome: 'Hist.Fora', amostras: n, ativa: true });
+  } else {
+    fontes.push({ nome: 'Hist.Fora', amostras: nF, ativa: false });
+  }
+
+  // ── FONTE 3: H2H ──
+  const h2h = hC?.h2h || [];
+  if (h2h.length >= 3) {
+    const foraId = j.timeFora?.apiId || j.timeFora?.id;
+    const h2hFilt = h2h.filter(g => String(g.timeForaId) === String(foraId) || String(g.timeCasaId) === String(foraId));
+    if (h2hFilt.length >= 3) {
+      const vitH2H = h2hFilt.filter(g => {
+        const isCasa = String(g.timeCasaId) === String(j.timeCasa?.apiId || j.timeCasa?.id);
+        return (isCasa && g.resultado === '1') || (!isCasa && g.resultado === '2');
+      }).length / h2hFilt.length * 100;
+      const empH2H = h2hFilt.filter(g => g.resultado === 'X').length / h2hFilt.length * 100;
+      const w = h2hFilt.length >= 8 ? 0.20 : 0.12;
+      probCasa  += vitH2H * w;
+      probEmpate += empH2H * w;
+      wTotal += w;
+      fontes.push({ nome: 'H2H', amostras: h2hFilt.length, ativa: true });
+      if (vitH2H >= 60) explicacoes.push(`${j.timeCasa?.nome} domina os confrontos diretos — ${Math.round(vitH2H)}% de vitórias`);
+    }
+  }
+
+  // ── FONTE 4: Contexto Banco (buscarContextoGol) ──
+  if (cC?.totalAmostras >= 5) {
+    const vitC = cC.resultados?.pctVitoria || 0;
+    const empC = cC.resultados?.pctEmpate  || 25;
+    const w = cC.totalAmostras >= 30 ? 0.25 : cC.totalAmostras >= 10 ? 0.15 : 0.08;
+    probCasa  += vitC * w;
+    probEmpate += empC * w;
+    wTotal += w;
+    fontes.push({ nome: 'Banco', amostras: cC.totalAmostras, ativa: true });
+    if (vitC >= 70) explicacoes.push(`Banco de padrões: ${j.timeCasa?.nome} vence ${Math.round(vitC)}% neste contexto`);
+  } else {
+    fontes.push({ nome: 'Banco', amostras: cC?.totalAmostras || 0, ativa: false });
+  }
+
+  // ── FONTE 5: Banco Global ──
+  if (cG?.totalAmostras >= 30) {
+    const vitG = cG.resultados?.pctVitoria || 50;
+    const empG = cG.resultados?.pctEmpate  || 25;
+    const w = cG.totalAmostras >= 100 ? 0.15 : 0.10;
+    probCasa  += vitG * w;
+    probEmpate += empG * w;
+    wTotal += w;
+    fontes.push({ nome: 'Global', amostras: cG.totalAmostras, ativa: true });
+  }
+
+  // ── NORMALIZAR ──
+  // Vantagem de jogar em casa
+  probCasa += 5;
+
+  if (wTotal < 0.1) {
+    // Sem dados suficientes — base estatística futebol mundial
+    probCasa = 46; probEmpate = 26;
+    explicacoes.push('Poucos dados disponíveis — usando base estatística geral');
+  } else {
+    // Normalizar pelo peso usado
+    probCasa  = probCasa  / wTotal;
+    probEmpate = probEmpate / wTotal;
+  }
+
+  // Clamp
+  probCasa   = Math.min(88, Math.max(8,  Math.round(probCasa)));
+  probEmpate = Math.min(45, Math.max(8,  Math.round(probEmpate)));
+  let probFora = Math.max(4, 100 - probCasa - probEmpate);
+  // Renormalizar
+  const tot = probCasa + probEmpate + probFora;
+  probCasa   = Math.round(probCasa   / tot * 100);
+  probEmpate = Math.round(probEmpate / tot * 100);
+  probFora   = 100 - probCasa - probEmpate;
+
+  const max = Math.max(probCasa, probEmpate, probFora);
+  const veredito = probCasa === max ? 'casa' : probEmpate === max ? 'empate' : 'fora';
+
+  // ── GOLS ESTIMADOS ──
+  const gols = calcularGols(j, jogosC, jogosF, hC?.h2h);
+
+  // ── CONFIANÇA ──
+  const score = (nC >= 20 ? 3 : nC >= 8 ? 2 : nC >= 3 ? 1 : 0)
+              + (nF >= 20 ? 3 : nF >= 8 ? 2 : nF >= 3 ? 1 : 0)
+              + ((cC?.totalAmostras || 0) >= 20 ? 3 : (cC?.totalAmostras || 0) >= 8 ? 2 : 0)
+              + (max >= 55 ? 2 : max >= 48 ? 1 : 0);
+  const confianca = score >= 9 ? 'alta' : score >= 6 ? 'media' : score >= 3 ? 'baixa' : 'insuficiente';
+
+  // Força comparativa
+  if (nC >= 5 && nF >= 5) {
+    const mediaGolsC = jogosC.reduce((a, j) => a + (j.golsMarcados || 0), 0) / nC;
+    const mediaGolsF = jogosF.reduce((a, j) => a + (j.golsMarcados || 0), 0) / nF;
+    if (mediaGolsC > mediaGolsF + 0.5) explicacoes.push(`${j.timeCasa?.nome} mais eficiente — média ${mediaGolsC.toFixed(1)} gols/jogo vs ${mediaGolsF.toFixed(1)}`);
+    else if (mediaGolsF > mediaGolsC + 0.5) explicacoes.push(`${j.timeFora?.nome} mais eficiente fora — média ${mediaGolsF.toFixed(1)} gols/jogo`);
+  }
+
+  return {
+    resultado: { casa: probCasa, empate: probEmpate, fora: probFora, veredito },
+    gols,
+    confianca,
+    explicacoes: explicacoes.slice(0, 4),
+    fontes
+  };
+}
+
+// ── CALCULAR GOLS ─────────────────────────────────────────────────────────
+function calcularGols(j, jogosC, jogosF, h2h) {
+  const vals = [];
+  const n = Math.min(jogosC.length, 20), m = Math.min(jogosF.length, 20);
+
+  // Média de gols marcados da casa
+  if (n >= 3) {
+    const mg = jogosC.slice(0, n).reduce((a, j) => a + (j.golsMarcados || 0), 0) / n;
+    const ms = jogosF.slice(0, m).reduce((a, j) => a + (j.golsSofridos || 0), 0) / (m || 1);
+    vals.push((mg + ms) / 2);
+  }
+
+  // Média de gols do visitante
+  if (m >= 3) {
+    const mg = jogosF.slice(0, m).reduce((a, j) => a + (j.golsMarcados || 0), 0) / m;
+    const ms = jogosC.slice(0, n).reduce((a, j) => a + (j.golsSofridos || 0), 0) / (n || 1);
+    vals.push((mg + ms) / 2);
+  }
+
+  // H2H média de gols
+  if (h2h && h2h.length >= 3) {
+    const mgH2H = h2h.slice(0, 8).reduce((a, g) => a + (g.golsCasa || 0) + (g.golsFora || 0), 0) / Math.min(h2h.length, 8);
+    if (mgH2H > 0) vals.push(mgH2H);
+  }
+
+  // Base estatística se sem dados
+  if (!vals.length) vals.push(2.5);
+
+  const media = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const est = Math.round(media * 10) / 10;
+  const baixo = Math.max(0, Math.round((est - 0.7) * 10) / 10);
+  const alto  = Math.round((est + 0.8) * 10) / 10;
+
+  const tendencia = est >= 3.0 ? 'alto' : est <= 1.8 ? 'baixo' : 'medio';
+
+  return {
+    estimado: est.toFixed(1),
+    range: `${baixo}–${alto}`,
+    tendencia
+  };
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────
+function base5050() { return { casa: 45, empate: 26, fora: 29, veredito: 'casa' }; }
+function golsDefault() { return { estimado: '2.5', range: '1.5–3.5', tendencia: 'medio' }; }
+
+function atualizarResumo() {
+  const filtroLiga = gc('filtroLiga').value;
+  const jogos = filtroLiga ? JOGOS.filter(j => j.liga?.nome === filtroLiga) : JOGOS;
+  const prevs = jogos.map(j => PREVISOES[j.id]).filter(Boolean).filter(p => !p.loading);
+  gc('rTotal').textContent = jogos.length;
+  gc('rAnalisados').textContent = prevs.length;
+  gc('rAlta').textContent  = prevs.filter(p => p.confianca === 'alta').length;
+  gc('rMedia').textContent = prevs.filter(p => p.confianca === 'media').length;
+  gc('rBaixa').textContent = prevs.filter(p => p.confianca === 'baixa' || p.confianca === 'insuficiente').length;
+  gc('resumoBar').style.display = jogos.length ? 'flex' : 'none';
+}
+
+function setStatus(msg, err) {
+  const el = gc('statusBar');
+  if (!msg) { el.innerHTML = ''; return; }
+  el.innerHTML = msg.startsWith('✓') ? `<span style="color:var(--grn)">${msg}</span>`
+    : err ? `<span style="color:var(--red)">${msg}</span>`
+    : `<div class="dot-spin"></div><span>${msg}</span>`;
+}
+</script>
+</body>
+</html>
