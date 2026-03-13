@@ -1134,6 +1134,7 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
       </select>
       <button class="btn-analisar" id="btnBackfill" onclick="iniciarBackfill()">🔄 Iniciar importação</button>
       <button class="btn-back" onclick="rodarDiagnostico()" title="Ver estrutura do banco">🔍 Diagnóstico</button>
+      <button class="btn-back" onclick="listarLigasBanco()" title="Ver ligas no banco">🏆 Ver ligas</button>
     </div>
     <div id="backfillStatus" style="margin-top:10px;font-size:12px;color:var(--t2)"></div>
     <div id="backfillProgress" style="margin-top:8px;display:none">
@@ -1147,6 +1148,30 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
 
 // ── BACKFILL ──────────────────────────────────────────────────────────────
 let backfillRodando = false;
+
+async function listarLigasBanco() {
+  const el = gc('backfillStatus');
+  el.textContent = 'Buscando ligas...';
+  try {
+    const r = await fns.httpsCallable('listarLigasBackfill')({});
+    const d = r.data;
+    const ligasOrdenadas = Object.entries(d.ligasNoBackfill)
+      .sort((a,b) => b[1]-a[1]);
+    const aprendidas = new Set(d.ligasNoAprendizado);
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:8px;padding:12px;font-size:11px;line-height:1.9">
+        <b>Total jogos encerrados encontrados: ${d.totalEncerrados}</b><br>
+        <b>Ligas (jogos encerrados → já no aprendizado?):</b><br>
+        ${ligasOrdenadas.map(([liga, n]) =>
+          `<span style="color:${aprendidas.has(liga)?'var(--grn)':'var(--acc)'}">
+            ${aprendidas.has(liga)?'✓':'○'} ${liga}: ${n} jogos
+          </span>`
+        ).join('<br>')}
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">Erro: ${e.message}</span>`;
+  }
+}
 
 async function rodarDiagnostico() {
   const el = gc('backfillStatus');
