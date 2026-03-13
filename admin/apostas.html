@@ -250,7 +250,12 @@ const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions();
 // ── ESTADO ────────────────────────────────────────────────────────────────
 let JOGOS = [];        // jogos do dia carregados
 let PREVISOES = {};    // { fixtureId: { resultado, gols, confianca, ... } }
-let DATA_ATUAL = new Date().toLocaleDateString('en-CA');
+// Helper timezone Brasília
+function toBRTDate(d) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
+}
+
+let DATA_ATUAL = toBRTDate(new Date());
 let ANALISANDO = false;
 
 // ── AUTH ──────────────────────────────────────────────────────────────────
@@ -269,9 +274,9 @@ function gc(id) { return document.getElementById(id); }
 
 function formatarData(iso) {
   const d = new Date(iso + 'T12:00:00');
-  const hoje = new Date().toLocaleDateString('en-CA');
-  const amanha = new Date(Date.now() + 86400000).toLocaleDateString('en-CA');
-  const ontem  = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
+  const hoje  = toBRTDate(new Date());
+  const amanha = toBRTDate(new Date(Date.now() + 86400000));
+  const ontem  = toBRTDate(new Date(Date.now() - 86400000));
   const label = iso === hoje ? ' (Hoje)' : iso === amanha ? ' (Amanhã)' : iso === ontem ? ' (Ontem)' : '';
   return d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'2-digit'}) + label;
 }
@@ -279,7 +284,7 @@ function formatarData(iso) {
 function mudarData(d) {
   const dt = new Date(DATA_ATUAL + 'T12:00:00');
   dt.setDate(dt.getDate() + d);
-  DATA_ATUAL = dt.toLocaleDateString('en-CA');
+  DATA_ATUAL = toBRTDate(dt);
   gc('dateDisplay').textContent = formatarData(DATA_ATUAL);
   JOGOS = []; PREVISOES = {};
   carregarJogos();
@@ -318,7 +323,9 @@ async function carregarJogos() {
       const dataLocal = dt.toLocaleDateString('en-CA');
       const dataUTC   = dt.toISOString().slice(0, 10);
       const dataStr   = j.dataStr || j.data || '';
-      return dataLocal === DATA_ATUAL || dataUTC === DATA_ATUAL || dataStr.startsWith(DATA_ATUAL);
+      // Priorizar BRT, fallback para local/UTC
+      const dataBRT = toBRTDate(dt);
+      return dataBRT === DATA_ATUAL || dataLocal === DATA_ATUAL || dataUTC === DATA_ATUAL || dataStr.startsWith(DATA_ATUAL);
     });
 
     // Popular filtro de ligas
@@ -349,7 +356,7 @@ function _iniciarLivePolling() {
   // Polling a cada 45 segundos — atualiza só placar/minuto/status dos cards
   _livePollingInterval = setInterval(async () => {
     const temAoVivo = JOGOS.some(j => j.status === 'ao_vivo');
-    const temHoje   = DATA_ATUAL === new Date().toLocaleDateString('en-CA');
+    const temHoje   = DATA_ATUAL === toBRTDate(new Date());
     if (!temAoVivo && !temHoje) return; // nada ao vivo e não é hoje — parar
 
     try {
