@@ -318,7 +318,9 @@ async function carregarJogos() {
 
     setStatus('');
     gc('resumoBar').style.display = JOGOS.length ? 'flex' : 'none';
+    const restored = restaurarPrevisoes();
     renderCards();
+    if (restored > 0) setStatus(`✓ ${restored} previsões restauradas`, false);
 
     if (JOGOS.length === 0) {
       gc('jogosGrid').innerHTML = '<div class="empty-state"><div class="icon">📅</div><p>Nenhum jogo encontrado para esta data</p></div>';
@@ -381,7 +383,27 @@ function _iniciarLivePolling() {
     } catch(e) {
       console.warn('Live polling erro:', e.message);
     }
-  }, 45000); // 45 segundos
+  }, 30000); // 30 segundos (era 45, reduzido para jogos ao vivo)
+}
+
+// ── RESTAURAR PREVISÕES DO SESSION STORAGE ───────────────────────────────
+function restaurarPrevisoes() {
+  let restaurados = 0;
+  JOGOS.forEach(j => {
+    if (PREVISOES[j.id]) return; // já tem
+    try {
+      const cached = sessionStorage.getItem('prev_' + j.id);
+      if (cached) {
+        PREVISOES[j.id] = JSON.parse(cached);
+        restaurados++;
+      }
+    } catch(e) {}
+  });
+  if (restaurados > 0) {
+    console.log(`✓ ${restaurados} previsões restauradas do cache`);
+    atualizarResumo();
+  }
+  return restaurados;
 }
 
 // ── RENDER CARDS ──────────────────────────────────────────────────────────
@@ -1050,6 +1072,8 @@ async function analisarTodos() {
       if (j.status !== 'encerrado' && j.apiFootballId) {
         salvarPrevisao(j, prev); // assíncrono, não bloqueia
       }
+      // Cache local no sessionStorage
+      try { sessionStorage.setItem('prev_' + j.id, JSON.stringify(prev)); } catch(e) {}
     } catch(e) {
       PREVISOES[j.id] = { resultado: null, gols: null, confianca: 'insuficiente', explicacoes: ['Erro: ' + e.message], fontes: [] };
     }
@@ -1060,6 +1084,12 @@ async function analisarTodos() {
   btn.disabled = false;
   btn.textContent = '🔄 Reanalisar';
   setStatus('✓ Análise completa — previsões salvas');
+  // Atualizar cache
+  JOGOS.forEach(j => {
+    if (PREVISOES[j.id] && !PREVISOES[j.id].loading) {
+      try { sessionStorage.setItem('prev_' + j.id, JSON.stringify(PREVISOES[j.id])); } catch(e) {}
+    }
+  });
 }
 
 // ── CARREGAR APRENDIZADO ──────────────────────────────────────────────────
