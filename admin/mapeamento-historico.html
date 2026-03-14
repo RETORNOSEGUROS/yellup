@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Yellup — Mapeamento Histórico & Padrões</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+<style>
+:root{
+  --bg:#07080d;--bg2:#0b0d15;--bg3:#0f1119;
+  --c1:#131622;--c2:#181b28;--c3:#1d2133;
+  --bd1:#191c2c;--bd2:#212540;--bd3:#2a2e4a;
+  --t1:#eceef6;--t2:#858ba5;--t3:#41456a;
+  --acc:#f5a524;--adim:rgba(245,165,36,.1);--adim2:rgba(245,165,36,.2);
+  --grn:#27d49b;--gdim:rgba(39,212,155,.1);
+  --red:#ef5f5f;--rdim:rgba(239,95,95,.1);
+  --blu:#4f96f4;--bdim2:rgba(79,150,244,.1);
+  --pur:#a78bfa;--pdim:rgba(167,139,250,.1);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);display:flex;flex-direction:column;}
+
+/* TOP BAR */
+.topbar{height:52px;background:var(--bg2);border-bottom:1px solid var(--bd1);display:flex;align-items:center;padding:0 18px;gap:14px;flex-shrink:0;}
+.logo{width:28px;height:28px;background:var(--acc);border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;color:#000;flex-shrink:0;}
+.logo-txt{font-family:'Syne',sans-serif;font-size:15px;font-weight:800;}
+.logo-txt small{font-size:9px;font-weight:400;color:var(--t3);margin-left:4px;text-transform:uppercase;letter-spacing:.8px;}
+.topbar-nav{display:flex;gap:2px;margin-left:6px;}
+.tn{padding:5px 11px;border-radius:6px;font-size:11px;font-weight:600;color:var(--t3);cursor:pointer;transition:all .15s;text-decoration:none;}
+.tn:hover{color:var(--t2);}
+.tn.on{background:var(--adim);color:var(--acc);}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.status-pill{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:var(--c2);border:1px solid var(--bd2);font-size:10px;color:var(--t2);}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--grn);}
+.status-dot.off{background:var(--t3);}
+.status-dot.busy{background:var(--acc);animation:blink .6s infinite alternate;}
+@keyframes blink{to{opacity:.3;}}
+
+/* LAYOUT */
+.workspace{flex:1;display:grid;grid-template-columns:290px 1fr 340px;overflow:hidden;}
+
+/* PANEL ESQUERDO — ligas */
+.panel-l{background:var(--bg2);border-right:1px solid var(--bd1);display:flex;flex-direction:column;overflow:hidden;}
+.ph{padding:11px 13px;border-bottom:1px solid var(--bd1);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.ph h3{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;}
+.ph-badge{font-family:'DM Mono',monospace;font-size:9px;color:var(--acc);background:var(--adim);padding:2px 7px;border-radius:8px;}
+.scroll{flex:1;overflow-y:auto;padding-bottom:12px;}
+.scroll::-webkit-scrollbar{width:3px;}
+.scroll::-webkit-scrollbar-thumb{background:var(--bd3);}
+
+.lg-group{margin-bottom:2px;}
+.lg-group-hdr{padding:8px 12px 3px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:var(--t3);display:flex;align-items:center;gap:6px;}
+.lg-group-hdr::after{content:'';flex:1;height:1px;background:var(--bd1);}
+.lg-row{display:flex;align-items:center;gap:8px;padding:5px 10px;margin:1px 4px;border-radius:7px;cursor:pointer;transition:all .12s;border:1px solid transparent;}
+.lg-row:hover{background:var(--c2);}
+.lg-row.selected{background:var(--adim);border-color:rgba(245,165,36,.2);}
+.lg-row.collecting{background:var(--bdim2);border-color:rgba(79,150,244,.3);}
+.lg-row.done{background:var(--gdim);border-color:rgba(39,212,155,.2);}
+.lg-check{width:14px;height:14px;border:1.5px solid var(--bd3);border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;transition:all .12s;}
+.lg-row.selected .lg-check{background:var(--acc);border-color:var(--acc);color:#000;}
+.lg-row.done .lg-check{background:var(--grn);border-color:var(--grn);color:#000;}
+.lg-flag{width:14px;height:10px;object-fit:cover;border-radius:1px;flex-shrink:0;}
+.lg-logo{width:16px;height:16px;object-fit:contain;flex-shrink:0;}
+.lg-info{flex:1;min-width:0;}
+.lg-nome{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lg-sub{font-size:8px;color:var(--t3);}
+.lg-count{font-family:'DM Mono',monospace;font-size:8px;color:var(--t3);flex-shrink:0;}
+.lg-row.done .lg-count{color:var(--grn);}
+
+/* PAINEL CENTRAL */
+.panel-c{display:flex;flex-direction:column;overflow:hidden;}
+.pc-head{padding:12px 16px;border-bottom:1px solid var(--bd1);background:var(--bg2);display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;}
+.pc-head h2{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;flex:1;}
+.pc-tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--bd1);flex-shrink:0;}
+.pctab{padding:9px 16px;font-size:11px;font-weight:700;font-family:'Syne',sans-serif;cursor:pointer;border:none;background:none;color:var(--t3);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;}
+.pctab:hover{color:var(--t2);}
+.pctab.on{color:var(--acc);border-bottom-color:var(--acc);}
+.pane{display:none;flex:1;overflow:hidden;flex-direction:column;}
+.pane.on{display:flex;}
+
+/* COLETA */
+.coleta-cfg{padding:14px 16px;border-bottom:1px solid var(--bd1);background:var(--bg2);flex-shrink:0;}
+.cfg-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;}
+.cfg-item{background:var(--c3);border:1px solid var(--bd2);border-radius:8px;padding:9px 11px;}
+.cfg-item label{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--t3);display:block;margin-bottom:4px;}
+.cfg-item select,.cfg-item input{background:none;border:none;color:var(--t1);font-size:11px;font-family:'DM Mono',monospace;outline:none;width:100%;}
+.progress-wrap{background:var(--c3);border:1px solid var(--bd2);border-radius:8px;padding:10px 12px;}
+.progress-bar-bg{height:6px;background:var(--bd2);border-radius:3px;overflow:hidden;margin:6px 0;}
+.progress-bar{height:100%;background:var(--acc);border-radius:3px;transition:width .3s;width:0%;}
+.progress-info{display:flex;justify-content:space-between;font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;}
+.log-area{flex:1;overflow-y:auto;padding:10px 14px;}
+.log-line{font-size:10px;font-family:'DM Mono',monospace;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03);display:flex;gap:8px;}
+.log-time{color:var(--t3);flex-shrink:0;}
+.log-ok{color:var(--grn);}
+.log-err{color:var(--red);}
+.log-info{color:var(--blu);}
+.log-warn{color:var(--acc);}
+
+/* PADRÕES */
+.padroes-wrap{flex:1;overflow-y:auto;padding:14px 16px;}
+.padroes-wrap::-webkit-scrollbar{width:4px;}
+.padroes-wrap::-webkit-scrollbar-thumb{background:var(--bd3);}
+.padrao-section{margin-bottom:20px;}
+.padrao-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:7px;}
+.padrao-title::after{content:'';flex:1;height:1px;background:var(--bd1);}
+.padrao-table{width:100%;border-collapse:collapse;}
+.padrao-table th{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);padding:5px 8px;border-bottom:1px solid var(--bd1);text-align:left;}
+.padrao-table th.r{text-align:right;}
+.padrao-table td{padding:5px 8px;font-size:10px;border-bottom:1px solid rgba(255,255,255,.03);}
+.padrao-table td.r{text-align:right;font-family:'DM Mono',monospace;font-size:9px;}
+.padrao-table tr:hover td{background:rgba(255,255,255,.02);}
+.pct-bar-wrap{display:flex;align-items:center;gap:6px;}
+.pct-bar{height:5px;border-radius:2px;flex-shrink:0;}
+.pct-val{font-family:'DM Mono',monospace;font-size:9px;color:var(--t2);}
+.heat-high{color:var(--grn);font-weight:700;}
+.heat-mid{color:var(--acc);}
+.heat-low{color:var(--red);}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;color:var(--t3);}
+.empty-ico{font-size:32px;margin-bottom:8px;}
+.empty-state p{font-size:11px;}
+
+/* PAINEL DIREITO — stats / resumo */
+.panel-r{background:var(--bg2);border-left:1px solid var(--bd1);display:flex;flex-direction:column;overflow:hidden;}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--bd1);flex-shrink:0;}
+.stat-box{padding:12px 14px;border-right:1px solid var(--bd1);border-bottom:1px solid var(--bd1);}
+.stat-box:nth-child(2n){border-right:none;}
+.stat-box:nth-child(n+5){border-bottom:none;}
+.stat-v{font-family:'DM Mono',monospace;font-size:20px;font-weight:500;}
+.stat-l{font-size:8px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);margin-top:2px;}
+.ca{color:var(--acc);}
+.cb{color:var(--blu);}
+.cg{color:var(--grn);}
+.cr{color:var(--red);}
+.cp{color:var(--pur);}
+
+.pr-scroll{flex:1;overflow-y:auto;padding:12px;}
+.pr-scroll::-webkit-scrollbar{width:3px;}
+.pr-scroll::-webkit-scrollbar-thumb{background:var(--bd3);}
+.mini-card{background:var(--c2);border:1px solid var(--bd1);border-radius:9px;margin-bottom:8px;padding:10px 12px;}
+.mini-card .mc-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);margin-bottom:8px;}
+.mc-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.03);}
+.mc-row:last-child{border-bottom:none;}
+.mc-row .lbl{font-size:10px;color:var(--t2);}
+.mc-row .val{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;}
+
+/* BUTTONS */
+.btn{padding:6px 14px;border-radius:7px;border:1px solid var(--bd2);background:none;color:var(--t2);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap;}
+.btn:hover{border-color:var(--bd3);color:var(--t1);}
+.btn-acc{background:var(--acc);border-color:var(--acc);color:#000;}
+.btn-acc:hover{opacity:.88;color:#000;}
+.btn-acc:disabled{opacity:.4;cursor:not-allowed;}
+.btn-grn{background:var(--grn);border-color:var(--grn);color:#000;}
+.btn-grn:hover{opacity:.88;color:#000;}
+.btn-red{background:var(--rdim);border-color:var(--red);color:var(--red);}
+.btn-blu{background:var(--bdim2);border-color:var(--blu);color:var(--blu);}
+.ld{width:12px;height:12px;border:2px solid rgba(0,0,0,.3);border-top-color:#000;border-radius:50%;animation:spin .7s linear infinite;display:inline-block;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* TOAST */
+.toast{position:fixed;bottom:20px;right:20px;background:var(--c3);border:1px solid var(--bd2);border-radius:9px;padding:10px 16px;font-size:12px;z-index:999;opacity:0;transform:translateY(10px);transition:all .25s;pointer-events:none;max-width:320px;}
+.toast.show{opacity:1;transform:translateY(0);}
+.toast.ok{border-color:var(--grn);color:var(--grn);}
+.toast.err{border-color:var(--red);color:var(--red);}
+.toast.info{border-color:var(--acc);color:var(--acc);}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="logo">Y</div>
+  <span class="logo-txt">Yellup <small>Admin</small></span>
+  <nav class="topbar-nav">
+    <a class="tn" href="jogos-admin.html">🎮 Jogos</a>
+    <a class="tn" href="campeonatos.html">🏆 Campeonatos</a>
+    <a class="tn on" href="#">🗺️ Mapeamento</a>
+    <a class="tn" href="apostas.html">🧠 Previsões</a>
+  </nav>
+  <div class="topbar-right">
+    <div class="status-pill"><div class="status-dot" id="connDot"></div><span id="connTxt">Conectando...</span></div>
+    <button class="btn" onclick="exportarRelatorio()">📥 Exportar JSON</button>
+    <button class="btn btn-acc" id="btnIniciar" onclick="iniciarColeta()" disabled>▶ Iniciar Coleta</button>
+    <button class="btn btn-red" id="btnParar" onclick="pararColeta()" style="display:none">⏹ Parar</button>
+  </div>
+</div>
+
+<!-- WORKSPACE -->
+<div class="workspace">
+
+  <!-- PAINEL ESQUERDO: Ligas -->
+  <div class="panel-l">
+    <div class="ph">
+      <h3>🌍 Ligas para Coletar</h3>
+      <span class="ph-badge" id="selCount">0 selecionadas</span>
+    </div>
+    <div style="padding:7px 10px;border-bottom:1px solid var(--bd1);display:flex;gap:5px;flex-shrink:0;">
+      <button class="btn" style="font-size:10px;padding:4px 9px" onclick="selecionarTodas()">✓ Todas</button>
+      <button class="btn" style="font-size:10px;padding:4px 9px" onclick="desselecionarTodas()">✗ Limpar</button>
+      <input id="ligaSearch" placeholder="🔍 buscar..." style="flex:1;background:var(--c3);border:1px solid var(--bd2);border-radius:6px;color:var(--t1);font-size:10px;padding:4px 8px;outline:none;" oninput="filtrarLigas(this.value)">
+    </div>
+    <div class="scroll" id="ligasList"></div>
+  </div>
+
+  <!-- PAINEL CENTRAL: Coleta + Padrões -->
+  <div class="panel-c">
+    <div class="pc-head">
+      <h2 id="pcTitle">Mapeamento Histórico de Jogos</h2>
+      <button class="btn btn-blu" onclick="analisarPadroes()" id="btnAnalise" disabled>🔬 Analisar Padrões</button>
+    </div>
+    <div class="pc-tabs">
+      <button class="pctab on" onclick="switchTab('coleta',this)">⬇️ Coleta</button>
+      <button class="pctab" onclick="switchTab('padroes',this)">📊 Padrões</button>
+      <button class="pctab" onclick="switchTab('relatorio',this)">📋 Relatório</button>
+    </div>
+
+    <!-- PANE: COLETA -->
+    <div class="pane on" id="pane-coleta">
+      <div class="coleta-cfg">
+        <div class="cfg-grid">
+          <div class="cfg-item">
+            <label>Temporadas</label>
+            <select id="cfgSeasons" multiple style="height:60px;font-size:10px;">
+              <option value="2019">2019</option>
+              <option value="2020">2020</option>
+              <option value="2021">2021</option>
+              <option value="2022" selected>2022</option>
+              <option value="2023" selected>2023</option>
+              <option value="2024" selected>2024</option>
+              <option value="2025" selected>2025</option>
+              <option value="2026">2026</option>
+            </select>
+          </div>
+          <div class="cfg-item">
+            <label>Status dos Jogos</label>
+            <select id="cfgStatus" style="margin-top:4px">
+              <option value="FT-AET-PEN">Encerrados (FT+AET+PEN)</option>
+              <option value="FT">Apenas FT</option>
+              <option value="all">Todos</option>
+            </select>
+            <label style="margin-top:8px">Delay entre calls (ms)</label>
+            <input id="cfgDelay" type="number" value="1200" min="500" max="5000" style="margin-top:2px">
+          </div>
+          <div class="cfg-item">
+            <label>Batch size (IDs/call)</label>
+            <input id="cfgBatch" type="number" value="20" min="1" max="20">
+            <label style="margin-top:8px">Incluir stats do jogo</label>
+            <select id="cfgStats" style="margin-top:2px">
+              <option value="sim">Sim (mais chamadas, mais dados)</option>
+              <option value="nao">Não (mais rápido)</option>
+            </select>
+          </div>
+        </div>
+        <div class="progress-wrap">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span id="progressLabel" style="font-size:10px;font-weight:600;">Aguardando início...</span>
+            <span id="progressPct" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--acc)">0%</span>
+          </div>
+          <div class="progress-bar-bg"><div class="progress-bar" id="progressBar"></div></div>
+          <div class="progress-info">
+            <span id="progressDetail">Selecione ligas e clique em Iniciar</span>
+            <span id="progressETA">—</span>
+          </div>
+        </div>
+      </div>
+      <div class="log-area" id="logArea">
+        <div class="log-line"><span class="log-time">--:--:--</span><span class="log-info">Sistema pronto. Selecione as ligas na esquerda.</span></div>
+      </div>
+    </div>
+
+    <!-- PANE: PADRÕES -->
+    <div class="pane" id="pane-padroes">
+      <div class="padroes-wrap" id="padroesCont">
+        <div class="empty-state"><div class="empty-ico">🔬</div><p>Colete dados e clique em "Analisar Padrões"</p></div>
+      </div>
+    </div>
+
+    <!-- PANE: RELATÓRIO -->
+    <div class="pane" id="pane-relatorio">
+      <div class="padroes-wrap" id="relatorioCont">
+        <div class="empty-state"><div class="empty-ico">📋</div><p>O relatório será gerado após a análise de padrões</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAINEL DIREITO: Stats -->
+  <div class="panel-r">
+    <div class="ph"><h3>📈 Banco de Dados</h3></div>
+    <div class="stats-grid">
+      <div class="stat-box"><div class="stat-v ca" id="stTotal">0</div><div class="stat-l">Jogos coletados</div></div>
+      <div class="stat-box"><div class="stat-v cb" id="stLigas">0</div><div class="stat-l">Ligas cobertas</div></div>
+      <div class="stat-box"><div class="stat-v cg" id="stComYS">0</div><div class="stat-l">Com YS calculado</div></div>
+      <div class="stat-box"><div class="stat-v cr" id="stErros">0</div><div class="stat-l">Erros na coleta</div></div>
+    </div>
+    <div class="pr-scroll" id="rightScroll">
+      <div class="mini-card">
+        <div class="mc-title">⚙️ Sessão Atual</div>
+        <div class="mc-row"><span class="lbl">Status</span><span class="val" id="sessStatus" style="color:var(--t3)">Inativo</span></div>
+        <div class="mc-row"><span class="lbl">Ligas selecionadas</span><span class="val" id="sessLigas">0</span></div>
+        <div class="mc-row"><span class="lbl">Jogos nesta sessão</span><span class="val" id="sessJogos">0</span></div>
+        <div class="mc-row"><span class="lbl">Calls à API</span><span class="val" id="sessCalls">0</span></div>
+        <div class="mc-row"><span class="lbl">Cota usada hoje</span><span class="val" id="sessCota" style="color:var(--acc)">0/100</span></div>
+      </div>
+      <div class="mini-card" id="distLigasCard">
+        <div class="mc-title">🏆 Jogos por Liga</div>
+        <div id="distLigasList" style="color:var(--t3);font-size:10px;text-align:center;padding:8px">Nenhum dado ainda</div>
+      </div>
+      <div class="mini-card">
+        <div class="mc-title">📅 Por Temporada</div>
+        <div id="distSeasonsList" style="color:var(--t3);font-size:10px;text-align:center;padding:8px">Nenhum dado ainda</div>
+      </div>
+      <div class="mini-card">
+        <div class="mc-title">💡 Dica de Cota</div>
+        <div style="font-size:10px;color:var(--t2);line-height:1.5">
+          Free: <span style="color:var(--acc);font-weight:700">100 calls/dia</span><br>
+          1 liga × 1 temporada ≈ <span style="color:var(--blu)">9-12 calls</span><br>
+          Com stats: <span style="color:var(--red)">×5-8 calls</span><br>
+          Recomendado: <span style="color:var(--grn)">sem stats primeiro</span>, depois enriquece
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════
+// FIREBASE CONFIG
+// ══════════════════════════════════════════════
+const fbConfig = {
+  apiKey: "AIzaSyBmYGYz7_5TuSlOm4zBqM0WvQV6TJiB4Uo",
+  authDomain: "painel-yellup.firebaseapp.com",
+  projectId: "painel-yellup",
+  storageBucket: "painel-yellup.appspot.com",
+  messagingSenderId: "247729936247",
+  appId: "1:247729936247:web:da3d7bf9c2e7bbce0a4f18"
+};
+firebase.initializeApp(fbConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const fns = firebase.functions();
+
+// ══════════════════════════════════════════════
+// LIGAS PRIORITÁRIAS (IDs API-Football)
+// ══════════════════════════════════════════════
+const LIGAS = [
+  // BRASIL
+  { id:71,  nome:'Brasileirão A',    pais:'Brasil',   flag:'🇧🇷', tier:1, cat:'brasil',   temporadas:[2021,2022,2023,2024,2025,2026] },
+  { id:72,  nome:'Brasileirão B',    pais:'Brasil',   flag:'🇧🇷', tier:2, cat:'brasil',   temporadas:[2021,2022,2023,2024,2025,2026] },
+  { id:73,  nome:'Copa do Brasil',   pais:'Brasil',   flag:'🇧🇷', tier:1, cat:'brasil',   temporadas:[2021,2022,2023,2024,2025,2026] },
+  { id:75,  nome:'Brasileirão C',    pais:'Brasil',   flag:'🇧🇷', tier:3, cat:'brasil',   temporadas:[2022,2023,2024,2025,2026] },
+  { id:76,  nome:'Brasileirão D',    pais:'Brasil',   flag:'🇧🇷', tier:4, cat:'brasil',   temporadas:[2022,2023,2024,2025,2026] },
+  // SUL-AMERICA
+  { id:13,  nome:'Libertadores',     pais:'América',  flag:'🌎', tier:1, cat:'sulamerica', temporadas:[2021,2022,2023,2024,2025,2026] },
+  { id:11,  nome:'Sudamericana',     pais:'América',  flag:'🌎', tier:1, cat:'sulamerica', temporadas:[2021,2022,2023,2024,2025,2026] },
+  { id:29,  nome:'Eliminat. Sul-Am', pais:'América',  flag:'🌎', tier:1, cat:'selecoes',   temporadas:[2021,2022,2023,2024,2025,2026] },
+  // EUROPA TOP 5
+  { id:39,  nome:'Premier League',   pais:'Inglaterra',flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿', tier:1, cat:'europa',   temporadas:[2021,2022,2023,2024,2025] },
+  { id:140, nome:'La Liga',          pais:'Espanha',  flag:'🇪🇸', tier:1, cat:'europa',   temporadas:[2021,2022,2023,2024,2025] },
+  { id:135, nome:'Serie A',          pais:'Itália',   flag:'🇮🇹', tier:1, cat:'europa',   temporadas:[2021,2022,2023,2024,2025] },
+  { id:78,  nome:'Bundesliga',       pais:'Alemanha', flag:'🇩🇪', tier:1, cat:'europa',   temporadas:[2021,2022,2023,2024,2025] },
+  { id:61,  nome:'Ligue 1',          pais:'França',   flag:'🇫🇷', tier:1, cat:'europa',   temporadas:[2021,2022,2023,2024,2025] },
+  // EUROPA OUTRAS
+  { id:2,   nome:'Champions League', pais:'Europa',   flag:'🇪🇺', tier:1, cat:'europa',   temporadas:[2021,2022,2023,2024,2025] },
+  { id:3,   nome:'Europa League',    pais:'Europa',   flag:'🇪🇺', tier:1, cat:'europa',   temporadas:[2021,2022,2023,2024,2025] },
+  { id:88,  nome:'Eredivisie',       pais:'Holanda',  flag:'🇳🇱', tier:1, cat:'europa',   temporadas:[2022,2023,2024,2025] },
+  { id:94,  nome:'Primeira Liga',    pais:'Portugal', flag:'🇵🇹', tier:1, cat:'europa',   temporadas:[2022,2023,2024,2025] },
+  { id:98,  nome:'J-League',         pais:'Japão',    flag:'🇯🇵', tier:1, cat:'asia',     temporadas:[2022,2023,2024,2025] },
+  { id:128, nome:'Liga Argentina',   pais:'Argentina',flag:'🇦🇷', tier:1, cat:'sulamerica', temporadas:[2022,2023,2024,2025] },
+  { id:239, nome:'Liga MX',          pais:'México',   flag:'🇲🇽', tier:1, cat:'concacaf',  temporadas:[2022,2023,2024,2025] },
+  // SELEÇÕES
+  { id:1,   nome:'World Cup',        pais:'Mundial',  flag:'🌍', tier:1, cat:'selecoes',   temporadas:[2022,2026] },
+  { id:9,   nome:'Copa América',     pais:'América',  flag:'🌎', tier:1, cat:'selecoes',   temporadas:[2021,2024] },
+  { id:4,   nome:'UEFA Euro',        pais:'Europa',   flag:'🇪🇺', tier:1, cat:'selecoes',   temporadas:[2020,2024] },
+  { id:5,   nome:'Nations League',   pais:'Europa',   flag:'🇪🇺', tier:2, cat:'selecoes',   temporadas:[2022,2024,2025] },
+];
+
+const GRUPOS = {
+  'brasil':    { label:'🇧🇷 BRASIL' },
+  'sulamerica':{ label:'🌎 AMERICA DO SUL' },
+  'europa':    { label:'🏆 EUROPA' },
+  'selecoes':  { label:'🏳️ SELEÇÕES' },
+  'asia':      { label:'🌏 ÁSIA' },
+  'concacaf':  { label:'🌎 CONCACAF' },
+};
+
+// ══════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════
+let selected = new Set();
+let coletando = false;
+let stopFlag = false;
+let sessJogos = 0;
+let sessCalls = 0;
+let sessErros = 0;
+let totalColetado = 0;
+let ligasCobertas = new Set();
+let distLigas = {};
+let distSeasons = {};
+let jogosPorYS = [];
+
+// ══════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════
+auth.onAuthStateChanged(u => {
+  if (!u) { window.location.href = '/login.html'; return; }
+  gc('connDot').className = 'status-dot';
+  gc('connTxt').textContent = 'Conectado';
+  gc('btnIniciar').disabled = false;
+  carregarStats();
+  renderLigas();
+});
+
+// ══════════════════════════════════════════════
+// RENDER LIGAS
+// ══════════════════════════════════════════════
+function renderLigas(filtro='') {
+  const cont = gc('ligasList');
+  const grupos = {};
+  LIGAS.forEach(l => {
+    if (filtro && !l.nome.toLowerCase().includes(filtro.toLowerCase()) && !l.pais.toLowerCase().includes(filtro.toLowerCase())) return;
+    if (!grupos[l.cat]) grupos[l.cat] = [];
+    grupos[l.cat].push(l);
+  });
+  let h = '';
+  Object.entries(grupos).forEach(([cat, ligas]) => {
+    const g = GRUPOS[cat] || { label: cat.toUpperCase() };
+    h += `<div class="lg-group">
+      <div class="lg-group-hdr">${g.label}</div>`;
+    ligas.forEach(l => {
+      const isSel = selected.has(l.id);
+      const cnt = distLigas[l.id] || 0;
+      const isDone = cnt > 0;
+      h += `<div class="lg-row${isSel?' selected':''}${isDone&&!isSel?' done':''}" onclick="toggleLiga(${l.id})" id="lr-${l.id}">
+        <div class="lg-check">${isSel?'✓':isDone?'✓':''}</div>
+        <span style="font-size:14px">${l.flag}</span>
+        <div class="lg-info">
+          <div class="lg-nome">${l.nome}</div>
+          <div class="lg-sub">${l.pais} · T${l.tier}</div>
+        </div>
+        <div class="lg-count">${cnt>0?cnt+'j':''}</div>
+      </div>`;
+    });
+    h += '</div>';
+  });
+  cont.innerHTML = h || '<div style="padding:20px;text-align:center;color:var(--t3);font-size:11px">Nenhuma liga encontrada</div>';
+}
+
+function toggleLiga(id) {
+  if (coletando) return;
+  if (selected.has(id)) selected.delete(id);
+  else selected.add(id);
+  atualizarSelCount();
+  renderLigas(gc('ligaSearch').value);
+}
+
+function atualizarSelCount() {
+  gc('selCount').textContent = `${selected.size} selecionadas`;
+  gc('sessLigas').textContent = selected.size;
+}
+
+function selecionarTodas() { LIGAS.forEach(l => selected.add(l.id)); atualizarSelCount(); renderLigas(); }
+function desselecionarTodas() { selected.clear(); atualizarSelCount(); renderLigas(); }
+function filtrarLigas(v) { renderLigas(v); }
+function switchTab(id, el) {
+  document.querySelectorAll('.pctab').forEach(t=>t.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
+  el.classList.add('on');
+  gc('pane-'+id).classList.add('on');
+}
+
+// ══════════════════════════════════════════════
+// CARREGAR STATS DO FIRESTORE
+// ══════════════════════════════════════════════
+async function carregarStats() {
+  try {
+    const snap = await db.collection('fixtures-historico').limit(1000).get();
+    totalColetado = snap.size;
+    const lgSet = new Set();
+    const lgDist = {};
+    const snDist = {};
+    let comYS = 0;
+    snap.forEach(d => {
+      const j = d.data();
+      lgSet.add(j.ligaId);
+      lgDist[j.ligaNome||j.ligaId] = (lgDist[j.ligaNome||j.ligaId]||0)+1;
+      snDist[j.season] = (snDist[j.season]||0)+1;
+      if (j.ysPreCasa != null) comYS++;
+    });
+    distLigas = lgDist;
+    distSeasons = snDist;
+    gc('stTotal').textContent = totalColetado;
+    gc('stLigas').textContent = lgSet.size;
+    gc('stComYS').textContent = comYS;
+    renderDistLigas();
+    renderDistSeasons();
+    if (totalColetado > 50) gc('btnAnalise').disabled = false;
+    renderLigas(gc('ligaSearch').value);
+  } catch(e) { console.error('carregarStats:', e); }
+}
+
+function renderDistLigas() {
+  const sorted = Object.entries(distLigas).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  if (!sorted.length) return;
+  const max = sorted[0][1];
+  gc('distLigasList').innerHTML = sorted.map(([nome,cnt])=>`
+    <div class="mc-row">
+      <span class="lbl" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nome}</span>
+      <span class="val" style="color:var(--acc)">${cnt}</span>
+    </div>`).join('');
+}
+
+function renderDistSeasons() {
+  const sorted = Object.entries(distSeasons).sort((a,b)=>b[0]-a[0]);
+  if (!sorted.length) return;
+  gc('distSeasonsList').innerHTML = sorted.map(([s,cnt])=>`
+    <div class="mc-row">
+      <span class="lbl">Temporada ${s}</span>
+      <span class="val">${cnt} jogos</span>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════════════════
+// COLETA PRINCIPAL
+// ══════════════════════════════════════════════
+let coletaQueue = [];
+let coletaIdx = 0;
+
+async function iniciarColeta() {
+  if (!selected.size) { toast('Selecione ao menos uma liga', 'err'); return; }
+  const seasons = Array.from(gc('cfgSeasons').selectedOptions).map(o=>o.value);
+  if (!seasons.length) { toast('Selecione ao menos uma temporada', 'err'); return; }
+
+  // Monta fila de tarefas
+  coletaQueue = [];
+  selected.forEach(ligaId => {
+    const ligaMeta = LIGAS.find(l=>l.id===ligaId);
+    const tempsFiltradas = seasons.filter(s => ligaMeta?.temporadas?.includes(Number(s)));
+    (tempsFiltradas.length ? tempsFiltradas : seasons).forEach(s => {
+      coletaQueue.push({ ligaId, season: Number(s), ligaMeta });
+    });
+  });
+
+  coletaIdx = 0;
+  sessJogos = 0;
+  sessCalls = 0;
+  sessErros = 0;
+  stopFlag = false;
+  coletando = true;
+
+  gc('btnIniciar').style.display = 'none';
+  gc('btnParar').style.display = '';
+  gc('sessStatus').textContent = 'Coletando...';
+  gc('sessStatus').style.color = 'var(--acc)';
+  gc('connDot').className = 'status-dot busy';
+
+  log(`Iniciando coleta: ${coletaQueue.length} tarefas (${selected.size} ligas × ${seasons.length} temporadas)`, 'info');
+
+  await processarFilaColeta();
+}
+
+async function processarFilaColeta() {
+  const delay = parseInt(gc('cfgDelay').value) || 1200;
+  const inclStats = gc('cfgStats').value === 'sim';
+
+  while (coletaIdx < coletaQueue.length && !stopFlag) {
+    const task = coletaQueue[coletaIdx];
+    const pct = Math.round(coletaIdx / coletaQueue.length * 100);
+    atualizarProgress(pct, `${task.ligaMeta?.nome||task.ligaId} — ${task.season}`, `Tarefa ${coletaIdx+1}/${coletaQueue.length}`, estimaETA(delay));
+
+    await coletarLigaTemporada(task.ligaId, task.season, task.ligaMeta, inclStats, delay);
+    coletaIdx++;
+
+    gc('sessJogos').textContent = sessJogos;
+    gc('sessCalls').textContent = sessCalls;
+    gc('stErros').textContent = sessErros;
+  }
+
+  finalizarColeta();
+}
+
+async function coletarLigaTemporada(ligaId, season, meta, inclStats, delay) {
+  log(`→ ${meta?.nome||ligaId} ${season}: buscando IDs...`, 'info');
+  try {
+    // 1. Busca todos os IDs via Cloud Function existente
+    const status = gc('cfgStatus').value === 'all' ? null : gc('cfgStatus').value;
+    const res = await callFn('buscarJogosCampeonato', {
+      leagueId: ligaId,
+      season,
+      status: status || 'FT-AET-PEN',
+      soIds: true
+    });
+    sessCalls++;
+
+    const ids = res?.data?.ids || res?.data?.fixtureIds || [];
+    if (!ids.length) {
+      log(`  ⚠ ${meta?.nome||ligaId} ${season}: 0 jogos encontrados`, 'warn');
+      return;
+    }
+
+    log(`  ✓ ${ids.length} jogos encontrados`, 'ok');
+
+    // 2. Busca em batches de 20
+    const batch = parseInt(gc('cfgBatch').value)||20;
+    const chunks = chunkArray(ids, batch);
+
+    for (let i=0; i<chunks.length && !stopFlag; i++) {
+      await sleep(delay);
+      const chunk = chunks[i];
+      try {
+        const r2 = await callFn('buscarDetalheJogoCamp', {
+          fixtureIds: chunk,
+          incluirStats: inclStats
+        });
+        sessCalls++;
+        const jogos = r2?.data?.jogos || [];
+        if (jogos.length) {
+          await salvarJogosFirestore(jogos, ligaId, season, meta);
+          sessJogos += jogos.length;
+          log(`  batch ${i+1}/${chunks.length}: +${jogos.length} jogos salvos`, 'ok');
+        }
+      } catch(e) {
+        sessErros++;
+        log(`  ✗ batch ${i+1} erro: ${e.message}`, 'err');
+      }
+      gc('sessJogos').textContent = sessJogos;
+      gc('sessCalls').textContent = sessCalls;
+      gc('sessCota').textContent = sessCalls+'/100';
+    }
+  } catch(e) {
+    sessErros++;
+    log(`  ✗ ${meta?.nome||ligaId} ${season}: ${e.message}`, 'err');
+  }
+}
+
+async function salvarJogosFirestore(jogos, ligaId, season, meta) {
+  const batch = db.batch();
+  jogos.forEach(j => {
+    if (!j.fixtureId && !j.id) return;
+    const fId = String(j.fixtureId||j.id);
+    const ref = db.collection('fixtures-historico').doc(fId);
+
+    const ys = calcularYSPreJogo(j);
+
+    batch.set(ref, {
+      fixtureId: fId,
+      ligaId,
+      ligaNome: meta?.nome || j.ligaNome || '',
+      ligaFlag: meta?.flag || '',
+      ligaTier: meta?.tier || 0,
+      season,
+      data: j.data || j.date || null,
+      // Times
+      casaId:   j.casa?.id || j.homeId,
+      casaNome: j.casa?.nome || j.homeNome || '',
+      casaLogo: j.casa?.logo || '',
+      foraId:   j.fora?.id || j.awayId,
+      foraNome: j.fora?.nome || j.awayNome || '',
+      foraLogo: j.fora?.logo || '',
+      // Resultado
+      golsCasa:   j.placar?.casa ?? j.golsCasa ?? null,
+      golsFora:   j.placar?.fora ?? j.golsFora ?? null,
+      htCasa:     j.placarHT?.casa ?? j.htCasa ?? null,
+      htFora:     j.placarHT?.fora ?? j.htFora ?? null,
+      totalGols:  ((j.placar?.casa??j.golsCasa??0) + (j.placar?.fora??j.golsFora??0)),
+      over15:     ((j.placar?.casa??0)+(j.placar?.fora??0)) > 1,
+      over25:     ((j.placar?.casa??0)+(j.placar?.fora??0)) > 2,
+      over35:     ((j.placar?.casa??0)+(j.placar?.fora??0)) > 3,
+      resultado:  calcResultado(j.placar?.casa??j.golsCasa, j.placar?.fora??j.golsFora),
+      btts:       (j.placar?.casa??0) > 0 && (j.placar?.fora??0) > 0,
+      status:     j.status?.short || j.status || 'FT',
+      // YS pré-jogo
+      ysPreCasa:  ys.casa,
+      ysPreFora:  ys.fora,
+      ysDiff:     ys.diff,
+      ysTotal:    ys.total,
+      ysFavorito: ys.favorito,
+      // Stats se disponível
+      stats:      j.stats || null,
+      // Meta
+      coletadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      versao: 1
+    }, { merge: true });
+  });
+  await batch.commit();
+  totalColetado += jogos.length;
+  gc('stTotal').textContent = totalColetado;
+}
+
+function calcYSTime(j, lado) {
+  // Calcula YS (0-10) baseado nos dados disponíveis do jogo
+  // NOTA: YS completo requer histórico dos últimos 5 jogos (enriquecimento posterior)
+  // Aqui usamos os dados disponíveis no fixture como proxy inicial
+  const stats = j.stats;
+  if (!stats) return null;
+
+  const s = lado === 'casa' ? stats.casa || {} : stats.fora || {};
+  const posse = parseFloat(String(s.posse||'0').replace('%','')) || 0;
+  const chutesAlvo = parseFloat(s.chutesAlvo||s.shotsOnGoal||0);
+  const chutesTotais = parseFloat(s.chutesTotais||s.totalShots||0);
+  const xg = parseFloat(s.xg||s.expectedGoals||0);
+
+  if (!posse && !chutesAlvo) return null;
+
+  // Fórmula simples de "força no jogo"
+  let ys = 0;
+  ys += (posse / 100) * 2.5;              // posse: até 2.5pts
+  ys += Math.min(chutesAlvo / 5, 1) * 3;  // chutes alvo: até 3pts
+  ys += Math.min(chutesTotais / 15, 1) * 2; // chutes totais: até 2pts
+  ys += Math.min(xg / 2, 1) * 2.5;        // xG: até 2.5pts
+
+  return Math.round(ys * 10) / 10;
+}
+
+function calcularYSPreJogo(j) {
+  // YS baseado nos dados do jogo atual (aproximação)
+  // O YS real pré-jogo seria calculado com histórico anterior — enriquecimento fase 2
+  const casa = calcYSTime(j, 'casa');
+  const fora = calcYSTime(j, 'fora');
+  const diff = (casa != null && fora != null) ? Math.round((casa - fora)*10)/10 : null;
+  const total = (casa != null && fora != null) ? Math.round((casa + fora)*10)/10 : null;
+  const favorito = diff != null ? (diff > 0 ? 'casa' : diff < 0 ? 'fora' : 'empate') : null;
+  return { casa, fora, diff, total, favorito };
+}
+
+function calcResultado(gc, gf) {
+  if (gc == null || gf == null) return null;
+  if (gc > gf) return 'casa';
+  if (gf > gc) return 'fora';
+  return 'empate';
+}
+
+// ══════════════════════════════════════════════
+// ANÁLISE DE PADRÕES
+// ══════════════════════════════════════════════
+async function analisarPadroes() {
+  gc('btnAnalise').disabled = true;
+  gc('btnAnalise').innerHTML = '<span class="ld"></span> Analisando...';
+  switchTab('padroes', document.querySelectorAll('.pctab')[1]);
+
+  try {
+    log('Carregando dados do Firestore para análise...', 'info');
+    const snap = await db.collection('fixtures-historico')
+      .where('golsCasa', '!=', null)
+      .limit(2000)
+      .get();
+
+    const jogos = snap.docs.map(d=>d.data()).filter(j => j.golsCasa!=null && j.golsFora!=null && j.resultado);
+    log(`${jogos.length} jogos carregados para análise`, 'ok');
+
+    if (jogos.length < 50) {
+      gc('padroesCont').innerHTML = '<div class="empty-state"><div class="empty-ico">⚠️</div><p>Mínimo 50 jogos necessários. Coleta mais dados primeiro.</p></div>';
+      return;
+    }
+
+    const padroes = calcularTodosPadroes(jogos);
+    renderPadroes(padroes, jogos.length);
+    gerarRelatorio(padroes, jogos.length);
+    log(`Análise concluída: ${Object.keys(padroes).length} dimensões analisadas`, 'ok');
+
+    // Salva padrões no Firestore
+    await db.collection('padroes-historico').doc('ultimo').set({
+      ...padroes,
+      totalJogos: jogos.length,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+  } catch(e) {
+    log('Erro na análise: ' + e.message, 'err');
+  }
+
+  gc('btnAnalise').disabled = false;
+  gc('btnAnalise').innerHTML = '🔬 Analisar Padrões';
+}
+
+function calcularTodosPadroes(jogos) {
+  const n = jogos.length;
+
+  // ── 1. DISTRIBUIÇÃO DE RESULTADOS
+  const res = { casa:0, empate:0, fora:0 };
+  jogos.forEach(j => res[j.resultado]++);
+
+  // ── 2. MÉDIA DE GOLS POR LIGA
+  const porLiga = {};
+  jogos.forEach(j => {
+    const k = j.ligaNome||'Sem liga';
+    if (!porLiga[k]) porLiga[k] = { gols:0, n:0, casa:0, empate:0, fora:0, over25:0, btts:0 };
+    porLiga[k].gols += j.totalGols||0;
+    porLiga[k].n++;
+    porLiga[k][j.resultado]++;
+    if (j.over25) porLiga[k].over25++;
+    if (j.btts) porLiga[k].btts++;
+  });
+  const ligaStats = Object.entries(porLiga).map(([nome,d]) => ({
+    nome,
+    jogos: d.n,
+    mediaGols: +(d.gols/d.n).toFixed(2),
+    pctCasa: +(d.casa/d.n*100).toFixed(1),
+    pctEmpate: +(d.empate/d.n*100).toFixed(1),
+    pctFora: +(d.fora/d.n*100).toFixed(1),
+    pctOver25: +(d.over25/d.n*100).toFixed(1),
+    pctBTTS: +(d.btts/d.n*100).toFixed(1),
+  })).sort((a,b) => b.jogos-a.jogos);
+
+  // ── 3. DISTRIBUIÇÃO DE GOLS TOTAIS
+  const distGols = {};
+  jogos.forEach(j => {
+    const k = j.totalGols||0;
+    distGols[k] = (distGols[k]||0)+1;
+  });
+
+  // ── 4. PADRÕES POR YS DIFF (se disponível)
+  const comYS = jogos.filter(j => j.ysDiff != null);
+  const faixasYS = [];
+  if (comYS.length > 30) {
+    const faixas = [
+      { lbl:'YS > +2 (casa favoritíssima)', f: j => j.ysDiff > 2 },
+      { lbl:'YS +1 a +2 (casa favorita)',   f: j => j.ysDiff > 1 && j.ysDiff <= 2 },
+      { lbl:'YS 0 a +1 (ligeiro favorito)', f: j => j.ysDiff > 0 && j.ysDiff <= 1 },
+      { lbl:'YS ~0 (equilibrado)',           f: j => j.ysDiff === 0 },
+      { lbl:'YS -1 a 0 (fora ligeiro fav)', f: j => j.ysDiff >= -1 && j.ysDiff < 0 },
+      { lbl:'YS < -1 (fora favorita)',       f: j => j.ysDiff < -1 },
+    ];
+    faixas.forEach(faixa => {
+      const sub = comYS.filter(faixa.f);
+      if (!sub.length) return;
+      const r = { casa:0, empate:0, fora:0 };
+      let gols=0, over25=0;
+      sub.forEach(j => { r[j.resultado]++; gols+=j.totalGols||0; if(j.over25) over25++; });
+      faixasYS.push({
+        faixa: faixa.lbl,
+        n: sub.length,
+        pctCasa: +(r.casa/sub.length*100).toFixed(1),
+        pctEmpate: +(r.empate/sub.length*100).toFixed(1),
+        pctFora: +(r.fora/sub.length*100).toFixed(1),
+        mediaGols: +(gols/sub.length).toFixed(2),
+        pctOver25: +(over25/sub.length*100).toFixed(1),
+      });
+    });
+  }
+
+  // ── 5. PADRÕES POR YS TOTAL (intensidade do jogo)
+  const faixasYSTotal = [];
+  if (comYS.length > 30) {
+    const faixas = [
+      { lbl:'Jogo fraco (YS total < 6)',    f: j => j.ysTotal < 6 },
+      { lbl:'Jogo médio (YS 6–10)',          f: j => j.ysTotal >= 6 && j.ysTotal < 10 },
+      { lbl:'Jogo intenso (YS 10–14)',       f: j => j.ysTotal >= 10 && j.ysTotal < 14 },
+      { lbl:'Jogo disputadíssimo (YS > 14)', f: j => j.ysTotal >= 14 },
+    ];
+    faixas.forEach(faixa => {
+      const sub = comYS.filter(faixa.f);
+      if (!sub.length) return;
+      let gols=0, over25=0, btts=0;
+      sub.forEach(j => { gols+=j.totalGols||0; if(j.over25) over25++; if(j.btts) btts++; });
+      faixasYSTotal.push({
+        faixa: faixa.lbl,
+        n: sub.length,
+        mediaGols: +(gols/sub.length).toFixed(2),
+        pctOver25: +(over25/sub.length*100).toFixed(1),
+        pctBTTS: +(btts/sub.length*100).toFixed(1),
+      });
+    });
+  }
+
+  // ── 6. GOLS NO 1º vs 2º TEMPO
+  const comHT = jogos.filter(j => j.htCasa != null && j.htFora != null);
+  let golsHT=0, golsST=0, jogosHT=0;
+  comHT.forEach(j => {
+    golsHT += (j.htCasa||0)+(j.htFora||0);
+    golsST += ((j.golsCasa||0)-(j.htCasa||0)) + ((j.golsFora||0)-(j.htFora||0));
+    jogosHT++;
+  });
+
+  // ── 7. OVER/UNDER por liga (top 5 ligas)
+  const overUnder = ligaStats.slice(0,8).map(l => ({
+    liga: l.nome,
+    over15: ligaStats.find(x=>x.nome===l.nome) ? null : null, // calculado abaixo
+    over25: l.pctOver25,
+    btts: l.pctBTTS,
+    mediaGols: l.mediaGols
+  }));
+
+  return {
+    totalJogos: n,
+    resultados: res,
+    pctCasa: +(res.casa/n*100).toFixed(1),
+    pctEmpate: +(res.empate/n*100).toFixed(1),
+    pctFora: +(res.fora/n*100).toFixed(1),
+    mediaGolsGeral: +(jogos.reduce((a,j)=>a+(j.totalGols||0),0)/n).toFixed(2),
+    pctOver25Geral: +(jogos.filter(j=>j.over25).length/n*100).toFixed(1),
+    pctBTTSGeral: +(jogos.filter(j=>j.btts).length/n*100).toFixed(1),
+    ligaStats,
+    distGols,
+    faixasYS,
+    faixasYSTotal,
+    htInfo: jogosHT>0 ? {
+      n: jogosHT,
+      mediaGolsHT: +(golsHT/jogosHT).toFixed(2),
+      mediaGolsST: +(golsST/jogosHT).toFixed(2),
+      pctGolsHT: +(golsHT/(golsHT+golsST)*100).toFixed(1),
+    } : null,
+    comYS: comYS.length,
+  };
+}
+
+function renderPadroes(p, total) {
+  let h = '';
+
+  // ── RESUMO GERAL
+  h += `<div class="padrao-section">
+    <div class="padrao-title">📊 Resumo Geral — ${total} Jogos</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
+      ${miniStat('🏠 Vitória Casa', p.pctCasa+'%', 'acc')}
+      ${miniStat('🤝 Empate', p.pctEmpate+'%', 'blu')}
+      ${miniStat('✈️ Vitória Fora', p.pctFora+'%', 'pur')}
+      ${miniStat('⚽ Média Gols', p.mediaGolsGeral, 'grn')}
+      ${miniStat('📈 Over 2.5', p.pctOver25Geral+'%', 'acc')}
+      ${miniStat('🎯 BTTS', p.pctBTTSGeral+'%', 'red')}
+    </div>
+  </div>`;
+
+  // ── DISTRIBUIÇÃO DE GOLS
+  h += `<div class="padrao-section">
+    <div class="padrao-title">📉 Distribuição de Gols Totais</div>
+    <table class="padrao-table"><thead><tr>
+      <th>Gols</th><th>Jogos</th><th class="r">%</th><th>Barra</th>
+    </tr></thead><tbody>`;
+  const maxGolCnt = Math.max(...Object.values(p.distGols));
+  [0,1,2,3,4,5,6].forEach(g => {
+    const cnt = p.distGols[g]||0;
+    const pct = (cnt/total*100).toFixed(1);
+    h += `<tr><td style="font-family:'DM Mono',monospace;font-weight:700">${g} gol${g!==1?'s':''}</td>
+      <td>${cnt}</td><td class="r">${pct}%</td>
+      <td><div class="pct-bar-wrap">
+        <div class="pct-bar" style="width:${Math.round(cnt/maxGolCnt*120)}px;background:${g<=1?'var(--red)':g<=2?'var(--acc)':'var(--grn)'}"></div>
+        <span class="pct-val">${pct}%</span>
+      </div></td>
+    </tr>`;
+  });
+  h += `</tbody></table></div>`;
+
+  // ── POR LIGA
+  h += `<div class="padrao-section">
+    <div class="padrao-title">🏆 Padrões por Liga</div>
+    <table class="padrao-table"><thead><tr>
+      <th>Liga</th><th class="r">J</th><th class="r">Gols</th>
+      <th class="r">Casa%</th><th class="r">Emp%</th><th class="r">Fora%</th>
+      <th class="r">O2.5</th><th class="r">BTTS</th>
+    </tr></thead><tbody>`;
+  p.ligaStats.slice(0,15).forEach(l => {
+    h += `<tr>
+      <td style="font-weight:600">${l.nome}</td>
+      <td class="r">${l.jogos}</td>
+      <td class="r ${l.mediaGols>=2.8?'heat-high':l.mediaGols>=2.3?'heat-mid':'heat-low'}">${l.mediaGols}</td>
+      <td class="r">${l.pctCasa}%</td>
+      <td class="r">${l.pctEmpate}%</td>
+      <td class="r">${l.pctFora}%</td>
+      <td class="r ${l.pctOver25>=55?'heat-high':l.pctOver25>=45?'heat-mid':'heat-low'}">${l.pctOver25}%</td>
+      <td class="r ${l.pctBTTS>=55?'heat-high':l.pctBTTS>=45?'heat-mid':'heat-low'}">${l.pctBTTS}%</td>
+    </tr>`;
+  });
+  h += `</tbody></table></div>`;
+
+  // ── POR YS DIFF
+  if (p.faixasYS.length) {
+    h += `<div class="padrao-section">
+      <div class="padrao-title">⚡ Resultado por Força YS (${p.comYS} jogos)</div>
+      <table class="padrao-table"><thead><tr>
+        <th>Cenário YS</th><th class="r">J</th>
+        <th class="r">Casa%</th><th class="r">Emp%</th><th class="r">Fora%</th>
+        <th class="r">Gols</th><th class="r">O2.5</th>
+      </tr></thead><tbody>`;
+    p.faixasYS.forEach(f => {
+      h += `<tr>
+        <td>${f.faixa}</td>
+        <td class="r">${f.n}</td>
+        <td class="r ${f.pctCasa>=55?'heat-high':''}">${f.pctCasa}%</td>
+        <td class="r">${f.pctEmpate}%</td>
+        <td class="r ${f.pctFora>=55?'heat-high':''}">${f.pctFora}%</td>
+        <td class="r ${f.mediaGols>=2.8?'heat-high':f.mediaGols>=2.3?'heat-mid':'heat-low'}">${f.mediaGols}</td>
+        <td class="r ${f.pctOver25>=55?'heat-high':''}">${f.pctOver25}%</td>
+      </tr>`;
+    });
+    h += `</tbody></table></div>`;
+  }
+
+  // ── POR YS TOTAL (intensidade)
+  if (p.faixasYSTotal.length) {
+    h += `<div class="padrao-section">
+      <div class="padrao-title">🔥 Gols por Intensidade do Jogo (YS total)</div>
+      <table class="padrao-table"><thead><tr>
+        <th>Intensidade</th><th class="r">J</th>
+        <th class="r">Média Gols</th><th class="r">Over 2.5</th><th class="r">BTTS</th>
+      </tr></thead><tbody>`;
+    p.faixasYSTotal.forEach(f => {
+      h += `<tr>
+        <td>${f.faixa}</td><td class="r">${f.n}</td>
+        <td class="r ${f.mediaGols>=2.8?'heat-high':f.mediaGols>=2.3?'heat-mid':'heat-low'}">${f.mediaGols}</td>
+        <td class="r ${f.pctOver25>=55?'heat-high':''}">${f.pctOver25}%</td>
+        <td class="r ${f.pctBTTS>=55?'heat-high':''}">${f.pctBTTS}%</td>
+      </tr>`;
+    });
+    h += `</tbody></table></div>`;
+  }
+
+  // ── 1º vs 2º TEMPO
+  if (p.htInfo) {
+    h += `<div class="padrao-section">
+      <div class="padrao-title">⏱️ Distribuição HT vs ST (${p.htInfo.n} jogos)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        ${miniStat('1º Tempo (média)', p.htInfo.mediaGolsHT, 'blu')}
+        ${miniStat('2º Tempo (média)', p.htInfo.mediaGolsST, 'pur')}
+        ${miniStat('% Gols no HT', p.htInfo.pctGolsHT+'%', 'acc')}
+      </div>
+    </div>`;
+  }
+
+  gc('padroesCont').innerHTML = h;
+  gc('stLigas').textContent = p.ligaStats.length;
+}
+
+function miniStat(label, val, cor) {
+  return `<div style="background:var(--c2);border:1px solid var(--bd1);border-radius:8px;padding:10px 12px;text-align:center">
+    <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:var(--${cor})">${val}</div>
+    <div style="font-size:9px;color:var(--t3);margin-top:3px">${label}</div>
+  </div>`;
+}
+
+function gerarRelatorio(p, total) {
+  const data = new Date().toLocaleDateString('pt-BR');
+  let h = `
+  <div style="background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+    <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:800;margin-bottom:4px">📋 Relatório de Padrões — Yellup</div>
+    <div style="font-size:10px;color:var(--t3)">Gerado em ${data} · ${total} jogos analisados · ${p.ligaStats.length} ligas</div>
+  </div>
+
+  <div style="background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:14px 16px;margin-bottom:10px;font-family:'DM Mono',monospace;font-size:10px;line-height:1.8;white-space:pre-wrap">
+════════════════════════════════════════
+YELLUP — RELATÓRIO DE PADRÕES HISTÓRICOS
+════════════════════════════════════════
+Data: ${data}
+Total de jogos: ${total}
+Ligas analisadas: ${p.ligaStats.length}
+
+── RESULTADOS GERAIS ──────────────────
+Vitória casa:  ${p.pctCasa}% (${p.resultados.casa} jogos)
+Empate:        ${p.pctEmpate}% (${p.resultados.empate} jogos)
+Vitória fora:  ${p.pctFora}% (${p.resultados.fora} jogos)
+
+── GOLS ───────────────────────────────
+Média de gols: ${p.mediaGolsGeral} por jogo
+Over 1.5:      ${(jogosGlobal => '?')()} 
+Over 2.5:      ${p.pctOver25Geral}%
+BTTS:          ${p.pctBTTSGeral}%
+
+── DISTRIBUIÇÃO DE GOLS ───────────────
+${Object.entries(p.distGols).sort((a,b)=>a[0]-b[0]).map(([g,n])=>
+  `${g} gols: ${n}x (${(n/total*100).toFixed(1)}%)`
+).join('\n')}
+
+── POR LIGA (top 10) ─────────────────
+${p.ligaStats.slice(0,10).map(l=>
+  `${l.nome.padEnd(20)} ${l.jogos}j  gols:${l.mediaGols}  casa:${l.pctCasa}%  emp:${l.pctEmpate}%  fora:${l.pctFora}%  O2.5:${l.pctOver25}%`
+).join('\n')}
+
+${p.faixasYS.length ? `── YS vs RESULTADO ────────────────────
+${p.faixasYS.map(f=>
+  `${f.faixa.padEnd(35)} n:${String(f.n).padStart(4)}  casa:${String(f.pctCasa+'%').padStart(6)}  emp:${String(f.pctEmpate+'%').padStart(6)}  fora:${String(f.pctFora+'%').padStart(6)}  gols:${f.mediaGols}`
+).join('\n')}` : '── YS: dados insuficientes (colete stats)'}
+
+${p.htInfo ? `── 1º vs 2º TEMPO ─────────────────────
+Média gols HT: ${p.htInfo.mediaGolsHT}
+Média gols ST: ${p.htInfo.mediaGolsST}
+% gols no HT:  ${p.htInfo.pctGolsHT}%` : ''}
+
+════════════════════════════════════════
+  </div>
+  <button class="btn btn-acc" onclick="copiarRelatorio()" style="margin-right:8px">📋 Copiar texto</button>
+  <button class="btn btn-grn" onclick="exportarRelatorio()">📥 Download JSON completo</button>`;
+
+  gc('relatorioCont').innerHTML = h;
+}
+
+async function copiarRelatorio() {
+  const txt = gc('relatorioCont').querySelector('pre, div[style*="pre-wrap"]')?.textContent || '';
+  await navigator.clipboard.writeText(txt);
+  toast('Copiado para a área de transferência!', 'ok');
+}
+
+function exportarRelatorio() {
+  // Exporta JSON com todos os padrões
+  const data = {
+    yellup: 'mapeamento-historico',
+    geradoEm: new Date().toISOString(),
+    totalJogos: totalColetado,
+    distLigas,
+    distSeasons,
+    nota: 'Use este arquivo para análise de padrões com Claude'
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `yellup-padroes-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+}
+
+// ══════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════
+async function callFn(nome, data) {
+  // Tenta Cloud Function primeiro, fallback para busca direta no Firestore
+  try {
+    const fn = fns.httpsCallable(nome);
+    return await fn(data);
+  } catch(e) {
+    // Se a function não existir, tenta buscar do Firestore local
+    if (e.code === 'functions/not-found' || e.message?.includes('not found')) {
+      return await fallbackFirestore(nome, data);
+    }
+    throw e;
+  }
+}
+
+async function fallbackFirestore(nome, data) {
+  // Fallback: busca fixtures já importados do Firestore
+  if (nome === 'buscarJogosCampeonato') {
+    const snap = await db.collection('jogos')
+      .where('liga.id', '==', data.leagueId)
+      .where('temporada', '==', String(data.season))
+      .where('status.short', 'in', ['FT','AET','PEN'])
+      .get();
+    const ids = snap.docs.map(d => d.data().apiId || d.data().fixtureId).filter(Boolean);
+    return { data: { ids } };
+  }
+  if (nome === 'buscarDetalheJogoCamp') {
+    const snap = await db.collection('jogos')
+      .where('fixtureId', 'in', data.fixtureIds.slice(0,10))
+      .get();
+    const jogos = snap.docs.map(d => {
+      const j = d.data();
+      return {
+        fixtureId: j.fixtureId || j.apiId,
+        ligaNome: j.liga?.nome || '',
+        data: j.data,
+        casa: { id: j.casa?.apiId, nome: j.casa?.nome, logo: j.casa?.logo },
+        fora: { id: j.fora?.apiId, nome: j.fora?.nome, logo: j.fora?.logo },
+        placar: { casa: j.placar?.casa, fora: j.placar?.fora },
+        placarHT: { casa: j.htCasa, fora: j.htFora },
+        status: j.status,
+      };
+    });
+    return { data: { jogos } };
+  }
+  return { data: {} };
+}
+
+function chunkArray(arr, size) {
+  const chunks = [];
+  for (let i=0; i<arr.length; i+=size) chunks.push(arr.slice(i,i+size));
+  return chunks;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function gc(id) { return document.getElementById(id); }
+
+function log(msg, tipo='info') {
+  const area = gc('logArea');
+  const now = new Date().toLocaleTimeString('pt-BR');
+  const cls = tipo==='ok'?'log-ok':tipo==='err'?'log-err':tipo==='warn'?'log-warn':'log-info';
+  const el = document.createElement('div');
+  el.className = 'log-line';
+  el.innerHTML = `<span class="log-time">${now}</span><span class="${cls}">${msg}</span>`;
+  area.appendChild(el);
+  area.scrollTop = area.scrollHeight;
+}
+
+function atualizarProgress(pct, label, detail, eta) {
+  gc('progressBar').style.width = pct+'%';
+  gc('progressPct').textContent = pct+'%';
+  gc('progressLabel').textContent = label;
+  gc('progressDetail').textContent = detail;
+  gc('progressETA').textContent = eta;
+}
+
+function estimaETA(delay) {
+  const restantes = coletaQueue.length - coletaIdx;
+  const segs = Math.round(restantes * delay / 1000);
+  if (segs < 60) return `~${segs}s restantes`;
+  return `~${Math.round(segs/60)}min restantes`;
+}
+
+function finalizarColeta() {
+  coletando = false;
+  gc('btnIniciar').style.display = '';
+  gc('btnParar').style.display = 'none';
+  gc('sessStatus').textContent = stopFlag ? 'Interrompido' : 'Concluído ✓';
+  gc('sessStatus').style.color = stopFlag ? 'var(--acc)' : 'var(--grn)';
+  gc('connDot').className = 'status-dot';
+  atualizarProgress(100, 'Coleta finalizada', `${sessJogos} jogos coletados em ${sessCalls} chamadas`, '—');
+  log(`✅ Coleta finalizada! ${sessJogos} jogos, ${sessCalls} calls, ${sessErros} erros`, 'ok');
+  if (sessJogos > 0) {
+    gc('btnAnalise').disabled = false;
+    toast(`${sessJogos} jogos coletados com sucesso!`, 'ok');
+  }
+  carregarStats();
+}
+
+function pararColeta() {
+  stopFlag = true;
+  log('⏹ Parando após tarefa atual...', 'warn');
+}
+
+function toast(msg, tipo='info') {
+  const t = gc('toast');
+  t.textContent = msg;
+  t.className = `toast show ${tipo}`;
+  setTimeout(() => { t.className = 'toast'; }, 3500);
+}
+</script>
+</body>
+</html>
