@@ -743,8 +743,16 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
     // Empate mais provável quando times equilibrados
     const empYS = 24 + Math.max(0, 12 - diffAbs) * 0.9;
 
-    // Peso do YS: reduzido quando equilibrado (não temos certeza)
-    const w = diffAbs >= 3.0 ? 0.30 : diffAbs >= 1.5 ? 0.22 : 0.14;
+    // Peso do YS baseado em 1707 jogos reais:
+    // diff < 2.0 → fraco preditor mas ainda melhor que fallback genérico
+    // diff 2-3   → neutro (45%) → peso mínimo
+    // diff 3-4   → 63% acerto → peso real
+    // diff 4+    → predição forte → peso máximo
+    const w = diffAbs >= 4.0 ? 0.35
+            : diffAbs >= 3.0 ? 0.28
+            : diffAbs >= 2.0 ? 0.10
+            : diffAbs >= 1.0 ? 0.08  // contribui pouco — equilibrado
+            : 0.06;                  // mínimo — não zerar para evitar fallback genérico
 
     probCasa   += probYS * w;
     probEmpate += empYS * w;
@@ -859,15 +867,36 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
 
   // ── NORMALIZAR ────────────────────────────────────────────────────────
   if (wTotal < 0.1) {
-    probCasa = 46; probEmpate = 26;
-    explicacoes.push('Dados insuficientes — base estatística mundial (46/26/28)');
+    // Fallback: usar YS relativo puro se disponível, senão base mundial
+    if (ysC !== null && ysF !== null) {
+      const ysTotal = (ysC + ysF) || 10;
+      probCasa   = (ysC / ysTotal) * 100 + 3; // leve vantagem casa
+      probEmpate = 26;
+      explicacoes.push(`Poucos dados — estimativa baseada em YS ${ysC?.toFixed(1)} vs ${ysF?.toFixed(1)}`);
+    } else {
+      probCasa = 46; probEmpate = 26;
+      explicacoes.push('Dados insuficientes — base estatística mundial (46/26/28)');
+    }
   } else {
     probCasa   = probCasa   / wTotal;
     probEmpate = probEmpate / wTotal;
   }
 
-  probCasa   = Math.min(88, Math.max(8,  Math.round(probCasa)));
-  probEmpate = Math.min(45, Math.max(8,  Math.round(probEmpate)));
+  // Deflação de probabilidades extremas — dados mostram sobreconfiança acima de 55%
+  // 55-64%: viés ~-6pp → comprimir levemente
+  // 65-74%: viés ~-14pp → comprimir moderado
+  // 75%+:   viés ~-24pp → comprimir forte
+  function deflacionar(prob) {
+    if (prob >= 75) return 0.72 * prob + 8;   // comprime forte
+    if (prob >= 65) return 0.82 * prob + 5;   // comprime moderado
+    if (prob >= 55) return 0.90 * prob + 3;   // comprime leve
+    return prob;                              // abaixo de 55% manter
+  }
+  probCasa   = deflacionar(probCasa);
+  probEmpate = deflacionar(probEmpate);
+
+  probCasa   = Math.min(80, Math.max(8,  Math.round(probCasa)));
+  probEmpate = Math.min(42, Math.max(8,  Math.round(probEmpate)));
   let probFora = Math.max(4, 100 - probCasa - probEmpate);
   const tot = probCasa + probEmpate + probFora;
   probCasa   = Math.round(probCasa   / tot * 100);
@@ -1011,9 +1040,18 @@ function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF) {
   if (!vals.length) vals.push(2.5);
 
   const media = vals.reduce((a,b)=>a+b,0)/vals.length;
-  // Calibração v2: dados históricos mostraram subestimação média de +0.1 gols
-  // Aplicar correção de +0.15 para compensar o viés
-  const est = Math.round((media + 0.15) * 10) / 10;
+  // Calibração v3 — curva baseada em 1707 jogos reais
+  // Dados mostram regressão à média: estimativas baixas subestimam, altas superestimam
+  // Fórmula derivada dos dados: correção = 0.56 quando est=1.5, 0 quando est=2.5, -0.26 quando est=3.5+
+  function correcaoCurva(m) {
+    if (m <= 1.5) return 0.55;       // subestimamos muito quando estimamos baixo
+    if (m <= 2.0) return 0.30;       // ainda subestimamos
+    if (m <= 2.5) return 0.05;       // quase calibrado
+    if (m <= 3.0) return -0.20;      // começamos a superestimar
+    return -0.26;                    // superestimamos jogos de muitos gols
+  }
+  const corr = correcaoCurva(media);
+  const est = Math.round(Math.max(0.5, media + corr) * 10) / 10;
   const baixo = Math.max(0, Math.round((est - 0.9) * 10) / 10);
   const alto  = Math.round((est + 1.0) * 10) / 10;
   const tendencia = est >= 3.0 ? 'alto' : est <= 1.9 ? 'baixo' : 'medio';
