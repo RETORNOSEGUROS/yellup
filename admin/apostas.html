@@ -859,32 +859,70 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
   const segundoMax = [probCasa, probEmpate, probFora].sort((a,b)=>b-a)[1];
   const altaIncerteza = (max - segundoMax) < 8; // menos de 8pp de margem
 
-  // ── CONFIANÇA recalibrada (v2) ──────────────────────────────────────────
-  // Dados de 206 jogos mostraram acurácia INVERTIDA — sistema estava superconfiante
-  // Nova lógica: exige muito mais dados E margem clara para subir de nível
+  // ── CONFIANÇA v3 — baseada em 251 jogos reais ───────────────────────────
+  // Aprendizado: YS alto ≠ acerto. Média confiança (39.7%) pior que aleatório.
+  // Nova lógica: sinais INDEPENDENTES precisam convergir. Sem convergência = insuficiente.
+  // Alta só quando múltiplos sinais fortes apontam na mesma direção.
   const diffYS = ysC !== null && ysF !== null ? Math.abs(ysC - ysF) : 0;
 
-  let scoreConf = 0;
-  // Volume de dados do time da casa (mais exigente)
-  scoreConf += nC >= 25 ? 3 : nC >= 15 ? 2 : nC >= 8 ? 1 : 0;
-  // Volume de dados do visitante
-  scoreConf += nF >= 25 ? 3 : nF >= 15 ? 2 : nF >= 8 ? 1 : 0;
-  // Banco de contexto bem populado
-  scoreConf += (cC?.totalAmostras||0) >= 40 ? 3 : (cC?.totalAmostras||0) >= 15 ? 1 : 0;
-  // YS disponível para ambos
-  scoreConf += (ysC !== null && ysF !== null) ? 1 : 0;
-  // Diferença clara de YS (times não equilibrados) — penaliza equilíbrio
-  scoreConf += diffYS >= 3.0 ? 2 : diffYS >= 1.8 ? 1 : -1;
-  // Probabilidade máxima bem definida (margem clara)
-  scoreConf += max >= 60 ? 2 : max >= 52 ? 1 : max < 40 ? -2 : 0;
-  // H2H disponível
-  scoreConf += (h2h.length >= 5) ? 1 : 0;
+  // ── SINAL 1: Volume de dados (qualidade da amostra) ──────────────────
+  const volBom = nC >= 15 && nF >= 15;   // ambos com histórico decente
+  const volOtimo = nC >= 25 && nF >= 25; // ambos com histórico sólido
 
-  // Limiares mais altos — "alta" agora exige muito mais
-  const confianca = scoreConf >= 13 ? 'alta'
-    : scoreConf >= 9  ? 'media'
-    : scoreConf >= 5  ? 'baixa'
-    : 'insuficiente';
+  // ── SINAL 2: Domínio claro pelo YS (não só diferença, mas nível absoluto) ──
+  // YS alto do favorito + YS baixo do adversário = dominância real
+  const ysMax = Math.max(ysC || 0, ysF || 0);
+  const ysMin = Math.min(ysC || 99, ysF || 99);
+  const dominanciaClara = diffYS >= 4.0 && ysMax >= 7.0; // favorito forte E adversário fraco
+  const dominanciaMedia = diffYS >= 2.5 && ysMax >= 5.5;
+
+  // ── SINAL 3: Probabilidade com margem real ────────────────────────────
+  // Max > 62% = modelo tem convicção. Max < 48% = equilíbrio real.
+  const probForte   = max >= 62 && !altaIncerteza;
+  const probModerada = max >= 54 && !altaIncerteza;
+
+  // ── SINAL 4: Consistência de forma recente ────────────────────────────
+  // Time favorecido pelo YS também está em boa forma? Sinais independentes convergem?
+  const favoritoYS = (ysC || 0) > (ysF || 0) ? 'casa' : 'fora';
+  const jogosDoFavorito = favoritoYS === 'casa' ? jogosC : jogosF;
+  const formaFavorito = jogosDoFavorito.slice(0, 5);
+  const vitoriasFavorito = formaFavorito.filter(jj => jj.resultado === 'V').length;
+  const formaConverge = vitoriasFavorito >= 3; // ≥3V nos últimos 5
+
+  // ── SINAL 5: H2H consistente ──────────────────────────────────────────
+  const h2hBom = h2h.length >= 4;
+
+  // ── CONVERGÊNCIA dos sinais → nível de confiança ────────────────────
+  // Alta: 4+ sinais fortes convergindo — esperamos >62% de acerto
+  const sinaisAlta = [
+    volOtimo,
+    dominanciaClara,
+    probForte,
+    formaConverge,
+    h2hBom,
+  ].filter(Boolean).length;
+
+  // Baixa/Insuficiente: o DEFAULT. Dados mostram 55-56% sem filtro.
+  // Média: só quando 3 sinais moderados convergem (evitar a faixa 39.7%)
+  const sinaisMedia = [
+    volBom,
+    dominanciaMedia,
+    probModerada,
+    formaConverge,
+  ].filter(Boolean).length;
+
+  // Penalizações que derrubam para insuficiente independente do score
+  const penalizar = altaIncerteza             // probabilidades muito próximas
+    || diffYS < 0.8                           // times praticamente iguais no YS
+    || max < 44;                              // nenhum resultado claro
+
+  const confianca = penalizar
+    ? 'insuficiente'
+    : sinaisAlta >= 4
+      ? 'alta'
+      : sinaisMedia >= 3
+        ? 'baixa'           // Ex-"média" rebaixada — dados mostraram 39.7%
+        : 'insuficiente';
 
   // Força comparativa (gols)
   if (nC >= 5 && nF >= 5) {
@@ -898,10 +936,9 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
   const formaC = jogosC.slice(0,5).map(jj => jj.resultado==='V'?'V':jj.resultado==='E'?'E':'D');
   const formaF = jogosF.slice(0,5).map(jj => jj.resultado==='V'?'V':jj.resultado==='E'?'E':'D');
 
-  // Se alta incerteza, rebaixar confiança um nível
-  const confiancaFinal = altaIncerteza && confianca === 'alta'  ? 'media'
-    : altaIncerteza && confianca === 'media' ? 'baixa'
-    : confianca;
+  // altaIncerteza já está tratada dentro do scoreConf v3 (penalização direta)
+  // Manter confiancaFinal como alias para compatibilidade
+  const confiancaFinal = confianca;
 
   if (altaIncerteza && !explicacoes.find(e => e.includes('imprevisível'))) {
     explicacoes.push('Jogo imprevisível — margem pequena entre os resultados');
