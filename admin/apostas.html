@@ -251,6 +251,28 @@ const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions();
 let JOGOS = [];        // jogos do dia carregados
 let PREVISOES = {};    // { fixtureId: { resultado, gols, confianca, ... } }
 // Helper timezone Brasília
+// ── IMPREVISIBILIDADE POR LIGA ───────────────────────────────────────────
+const LIGA_IMPREV = {
+  'Brasileirão Série A': 0.85, 'Brasileirão Série B': 0.80,
+  'Brasileirão Série C': 0.75, 'Copa do Brasil': 0.80,
+  'Paulista A1': 0.80, 'Carioca': 0.80, 'Gaúcho': 0.80,
+  'Mineiro': 0.80, 'Baiano': 0.82, 'Paranaense': 0.80,
+  'Premier League': 0.55, 'La Liga': 0.48, 'Bundesliga': 0.45,
+  'Serie A': 0.52, 'Ligue 1': 0.50, 'Primeira Liga': 0.55,
+  'Eredivisie': 0.50, 'Champions League': 0.40,
+  'Europa League': 0.48, 'Copa Libertadores': 0.65,
+  'Copa Sudamericana': 0.68, 'World Cup': 0.52,
+  'DEFAULT': 0.65,
+};
+function getFatorImprev(ligaNome) {
+  if (!ligaNome) return 0.65;
+  if (LIGA_IMPREV[ligaNome] !== undefined) return LIGA_IMPREV[ligaNome];
+  for (const [k, v] of Object.entries(LIGA_IMPREV)) {
+    if (k !== 'DEFAULT' && ligaNome.toLowerCase().includes(k.toLowerCase())) return v;
+  }
+  return 0.65;
+}
+
 function toBRTDate(d) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
 }
@@ -909,14 +931,14 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
     formaConverge,
   ].filter(Boolean).length;
 
-  // Penalizar só incerteza extrema
+  // Confiança baseada em sinais universais — independente da liga
   const penalizar = (altaIncerteza && max < 48) || max < 40;
 
   const confianca = penalizar
     ? 'insuficiente'
-    : sinaisAlta >= 3     // 3 sinais fortes = alta
+    : sinaisAlta >= 3
       ? 'alta'
-      : sinaisMedia >= 2  // 2 sinais moderados = baixa
+      : sinaisMedia >= 2
         ? 'baixa'
         : 'insuficiente';
 
@@ -1503,8 +1525,10 @@ function _buildSimuladorUI() {
       <input id="simStake" type="number" class="filtro-sim" value="10" min="1" step="1" style="width:80px">
     </div>
     <button class="btn-analisar" onclick="rodarSimulacao()">▶ Simular</button>
+    <button class="btn-back" onclick="minerarPadroes()" style="border-color:var(--pur);color:var(--pur)">🔬 Minerar padrões</button>
   </div>
   <div id="simResultado"></div>
+  <div id="padroesResultado" style="margin-top:16px"></div>
   <div id="simConfiancaRapida" style="margin-top:16px"></div>`;
 }
 
@@ -1587,6 +1611,89 @@ async function _carregarAnaliseConfianca() {
     </div>`;
   } catch(e) {
     if (gc('simConfiancaRapida')) gc('simConfiancaRapida').innerHTML = '';
+  }
+}
+
+async function minerarPadroes() {
+  const el = gc('padroesResultado');
+  el.innerHTML = '<div style="color:var(--t2);padding:20px">🔬 Minerando padrões em todos os jogos históricos...</div>';
+  try {
+    const r = await fns.httpsCallable('minerarPadroesUniversais')({});
+    const d = r.data;
+    if (!d.sucesso) { el.innerHTML = `<div style="color:var(--red)">${d.msg}</div>`; return; }
+
+    el.innerHTML = `
+    <div class="sim-card" style="margin-bottom:16px">
+      <div class="sim-title">🔬 Padrões universais — ${d.totalJogos} jogos · qualquer liga</div>
+
+      <div class="sim-grid" style="margin-bottom:16px">
+        <!-- Calibração de gols -->
+        <div>
+          <div style="font-size:11px;color:var(--acc);font-weight:600;margin-bottom:8px">⚽ Gols estimados vs reais</div>
+          <table class="sim-table">
+            <tr><th>Estimado</th><th>Média real</th><th>Desvio</th><th>Jogos</th></tr>
+            ${(d.calibracaoGols||[]).map(g => `<tr>
+              <td>${g.estimado}</td>
+              <td style="font-weight:600">${g.mediaReal}</td>
+              <td style="color:${g.desvio>0.1?'var(--red)':g.desvio<-0.1?'var(--blu)':'var(--grn)'}">${g.desvio>0?'+':''}${g.desvio}</td>
+              <td style="color:var(--t3)">${g.total}×</td>
+            </tr>`).join('')}
+          </table>
+          <div style="font-size:10px;color:var(--t3);margin-top:6px">Desvio + = subestimamos · Desvio - = superestimamos</div>
+        </div>
+
+        <!-- Calibração de probabilidade -->
+        <div>
+          <div style="font-size:11px;color:var(--acc);font-weight:600;margin-bottom:8px">🎯 Probabilidade estimada vs acerto real</div>
+          <table class="sim-table">
+            <tr><th>Faixa prob.</th><th>Jogos</th><th>Acerto real</th><th>Viés</th></tr>
+            ${(d.calibracaoProb||[]).map(p => `<tr>
+              <td>${p.faixa}</td>
+              <td style="color:var(--t3)">${p.total}</td>
+              <td style="font-weight:600;color:${p.pct>=60?'var(--grn)':p.pct>=50?'var(--t1)':'var(--red)'}">${p.pct}%</td>
+              <td style="color:${Math.abs(p.vies||0)<5?'var(--grn)':'var(--red)'}">${(p.vies||0)>0?'+':''}${p.vies||0}pp</td>
+            </tr>`).join('')}
+          </table>
+          <div style="font-size:10px;color:var(--t3);margin-top:6px">Viés ideal = 0 · Positivo = subestimamos confiança · Negativo = superestimamos</div>
+        </div>
+      </div>
+
+      <div class="sim-grid">
+        <!-- YS vs resultado -->
+        <div>
+          <div style="font-size:11px;color:var(--acc);font-weight:600;margin-bottom:8px">📊 Diferença de YS vs taxa de vitória do favorito</div>
+          <table class="sim-table">
+            <tr><th>Diff YS</th><th>Jogos</th><th>Favorito vence</th><th>Empate</th><th>Azarão</th></tr>
+            ${(d.calibracaoYS||[]).map(y => `<tr>
+              <td>${y.faixa}</td>
+              <td style="color:var(--t3)">${y.total}</td>
+              <td style="font-weight:600;color:${y.pctFavorito>=55?'var(--grn)':y.pctFavorito>=40?'var(--t1)':'var(--red)'}">${y.pctFavorito}%</td>
+              <td style="color:var(--t3)">${y.total>0?Math.round(y.empates/y.total*100):0}%</td>
+              <td style="color:var(--t3)">${y.total>0?Math.round(y.azaraoVenceu/y.total*100):0}%</td>
+            </tr>`).join('')}
+          </table>
+          <div style="font-size:10px;color:var(--t3);margin-top:6px">Qual diferença de YS realmente prediz vitória?</div>
+        </div>
+
+        <!-- Gols por YS combinado -->
+        <div>
+          <div style="font-size:11px;color:var(--acc);font-weight:600;margin-bottom:8px">⚽ Média de gols por força dos times</div>
+          <table class="sim-table">
+            <tr><th>Força</th><th>Jogos</th><th>Média gols</th><th>Over 2.5</th><th>Over 3.5</th></tr>
+            ${(d.golsPorYS||[]).map(g => `<tr>
+              <td>${g.faixa}</td>
+              <td style="color:var(--t3)">${g.total}</td>
+              <td style="font-weight:600">${g.mediaGols}</td>
+              <td style="color:${g.pctOver2_5>=55?'var(--grn)':'var(--t1)'}">${g.pctOver2_5}%</td>
+              <td style="color:${g.pctOver3_5>=40?'var(--grn)':'var(--t1)'}">${g.pctOver3_5}%</td>
+            </tr>`).join('')}
+          </table>
+          <div style="font-size:10px;color:var(--t3);margin-top:6px">Times mais fortes = mais gols ou menos?</div>
+        </div>
+      </div>
+    </div>`;
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red)">Erro: ${e.message}</div>`;
   }
 }
 
