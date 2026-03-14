@@ -902,8 +902,6 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
     h2hBom,
   ].filter(Boolean).length;
 
-  // Baixa/Insuficiente: o DEFAULT. Dados mostram 55-56% sem filtro.
-  // Média: só quando 3 sinais moderados convergem (evitar a faixa 39.7%)
   const sinaisMedia = [
     volBom,
     dominanciaMedia,
@@ -911,17 +909,15 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG) {
     formaConverge,
   ].filter(Boolean).length;
 
-  // Penalizações que derrubam para insuficiente independente do score
-  const penalizar = altaIncerteza             // probabilidades muito próximas
-    || diffYS < 0.8                           // times praticamente iguais no YS
-    || max < 44;                              // nenhum resultado claro
+  // Penalizar só incerteza extrema
+  const penalizar = (altaIncerteza && max < 48) || max < 40;
 
   const confianca = penalizar
     ? 'insuficiente'
-    : sinaisAlta >= 4
+    : sinaisAlta >= 3     // 3 sinais fortes = alta
       ? 'alta'
-      : sinaisMedia >= 3
-        ? 'baixa'           // Ex-"média" rebaixada — dados mostraram 39.7%
+      : sinaisMedia >= 2  // 2 sinais moderados = baixa
+        ? 'baixa'
         : 'insuficiente';
 
   // Força comparativa (gols)
@@ -1316,6 +1312,7 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
       <button class="btn-back" onclick="rodarDiagnostico()" title="Ver estrutura do banco">🔍 Diagnóstico</button>
       <button class="btn-back" onclick="listarLigasBanco()" title="Ver ligas no banco">🏆 Ver ligas</button>
       <button class="btn-back" onclick="corrigirJogosPresos()" title="Corrigir jogos presos como ao_vivo" style="border-color:#f59e0b;color:#f59e0b">⚠️ Corrigir ao vivo presos</button>
+      <button class="btn-back" onclick="resetarAprendizado()" title="Limpar dados duplicados e resetar para reprocessamento" style="border-color:#ef4444;color:#ef4444">🗑️ Resetar aprendizado</button>
     </div>
     <div id="backfillStatus" style="margin-top:10px;font-size:12px;color:var(--t2)"></div>
     <div id="backfillProgress" style="margin-top:8px;display:none">
@@ -1329,6 +1326,20 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
 
 // ── BACKFILL ──────────────────────────────────────────────────────────────
 let backfillRodando = false;
+
+async function resetarAprendizado() {
+  if (!confirm('Isso vai apagar todos os dados de aprendizado e resetar as previsões para reprocessamento. Confirma?')) return;
+  const el = gc('backfillStatus');
+  el.textContent = 'Resetando...';
+  try {
+    const r = await fns.httpsCallable('resetarAprendizado')({});
+    const d = r.data;
+    el.innerHTML = `<span style="color:var(--grn)">✓ Reset concluído — ${d.aprendizadoDeletado} ligas apagadas · ${d.previsoresResetados} previsões resetadas<br>
+      Agora desmarque "Forçar reprocessamento" e clique Iniciar importação</span>`;
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">Erro: ${e.message}</span>`;
+  }
+}
 
 async function corrigirJogosPresos() {
   const el = gc('backfillStatus');
