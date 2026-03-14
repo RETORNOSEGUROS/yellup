@@ -452,8 +452,9 @@ function renderCards() {
 
 function renderCard(j, prev) {
   const dt = j.dataInicio?.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio || 0);
-  const hora = dt.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
-  const statusLabel = j.status === 'ao_vivo' ? 'AO VIVO' : j.status === 'encerrado' ? 'FT' : hora;
+  const hora = dt.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo'});
+  const dataBRT = toBRTDate(dt);
+  const statusLabel = j.status === 'ao_vivo' ? 'AO VIVO' : j.status === 'encerrado' ? `FT · ${dataBRT}` : hora;
   const statusBadge = j.status === 'ao_vivo' ? 'ao_vivo' : j.status === 'encerrado' ? 'encerrado' : 'agendado';
 
   const formaC = renderForma(prev?.formaC || j.formaCasa || j.timeCasa?.forma);
@@ -1397,7 +1398,90 @@ function _buildSimuladorUI() {
     </div>
     <button class="btn-analisar" onclick="rodarSimulacao()">▶ Simular</button>
   </div>
-  <div id="simResultado"></div>`;
+  <div id="simResultado"></div>
+  <div id="simConfiancaRapida" style="margin-top:16px"></div>`;
+}
+
+// Carrega análise rápida de confiança ao abrir a aba
+async function _carregarAnaliseConfianca() {
+  const el = gc('simConfiancaRapida');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--t2);font-size:12px">Carregando análise de confiança...</div>';
+  try {
+    const r = await fns.httpsCallable('simularEstrategias')({ liga: null, confianca: null });
+    const d = r.data;
+    if (!d.sucesso) { el.innerHTML = ''; return; }
+
+    const confs = [
+      { key: 'alta',         label: 'Alta',         cor: '#27d49b' },
+      { key: 'media',        label: 'Média',        cor: '#f5a524' },
+      { key: 'baixa',        label: 'Baixa',        cor: '#ef5f5f' },
+      { key: 'insuficiente', label: 'Insuficiente', cor: '#858ba5' },
+    ].filter(c => d.porConf[c.key]);
+
+    const melhorConf = confs.reduce((best, c) =>
+      (d.porConf[c.key]?.pct || 0) > (d.porConf[best.key]?.pct || 0) ? c : best
+    , confs[0]);
+
+    el.innerHTML = `
+    <div class="sim-card" style="margin-bottom:16px">
+      <div class="sim-title">🔬 Análise de confiança — ${d.total} jogos históricos</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+        ${confs.map(cf => {
+          const m = d.porConf[cf.key];
+          const isEdge = m.pct >= 55;
+          const isBad  = m.pct < 45;
+          return `<div style="background:var(--bg3);border:1px solid ${isBad?'rgba(239,95,95,.3)':isEdge?'rgba(39,212,155,.3)':'var(--brd)'};border-radius:10px;padding:12px;text-align:center">
+            <div style="font-size:10px;color:var(--t2);margin-bottom:4px">${cf.label}</div>
+            <div style="font-size:24px;font-weight:800;color:${isBad?'var(--red)':isEdge?'var(--grn)':'var(--acc)'}">${m.pct}%</div>
+            <div style="font-size:10px;color:var(--t3)">${m.total} jogos</div>
+            <div style="font-size:10px;margin-top:4px;color:${m.golsDesvioMedio>0?'var(--red)':'var(--grn)'}">
+              gols: ${m.golsDesvioMedio > 0 ? '+' : ''}${m.golsDesvioMedio}
+            </div>
+            ${isBad ? '<div style="font-size:9px;color:var(--red);margin-top:3px">⚠️ Pior que aleatório</div>' : ''}
+            ${isEdge ? '<div style="font-size:9px;color:var(--grn);margin-top:3px">✓ Edge positivo</div>' : ''}
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div style="background:rgba(245,165,36,.06);border:1px solid rgba(245,165,36,.2);border-radius:8px;padding:12px;font-size:12px;line-height:1.7">
+        <b style="color:var(--acc)">💡 O que os dados estão dizendo:</b><br>
+        ${(() => {
+          const alta  = d.porConf['alta'];
+          const media = d.porConf['media'];
+          const baixa = d.porConf['baixa'];
+          const insuf = d.porConf['insuficiente'];
+          const msgs = [];
+
+          if (media && media.pct < 45)
+            msgs.push(`<b>Média confiança (${media.pct}%)</b> está abaixo do aleatório — evitar apostar nesses jogos.`);
+
+          if (insuf && baixa && insuf.pct > (media?.pct || 0))
+            msgs.push(`<b>Inversão detectada:</b> "Insuficiente" (${insuf.pct}%) acerta mais que "Média" (${media?.pct || 0}%) — os limiares de confiança precisam de recalibração.`);
+
+          if (alta && alta.total < 10)
+            msgs.push(`<b>Alta confiança</b> tem apenas ${alta.total} amostras — estatisticamente frágil ainda.`);
+          else if (alta && alta.pct >= 60)
+            msgs.push(`<b>Alta confiança (${alta.pct}%)</b> está com edge real — apostar apenas nesses jogos seria mais rentável.`);
+
+          // Gols
+          const devMedio = d.desvioMedio;
+          if (devMedio > 0.05)
+            msgs.push(`<b>Gols:</b> sistema subestima consistentemente (+${devMedio} de desvio) — apostar Under(est.+0) tem vantagem histórica.`);
+          else if (devMedio < -0.05)
+            msgs.push(`<b>Gols:</b> sistema superestima (-${Math.abs(devMedio)} de desvio) — apostar Under tem vantagem histórica.`);
+
+          const melhorOver = d.estrategiasGols?.reduce((best, e) => e.over.pct > best.over.pct ? e : best, d.estrategiasGols[0]);
+          if (melhorOver && melhorOver.over.pct > 58)
+            msgs.push(`<b>Melhor estratégia de gols:</b> Over ${melhorOver.margem >= 0 ? 'Est.+'+melhorOver.margem : 'Est.'+melhorOver.margem} acerta ${melhorOver.over.pct}% historicamente.`);
+
+          return msgs.length ? msgs.map(m => '• ' + m).join('<br>') : 'Dados insuficientes para conclusões sólidas ainda.';
+        })()}
+      </div>
+    </div>`;
+  } catch(e) {
+    if (gc('simConfiancaRapida')) gc('simConfiancaRapida').innerHTML = '';
+  }
 }
 
 async function rodarSimulacao() {
@@ -1570,6 +1654,7 @@ const _iniciarSimuladorOrig = iniciarSimulador;
 function iniciarSimulador() {
   _iniciarSimuladorOrig();
   setTimeout(_carregarLigasSimulador, 300);
+  setTimeout(_carregarAnaliseConfianca, 600);
 }
 
 async function iniciarBackfill() {
