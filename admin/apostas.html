@@ -1315,6 +1315,55 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
       <button class="btn-back" onclick="resetarAprendizado()" title="Limpar dados duplicados e resetar para reprocessamento" style="border-color:#ef4444;color:#ef4444">🗑️ Resetar aprendizado</button>
     </div>
     <div id="backfillStatus" style="margin-top:10px;font-size:12px;color:var(--t2)"></div>
+
+  <!-- BACKFILL HISTÓRICO MASSIVO -->
+  <div style="margin-top:20px;padding:16px;background:var(--bg2);border:1px solid var(--brd);border-radius:12px">
+    <div style="font-size:12px;font-weight:700;color:var(--pur);margin-bottom:4px">📚 Importação Histórica Massiva</div>
+    <div style="font-size:11px;color:var(--t2);margin-bottom:12px">Busca jogos de temporadas passadas direto da API e reconstrói previsões retroativas — sem precisar ter importado os jogos antes. Quanto mais temporadas, mais o sistema aprende.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+      <div>
+        <div style="font-size:10px;color:var(--t2);margin-bottom:3px">Liga</div>
+        <select id="massLiga" class="filtro-sim" style="min-width:200px">
+          <option value="71">🇧🇷 Brasileirão Série A</option>
+          <option value="72">🇧🇷 Brasileirão Série B</option>
+          <option value="39">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League</option>
+          <option value="140">🇪🇸 La Liga</option>
+          <option value="135">🇮🇹 Serie A</option>
+          <option value="78">🇩🇪 Bundesliga</option>
+          <option value="61">🇫🇷 Ligue 1</option>
+          <option value="94">🇵🇹 Primeira Liga</option>
+          <option value="13">🌎 Copa Libertadores</option>
+          <option value="2">🏆 Champions League</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--t2);margin-bottom:3px">Temporada</div>
+        <select id="massSeason" class="filtro-sim">
+          <option value="2024">2024</option>
+          <option value="2023">2023</option>
+          <option value="2022">2022</option>
+          <option value="2021">2021</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--t2);margin-bottom:3px">Jogos/lote</div>
+        <select id="massLote" class="filtro-sim">
+          <option value="5">5 (lento/seguro)</option>
+          <option value="10" selected>10</option>
+          <option value="15">15</option>
+        </select>
+      </div>
+      <button class="btn-analisar" id="btnMassivo" onclick="iniciarBackfillMassivo()" style="background:var(--pur)">📚 Importar histórico</button>
+      <button class="btn-back" onclick="pararBackfillMassivo()" id="btnPararMassivo" style="display:none;border-color:var(--red);color:var(--red)">⏹ Parar</button>
+    </div>
+    <div id="massivoStatus" style="font-size:11px;color:var(--t2)"></div>
+    <div id="massivoProgress" style="margin-top:8px;display:none">
+      <div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">
+        <div id="massivoBar" style="height:100%;background:var(--pur);transition:width .3s;width:0%"></div>
+      </div>
+      <div id="massivoLabel" style="font-size:10px;color:var(--t3);margin-top:4px"></div>
+    </div>
+  </div>
     <div id="backfillProgress" style="margin-top:8px;display:none">
       <div style="height:4px;background:var(--brd);border-radius:2px;overflow:hidden">
         <div id="backfillBar" style="height:100%;background:var(--acc);border-radius:2px;width:0%;transition:width .5s"></div>
@@ -1706,6 +1755,85 @@ async function _carregarLigasSimulador() {
 }
 
 
+
+// ── BACKFILL HISTÓRICO MASSIVO ────────────────────────────────────────────
+let _massivoRodando = false;
+let _massivoParar   = false;
+
+async function iniciarBackfillMassivo() {
+  if (_massivoRodando) return;
+  _massivoRodando = true;
+  _massivoParar   = false;
+
+  const ligaId = gc('massLiga').value;
+  const season = gc('massSeason').value;
+  const lote   = parseInt(gc('massLote').value || '10');
+  const ligaNome = gc('massLiga').options[gc('massLiga').selectedIndex].text;
+
+  gc('btnMassivo').disabled = true;
+  gc('btnPararMassivo').style.display = 'inline-flex';
+  gc('massivoProgress').style.display = 'block';
+  gc('massivoStatus').textContent = `Iniciando importação de ${ligaNome} ${season}...`;
+
+  let pagina = 1;
+  let totalProcessados = 0;
+  let totalPaginas = null;
+  let totalJogos = null;
+
+  while (true) {
+    if (_massivoParar) {
+      gc('massivoStatus').innerHTML = `<span style="color:var(--acc)">⏹ Parado em ${totalProcessados} jogos processados</span>`;
+      break;
+    }
+
+    try {
+      gc('massivoStatus').textContent = `Processando página ${pagina}/${totalPaginas || '?'}...`;
+
+      const r = await fns.httpsCallable('backfillHistoricoMassivo')({
+        ligaId: parseInt(ligaId),
+        season: parseInt(season),
+        lote,
+        pagina,
+      });
+      const d = r.data;
+
+      if (!d.sucesso) {
+        gc('massivoStatus').innerHTML = `<span style="color:var(--red)">Erro: ${d.msg}</span>`;
+        break;
+      }
+
+      totalProcessados += d.processados || 0;
+      if (totalPaginas === null) totalPaginas = d.paginas || 1;
+      if (totalJogos === null)   totalJogos   = d.total || 0;
+
+      // Progresso
+      const pct = Math.round((pagina / totalPaginas) * 100);
+      gc('massivoBar').style.width = pct + '%';
+      gc('massivoLabel').textContent = `Página ${pagina}/${totalPaginas} · ${totalProcessados} novos · ${d.pulados || 0} pulados · acurácia ${d.acuracia !== null ? d.acuracia+'%' : '—'}`;
+
+      if (pagina >= totalPaginas || d.processados + (d.pulados||0) === 0) {
+        gc('massivoStatus').innerHTML = `<span style="color:var(--grn)">✓ Concluído — ${totalProcessados} jogos importados de ${ligaNome} ${season}</span>`;
+        break;
+      }
+
+      pagina++;
+      // Aguardar entre páginas para não estourar rate limit da API
+      await new Promise(res => setTimeout(res, 2000));
+
+    } catch(e) {
+      gc('massivoStatus').innerHTML = `<span style="color:var(--red)">Erro na página ${pagina}: ${e.message}</span>`;
+      break;
+    }
+  }
+
+  _massivoRodando = false;
+  gc('btnMassivo').disabled = false;
+  gc('btnPararMassivo').style.display = 'none';
+}
+
+function pararBackfillMassivo() {
+  _massivoParar = true;
+}
 
 async function iniciarBackfill() {
   if (backfillRodando) return;
