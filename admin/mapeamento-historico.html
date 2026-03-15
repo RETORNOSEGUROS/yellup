@@ -584,56 +584,70 @@ async function processarFilaColeta() {
 }
 
 async function coletarLigaTemporada(ligaId, season, meta, inclStats, delay) {
-  log(`→ ${meta?.nome||ligaId} ${season}: buscando IDs...`, 'info');
+  const nomeLiga = meta?.nome || ligaId;
+  log(`→ ${nomeLiga} ${season}: buscando página 1...`, 'info');
   try {
-    // 1. Busca todos os IDs via Cloud Function existente
-    const status = gc('cfgStatus').value === 'all' ? null : gc('cfgStatus').value;
-    const res = await callFn('buscarJogosCampeonato', {
-      leagueId: ligaId,
-      season,
-      status: status || 'FT-AET-PEN',
-      soIds: true
-    });
-    sessCalls++;
+    const statusCfg = gc('cfgStatus').value;
+    const statusParam = statusCfg === 'all' ? null : (statusCfg || 'FT-AET-PEN');
 
-    const ids = res?.data?.ids || res?.data?.fixtureIds || [];
-    if (!ids.length) {
-      log(`  ⚠ ${meta?.nome||ligaId} ${season}: 0 jogos encontrados`, 'warn');
+    // Busca página 1
+    const payload = { leagueId: ligaId, season: String(season), pagina: 1 };
+    if (statusParam) payload.status = statusParam;
+
+    const res = await callFn('buscarJogosCampeonato', payload);
+    sessCalls++;
+    gc('sessCalls').textContent = sessCalls;
+    gc('sessCota').textContent = sessCalls + '/100';
+
+    const jogosP1 = res?.data?.jogos || [];
+    const totalPags = res?.data?.totalPags || 1;
+    const totalJogos = res?.data?.total || jogosP1.length;
+
+    if (!jogosP1.length) {
+      log(`  ⚠ ${nomeLiga} ${season}: 0 jogos na API`, 'warn');
       return;
     }
 
-    log(`  ✓ ${ids.length} jogos encontrados`, 'ok');
+    log(`  ✓ ${totalJogos} jogos em ${totalPags} páginas`, 'ok');
 
-    // 2. Busca em batches de 20
-    const batch = parseInt(gc('cfgBatch').value)||20;
-    const chunks = chunkArray(ids, batch);
+    // Salva página 1
+    const enc1 = jogosP1.filter(j => ['FT','AET','PEN'].includes(j.status?.short));
+    if (enc1.length) {
+      await salvarJogosFirestore(enc1, ligaId, season, meta);
+      sessJogos += enc1.length;
+      gc('sessJogos').textContent = sessJogos;
+      log(`  pág 1/${totalPags}: +${enc1.length} jogos`, 'ok');
+    }
 
-    for (let i=0; i<chunks.length && !stopFlag; i++) {
+    // Busca páginas restantes
+    for (let pag = 2; pag <= totalPags && !stopFlag; pag++) {
       await sleep(delay);
-      const chunk = chunks[i];
       try {
-        const r2 = await callFn('buscarDetalheJogoCamp', {
-          fixtureIds: chunk,
-          incluirStats: inclStats
-        });
+        const payloadPag = { leagueId: ligaId, season: String(season), pagina: pag };
+        if (statusParam) payloadPag.status = statusParam;
+        const rPag = await callFn('buscarJogosCampeonato', payloadPag);
         sessCalls++;
-        const jogos = r2?.data?.jogos || [];
-        if (jogos.length) {
-          await salvarJogosFirestore(jogos, ligaId, season, meta);
-          sessJogos += jogos.length;
-          log(`  batch ${i+1}/${chunks.length}: +${jogos.length} jogos salvos`, 'ok');
+        gc('sessCalls').textContent = sessCalls;
+        gc('sessCota').textContent = sessCalls + '/100';
+
+        const enc = (rPag?.data?.jogos || []).filter(j => ['FT','AET','PEN'].includes(j.status?.short));
+        if (enc.length) {
+          await salvarJogosFirestore(enc, ligaId, season, meta);
+          sessJogos += enc.length;
+          gc('sessJogos').textContent = sessJogos;
+          log(`  pág ${pag}/${totalPags}: +${enc.length} jogos`, 'ok');
         }
       } catch(e) {
         sessErros++;
-        log(`  ✗ batch ${i+1} erro: ${e.message}`, 'err');
+        log(`  ✗ pág ${pag} erro: ${e.message}`, 'err');
       }
-      gc('sessJogos').textContent = sessJogos;
-      gc('sessCalls').textContent = sessCalls;
-      gc('sessCota').textContent = sessCalls+'/100';
     }
+
+    log(`  ✅ ${nomeLiga} ${season} concluído!`, 'ok');
+
   } catch(e) {
     sessErros++;
-    log(`  ✗ ${meta?.nome||ligaId} ${season}: ${e.message}`, 'err');
+    log(`  ✗ ${nomeLiga} ${season}: ${e.message}`, 'err');
   }
 }
 
