@@ -211,6 +211,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);displ
     <div class="pc-head">
       <h2 id="pcTitle">Mapeamento Histórico de Jogos</h2>
       <button class="btn btn-blu" onclick="analisarPadroes()" id="btnAnalise" disabled>🔬 Analisar Padrões</button>
+    <button class="btn" id="btnPerfis" onclick="calcularPerfis()" style="border-color:var(--pur);color:var(--pur)">⚡ Calcular Perfis</button>
     </div>
     <div class="pc-tabs">
       <button class="pctab on" onclick="switchTab('coleta',this)">⬇️ Coleta</button>
@@ -478,13 +479,14 @@ function switchTab(id, el) {
 // ══════════════════════════════════════════════
 async function carregarStats() {
   try {
-    const snap = await db.collection('fixtures-historico').limit(1000).get();
-    totalColetado = snap.size;
+    // Contar total sem limit
+    const countSnap = await db.collection('fixtures-historico').limit(5000).get();
+    totalColetado = countSnap.size;
     const lgSet = new Set();
     const lgDist = {};
     const snDist = {};
     let comYS = 0;
-    snap.forEach(d => {
+    countSnap.forEach(d => {
       const j = d.data();
       lgSet.add(j.ligaId);
       lgDist[j.ligaNome||j.ligaId] = (lgDist[j.ligaNome||j.ligaId]||0)+1;
@@ -493,7 +495,7 @@ async function carregarStats() {
     });
     distLigas = lgDist;
     distSeasons = snDist;
-    gc('stTotal').textContent = totalColetado;
+    gc('stTotal').textContent = totalColetado + (totalColetado >= 5000 ? '+' : '');
     gc('stLigas').textContent = lgSet.size;
     gc('stComYS').textContent = comYS;
     renderDistLigas();
@@ -604,7 +606,12 @@ async function coletarLigaTemporada(ligaId, season, meta, inclStats, delay) {
     const totalJogos = res?.data?.total || jogosP1.length;
 
     if (!jogosP1.length) {
-      log(`  ⚠ ${nomeLiga} ${season}: 0 jogos na API`, 'warn');
+      const yr = new Date().getFullYear();
+      if (season >= yr) {
+        log(`  ℹ ${nomeLiga} ${season}: temporada em andamento — jogos encerrados serão coletados conforme acontecem`, 'info');
+      } else {
+        log(`  ⚠ ${nomeLiga} ${season}: 0 jogos encontrados na API`, 'warn');
+      }
       return;
     }
 
@@ -758,13 +765,27 @@ async function analisarPadroes() {
 
   try {
     log('Carregando dados do Firestore para análise...', 'info');
-    const snap = await db.collection('fixtures-historico')
-      .where('golsCasa', '!=', null)
-      .limit(2000)
-      .get();
-
-    const jogos = snap.docs.map(d=>d.data()).filter(j => j.golsCasa!=null && j.golsFora!=null && j.resultado);
-    log(`${jogos.length} jogos carregados para análise`, 'ok');
+    // Buscar em batches para pegar todos (sem limit fixo que corta dados)
+    let jogos = [];
+    let lastDoc = null;
+    const BATCH = 500;
+    let tentativas = 0;
+    
+    while (tentativas < 20) { // máx 10.000 docs
+      let q = db.collection('fixtures-historico').orderBy('fixtureId').limit(BATCH);
+      if (lastDoc) q = q.startAfter(lastDoc);
+      const batch = await q.get();
+      if (batch.empty) break;
+      const docs = batch.docs.map(d => d.data()).filter(j => 
+        j.golsCasa != null && j.golsFora != null && j.resultado &&
+        ['casa','empate','fora'].includes(j.resultado)
+      );
+      jogos = jogos.concat(docs);
+      lastDoc = batch.docs[batch.docs.length - 1];
+      tentativas++;
+      if (batch.docs.length < BATCH) break;
+    }
+    log(`${jogos.length} jogos válidos carregados para análise (${tentativas} páginas)`, 'ok');
 
     if (jogos.length < 50) {
       gc('padroesCont').innerHTML = '<div class="empty-state"><div class="empty-ico">⚠️</div><p>Mínimo 50 jogos necessários. Coleta mais dados primeiro.</p></div>';
@@ -1104,6 +1125,31 @@ async function copiarRelatorio() {
   const txt = gc('relatorioCont').querySelector('pre, div[style*="pre-wrap"]')?.textContent || '';
   await navigator.clipboard.writeText(txt);
   toast('Copiado para a área de transferência!', 'ok');
+}
+
+async function calcularPerfis() {
+  const btn = gc('btnPerfis');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="ld" style="border-top-color:var(--pur)"></span> Processando...';
+  btn.style.color = 'var(--pur)';
+  log('Calculando perfis de gols por time...', 'info');
+  log('Isso pode levar 1-2 minutos (300s timeout)...', 'warn');
+  try {
+    const fn = fns.httpsCallable('calcularPerfisGolsTimes', { timeout: 310000 });
+    const res = await fn({});
+    const d = res.data;
+    log(`✅ Perfis calculados! ${d.timesProcessados} times de ${d.totalFixtures} jogos`, 'ok');
+    toast(`${d.timesProcessados} perfis de times salvos!`, 'ok');
+    btn.innerHTML = `✅ ${d.timesProcessados} perfis`;
+    btn.style.color = 'var(--grn)';
+    btn.style.borderColor = 'var(--grn)';
+  } catch(e) {
+    log('Erro: ' + e.message, 'err');
+    toast('Erro: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.innerHTML = '⚡ Calcular Perfis';
+    btn.style.color = 'var(--pur)';
+  }
 }
 
 function exportarRelatorio() {
