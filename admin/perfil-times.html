@@ -966,9 +966,17 @@ function calcularConfronto() {
 
   const casa = PERFIS[casaId];
   const fora = PERFIS[foraId];
-  if (!casa || !fora) return;
+  if (!casa || !fora) {
+    gc('confrontoResult').innerHTML = '<div style="color:var(--red);padding:10px">⚠️ Perfil não encontrado. Aguarde o carregamento completo.</div>';
+    return;
+  }
 
+  try {
+  console.log('[Confronto] iniciando:', casa.nome, 'x', fora.nome);
   const mc = casa.metricas, mf = fora.metricas;
+  console.log('[Confronto] mc.porForca:', mc.porForca ? 'OK' : 'NULL', '| mf.porForca:', mf.porForca ? 'OK' : 'NULL');
+  console.log('[Confronto] mc.statsCasa:', mc.statsCasa ? `n=${mc.statsCasa.n}` : 'NULL', '| mf.statsFora:', mf.statsFora ? `n=${mf.statsFora.n}` : 'NULL');
+  console.log('[Confronto] mc.eloNota:', mc.eloNota, '| mf.eloNota:', mf.eloNota);
   const sc5 = mc.s5, sf5 = mf.s5;
   const sc10 = mc.s10, sf10 = mf.s10;
 
@@ -977,10 +985,9 @@ function calcularConfronto() {
   // Prioridade 2: média dos últimos 5 jogos (Dixon-Coles)
 
   // Determinar faixa de força do adversário (do ponto de vista de cada time)
-  const faixaAdvCasa = mf.forca5 < 3.5 ? 'fraco' : mf.forca5 < 5.5 ? 'medio'
-                     : mf.forca5 < 7.5 ? 'similar' : 'forte';
-  const faixaAdvFora = mc.forca5 < 3.5 ? 'fraco' : mc.forca5 < 5.5 ? 'medio'
-                     : mc.forca5 < 7.5 ? 'similar' : 'forte';
+  const faixaFn = (f) => !f ? 'medio' : f < 3.5 ? 'fraco' : f < 5.5 ? 'medio' : f < 7.5 ? 'similar' : 'forte';
+  const faixaAdvCasa = faixaFn(mf.forca5);
+  const faixaAdvFora = faixaFn(mc.forca5);
 
   // Buscar padrão histórico do time da casa jogando em casa vs essa faixa
   let xGC_hist = null, xGF_hist = null;
@@ -1119,7 +1126,7 @@ function calcularConfronto() {
   // ── EXPLICAÇÕES ─────────────────────────────────────────
   const exps = [];
   exps.push(`${casa.nome} força ${mc.forca5}/10 vs ${fora.nome} força ${mf.forca5}/10`);
-  if (golsTotaisHist != null) {
+  if (golsTotaisCasa != null) {
     exps.push(`📊 Padrão real: ${casa.nome} em casa vs ${faixaAdvCasa}s → ${mc.porForca[faixaAdvCasa].casa.gols} gols/j (${mc.porForca[faixaAdvCasa].casa.n} jogos)`);
   }
   if (xGF_hist != null) {
@@ -1151,7 +1158,7 @@ function calcularConfronto() {
       <div class="conf-box">
         <div class="conf-box-val" style="color:var(--acc)">${golsTotaisFinal}</div>
         <div class="conf-box-lbl">Gols Esperados</div>
-        <div style="font-size:9px;color:var(--t3);margin-top:2px">${xGC} + ${xGF} ${golsTotaisHist!=null?'📊':'📐'}</div>
+        <div style="font-size:9px;color:var(--t3);margin-top:2px">${xGC} + ${xGF} ${golsTotaisCasa!=null?'📊':'📐'}</div>
       </div>
       <div class="conf-box">
         <div class="conf-box-val" style="color:${over25>=55?'var(--red)':over25<=35?'var(--grn)':'var(--acc)'}">${over25}%</div>
@@ -1203,6 +1210,11 @@ function calcularConfronto() {
       </div>
     </div>
   `;
+  } catch(e) {
+    console.error('[Confronto] ERRO:', e);
+    const el = gc('confrontoResult');
+    if (el) el.innerHTML = '<div style="padding:12px;background:var(--rdim);border-radius:8px;color:var(--red)">⚠️ Erro: ' + e.message + '<br><small style="opacity:.7">' + (e.stack||'').split('\n')[1] + '</small></div>';
+  }
 }
 
 // ══════════════════════════════════════════════════════════
