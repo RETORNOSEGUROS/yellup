@@ -307,6 +307,9 @@ async function carregarDados() {
 }
 
 function processarDados(docs) {
+  // 1. Calcular Elo global (ordem cronológica, todos os jogos)
+  ELO_GLOBAL = calcularEloGlobal(docs);
+
   const raw = {};
   docs.forEach(doc => {
     ['casa', 'fora'].forEach(lado => {
@@ -349,11 +352,107 @@ function processarDados(docs) {
     };
   });
 
+  // 2. Injetar Elo em cada time
+  Object.entries(PERFIS).forEach(([tid, t]) => {
+    const elo = ELO_GLOBAL.elos[tid];
+    const hist = ELO_GLOBAL.histElo[tid] || [];
+    if (elo != null) {
+      t.metricas.elo     = Math.round(elo);
+      t.metricas.eloNota = eloParaNota(elo);
+      t.metricas.mom5    = calcMomentum(hist, 5);
+      t.metricas.mom10   = calcMomentum(hist, 10);
+      t.metricas.mom20   = calcMomentum(hist, 20);
+      t.metricas.histElo = hist;
+      t.metricas.tendenciaElo = t.metricas.mom5 >= 0.5 ? 'subindo'
+                              : t.metricas.mom5 <= -0.5 ? 'caindo' : 'estavel';
+    }
+  });
+
+  // 3. Ordenar por Elo (não mais por forca5)
   LISTA_TIMES = Object.entries(PERFIS)
     .map(([id, t]) => ({ id, ...t }))
     .filter(t => t.jogos.length >= 5)
-    .sort((a,b) => b.metricas.forca5 - a.metricas.forca5);
+    .sort((a,b) => (b.metricas.elo||0) - (a.metricas.elo||0));
 }
+
+// ══════════════════════════════════════════════════════════
+// ELO YELLUP — Rating ponderado por adversário
+// ══════════════════════════════════════════════════════════
+
+const LIGA_ELO_BASE = {
+  'Premier League':1600,'La Liga':1580,'Bundesliga':1560,
+  'Serie A':1540,'Ligue 1':1520,'Champions League':1620,
+  'Copa Libertadores':1480,'Copa Sudamericana':1440,
+  'Brasileirão A':1460,'Copa do Brasil':1440,
+  'Eliminat. Sul-Am':1500,'World Cup':1600,'UEFA Euro':1580,
+  'DEFAULT':1400,
+};
+
+function getLigaBase(nome) {
+  if (!nome) return 1400;
+  for (const [k,v] of Object.entries(LIGA_ELO_BASE)) {
+    if (k !== 'DEFAULT' && nome.toLowerCase().includes(k.toLowerCase())) return v;
+  }
+  return 1400;
+}
+
+// Normaliza Elo (1200-1900) para nota 0-10
+function eloParaNota(elo) {
+  return Math.round(Math.min(10, Math.max(0, (elo - 1200) / (1900 - 1200) * 10)) * 10) / 10;
+}
+
+// Calcula momentum: variação de elo nos últimos N jogos
+function calcMomentum(hist, n) {
+  if (hist.length < n + 1) return 0;
+  const atual = hist[hist.length - 1].elo;
+  const antes = hist[hist.length - n - 1].elo;
+  return Math.round((atual - antes) / 40 * 10) / 10;
+}
+
+// Processa todos os jogos cronologicamente para calcular Elo
+function calcularEloGlobal(docs) {
+  const elos = {};        // timeId → elo atual
+  const histElo = {};     // timeId → [{data, elo, advElo, res, liga, gf, gs}]
+  const K = 32;
+
+  // Ordenar por data
+  const sorted = [...docs].sort((a,b) => (a.data||'').localeCompare(b.data||''));
+
+  sorted.forEach(doc => {
+    const cid = doc.casaId, fid = doc.foraId;
+    if (!cid || !fid || doc.golsCasa == null) return;
+
+    // Inicializar se novo
+    if (!(cid in elos)) { elos[cid] = getLigaBase(doc.ligaNome); histElo[cid] = []; }
+    if (!(fid in elos)) { elos[fid] = getLigaBase(doc.ligaNome); histElo[fid] = []; }
+
+    const rc = elos[cid], rf = elos[fid];
+    const ec = 1 / (1 + Math.pow(10, (rf - rc - 50) / 400));
+    const r  = doc.resultado;
+    const sc = r === 'casa' ? 1.0 : r === 'empate' ? 0.5 : 0.0;
+    const diff = Math.abs((doc.golsCasa||0) - (doc.golsFora||0));
+    const fm = 1 + Math.min(diff * 0.1, 0.4); // fator margem gols
+
+    const deltaC = K * fm * (sc - ec);
+    const deltaF = K * fm * ((1 - sc) - (1 - ec));
+
+    const novoC = rc + deltaC, novoF = rf + deltaF;
+
+    histElo[cid].push({ data:doc.data, elo:novoC, advElo:rf,
+      res: r==='casa'?'V':r==='empate'?'E':'D', liga:doc.ligaNome,
+      gf:doc.golsCasa||0, gs:doc.golsFora||0 });
+    histElo[fid].push({ data:doc.data, elo:novoF, advElo:rc,
+      res: r==='fora'?'V':r==='empate'?'E':'D', liga:doc.ligaNome,
+      gf:doc.golsFora||0, gs:doc.golsCasa||0 });
+
+    elos[cid] = novoC;
+    elos[fid] = novoF;
+  });
+
+  return { elos, histElo };
+}
+
+let ELO_GLOBAL = null;   // { elos, histElo } — calculado uma vez
 
 // ══════════════════════════════════════════════════════════
 // MÉTRICAS PRINCIPAIS
@@ -434,8 +533,10 @@ function calcularMetricas(jogos) {
     statsCasa, statsFora,
     tendencia: momentum >= 1 ? 'subindo' : momentum <= -1 ? 'caindo' : 'estavel',
     tendGolsTag: s5?.tot_media >= 3 ? 'alta' : s5?.tot_media <= 1.8 ? 'baixa' : 'media',
-    // Análise por força do adversário — calculada depois quando PERFIS estiver populado
     porForca: null,
+    // Elo — preenchido depois de calcularEloGlobal
+    elo: null, elonota: null, mom5: null, mom10: null, mom20: null,
+    histElo: [],
   };
 }
 
@@ -500,7 +601,9 @@ function renderSidebar(busca = '') {
   gc('sbList').innerHTML = lista.map(t => {
     const m = t.metricas;
     const forma = (m.s5?.forma || []).slice(0, 5);
-    const forcaColor = m.forca5 >= 7 ? 'var(--grn)' : m.forca5 >= 4.5 ? 'var(--acc)' : 'var(--red)';
+    const nota = m.eloNota ?? m.forca5;
+    const forcaColor = nota >= 7 ? 'var(--grn)' : nota >= 4.5 ? 'var(--acc)' : 'var(--red)';
+    const momIcon = m.tendenciaElo === 'subindo' ? '📈' : m.tendenciaElo === 'caindo' ? '📉' : '';
     return `<div class="time-item${TIME_SELECIONADO === t.id ? ' on' : ''}" onclick="selecionarTime('${t.id}')">
       <img src="${t.logo}" class="time-logo" onerror="this.style.display='none'">
       <div style="flex:1;min-width:0">
@@ -508,7 +611,7 @@ function renderSidebar(busca = '') {
         <div class="time-liga-sb">${t.liga}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:${forcaColor}">${m.forca5}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:${forcaColor}">${nota} ${momIcon}</div>
         <div class="forma-sb">${forma.map(r => `<div class="fb f${r}">${r}</div>`).join('')}</div>
       </div>
     </div>`;
@@ -599,9 +702,27 @@ function renderPerfil(tid) {
         <div class="ph-badges">${badges.join('')}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-family:'DM Mono',monospace;font-size:36px;font-weight:800;color:${forcaColor}">${m.forca5}</div>
-        <div style="font-size:9px;color:var(--t3)">FORÇA YELLUP</div>
-        <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:${momColor}">${momSinal}${m.momentum} vs ult10</div>
+        <div style="display:flex;align-items:flex-end;gap:10px;justify-content:flex-end">
+          <div style="text-align:center">
+            <div style="font-family:'DM Mono',monospace;font-size:40px;font-weight:800;color:${m.eloNota>=7?'var(--grn)':m.eloNota>=4.5?'var(--acc)':'var(--red)'}">${m.eloNota ?? m.forca5}</div>
+            <div style="font-size:8px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px">Yellup Elo</div>
+            <div style="font-size:9px;color:var(--t3)">${m.elo ? m.elo+' pts' : ''}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px;justify-content:flex-end">
+          <div style="text-align:center;background:var(--c3);border-radius:6px;padding:4px 8px">
+            <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${m.mom5>0?'var(--grn)':m.mom5<0?'var(--red)':'var(--t3)'}">${m.mom5!=null?(m.mom5>0?'+':'')+m.mom5:'—'}</div>
+            <div style="font-size:8px;color:var(--t3)">Mom5</div>
+          </div>
+          <div style="text-align:center;background:var(--c3);border-radius:6px;padding:4px 8px">
+            <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${m.mom10>0?'var(--grn)':m.mom10<0?'var(--red)':'var(--t3)'}">${m.mom10!=null?(m.mom10>0?'+':'')+m.mom10:'—'}</div>
+            <div style="font-size:8px;color:var(--t3)">Mom10</div>
+          </div>
+          <div style="text-align:center;background:var(--c3);border-radius:6px;padding:4px 8px">
+            <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${m.mom20>0?'var(--grn)':m.mom20<0?'var(--red)':'var(--t3)'}">${m.mom20!=null?(m.mom20>0?'+':'')+m.mom20:'—'}</div>
+            <div style="font-size:8px;color:var(--t3)">Mom20</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -703,6 +824,35 @@ function renderPerfil(tid) {
         🟢 ≤1.8 gols/jogo = jogo tende a fechar | 🟡 2.0–2.9 = médio | 🔴 ≥3.0 = jogo abre
       </div>
     </div>
+
+  \${m.histElo?.length >= 5 ? (() => {
+    const hist = m.histElo.slice(-20);
+    const elos = hist.map(h => h.elo);
+    const eloMin = Math.min(...elos) - 20;
+    const eloMax = Math.max(...elos) + 20;
+    const W = 500, H = 80, pad = 10;
+    const pts = elos.map((e,i) => {
+      const x = pad + i/(elos.length-1)*(W-2*pad);
+      const y = H - pad - (e-eloMin)/(eloMax-eloMin)*(H-2*pad);
+      return x.toFixed(1)+','+y.toFixed(1);
+    });
+    const corLinha = m.mom5 > 0.3 ? '#27d49b' : m.mom5 < -0.3 ? '#ef5f5f' : '#f5a524';
+    return '<div class="tend-section" style="margin-bottom:14px">'
+      + '<div class="tend-title">📈 Evolução Elo — Últimos ' + hist.length + ' Jogos</div>'
+      + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:' + H + 'px">'
+      + '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + corLinha + '" stroke-width="2"/>'
+      + hist.map((h,i) => {
+          const x = pad + i/(elos.length-1)*(W-2*pad);
+          const y = H - pad - (h.elo-eloMin)/(eloMax-eloMin)*(H-2*pad);
+          const cor = h.res==='V'?'#27d49b':h.res==='E'?'#4f96f4':'#ef5f5f';
+          return '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="'+cor+'"/>';
+        }).join('')
+      + '</svg>'
+      + '<div style="display:flex;gap:10px;margin-top:4px;font-size:9px;color:var(--t3)">'
+      + '<span>🟢 V</span><span>🔵 E</span><span>🔴 D</span>'
+      + '<span style="margin-left:auto">Elo: <strong style="color:' + corLinha + '">' + m.elo + '</strong> → Nota <strong style="color:' + corLinha + '">' + m.eloNota + '</strong></span>'
+      + '</div></div>';
+  })() : ''}
 
     <div class="forma-section">
       <div class="forma-title">📅 Últimos 10 Jogos</div>
@@ -822,8 +972,9 @@ function calcularConfronto() {
 
   // ── PROBABILIDADE DE RESULTADO ──────────────────────────
   // Baseado na força relativa + vantagem de jogar em casa
-  const forcaCasa = mc.forca5 + 0.5; // +0.5 vantagem casa
-  const forcaFora = mf.forca5;
+  // Usar Elo nota se disponível, fallback para forca5
+  const forcaCasa = (mc.eloNota ?? mc.forca5) + 0.5; // +0.5 vantagem casa
+  const forcaFora = (mf.eloNota ?? mf.forca5);
   const forcaTotal = (forcaCasa + forcaFora) || 10;
 
   let probCasa = (forcaCasa / forcaTotal) * 100;
@@ -953,8 +1104,8 @@ function calcularConfronto() {
 // RANKING DE FORÇA
 // ══════════════════════════════════════════════════════════
 function renderRanking() {
-  const lista = [...LISTA_TIMES].sort((a,b) => b.metricas.forca5 - a.metricas.forca5);
-  const maxForca = lista[0]?.metricas.forca5 || 10;
+  const lista = [...LISTA_TIMES].sort((a,b) => (b.metricas.elo||0) - (a.metricas.elo||0));
+  const maxForca = lista[0]?.metricas.eloNota || 10;
 
   gc('rankingContent').innerHTML = `
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
@@ -964,7 +1115,7 @@ function renderRanking() {
     <table class="ranking-table">
       <thead><tr>
         <th>#</th><th>Time</th><th>Liga</th>
-        <th class="r">F.5</th><th class="r">F.10</th><th class="r">Mom.</th>
+        <th class="r">Nota</th><th class="r">Elo</th><th class="r">Mom5</th>
         <th>Força Visual</th>
         <th class="r">Gols/j</th><th class="r">GS/j</th>
         <th>Forma</th><th class="r">Tend.Gols</th>
@@ -976,7 +1127,9 @@ function renderRanking() {
         const momTag = m.tendencia === 'subindo' ? '<span class="tag-subindo">📈</span>'
                      : m.tendencia === 'caindo' ? '<span class="tag-caindo">📉</span>'
                      : '<span class="tag-est">→</span>';
-        const pct = (m.forca5 / maxForca * 100).toFixed(0);
+        const nota = m.eloNota ?? m.forca5;
+        const forcaColor = nota >= 7 ? 'var(--grn)' : nota >= 4.5 ? 'var(--acc)' : 'var(--red)';
+        const pct = (nota / maxForca * 100).toFixed(0);
         const tendTag = m.tendGolsTag === 'alta' ? '<span style="color:var(--red);font-size:9px">🔥 Alta</span>'
                       : m.tendGolsTag === 'baixa' ? '<span style="color:var(--grn);font-size:9px">🔒 Baixa</span>'
                       : '<span style="color:var(--acc);font-size:9px">⚖️ Med.</span>';
@@ -989,9 +1142,9 @@ function renderRanking() {
             </div>
           </td>
           <td style="font-size:9px;color:var(--t3)">${t.liga}</td>
-          <td class="r" style="color:${forcaColor};font-weight:700">${m.forca5}</td>
-          <td class="r">${m.forca10}</td>
-          <td class="r">${momTag} <span style="font-size:9px;color:${m.momentum>0?'var(--grn)':m.momentum<0?'var(--red)':'var(--t3)'}">${m.momentum>0?'+':''}${m.momentum}</span></td>
+          <td class="r" style="color:${forcaColor};font-weight:700">${m.eloNota ?? m.forca5}</td>
+          <td class="r" style="color:var(--t2)">${m.elo ?? '—'}</td>
+          <td class="r">${momTag} <span style="font-size:9px;color:${(m.mom5||0)>0?'var(--grn)':(m.mom5||0)<0?'var(--red)':'var(--t3)'}">${(m.mom5||0)>0?'+':''}${m.mom5??'—'}</span></td>
           <td><div class="strength-bar"><div class="sb-fill" style="width:${pct}px;max-width:120px;background:${forcaColor}"></div></div></td>
           <td class="r">${m.s5?.gf_media ?? '—'}</td>
           <td class="r">${m.s5?.gs_media ?? '—'}</td>
