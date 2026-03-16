@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yellup · Padrões de Jogo</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#080a10;--bg2:#0c0e17;--bg3:#10121c;
+  --c1:#141728;--c2:#1a1e30;--c3:#21263a;
+  --bd1:#1e2235;--bd2:#272d45;--bd3:#313858;
+  --t1:#edf0ff;--t2:#7880a0;--t3:#3d4462;
+  --acc:#f5a524;--adim:rgba(245,165,36,.12);--abright:rgba(245,165,36,.25);
+  --grn:#22d49b;--gdim:rgba(34,212,155,.1);
+  --red:#f04f5a;--rdim:rgba(240,79,90,.1);
+  --blu:#4f8ef4;--bdim2:rgba(79,142,244,.1);
+  --pur:#a87bfc;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);}
+
+/* TOPBAR */
+.topbar{height:54px;background:var(--bg2);border-bottom:1px solid var(--bd1);
+  display:flex;align-items:center;padding:0 20px;gap:14px;position:sticky;top:0;z-index:100;}
+.logo{width:30px;height:30px;background:var(--acc);border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Syne',sans-serif;font-weight:800;font-size:13px;color:#000;}
+.logo-txt{font-family:'Syne',sans-serif;font-size:15px;font-weight:800;}
+.topbar-tag{font-size:9px;font-weight:700;background:var(--adim);color:var(--acc);
+  border:1px solid rgba(245,165,36,.3);border-radius:20px;padding:2px 8px;letter-spacing:.5px;}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.btn{padding:5px 12px;border-radius:7px;border:1px solid var(--bd2);background:none;
+  color:var(--t2);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;
+  transition:all .15s;text-decoration:none;display:inline-flex;align-items:center;gap:5px;}
+.btn:hover{border-color:var(--bd3);color:var(--t1);}
+.stat-pill{font-size:10px;color:var(--t3);background:var(--c2);
+  border:1px solid var(--bd1);border-radius:6px;padding:3px 8px;}
+.stat-pill span{color:var(--acc);font-weight:700;}
+
+/* LAYOUT */
+.layout{display:grid;grid-template-columns:260px 1fr;height:calc(100vh - 54px);overflow:hidden;}
+
+/* SIDEBAR */
+.sidebar{background:var(--bg2);border-right:1px solid var(--bd1);
+  display:flex;flex-direction:column;overflow:hidden;}
+.sb-section{padding:12px;border-bottom:1px solid var(--bd1);}
+.sb-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;
+  color:var(--t3);margin-bottom:8px;}
+
+/* Filtros */
+.filter-row{display:flex;gap:4px;flex-wrap:wrap;}
+.fchip{padding:3px 8px;border-radius:20px;border:1px solid var(--bd2);background:none;
+  color:var(--t3);font-size:9px;font-weight:600;cursor:pointer;letter-spacing:.3px;
+  transition:all .12s;}
+.fchip:hover{color:var(--t2);}
+.fchip.on{background:var(--adim);border-color:rgba(245,165,36,.4);color:var(--acc);}
+
+.range-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.range-lbl{font-size:9px;color:var(--t3);width:80px;flex-shrink:0;}
+.range-val{font-family:'DM Mono',monospace;font-size:9px;color:var(--acc);
+  width:32px;text-align:right;flex-shrink:0;}
+input[type=range]{-webkit-appearance:none;flex:1;height:3px;background:var(--bd2);
+  border-radius:2px;outline:none;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;
+  border-radius:50%;background:var(--acc);cursor:pointer;}
+
+/* Placar grid na sidebar */
+.placar-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;overflow-y:auto;max-height:220px;}
+.placar-grid::-webkit-scrollbar{width:2px;}
+.placar-grid::-webkit-scrollbar-thumb{background:var(--bd2);}
+.pcel{padding:4px 2px;border-radius:5px;border:1px solid var(--bd1);
+  text-align:center;cursor:pointer;transition:all .1s;background:var(--bg3);}
+.pcel:hover{border-color:var(--bd3);background:var(--c2);}
+.pcel.on{background:var(--adim);border-color:var(--acc);}
+.pcel-score{font-family:'DM Mono',monospace;font-size:9px;font-weight:700;color:var(--t2);}
+.pcel.on .pcel-score{color:var(--acc);}
+.pcel-n{font-size:7px;color:var(--t3);}
+
+/* MAIN */
+.main{display:flex;flex-direction:column;overflow:hidden;}
+
+/* TABS */
+.tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--bd1);padding:0 4px;}
+.tab{padding:11px 16px;font-size:11px;font-weight:700;font-family:'Syne',sans-serif;
+  cursor:pointer;border:none;background:none;color:var(--t3);
+  border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;}
+.tab:hover{color:var(--t2);}
+.tab.on{color:var(--acc);border-bottom-color:var(--acc);}
+.pane{display:none;flex:1;overflow-y:auto;padding:16px 20px;}
+.pane.on{display:block;}
+.pane::-webkit-scrollbar{width:4px;}
+.pane::-webkit-scrollbar-thumb{background:var(--bd2);}
+
+/* VISÃO GERAL */
+.overview-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+.ov-card{background:var(--c2);border:1px solid var(--bd1);border-radius:11px;padding:12px 14px;}
+.ov-num{font-family:'DM Mono',monospace;font-size:26px;font-weight:700;}
+.ov-lbl{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-top:3px;}
+.ov-sub{font-size:10px;color:var(--t2);margin-top:2px;}
+
+/* HEATMAP */
+.heatmap-wrap{background:var(--c2);border:1px solid var(--bd1);border-radius:11px;
+  padding:14px;margin-bottom:14px;}
+.hm-title{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;margin-bottom:10px;}
+.hm-grid{display:grid;grid-template-columns:repeat(9,1fr);gap:3px;}
+.hm-cel{aspect-ratio:1;border-radius:5px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;cursor:pointer;transition:all .12s;position:relative;}
+.hm-cel:hover{transform:scale(1.08);z-index:2;}
+.hm-score{font-family:'DM Mono',monospace;font-size:9px;font-weight:700;}
+.hm-pct{font-size:7px;margin-top:1px;opacity:.8;}
+
+/* PADRÕES */
+.pattern-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.pat-box{background:var(--c2);border:1px solid var(--bd1);border-radius:11px;padding:13px;}
+.pat-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;margin-bottom:10px;
+  display:flex;align-items:center;gap:6px;}
+.pat-row{display:flex;align-items:center;gap:8px;padding:5px 0;
+  border-bottom:1px solid rgba(255,255,255,.03);}
+.pat-row:last-child{border-bottom:none;}
+.pat-lbl{font-size:10px;color:var(--t2);flex:1;}
+.pat-val{font-family:'DM Mono',monospace;font-size:11px;font-weight:700;}
+.pat-bar{height:5px;border-radius:3px;margin-top:3px;}
+
+/* DETALHE DE PLACAR */
+.detail-header{display:flex;align-items:center;gap:16px;
+  background:var(--c2);border:1px solid var(--bd1);border-radius:12px;
+  padding:16px 18px;margin-bottom:14px;}
+.dh-score{font-family:'DM Mono',monospace;font-size:42px;font-weight:700;color:var(--acc);}
+.dh-info{flex:1;}
+.dh-n{font-size:11px;color:var(--t2);}
+.dh-pct{font-size:18px;font-weight:700;}
+
+.detail-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;}
+.det-box{background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:12px;}
+.det-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--t3);margin-bottom:8px;}
+.det-row{display:flex;justify-content:space-between;align-items:center;
+  padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03);}
+.det-row:last-child{border-bottom:none;}
+.det-lbl{font-size:10px;color:var(--t2);}
+.det-num{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;}
+
+/* FAIXAS */
+.faixa-section{background:var(--c2);border:1px solid var(--bd1);border-radius:11px;
+  padding:14px;margin-bottom:14px;}
+.faixa-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;margin-bottom:10px;}
+.faixa-row{display:flex;align-items:center;gap:10px;padding:6px 0;
+  border-bottom:1px solid rgba(255,255,255,.03);}
+.faixa-row:last-child{border-bottom:none;}
+.faixa-lbl{font-size:10px;color:var(--t2);min-width:200px;}
+.faixa-bar-bg{flex:1;height:7px;background:var(--bd1);border-radius:4px;overflow:hidden;}
+.faixa-bar-fill{height:100%;border-radius:4px;transition:width .4s;}
+.faixa-num{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;min-width:36px;text-align:right;}
+.faixa-n{font-size:9px;color:var(--t3);min-width:30px;text-align:right;}
+
+/* LOADING */
+.ld{width:14px;height:14px;border:2px solid rgba(245,165,36,.2);
+  border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.loading-ctr{display:flex;flex-direction:column;align-items:center;
+  justify-content:center;height:200px;gap:10px;color:var(--t2);font-size:11px;}
+.empty{display:flex;flex-direction:column;align-items:center;
+  justify-content:center;height:150px;color:var(--t3);font-size:11px;gap:6px;}
+.empty-ico{font-size:32px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">Y</div>
+  <span class="logo-txt">Yellup</span>
+  <span class="topbar-tag">PADRÕES</span>
+  <nav style="display:flex;gap:2px;margin-left:8px;">
+    <a class="btn" href="apostas.html">🎯 Previsões</a>
+    <a class="btn" href="perfil-times.html">📊 Perfil Times</a>
+    <a class="btn" href="mapeamento-historico.html">🗺️ Mapeamento</a>
+  </nav>
+  <div class="topbar-right">
+    <div class="stat-pill" id="statTotal">Carregando...</div>
+    <button class="btn" onclick="recarregar()" title="Recarregar dados">🔄</button>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- Filtro liga -->
+    <div class="sb-section">
+      <div class="sb-label">Liga</div>
+      <div class="filter-row" id="filtroLigas">
+        <button class="fchip on" onclick="setLiga('',this)">Todas</button>
+      </div>
+    </div>
+
+    <!-- Filtro força -->
+    <div class="sb-section">
+      <div class="sb-label">Faixa Força Casa</div>
+      <div class="range-row">
+        <span class="range-lbl">Mín</span>
+        <input type="range" id="fcMin" min="0" max="10" step="0.5" value="0" oninput="aplicarFiltros()">
+        <span class="range-val" id="fcMinVal">0</span>
+      </div>
+      <div class="range-row">
+        <span class="range-lbl">Máx</span>
+        <input type="range" id="fcMax" min="0" max="10" step="0.5" value="10" oninput="aplicarFiltros()">
+        <span class="range-val" id="fcMaxVal">10</span>
+      </div>
+      <div class="sb-label" style="margin-top:8px">Faixa Força Fora</div>
+      <div class="range-row">
+        <span class="range-lbl">Mín</span>
+        <input type="range" id="ffMin" min="0" max="10" step="0.5" value="0" oninput="aplicarFiltros()">
+        <span class="range-val" id="ffMinVal">0</span>
+      </div>
+      <div class="range-row">
+        <span class="range-lbl">Máx</span>
+        <input type="range" id="ffMax" min="0" max="10" step="0.5" value="10" oninput="aplicarFiltros()">
+        <span class="range-val" id="ffMaxVal">10</span>
+      </div>
+    </div>
+
+    <!-- Filtro tendência -->
+    <div class="sb-section">
+      <div class="sb-label">Tendência de Gols</div>
+      <div class="filter-row" id="filtroTend">
+        <button class="fchip on" onclick="setTend('',this)">Todas</button>
+        <button class="fchip" onclick="setTend('caindo',this)">📉 Caindo</button>
+        <button class="fchip" onclick="setTend('subindo',this)">📈 Subindo</button>
+      </div>
+    </div>
+
+    <!-- Placares -->
+    <div class="sb-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div class="sb-label" style="margin:0">Placares</div>
+        <button class="fchip on" id="btnTodosPlacares" onclick="setTodosPlacares()">Todos</button>
+      </div>
+      <div class="placar-grid" id="placarGrid">
+        <div class="loading-ctr"><div class="ld"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="tabs">
+      <button class="tab on" onclick="switchTab('visao',this)">🗺️ Visão Geral</button>
+      <button class="tab" onclick="switchTab('detalhe',this)">🔬 Detalhe Placar</button>
+      <button class="tab" onclick="switchTab('padroes',this)">🧠 Padrões</button>
+      <button class="tab" onclick="switchTab('aprender',this)">📈 Aprender</button>
+    </div>
+
+    <div class="pane on" id="pane-visao">
+      <div id="visaoContent"><div class="loading-ctr"><div class="ld"></div><span>Carregando dados...</span></div></div>
+    </div>
+
+    <div class="pane" id="pane-detalhe">
+      <div id="detalheContent"><div class="empty"><div class="empty-ico">👈</div><span>Selecione um placar na sidebar</span></div></div>
+    </div>
+
+    <div class="pane" id="pane-padroes">
+      <div id="padroesContent"><div class="loading-ctr"><div class="ld"></div></div></div>
+    </div>
+
+    <div class="pane" id="pane-aprender">
+      <div id="aprenderContent"><div class="loading-ctr"><div class="ld"></div></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain:"painel-yellup.firebaseapp.com",
+  projectId:"painel-yellup",
+  storageBucket:"painel-yellup.appspot.com",
+  messagingSenderId:"608347210297",
+  appId:"1:608347210297:web:75092713724e617c7203e8"
+});
+const auth=firebase.auth(), db=firebase.firestore();
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let DATASET = [];
+let FILTERED = [];
+let FILTRO_LIGA = '';
+let FILTRO_TEND = '';
+let FILTRO_PLACAR = null;
+
+auth.onAuthStateChanged(u => {
+  if (!u || u.email !== 'admin@yellup.com') { window.location.href='login.html'; return; }
+  carregarDados();
+});
+
+// ── CARREGAR DO FIRESTORE ──────────────────────────────────────────────────
+async function carregarDados() {
+  gc('statTotal').innerHTML = '⏳ Carregando...';
+  try {
+    // Carregar todos os fixtures-historico
+    let docs = [], last = null;
+    while(true) {
+      let q = db.collection('fixtures-historico').orderBy('data','desc').limit(500);
+      if(last) q = q.startAfter(last);
+      const snap = await q.get();
+      if(snap.empty) break;
+      docs = docs.concat(snap.docs.map(d=>d.data()));
+      last = snap.docs[snap.docs.length-1];
+      if(snap.docs.length < 500) break;
+      if(docs.length >= 10000) break;
+    }
+
+    // Calcular Yellup Força pré-jogo para cada match
+    // Primeiro: montar histórico de cada time
+    const timesHist = {};
+    docs.forEach(doc => {
+      ['casa','fora'].forEach(lado => {
+        const tid = doc[`${lado}Id`];
+        if(!tid) return;
+        if(!timesHist[tid]) timesHist[tid] = [];
+        const gc2=doc.golsCasa||0, gf2=doc.golsFora||0;
+        const eh=lado==='casa';
+        const r=doc.resultado;
+        const res=(r==='casa'&&eh)||(r==='fora'&&!eh)?'V':r==='empate'?'E':'D';
+        timesHist[tid].push({
+          data:doc.data||'', gols:eh?gc2:gf2, golsSof:eh?gf2:gc2,
+          total:gc2+gf2, resultado:res
+        });
+      });
+    });
+    Object.values(timesHist).forEach(j => j.sort((a,b)=>b.data.localeCompare(a.data)));
+
+    const calcForca = (jogos, n=10) => {
+      const js=jogos.slice(0,n); if(!js.length) return null;
+      const n2=js.length;
+      const pts=js.reduce((a,j)=>a+(j.resultado==='V'?3:j.resultado==='E'?1:0),0);
+      const gf=js.reduce((a,j)=>a+j.gols,0)/n2;
+      const gs=js.reduce((a,j)=>a+j.golsSof,0)/n2;
+      return Math.round(Math.min(10,(pts/n2)/3*5+Math.min(gf/2,2)+Math.max(0,1.5-gs/2))*10)/10;
+    };
+
+    const calcMgol = (jogos, n=5) => {
+      const js=jogos.slice(0,n); if(js.length<3) return null;
+      return Math.round(js.reduce((a,j)=>a+j.total,0)/js.length*100)/100;
+    };
+
+    // Construir dataset com features pré-jogo
+    const dataset = [];
+    docs.forEach(doc => {
+      const cid=doc.casaId, fid=doc.foraId;
+      const gc2=doc.golsCasa, gf2=doc.golsFora;
+      if(!cid||!fid||gc2==null) return;
+      const data=doc.data||'';
+      const jcAll=timesHist[cid]||[], jfAll=timesHist[fid]||[];
+      const jc=jcAll.filter(j=>j.data<data);
+      const jf=jfAll.filter(j=>j.data<data);
+      if(jc.length<5||jf.length<5) return;
+
+      const fc=calcForca(jc), ff=calcForca(jf);
+      if(fc==null||ff==null) return;
+
+      const mgc5=calcMgol(jc,5), mgf5=calcMgol(jf,5);
+      const mgc10=calcMgol(jc,10), mgf10=calcMgol(jf,10);
+      if(mgc5==null||mgf5==null) return;
+
+      const tend_c = mgc10 ? Math.round((mgc5-mgc10)*100)/100 : 0;
+      const tend_f = mgf10 ? Math.round((mgf5-mgf10)*100)/100 : 0;
+      const tend_media = Math.round((tend_c+tend_f)/2*100)/100;
+      const media_pre = Math.round((mgc5+mgf5)/2*100)/100;
+
+      dataset.push({
+        placar:`${gc2}-${gf2}`, gc:gc2, gf:gf2, total:gc2+gf2,
+        fc, ff, diff:Math.round((fc-ff)*10)/10,
+        media_pre, mgc5, mgf5, tend_c, tend_f, tend_media,
+        liga:doc.ligaNome||''
+      });
+    });
+
+    DATASET = dataset;
+    gc('statTotal').innerHTML = `<span>${DATASET.length}</span> jogos`;
+
+    // Popular ligas
+    const ligas = [...new Set(DATASET.map(d=>d.liga))].filter(Boolean).sort();
+    const lf = gc('filtroLigas');
+    ligas.forEach(l => {
+      const b=document.createElement('button');
+      b.className='fchip'; b.textContent=l;
+      b.onclick=()=>setLiga(l,b);
+      lf.appendChild(b);
+    });
+
+    aplicarFiltros();
+  } catch(e) {
+    gc('statTotal').innerHTML='✗ Erro';
+    gc('visaoContent').innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><span>${e.message}</span></div>`;
+  }
+}
+
+// ── FILTROS ────────────────────────────────────────────────────────────────
+function setLiga(v,el) {
+  FILTRO_LIGA=v;
+  document.querySelectorAll('#filtroLigas .fchip').forEach(b=>b.classList.remove('on'));
+  el.classList.add('on');
+  aplicarFiltros();
+}
+function setTend(v,el) {
+  FILTRO_TEND=v;
+  document.querySelectorAll('#filtroTend .fchip').forEach(b=>b.classList.remove('on'));
+  el.classList.add('on');
+  aplicarFiltros();
+}
+function setTodosPlacares() {
+  FILTRO_PLACAR=null;
+  document.querySelectorAll('.pcel').forEach(el=>el.classList.remove('on'));
+  gc('btnTodosPlacares').classList.add('on');
+  aplicarFiltros();
+}
+
+function aplicarFiltros() {
+  // Atualizar labels dos ranges
+  ['fcMin','fcMax','ffMin','ffMax'].forEach(id => {
+    gc(id+'Val').textContent = gc(id).value;
+  });
+  const fcMin=+gc('fcMin').value, fcMax=+gc('fcMax').value;
+  const ffMin=+gc('ffMin').value, ffMax=+gc('ffMax').value;
+
+  FILTERED = DATASET.filter(d => {
+    if(FILTRO_LIGA && d.liga !== FILTRO_LIGA) return false;
+    if(d.fc < fcMin || d.fc > fcMax) return false;
+    if(d.ff < ffMin || d.ff > ffMax) return false;
+    if(FILTRO_TEND==='caindo' && d.tend_media >= 0) return false;
+    if(FILTRO_TEND==='subindo' && d.tend_media < 0) return false;
+    if(FILTRO_PLACAR && d.placar !== FILTRO_PLACAR) return false;
+    return true;
+  });
+
+  renderPlacarGrid();
+  renderVisao();
+  renderPadroes();
+  renderAprender();
+  if(FILTRO_PLACAR) renderDetalhe(FILTRO_PLACAR);
+}
+
+// ── RENDER PLACAR GRID ─────────────────────────────────────────────────────
+function renderPlacarGrid() {
+  const contagem = {};
+  FILTERED.forEach(d => { contagem[d.placar]=(contagem[d.placar]||0)+1; });
+  const total = FILTERED.length || 1;
+  const sorted = Object.entries(contagem).sort((a,b)=>b[1]-a[1]).slice(0,40);
+  const maxN = sorted[0]?.[1] || 1;
+
+  gc('placarGrid').innerHTML = sorted.map(([placar,n]) => {
+    const pct = n/total*100;
+    const intensity = n/maxN;
+    const bg = `rgba(245,165,36,${intensity*0.35})`;
+    const on = FILTRO_PLACAR===placar ? ' on' : '';
+    return `<div class="pcel${on}" style="background:${bg}" onclick="selecionarPlacar('${placar}')">
+      <div class="pcel-score">${placar}</div>
+      <div class="pcel-n">${n}x</div>
+    </div>`;
+  }).join('');
+}
+
+function selecionarPlacar(placar) {
+  FILTRO_PLACAR = FILTRO_PLACAR===placar ? null : placar;
+  gc('btnTodosPlacares').classList.toggle('on', !FILTRO_PLACAR);
+  document.querySelectorAll('.pcel').forEach(el => {
+    el.classList.toggle('on', el.querySelector('.pcel-score')?.textContent === FILTRO_PLACAR);
+  });
+  aplicarFiltros();
+  if(FILTRO_PLACAR) {
+    switchTab('detalhe', document.querySelectorAll('.tab')[1]);
+  }
+}
+
+// ── VISÃO GERAL ────────────────────────────────────────────────────────────
+function renderVisao() {
+  const d = FILTERED;
+  if(!d.length) { gc('visaoContent').innerHTML='<div class="empty"><div class="empty-ico">🔍</div><span>Nenhum jogo nos filtros</span></div>'; return; }
+  const n = d.length;
+
+  const med_gols = (d.reduce((a,j)=>a+j.total,0)/n).toFixed(2);
+  const over25 = Math.round(d.filter(j=>j.total>2).length/n*100);
+  const over15 = Math.round(d.filter(j=>j.total>1).length/n*100);
+  const under15 = Math.round(d.filter(j=>j.total<=1).length/n*100);
+
+  // Placares
+  const placares = {};
+  d.forEach(j => { placares[j.placar]=(placares[j.placar]||0)+1; });
+  const top10 = Object.entries(placares).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+  // Por total de gols
+  const porTotal = {};
+  d.forEach(j => { porTotal[j.total]=(porTotal[j.total]||0)+1; });
+
+  // Por faixa de diferença de força
+  const porDiff = {
+    'Fora muito melhor (<-3)': d.filter(j=>j.diff<-3),
+    'Fora melhor (-3 a -1.5)': d.filter(j=>j.diff>=-3&&j.diff<-1.5),
+    'Equilibrado (-1.5 a +1.5)': d.filter(j=>Math.abs(j.diff)<=1.5),
+    'Casa melhor (+1.5 a +3)': d.filter(j=>j.diff>1.5&&j.diff<=3),
+    'Casa muito melhor (>+3)': d.filter(j=>j.diff>3),
+  };
+
+  gc('visaoContent').innerHTML = `
+    <div class="overview-grid">
+      <div class="ov-card"><div class="ov-num" style="color:var(--acc)">${n}</div><div class="ov-lbl">Jogos</div></div>
+      <div class="ov-card"><div class="ov-num" style="color:var(--grn)">${med_gols}</div><div class="ov-lbl">Gols/jogo</div></div>
+      <div class="ov-card"><div class="ov-num" style="color:var(--red)">${over25}%</div><div class="ov-lbl">Over 2.5</div><div class="ov-sub">Over 1.5: ${over15}%</div></div>
+      <div class="ov-card"><div class="ov-num" style="color:var(--blu)">${under15}%</div><div class="ov-lbl">Under 1.5</div><div class="ov-sub">0 ou 1 gol</div></div>
+    </div>
+
+    <div class="heatmap-wrap">
+      <div class="hm-title">🎯 Distribuição de Gols por Jogo</div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        ${Object.entries(porTotal).sort((a,b)=>+a[0]-+b[0]).map(([gols,cnt]) => {
+          const pct=Math.round(cnt/n*100);
+          const h=Math.max(8,pct*2.5);
+          const cor=+gols===0?'var(--blu)':+gols===1?'var(--grn)':+gols<=3?'var(--acc)':'var(--red)';
+          return `<div style="text-align:center;flex:1">
+            <div style="font-size:9px;color:var(--acc);margin-bottom:2px">${pct}%</div>
+            <div style="height:${h}px;background:${cor};border-radius:4px 4px 0 0;opacity:.85"></div>
+            <div style="font-size:9px;color:var(--t3);margin-top:3px">${gols}g</div>
+            <div style="font-size:8px;color:var(--t3)">${cnt}x</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="faixa-section">
+        <div class="faixa-title">🏆 Top 10 Placares</div>
+        ${top10.map(([placar,cnt]) => {
+          const pct=Math.round(cnt/n*100);
+          const bar=pct*2;
+          const [g1,g2]=placar.split('-').map(Number);
+          const cor=g1>g2?'var(--grn)':g1<g2?'var(--red)':'var(--blu)';
+          return `<div class="faixa-row" onclick="selecionarPlacar('${placar}')" style="cursor:pointer">
+            <span class="faixa-lbl" style="font-family:'DM Mono',monospace;font-weight:700;color:var(--t1)">${placar}</span>
+            <div class="faixa-bar-bg"><div class="faixa-bar-fill" style="width:${bar}%;background:${cor}"></div></div>
+            <span class="faixa-num" style="color:${cor}">${pct}%</span>
+            <span class="faixa-n">${cnt}x</span>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div class="faixa-section">
+        <div class="faixa-title">⚖️ Gols por Diferença de Força</div>
+        ${Object.entries(porDiff).map(([nome,js]) => {
+          if(!js.length) return '';
+          const med=(js.reduce((a,j)=>a+j.total,0)/js.length).toFixed(2);
+          const o25=Math.round(js.filter(j=>j.total>2).length/js.length*100);
+          const pct=js.length/n*100;
+          const cor=o25>=55?'var(--red)':o25>=45?'var(--acc)':'var(--grn)';
+          return `<div class="faixa-row">
+            <span class="faixa-lbl">${nome}</span>
+            <span class="faixa-num" style="color:${cor}">${med}g</span>
+            <span style="font-size:9px;color:var(--t2);min-width:48px;text-align:right">O2.5:${o25}%</span>
+            <span class="faixa-n">${js.length}x</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ── DETALHE DE PLACAR ──────────────────────────────────────────────────────
+function renderDetalhe(placar) {
+  const d = DATASET.filter(j=>j.placar===placar);
+  const df = FILTERED.filter(j=>j.placar===placar);
+  if(!d.length) { gc('detalheContent').innerHTML='<div class="empty"><div class="empty-ico">📭</div><span>Sem dados para este placar</span></div>'; return; }
+  const n=d.length, nf=df.length, total=DATASET.length;
+  const pct=(n/total*100).toFixed(1);
+  const [g1,g2]=placar.split('-').map(Number);
+  const cor=g1>g2?'var(--grn)':g1<g2?'var(--red)':'var(--blu)';
+  const tipo=g1>g2?'Vitória Casa':g1<g2?'Vitória Fora':'Empate';
+
+  // Estatísticas de força pré-jogo
+  const fc_med=(d.reduce((a,j)=>a+j.fc,0)/n).toFixed(1);
+  const ff_med=(d.reduce((a,j)=>a+j.ff,0)/n).toFixed(1);
+  const diff_med=(d.reduce((a,j)=>a+j.diff,0)/n).toFixed(2);
+  const mp_med=(d.reduce((a,j)=>a+j.media_pre,0)/n).toFixed(2);
+  const tend_med=(d.reduce((a,j)=>a+j.tend_media,0)/n).toFixed(2);
+
+  // Distribuição de força
+  const fc_dist = {'0-2':0,'2-4':0,'4-6':0,'6-8':0,'8-10':0};
+  d.forEach(j => {
+    const k=j.fc<2?'0-2':j.fc<4?'2-4':j.fc<6?'4-6':j.fc<8?'6-8':'8-10';
+    fc_dist[k]++;
+  });
+  const ff_dist = {'0-2':0,'2-4':0,'4-6':0,'6-8':0,'8-10':0};
+  d.forEach(j => {
+    const k=j.ff<2?'0-2':j.ff<4?'2-4':j.ff<6?'4-6':j.ff<8?'6-8':'8-10';
+    ff_dist[k]++;
+  });
+
+  // Distribuição de diferença
+  const diff_dist = {'<-3':0,'-3a-1.5':0,'equil':0,'1.5a3':0,'>3':0};
+  d.forEach(j => {
+    if(j.diff<-3) diff_dist['<-3']++;
+    else if(j.diff<-1.5) diff_dist['-3a-1.5']++;
+    else if(j.diff<=1.5) diff_dist['equil']++;
+    else if(j.diff<=3) diff_dist['1.5a3']++;
+    else diff_dist['>3']++;
+  });
+  const diff_names = {'<-3':'Fora muito melhor','-3a-1.5':'Fora melhor','equil':'Equilibrado','1.5a3':'Casa melhor','>3':'Casa muito melhor'};
+
+  // Padrão de media_pre
+  const mp_dist = {'<1.5':0,'1.5-2':0,'2-2.5':0,'2.5-3':0,'>3':0};
+  d.forEach(j => {
+    const k=j.media_pre<1.5?'<1.5':j.media_pre<2?'1.5-2':j.media_pre<2.5?'2-2.5':j.media_pre<3?'2.5-3':'>3';
+    mp_dist[k]++;
+  });
+
+  // Por liga
+  const liga_dist = {};
+  d.forEach(j => { liga_dist[j.liga]=(liga_dist[j.liga]||0)+1; });
+  const top_ligas = Object.entries(liga_dist).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+  gc('detalheContent').innerHTML = `
+    <div class="detail-header">
+      <div class="dh-score" style="color:${cor}">${placar}</div>
+      <div class="dh-info">
+        <div class="dh-pct" style="color:${cor}">${pct}% dos jogos</div>
+        <div class="dh-n">${n} ocorrências no total · ${nf} com filtros atuais · ${tipo}</div>
+        <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
+          <span style="font-size:10px;background:var(--c3);padding:2px 8px;border-radius:5px">Força casa média: <strong>${fc_med}</strong></span>
+          <span style="font-size:10px;background:var(--c3);padding:2px 8px;border-radius:5px">Força fora média: <strong>${ff_med}</strong></span>
+          <span style="font-size:10px;background:var(--c3);padding:2px 8px;border-radius:5px">Diff média: <strong>${diff_med>0?'+':''}${diff_med}</strong></span>
+          <span style="font-size:10px;background:var(--c3);padding:2px 8px;border-radius:5px">Média gols pré-jogo: <strong>${mp_med}</strong></span>
+          <span style="font-size:10px;background:var(--c3);padding:2px 8px;border-radius:5px">Tendência média: <strong>${tend_med>0?'+':''}${tend_med}</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="det-box">
+        <div class="det-title">Faixa Força CASA</div>
+        ${Object.entries(fc_dist).map(([faixa,cnt]) => {
+          const p=Math.round(cnt/n*100);
+          const cor2=+faixa.split('-')[0]>=6?'var(--grn)':+faixa.split('-')[0]>=4?'var(--acc)':'var(--red)';
+          return `<div class="det-row">
+            <span class="det-lbl">${faixa}</span>
+            <div style="flex:1;margin:0 8px;height:5px;background:var(--bd1);border-radius:3px">
+              <div style="width:${p}%;height:100%;background:${cor2};border-radius:3px"></div>
+            </div>
+            <span class="det-num">${p}%</span>
+            <span style="font-size:9px;color:var(--t3);margin-left:4px">${cnt}x</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="det-box">
+        <div class="det-title">Faixa Força FORA</div>
+        ${Object.entries(ff_dist).map(([faixa,cnt]) => {
+          const p=Math.round(cnt/n*100);
+          const cor2=+faixa.split('-')[0]>=6?'var(--grn)':+faixa.split('-')[0]>=4?'var(--acc)':'var(--red)';
+          return `<div class="det-row">
+            <span class="det-lbl">${faixa}</span>
+            <div style="flex:1;margin:0 8px;height:5px;background:var(--bd1);border-radius:3px">
+              <div style="width:${p}%;height:100%;background:${cor2};border-radius:3px"></div>
+            </div>
+            <span class="det-num">${p}%</span>
+            <span style="font-size:9px;color:var(--t3);margin-left:4px">${cnt}x</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="det-box">
+        <div class="det-title">Ligas</div>
+        ${top_ligas.map(([liga,cnt]) => {
+          const p=Math.round(cnt/n*100);
+          return `<div class="det-row">
+            <span class="det-lbl">${liga}</span>
+            <div style="flex:1;margin:0 8px;height:5px;background:var(--bd1);border-radius:3px">
+              <div style="width:${p*2}%;max-width:100%;height:100%;background:var(--acc);border-radius:3px;opacity:.7"></div>
+            </div>
+            <span class="det-num">${p}%</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="faixa-section">
+        <div class="faixa-title">⚖️ Diferença de Força (Casa - Fora)</div>
+        ${Object.entries(diff_dist).map(([key,cnt]) => {
+          const p=Math.round(cnt/n*100);
+          const lbl=diff_names[key];
+          const cor2=key.includes('Casa')?'var(--grn)':key.includes('Fora')?'var(--red)':'var(--blu)';
+          return `<div class="faixa-row">
+            <span class="faixa-lbl">${lbl}</span>
+            <div class="faixa-bar-bg"><div class="faixa-bar-fill" style="width:${p*2}%;max-width:100%;background:${cor2}"></div></div>
+            <span class="faixa-num" style="color:${cor2}">${p}%</span>
+            <span class="faixa-n">${cnt}x</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="faixa-section">
+        <div class="faixa-title">📊 Média Gols Pré-Jogo (ult.5 de cada)</div>
+        ${Object.entries(mp_dist).map(([faixa,cnt]) => {
+          const p=Math.round(cnt/n*100);
+          const cor2=faixa==='<1.5'?'var(--grn)':faixa==='>3'?'var(--red)':'var(--acc)';
+          return `<div class="faixa-row">
+            <span class="faixa-lbl">${faixa} gols/j</span>
+            <div class="faixa-bar-bg"><div class="faixa-bar-fill" style="width:${p*2}%;max-width:100%;background:${cor2}"></div></div>
+            <span class="faixa-num" style="color:${cor2}">${p}%</span>
+            <span class="faixa-n">${cnt}x</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ── PADRÕES ────────────────────────────────────────────────────────────────
+function renderPadroes() {
+  const d = FILTERED;
+  if(!d.length) return;
+  const n=d.length;
+
+  // Segmentar por tipo de jogo
+  const segmentos = [
+    { nome:'0-0 (empate sem gols)', cor:'var(--blu)', js: d.filter(j=>j.gc===0&&j.gf===0) },
+    { nome:'1 gol no total (0-1 ou 1-0)', cor:'var(--grn)', js: d.filter(j=>j.total===1) },
+    { nome:'2 gols no total', cor:'var(--acc)', js: d.filter(j=>j.total===2) },
+    { nome:'3 gols no total', cor:'#e88c20', js: d.filter(j=>j.total===3) },
+    { nome:'4+ gols (jogo aberto)', cor:'var(--red)', js: d.filter(j=>j.total>=4) },
+    { nome:'Goleada (5+ gols)', cor:'var(--pur)', js: d.filter(j=>j.total>=5) },
+  ];
+
+  gc('padroesContent').innerHTML = `
+    <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:14px">
+      🧠 Padrões Pré-Jogo por Tipo de Resultado
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${segmentos.map(seg => {
+        if(seg.js.length < 5) return '';
+        const sn=seg.js.length;
+        const spct=Math.round(sn/n*100);
+        const fc_m=(seg.js.reduce((a,j)=>a+j.fc,0)/sn).toFixed(1);
+        const ff_m=(seg.js.reduce((a,j)=>a+j.ff,0)/sn).toFixed(1);
+        const diff_m=(seg.js.reduce((a,j)=>a+j.diff,0)/sn).toFixed(2);
+        const mp_m=(seg.js.reduce((a,j)=>a+j.media_pre,0)/sn).toFixed(2);
+        const tend_m=(seg.js.reduce((a,j)=>a+j.tend_media,0)/sn).toFixed(2);
+        // Faixa de força mais comum
+        const fc_count = {}; seg.js.forEach(j=>{ const k=Math.floor(j.fc);fc_count[k]=(fc_count[k]||0)+1; });
+        const fc_top = Object.entries(fc_count).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>`${k}-${+k+1}:${Math.round(v/sn*100)}%`).join(' | ');
+        return `<div style="background:var(--c2);border:1px solid var(--bd1);border-left:3px solid ${seg.cor};border-radius:11px;padding:14px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <div style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;flex:1">${seg.nome}</div>
+            <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:${seg.cor}">${spct}%</div>
+            <div style="font-size:10px;color:var(--t3)">${sn} jogos</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
+            ${[
+              ['Força Casa', fc_m, 'var(--grn)'],
+              ['Força Fora', ff_m, 'var(--blu)'],
+              ['Diferença', (diff_m>0?'+':'')+diff_m, diff_m>0.5?'var(--grn)':diff_m<-0.5?'var(--red)':'var(--t2)'],
+              ['Média Pré-Jogo', mp_m+'g', 'var(--acc)'],
+              ['Tend.Gols', (tend_m>0?'+':'')+tend_m, tend_m<-0.3?'var(--red)':tend_m>0.3?'var(--grn)':'var(--t2)'],
+            ].map(([lbl,val,cor2])=>`<div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center">
+              <div style="font-family:'DM Mono',monospace;font-size:15px;font-weight:700;color:${cor2}">${val}</div>
+              <div style="font-size:8px;color:var(--t3);margin-top:2px">${lbl}</div>
+            </div>`).join('')}
+          </div>
+          <div style="font-size:9px;color:var(--t3);margin-top:8px">Força casa mais comum: ${fc_top}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+// ── APRENDER ───────────────────────────────────────────────────────────────
+function renderAprender() {
+  const d = FILTERED;
+  if(!d.length) return;
+  const n=d.length;
+
+  // Quando media_pre estava baixa (<2.2), o que saiu?
+  const insights = [];
+
+  // Insight 1: Media pré-jogo como preditor
+  const faixas = [[0,1.5],[1.5,2.0],[2.0,2.5],[2.5,3.0],[3.0,99]];
+  const nomes = ['< 1.5','1.5–2.0','2.0–2.5','2.5–3.0','> 3.0'];
+  const tabelaMp = faixas.map((f,i) => {
+    const js=d.filter(j=>j.media_pre>=f[0]&&j.media_pre<f[1]);
+    if(!js.length) return null;
+    const med=(js.reduce((a,j)=>a+j.total,0)/js.length).toFixed(2);
+    const o15=Math.round(js.filter(j=>j.total>1).length/js.length*100);
+    const o25=Math.round(js.filter(j=>j.total>2).length/js.length*100);
+    const u15=Math.round(js.filter(j=>j.total<=1).length/js.length*100);
+    return {faixa:nomes[i],n:js.length,med,o15,o25,u15};
+  }).filter(Boolean);
+
+  // Insight 2: Diferença de força vs gols
+  const tabelaDiff = [
+    {lbl:'Fora muito melhor (<-3)', js:d.filter(j=>j.diff<-3)},
+    {lbl:'Fora melhor (-3a-1.5)', js:d.filter(j=>j.diff>=-3&&j.diff<-1.5)},
+    {lbl:'Equilibrado (±1.5)', js:d.filter(j=>Math.abs(j.diff)<=1.5)},
+    {lbl:'Casa melhor (1.5a3)', js:d.filter(j=>j.diff>1.5&&j.diff<=3)},
+    {lbl:'Casa muito melhor (>3)', js:d.filter(j=>j.diff>3)},
+  ].map(row => {
+    if(!row.js.length) return null;
+    const jn=row.js, nn=jn.length;
+    return {
+      lbl:row.lbl, n:nn,
+      med:(jn.reduce((a,j)=>a+j.total,0)/nn).toFixed(2),
+      o25:Math.round(jn.filter(j=>j.total>2).length/nn*100),
+      u15:Math.round(jn.filter(j=>j.total<=1).length/nn*100),
+    };
+  }).filter(Boolean);
+
+  // Insight 3: Tendência como preditor
+  const tabelaTend = [
+    {lbl:'Caindo forte (<-0.5)', js:d.filter(j=>j.tend_media<-0.5)},
+    {lbl:'Caindo leve (-0.5 a 0)', js:d.filter(j=>j.tend_media>=-0.5&&j.tend_media<0)},
+    {lbl:'Subindo leve (0 a 0.5)', js:d.filter(j=>j.tend_media>=0&&j.tend_media<0.5)},
+    {lbl:'Subindo forte (>0.5)', js:d.filter(j=>j.tend_media>=0.5)},
+  ].map(row => {
+    if(row.js.length<10) return null;
+    const jn=row.js, nn=jn.length;
+    return {
+      lbl:row.lbl, n:nn,
+      med:(jn.reduce((a,j)=>a+j.total,0)/nn).toFixed(2),
+      o25:Math.round(jn.filter(j=>j.total>2).length/nn*100),
+      u15:Math.round(jn.filter(j=>j.total<=1).length/nn*100),
+    };
+  }).filter(Boolean);
+
+  const tabelaHtml = (rows, cols) => `
+    <table style="width:100%;border-collapse:collapse;font-size:10px">
+      <thead><tr>${cols.map(c=>`<th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd1);color:var(--t3);font-size:8px;text-transform:uppercase;letter-spacing:.5px">${c}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(r=>`<tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+        <td style="padding:6px 8px;color:var(--t1)">${r.lbl}</td>
+        <td style="padding:6px 8px;text-align:right;color:var(--t3)">${r.n}</td>
+        <td style="padding:6px 8px;text-align:right;font-family:'DM Mono',monospace;color:var(--acc);font-weight:700">${r.med}</td>
+        <td style="padding:6px 8px;text-align:right;font-family:'DM Mono',monospace;color:${r.o25>=55?'var(--red)':r.o25>=45?'var(--acc)':'var(--grn)'}">${r.o25}%</td>
+        <td style="padding:6px 8px;text-align:right;font-family:'DM Mono',monospace;color:${r.u15>=35?'var(--grn)':r.u15>=25?'var(--acc)':'var(--red)'}">${r.u15}%</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+
+  gc('aprenderContent').innerHTML = `
+    <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:4px">📈 O que os dados ensinam</div>
+    <div style="font-size:10px;color:var(--t2);margin-bottom:16px">${n} jogos analisados com features pré-jogo calculadas</div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="faixa-section">
+        <div class="faixa-title">📊 Média Gols Pré-Jogo → o que saiu</div>
+        <div style="font-size:9px;color:var(--t3);margin-bottom:8px">Media dos últimos 5 jogos de cada time (total do jogo) antes da partida</div>
+        ${tabelaHtml(tabelaMp, ['Faixa Média Pré','Jogos','Gols Real','Over 2.5','Under 1.5'])}
+      </div>
+
+      <div class="faixa-section">
+        <div class="faixa-title">⚖️ Diferença de Força → Gols no Jogo</div>
+        <div style="font-size:9px;color:var(--t3);margin-bottom:8px">Força Yellup pré-jogo. Visitante muito mais fraco = MAIS gols (favorito ataca mais)</div>
+        ${tabelaHtml(tabelaDiff, ['Cenário','Jogos','Gols Real','Over 2.5','Under 1.5'])}
+      </div>
+
+      <div class="faixa-section">
+        <div class="faixa-title">📈 Tendência de Gols → o que saiu</div>
+        <div style="font-size:9px;color:var(--t3);margin-bottom:8px">Tendência = média gols ult.5 menos média gols ult.10 dos dois times</div>
+        ${tabelaHtml(tabelaTend, ['Tendência','Jogos','Gols Real','Over 2.5','Under 1.5'])}
+        <div style="font-size:9px;color:var(--acc);margin-top:8px;padding:6px 8px;background:var(--adim);border-radius:6px">
+          💡 Atenção: tendência CAINDO → mais Over 2.5 (regressão à média). Tendência subindo → jogo pode ser mais fechado.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
+function switchTab(id,el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
+  el.classList.add('on');
+  gc('pane-'+id).classList.add('on');
+  if(id==='detalhe' && FILTRO_PLACAR) renderDetalhe(FILTRO_PLACAR);
+}
+
+function recarregar() { DATASET=[]; FILTERED=[]; carregarDados(); }
+function gc(id) { return document.getElementById(id); }
+</script>
+</body>
+</html>
