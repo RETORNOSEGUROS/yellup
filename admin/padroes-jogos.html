@@ -312,6 +312,28 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
                   <label style="font-size:9px;color:var(--t3);display:block;margin-bottom:4px">Força fora <span style="color:var(--t3)">(opcional)</span></label>
                   <input type="number" id="inFfFora" min="0" max="10" step="0.1" placeholder="ex: 3.6" style="width:100%;background:var(--bg3);border:1px solid var(--bd2);color:var(--t1);font-size:15px;font-family:'DM Mono',monospace;font-weight:700;padding:8px 10px;border-radius:7px;outline:none" oninput="calcularAoVivo()">
                 </div>
+                <div style="background:var(--adim);border-radius:8px;padding:10px;border:1px solid rgba(245,165,36,.2)">
+                  <div style="font-size:9px;color:var(--acc);font-weight:700;margin-bottom:6px">📊 porForca Visitante fora (do perfil-times)</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+                    <div>
+                      <label style="font-size:8px;color:var(--t3);display:block;margin-bottom:2px">vs Fracos gols/j</label>
+                      <input type="number" id="inPfFraco" min="0" max="8" step="0.1" placeholder="ex: 3.1" style="width:100%;background:var(--bg3);border:1px solid var(--bd2);color:var(--acc);font-size:12px;font-family:'DM Mono',monospace;font-weight:700;padding:5px 8px;border-radius:6px;outline:none" oninput="calcularAoVivo()">
+                    </div>
+                    <div>
+                      <label style="font-size:8px;color:var(--t3);display:block;margin-bottom:2px">vs Médios gols/j</label>
+                      <input type="number" id="inPfMedio" min="0" max="8" step="0.1" placeholder="ex: 2.4" style="width:100%;background:var(--bg3);border:1px solid var(--bd2);color:var(--acc);font-size:12px;font-family:'DM Mono',monospace;font-weight:700;padding:5px 8px;border-radius:6px;outline:none" oninput="calcularAoVivo()">
+                    </div>
+                    <div>
+                      <label style="font-size:8px;color:var(--t3);display:block;margin-bottom:2px">vs Similares gols/j</label>
+                      <input type="number" id="inPfSimilar" min="0" max="8" step="0.1" placeholder="ex: 2.8" style="width:100%;background:var(--bg3);border:1px solid var(--bd2);color:var(--acc);font-size:12px;font-family:'DM Mono',monospace;font-weight:700;padding:5px 8px;border-radius:6px;outline:none" oninput="calcularAoVivo()">
+                    </div>
+                    <div>
+                      <label style="font-size:8px;color:var(--t3);display:block;margin-bottom:2px">vs Fortes gols/j</label>
+                      <input type="number" id="inPfForte" min="0" max="8" step="0.1" placeholder="ex: 2.1" style="width:100%;background:var(--bg3);border:1px solid var(--bd2);color:var(--acc);font-size:12px;font-family:'DM Mono',monospace;font-weight:700;padding:5px 8px;border-radius:6px;outline:none" oninput="calcularAoVivo()">
+                    </div>
+                  </div>
+                  <div style="font-size:8px;color:var(--t3);margin-top:4px">Encontre no perfil-times → Time → "Padrão por Força do Adversário" coluna ✈️ Fora</div>
+                </div>
               </div>
             </div>
           </div>
@@ -1003,6 +1025,12 @@ function calcularAoVivo() {
   const mgF = parseFloat(gc('inMgF')?.value) || null;
   const fcCasa = parseFloat(gc('inFcCasa')?.value) || fc;
   const ffFora = parseFloat(gc('inFfFora')?.value) || ff;
+  // porForca do visitante jogando fora (do perfil-times)
+  const pfFraco   = parseFloat(gc('inPfFraco')?.value)   || null;
+  const pfMedio   = parseFloat(gc('inPfMedio')?.value)   || null;
+  const pfSimilar = parseFloat(gc('inPfSimilar')?.value) || null;
+  const pfForte   = parseFloat(gc('inPfForte')?.value)   || null;
+  const temPorForca = pfFraco || pfMedio || pfSimilar || pfForte;
 
   if (!fc || !ff || !DATASET.length) return;
 
@@ -1044,10 +1072,47 @@ function calcularAoVivo() {
 
   const n = matches.length;
   const gols = matches.map(d => d.total);
-  const med = (gols.reduce((a,b)=>a+b,0)/n).toFixed(2);
-  const o25 = Math.round(gols.filter(g=>g>2).length/n*100);
-  const o15 = Math.round(gols.filter(g=>g>1).length/n*100);
-  const u15 = Math.round(gols.filter(g=>g<=1).length/n*100);
+  const med_base = (gols.reduce((a,b)=>a+b,0)/n);
+
+  // ── AJUSTE POR PORFORCA ──────────────────────────────────────────────
+  // Determinar faixa da casa (adversário do visitante)
+  // fc = força da casa → determina em qual faixa o visitante está jogando
+  let golsPorForca = null;
+  if (temPorForca) {
+    if (fcCasa < 3.5 && pfFraco)        golsPorForca = pfFraco;
+    else if (fcCasa < 5.5 && pfMedio)   golsPorForca = pfMedio;
+    else if (fcCasa < 7.5 && pfSimilar) golsPorForca = pfSimilar;
+    else if (pfForte)                    golsPorForca = pfForte;
+    // Se não tem a faixa exata, interpolar com as que temos
+    if (!golsPorForca) {
+      golsPorForca = [pfFraco,pfMedio,pfSimilar,pfForte].filter(Boolean).reduce((a,b,_,arr)=>a+b/arr.length,0);
+    }
+  }
+
+  // Combinação: 60% histórico similar + 40% porForca (quando disponível)
+  const med_num = golsPorForca
+    ? (med_base * 0.55 + golsPorForca * 0.45)
+    : med_base;
+  const med = med_num.toFixed(2);
+
+  // Recalcular Over/Under baseado na média ajustada
+  // Usa distribuição Poisson simplificada para ajustar as probabilidades
+  const ajusteFator = golsPorForca ? golsPorForca / Math.max(med_base, 0.1) : 1;
+
+  const o25_base = Math.round(gols.filter(g=>g>2).length/n*100);
+  const o15_base = Math.round(gols.filter(g=>g>1).length/n*100);
+  const u15_base = Math.round(gols.filter(g=>g<=1).length/n*100);
+
+  // Ajustar probabilidades proporcionalmente ao porForca
+  const o25 = golsPorForca
+    ? Math.min(95, Math.max(5, Math.round(o25_base * ajusteFator * 0.7 + o25_base * 0.3)))
+    : o25_base;
+  const o15 = golsPorForca
+    ? Math.min(98, Math.max(10, Math.round(o15_base * Math.pow(ajusteFator, 0.4) * 0.6 + o15_base * 0.4)))
+    : o15_base;
+  const u15 = golsPorForca
+    ? Math.min(90, Math.max(2, Math.round(u15_base / Math.pow(ajusteFator, 0.5) * 0.6 + u15_base * 0.4)))
+    : u15_base;
   const u25 = Math.round(gols.filter(g=>g<=2).length/n*100);
 
   // Resultados
@@ -1085,17 +1150,19 @@ function calcularAoVivo() {
         <div style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700">Perfil calculado</div>
         <div style="font-size:10px;color:var(--t3);margin-left:auto">${n} jogos históricos similares</div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+      <div style="display:grid;grid-template-columns:repeat(${golsPorForca ? 5 : 4},1fr);gap:6px">
         ${[
           ['Diferença força', diff>0?'+'+diff.toFixed(1):diff.toFixed(1), diff>1.5?'var(--grn)':diff<-1.5?'var(--red)':'var(--t2)'],
           ['Tendência gols', tend>0?'+'+tend.toFixed(1):tend.toFixed(1), tend>0.5?'var(--grn)':tend<-0.5?'var(--red)':'var(--t2)'],
-          ['Média pré-jogo', mgPre ? mgPre.toFixed(1)+'g' : med+'g*', 'var(--acc)'],
-          ['Gols médio real', med+'g', parseFloat(med)>=3?'var(--red)':parseFloat(med)>=2.5?'var(--acc)':'var(--grn)'],
+          ['Média pré-jogo', mgPre ? mgPre.toFixed(1)+'g' : '—', 'var(--t2)'],
+          ...(golsPorForca ? [['porForca fora', golsPorForca.toFixed(2)+'g', 'var(--pur)']] : []),
+          ['Gols estimado', med+'g', parseFloat(med)>=3?'var(--red)':parseFloat(med)>=2.5?'var(--acc)':'var(--grn)'],
         ].map(([l,v,c])=>`<div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center">
           <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:${c}">${v}</div>
           <div style="font-size:8px;color:var(--t3);margin-top:2px">${l}</div>
         </div>`).join('')}
       </div>
+      ${golsPorForca ? '<div style="font-size:9px;color:var(--pur);margin-top:6px;padding:4px 8px;background:var(--pdim);border-radius:5px">⚡ porForca ativo — estimativa ajustada pelo histórico real do visitante nessa faixa de adversário (55% histórico + 45% porForca)</div>' : '<div style="font-size:9px;color:var(--t3);margin-top:6px">💡 Adicione o porForca do visitante (perfil-times) para aumentar a precisão da estimativa</div>'}
     </div>
 
     <!-- APOSTAS -->
