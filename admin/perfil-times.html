@@ -295,7 +295,9 @@ async function carregarDados() {
     const docs = snap.docs.map(d => d.data());
     gc('statusTxt').textContent = `${docs.length} jogos carregados. Calculando perfis...`;
     processarDados(docs);
-    gc('statusTxt').textContent = `✓ ${Object.keys(PERFIS).length} times processados`;
+    gc('statusTxt').textContent = `✓ ${Object.keys(PERFIS).length} times processados. Calculando padrões...`;
+    enriquecerPorForca();
+    gc('statusTxt').textContent = `✓ ${Object.keys(PERFIS).length} times com padrões por força`;
     renderSidebar();
     popularSelects();
     renderRanking();
@@ -432,7 +434,58 @@ function calcularMetricas(jogos) {
     statsCasa, statsFora,
     tendencia: momentum >= 1 ? 'subindo' : momentum <= -1 ? 'caindo' : 'estavel',
     tendGolsTag: s5?.tot_media >= 3 ? 'alta' : s5?.tot_media <= 1.8 ? 'baixa' : 'media',
+    // Análise por força do adversário — calculada depois quando PERFIS estiver populado
+    porForca: null,
   };
+}
+
+// Chamada após PERFIS estar populado — enriquece com padrão vs força adversário
+function enriquecerPorForca() {
+  Object.entries(PERFIS).forEach(([tid, t]) => {
+    const faixas = {
+      fraco:   { label:'vs Fracos (0–3.5)',   min:0,   max:3.5,  jogos:[], casa:[], fora:[] },
+      medio:   { label:'vs Médios (3.5–5.5)', min:3.5, max:5.5,  jogos:[], casa:[], fora:[] },
+      similar: { label:'vs Similares (5.5–7.5)',min:5.5,max:7.5, jogos:[], casa:[], fora:[] },
+      forte:   { label:'vs Fortes (7.5+)',    min:7.5, max:99,   jogos:[], casa:[], fora:[] },
+    };
+
+    t.jogos.slice(0, 20).forEach(j => {
+      const advId = j.adversarioId;
+      if (!advId || !PERFIS[advId]) return;
+      const advForca = PERFIS[advId].metricas.forca5;
+      const faixa = advForca < 3.5 ? 'fraco'
+                  : advForca < 5.5 ? 'medio'
+                  : advForca < 7.5 ? 'similar' : 'forte';
+      faixas[faixa].jogos.push(j);
+      if (j.casa) faixas[faixa].casa.push(j);
+      else faixas[faixa].fora.push(j);
+    });
+
+    const resultado = {};
+    Object.entries(faixas).forEach(([key, f]) => {
+      const calc = (js) => {
+        const n = js.length;
+        if (!n) return null;
+        const gols = js.reduce((a,j)=>a+j.total,0)/n;
+        const gf   = js.reduce((a,j)=>a+j.gols,0)/n;
+        const gs   = js.reduce((a,j)=>a+j.golsSof,0)/n;
+        const vit  = js.filter(j=>j.resultado==='V').length;
+        const emp  = js.filter(j=>j.resultado==='E').length;
+        const der  = js.filter(j=>j.resultado==='D').length;
+        const over25 = js.filter(j=>j.total>2).length/n*100;
+        return { n, gols:+gols.toFixed(2), gf:+gf.toFixed(2), gs:+gs.toFixed(2),
+                 vit, emp, der, over25:+over25.toFixed(0) };
+      };
+      resultado[key] = {
+        label: f.label,
+        geral: calc(f.jogos),
+        casa:  calc(f.casa),
+        fora:  calc(f.fora),
+      };
+    });
+
+    t.metricas.porForca = resultado;
+  });
 }
 
 // ══════════════════════════════════════════════════════════
@@ -655,7 +708,52 @@ function renderPerfil(tid) {
       <div class="forma-title">📅 Últimos 10 Jogos</div>
       ${ultJogos}
     </div>
-  `;
+
+    ${m.porForca ? `
+    <div class="tend-section">
+      <div class="tend-title">🎯 Padrão por Força do Adversário (ult.20 jogos)</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:10px">
+          <thead><tr>
+            <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd1);color:var(--t3);font-size:8px;text-transform:uppercase;letter-spacing:.5px">Adversário</th>
+            <th style="padding:6px 8px;border-bottom:1px solid var(--bd1);color:var(--t3);font-size:8px;text-align:center">Jogos</th>
+            <th style="padding:6px 8px;border-bottom:1px solid var(--bd1);color:var(--acc);font-size:8px;text-align:center">Gols/j</th>
+            <th style="padding:6px 8px;border-bottom:1px solid var(--bd1);color:var(--grn);font-size:8px;text-align:center">🏠 Casa</th>
+            <th style="padding:6px 8px;border-bottom:1px solid var(--bd1);color:var(--blu);font-size:8px;text-align:center">✈️ Fora</th>
+            <th style="padding:6px 8px;border-bottom:1px solid var(--bd1);color:var(--t3);font-size:8px;text-align:center">GF</th>
+            <th style="padding:6px 8px;border-bottom:1px solid var(--bd1);color:var(--t3);font-size:8px;text-align:center">GS</th>
+            <th style="padding:6px 8px;border-bottom:1px solid var(--bd1);color:var(--t3);font-size:8px;text-align:center">V-E-D</th>
+            <th style="padding:6px 8px;border-bottom:1px solid var(--bd1);color:var(--acc);font-size:8px;text-align:center">O2.5</th>
+          </tr></thead>
+          <tbody>
+          ${['fraco','medio','similar','forte'].map(key => {
+            const f = m.porForca[key];
+            if (!f?.geral?.n) return '';
+            const g = f.geral;
+            const golsCor = g.gols >= 3.5 ? 'var(--red)' : g.gols >= 2.5 ? 'var(--acc)' : 'var(--grn)';
+            const casaGols = f.casa?.gols ?? '—';
+            const foraGols = f.fora?.gols ?? '—';
+            return \`<tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+              <td style="padding:6px 8px;font-weight:600">\${f.label}</td>
+              <td style="padding:6px 8px;text-align:center;color:var(--t2)">\${g.n}</td>
+              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;font-weight:700;color:\${golsCor}">\${g.gols}</td>
+              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;color:var(--grn)">\${casaGols}</td>
+              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;color:var(--blu)">\${foraGols}</td>
+              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace">\${g.gf}</td>
+              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace">\${g.gs}</td>
+              <td style="padding:6px 8px;text-align:center;color:var(--t2)">\${g.vit}V \${g.emp}E \${g.der}D</td>
+              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;color:\${g.over25>=55?'var(--red)':g.over25<=35?'var(--grn)':'var(--acc)'}">\${g.over25}%</td>
+            </tr>\`;
+          }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:9px;color:var(--t3);margin-top:8px;line-height:1.5">
+        💡 Use essa tabela para estimar gols do próximo jogo: veja a força do adversário e olhe a coluna casa ou fora conforme o local do jogo.
+      </div>
+    </div>
+    ` : ''}
+  \`;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -680,18 +778,47 @@ function calcularConfronto() {
   const sc5 = mc.s5, sf5 = mf.s5;
   const sc10 = mc.s10, sf10 = mf.s10;
 
-  // ── GOLS ESPERADOS ──────────────────────────────────────
-  // Método Dixon-Coles com base de liga
-  // xGC = ataque_casa × defesa_fora / referência
-  const refAtq = 1.3; // média global de gols por time por jogo
+  // ── GOLS ESPERADOS com Padrão por Força ──────────────────
+  // Prioridade 1: padrão histórico vs adversário de força similar
+  // Prioridade 2: média dos últimos 5 jogos (Dixon-Coles)
+
+  // Determinar faixa de força do adversário (do ponto de vista de cada time)
+  const faixaAdvCasa = mf.forca5 < 3.5 ? 'fraco' : mf.forca5 < 5.5 ? 'medio'
+                     : mf.forca5 < 7.5 ? 'similar' : 'forte';
+  const faixaAdvFora = mc.forca5 < 3.5 ? 'fraco' : mc.forca5 < 5.5 ? 'medio'
+                     : mc.forca5 < 7.5 ? 'similar' : 'forte';
+
+  // Buscar padrão histórico do time da casa jogando em casa vs essa faixa
+  let xGC_hist = null, xGF_hist = null;
+  if (mc.porForca?.[faixaAdvCasa]?.casa?.n >= 2) {
+    xGC_hist = mc.porForca[faixaAdvCasa].casa.gf;
+  }
+  if (mf.porForca?.[faixaAdvFora]?.fora?.n >= 2) {
+    xGF_hist = mf.porForca[faixaAdvFora].fora.gf;
+  }
+
+  // Fallback: Dixon-Coles
+  const refAtq = 1.3;
   const atqCasa = sc5?.gf_media ?? 1.3;
   const defCasa = sc5?.gs_media ?? 1.3;
   const atqFora = sf5?.gf_media ?? 1.3;
   const defFora = sf5?.gs_media ?? 1.3;
+  const xGC_dc = +(atqCasa * defFora / refAtq).toFixed(2);
+  const xGF_dc = +(atqFora * defCasa / refAtq).toFixed(2);
 
-  const xGC = +(atqCasa * defFora / refAtq).toFixed(2);
-  const xGF = +(atqFora * defCasa / refAtq).toFixed(2);
+  // Combinar: 60% padrão histórico (se disponível) + 40% Dixon-Coles
+  const xGC = xGC_hist != null ? +(xGC_hist * 0.6 + xGC_dc * 0.4).toFixed(2) : xGC_dc;
+  const xGF = xGF_hist != null ? +(xGF_hist * 0.6 + xGF_dc * 0.4).toFixed(2) : xGF_dc;
   const xGTotal = +(xGC + xGF).toFixed(2);
+
+  // Gols totais esperados: também usar padrão total do jogo
+  let golsTotaisHist = null;
+  if (mc.porForca?.[faixaAdvCasa]?.casa?.n >= 2) {
+    golsTotaisHist = mc.porForca[faixaAdvCasa].casa.gols;
+  }
+  const golsTotaisFinal = golsTotaisHist != null
+    ? +(golsTotaisHist * 0.6 + xGTotal * 0.4).toFixed(2)
+    : xGTotal;
 
   // ── PROBABILIDADE DE RESULTADO ──────────────────────────
   // Baseado na força relativa + vantagem de jogar em casa
@@ -723,11 +850,25 @@ function calcularConfronto() {
   const tendCasa = sc5?.tot_media ?? 2.5;
   const tendFora = sf5?.tot_media ?? 2.5;
   const tendJogo = +((tendCasa + tendFora) / 2).toFixed(2);
-  const over25 = tendJogo >= 3.5 ? 65 : tendJogo >= 3.0 ? 55 : tendJogo >= 2.5 ? 45 : 30;
+  // Over 2.5 usando padrão histórico por força do adversário
+  let over25_hist = null;
+  if (mc.porForca?.[faixaAdvCasa]?.casa?.n >= 3) {
+    over25_hist = mc.porForca[faixaAdvCasa].casa.over25;
+  }
+  const over25_tend = tendJogo >= 3.5 ? 65 : tendJogo >= 3.0 ? 55 : tendJogo >= 2.5 ? 45 : 30;
+  const over25 = over25_hist != null
+    ? Math.round(over25_hist * 0.65 + over25_tend * 0.35)
+    : over25_tend;
 
   // ── EXPLICAÇÕES ─────────────────────────────────────────
   const exps = [];
-  exps.push(`${casa.nome} força ${mc.forca5}/10 (ult.5) vs ${fora.nome} força ${mf.forca5}/10`);
+  exps.push(`${casa.nome} força ${mc.forca5}/10 vs ${fora.nome} força ${mf.forca5}/10`);
+  if (golsTotaisHist != null) {
+    exps.push(`📊 Padrão real: ${casa.nome} em casa vs ${faixaAdvCasa}s → ${mc.porForca[faixaAdvCasa].casa.gols} gols/j (${mc.porForca[faixaAdvCasa].casa.n} jogos)`);
+  }
+  if (xGF_hist != null) {
+    exps.push(`📊 Padrão real: ${fora.nome} fora vs ${faixaAdvFora}s → ${mf.porForca[faixaAdvFora].fora.gols} gols/j marcados (${mf.porForca[faixaAdvFora].fora.n} jogos)`);
+  }
 
   if (mc.tendencia === 'caindo') exps.push(`⚠️ ${casa.nome} em queda — pts/j caiu ${mc.s10?.pts_jogo} → ${mc.s5?.pts_jogo}`);
   if (mf.tendencia === 'caindo') exps.push(`⚠️ ${fora.nome} em queda — pts/j caiu ${mf.s10?.pts_jogo} → ${mf.s5?.pts_jogo}`);
@@ -752,9 +893,9 @@ function calcularConfronto() {
   gc('confrontoResult').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
       <div class="conf-box">
-        <div class="conf-box-val" style="color:var(--acc)">${xGTotal}</div>
+        <div class="conf-box-val" style="color:var(--acc)">${golsTotaisFinal}</div>
         <div class="conf-box-lbl">Gols Esperados</div>
-        <div style="font-size:9px;color:var(--t3);margin-top:2px">${xGC} + ${xGF}</div>
+        <div style="font-size:9px;color:var(--t3);margin-top:2px">${xGC} + ${xGF} ${golsTotaisHist!=null?'📊':'📐'}</div>
       </div>
       <div class="conf-box">
         <div class="conf-box-val" style="color:${over25>=55?'var(--red)':over25<=35?'var(--grn)':'var(--acc)'}">${over25}%</div>
