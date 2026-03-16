@@ -214,6 +214,9 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-ser
   <button class="btn-analisar" id="btnAnalisar" onclick="analisarTodos()">
     🔍 Analisar Todos
   </button>
+  <button class="btn-analisar" style="background:var(--bg3);color:var(--t2);border:1px solid var(--brd)" id="btnReanalisar" onclick="reanalisarTodos()" title="Força re-análise limpando cache antigo">
+    🔄 Forçar Re-análise
+  </button>
   <select class="filtro-liga" id="filtroLiga" onchange="renderCards()">
     <option value="">Todas as ligas</option>
   </select>
@@ -648,8 +651,9 @@ function renderForma(forma) {
 function renderPrevisaoArea(j, prev) {
   if (!prev) {
     return `<div class="previsao-area">
-      <div class="prev-bloco" style="grid-column:1/-1">
-        <div class="sem-dados">⚪ Clique em "Analisar Todos" para gerar previsão</div>
+      <div class="prev-bloco" style="grid-column:1/-1;display:flex;align-items:center;justify-content:space-between">
+        <div class="sem-dados">⚪ Aguardando análise</div>
+        <button onclick="analisarUm('${j.id}')" style="background:var(--acc);color:#000;border:none;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Analisar</button>
       </div>
     </div>`;
   }
@@ -759,20 +763,31 @@ async function buscarPerfilTime(apiId) {
   if (_perfilCache[apiId]) return _perfilCache[apiId];
 
   try {
+    console.log('[PerfilTime] buscando apiId:', apiId, '(type:', typeof apiId, ')');
     // Busca todos os jogos do time (casa ou fora)
-    // Busca sem orderBy para evitar necessidade de índice composto
-    // Ordenamos manualmente depois (mais robusto)
+    // Tenta com number (como está salvo no fixtures-historico)
+    // Se não achar, tenta com string (compatibilidade)
+    const idNum = Number(apiId);
     const [snapCasa, snapFora] = await Promise.all([
       db.collection('fixtures-historico')
-        .where('casaId', '==', Number(apiId))
-        .limit(80).get(),
+        .where('casaId', '==', idNum).limit(80).get(),
       db.collection('fixtures-historico')
-        .where('foraId', '==', Number(apiId))
-        .limit(80).get(),
+        .where('foraId', '==', idNum).limit(80).get(),
     ]);
+    // Fallback string se vazio
+    let jogosCasaRaw = snapCasa.docs;
+    let jogosForaRaw = snapFora.docs;
+    if (!jogosCasaRaw.length && !jogosForaRaw.length) {
+      const [s2, s3] = await Promise.all([
+        db.collection('fixtures-historico').where('casaId','==',String(apiId)).limit(80).get(),
+        db.collection('fixtures-historico').where('foraId','==',String(apiId)).limit(80).get(),
+      ]);
+      jogosCasaRaw = s2.docs;
+      jogosForaRaw = s3.docs;
+    }
 
-    const jogosCasa = snapCasa.docs.map(d => ({ ...d.data(), _local: 'casa' }));
-    const jogosFora = snapFora.docs.map(d => ({ ...d.data(), _local: 'fora' }));
+    const jogosCasa = jogosCasaRaw.map(d => ({ ...d.data(), _local: 'casa' }));
+    const jogosFora = jogosForaRaw.map(d => ({ ...d.data(), _local: 'fora' }));
 
     // Mesclar e ordenar por data desc
     const todos = [...jogosCasa, ...jogosFora]
@@ -837,9 +852,10 @@ async function buscarPerfilTime(apiId) {
     };
 
     _perfilCache[apiId] = perfil;
+    console.log('[PerfilTime] OK:', apiId, '→', perfil.n, 'jogos, forca5:', perfil.forca5, 'mom5:', perfil.mom5);
     return perfil;
   } catch(e) {
-    console.warn('buscarPerfilTime erro:', e.message);
+    console.warn('[PerfilTime] ERRO apiId:', apiId, e.message);
     return null;
   }
 }
@@ -1158,15 +1174,19 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG, perfilCasaDB, perfilForaDB) {
 
   // ── NORMALIZAR ────────────────────────────────────────────────────────
   if (wTotal < 0.1) {
-    // Fallback: usar YS relativo puro se disponível, senão base mundial
+    // wTotal muito baixo — usar base da liga como âncora mínima
+    const ligaNomeFb = j.liga?.nome || '';
+    const ligaApiFb  = j.liga?.apiId || j.liga?.id || null;
+    const baseFb = getBaseLiga(ligaNomeFb, ligaApiFb).result;
     if (ysC !== null && ysF !== null) {
       const ysTotal = (ysC + ysF) || 10;
-      probCasa   = (ysC / ysTotal) * 100 + 3; // leve vantagem casa
-      probEmpate = 26;
-      explicacoes.push(`Poucos dados — estimativa baseada em YS ${ysC?.toFixed(1)} vs ${ysF?.toFixed(1)}`);
+      // Combinar YS com base da liga (50/50)
+      probCasa   = ((ysC/ysTotal)*100 + 3) * 0.5 + baseFb.casa * 0.5;
+      probEmpate = 26 * 0.5 + baseFb.emp * 0.5;
+      explicacoes.push('Poucos dados históricos — usando YS + base da liga');
     } else {
-      probCasa = 46; probEmpate = 26;
-      explicacoes.push('Dados insuficientes — base estatística mundial (46/26/28)');
+      probCasa = baseFb.casa; probEmpate = baseFb.emp;
+      explicacoes.push('Sem histórico do time — usando base estatística da liga');
     }
   } else {
     probCasa   = probCasa   / wTotal;
@@ -1547,8 +1567,44 @@ async function salvarPrevisao(j, prev) {
 }
 
 // Sobrescrever analisarTodos para salvar previsões
+async function reanalisarTodos() {
+  // Limpa TODO o sessionStorage de previsões e re-analisa
+  JOGOS.forEach(j => {
+    try { sessionStorage.removeItem('prev_' + j.id); } catch(e) {}
+  });
+  PREVISOES = {};
+  _perfilCache && Object.keys(_perfilCache).forEach(k => delete _perfilCache[k]);
+  renderCards();
+  await analisarTodos();
+}
+
+async function analisarUm(jogoId) {
+  const j = JOGOS.find(x => x.id === jogoId);
+  if (!j) return;
+  // Limpar cache deste jogo
+  try { sessionStorage.removeItem('prev_' + jogoId); } catch(e) {}
+  delete PREVISOES[jogoId];
+  // Mostrar loading
+  PREVISOES[jogoId] = { loading: true, step: 'buscando perfis...' };
+  renderCards();
+  try {
+    const prev = await analisarJogo(j);
+    PREVISOES[jogoId] = prev;
+    try { sessionStorage.setItem('prev_' + jogoId, JSON.stringify(prev)); } catch(e) {}
+  } catch(e) {
+    PREVISOES[jogoId] = { resultado: base5050(), gols: golsDefault(), confianca: 'insuficiente', explicacoes: ['Erro: ' + e.message], fontes: [] };
+  }
+  renderCards();
+  atualizarResumo();
+}
+
 async function analisarTodos() {
   if (ANALISANDO) return;
+  // Limpar cache antigo — força re-análise com algoritmo atual
+  JOGOS.forEach(j => {
+    try { sessionStorage.removeItem('prev_' + j.id); } catch(e) {}
+  });
+  PREVISOES = {};
   const filtroLiga = gc('filtroLiga').value;
   const jogos = filtroLiga ? JOGOS.filter(j => j.liga?.nome === filtroLiga) : JOGOS;
   if (!jogos.length) return;
