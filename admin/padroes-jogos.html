@@ -1074,45 +1074,63 @@ function calcularAoVivo() {
   const gols = matches.map(d => d.total);
   const med_base = (gols.reduce((a,b)=>a+b,0)/n);
 
-  // ── AJUSTE POR PORFORCA ──────────────────────────────────────────────
-  // Determinar faixa da casa (adversário do visitante)
-  // fc = força da casa → determina em qual faixa o visitante está jogando
+  // ── AJUSTE 1: porForca do visitante ─────────────────────────────────
   let golsPorForca = null;
   if (temPorForca) {
-    if (fcCasa < 3.5 && pfFraco)        golsPorForca = pfFraco;
+    if      (fcCasa < 3.5 && pfFraco)   golsPorForca = pfFraco;
     else if (fcCasa < 5.5 && pfMedio)   golsPorForca = pfMedio;
     else if (fcCasa < 7.5 && pfSimilar) golsPorForca = pfSimilar;
     else if (pfForte)                    golsPorForca = pfForte;
-    // Se não tem a faixa exata, interpolar com as que temos
     if (!golsPorForca) {
-      golsPorForca = [pfFraco,pfMedio,pfSimilar,pfForte].filter(Boolean).reduce((a,b,_,arr)=>a+b/arr.length,0);
+      const vals = [pfFraco,pfMedio,pfSimilar,pfForte].filter(Boolean);
+      golsPorForca = vals.reduce((a,b)=>a+b,0)/vals.length;
     }
   }
 
-  // Combinação: 60% histórico similar + 40% porForca (quando disponível)
-  const med_num = golsPorForca
+  // ── AJUSTE 2: Média gols baixa — calibrado com 2271 jogos reais ──────
+  // Dados: quando ambos <= 1.8 → real 2.30 (-0.25 vs média geral 2.55)
+  //        quando um <= 1.5    → real 2.41 (-0.14)
+  //        quando ambos >= 2.8 → real 2.75 (+0.20)
+  let ajusteMgBaixa = 0;
+  let ajusteMgAlta  = 0;
+  const mgCval = mgC || med_base;
+  const mgFval = mgF || med_base;
+  const minMg  = Math.min(mgCval, mgFval);
+  const maxMg  = Math.max(mgCval, mgFval);
+
+  if (mgCval <= 1.8 && mgFval <= 1.8) {
+    ajusteMgBaixa = -0.25;  // ambos jogam fechado — sinal forte
+  } else if (minMg <= 1.5) {
+    ajusteMgBaixa = -0.15;  // um deles muito fechado
+  } else if (minMg <= 1.8) {
+    ajusteMgBaixa = -0.10;  // um levemente fechado
+  }
+  if (mgCval >= 2.8 && mgFval >= 2.8) {
+    ajusteMgAlta = +0.20;   // ambos jogam aberto — sinal de mais gols
+  } else if (maxMg >= 2.8) {
+    ajusteMgAlta = +0.10;
+  }
+
+  // ── COMBINAÇÃO FINAL ──────────────────────────────────────────────────
+  // porForca (quando disponível): 55% histórico + 45% perfil individual
+  // Ajuste média baixa/alta: sempre aplicado em cima do resultado
+  const med_porforca = golsPorForca
     ? (med_base * 0.55 + golsPorForca * 0.45)
     : med_base;
-  const med = med_num.toFixed(2);
+  const med_num = med_porforca + ajusteMgBaixa + ajusteMgAlta;
+  const med = Math.max(0.5, med_num).toFixed(2);
 
-  // Recalcular Over/Under baseado na média ajustada
-  // Usa distribuição Poisson simplificada para ajustar as probabilidades
-  const ajusteFator = golsPorForca ? golsPorForca / Math.max(med_base, 0.1) : 1;
+  // Fator de ajuste para recalcular Over/Under
+  const ajusteFator = Math.max(0.1, med_num) / Math.max(0.1, med_base);
 
   const o25_base = Math.round(gols.filter(g=>g>2).length/n*100);
   const o15_base = Math.round(gols.filter(g=>g>1).length/n*100);
   const u15_base = Math.round(gols.filter(g=>g<=1).length/n*100);
 
-  // Ajustar probabilidades proporcionalmente ao porForca
-  const o25 = golsPorForca
-    ? Math.min(95, Math.max(5, Math.round(o25_base * ajusteFator * 0.7 + o25_base * 0.3)))
-    : o25_base;
-  const o15 = golsPorForca
-    ? Math.min(98, Math.max(10, Math.round(o15_base * Math.pow(ajusteFator, 0.4) * 0.6 + o15_base * 0.4)))
-    : o15_base;
-  const u15 = golsPorForca
-    ? Math.min(90, Math.max(2, Math.round(u15_base / Math.pow(ajusteFator, 0.5) * 0.6 + u15_base * 0.4)))
-    : u15_base;
+  // Ajuste proporcional calibrado
+  const o25 = Math.min(95, Math.max(5, Math.round(o25_base * (ajusteFator * 0.65 + 0.35))));
+  const o15 = Math.min(98, Math.max(10, Math.round(o15_base * (Math.pow(ajusteFator,0.35) * 0.6 + 0.4))));
+  const u15 = Math.min(90, Math.max(2, Math.round(u15_base * (1 / Math.pow(ajusteFator,0.4) * 0.6 + 0.4))));
   const u25 = Math.round(gols.filter(g=>g<=2).length/n*100);
 
   // Resultados
@@ -1162,7 +1180,11 @@ function calcularAoVivo() {
           <div style="font-size:8px;color:var(--t3);margin-top:2px">${l}</div>
         </div>`).join('')}
       </div>
-      ${golsPorForca ? '<div style="font-size:9px;color:var(--pur);margin-top:6px;padding:4px 8px;background:var(--pdim);border-radius:5px">⚡ porForca ativo — estimativa ajustada pelo histórico real do visitante nessa faixa de adversário (55% histórico + 45% porForca)</div>' : '<div style="font-size:9px;color:var(--t3);margin-top:6px">💡 Adicione o porForca do visitante (perfil-times) para aumentar a precisão da estimativa</div>'}
+      <div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">
+        ${golsPorForca ? '<div style="font-size:9px;color:var(--pur);padding:4px 8px;background:var(--pdim);border-radius:5px">⚡ porForca ativo — 55% histórico + 45% perfil individual do visitante</div>' : '<div style="font-size:9px;color:var(--t3)">💡 Adicione o porForca do visitante (perfil-times) para maior precisão</div>'}
+        ${ajusteMgBaixa < 0 ? '<div style="font-size:9px;color:var(--blu);padding:4px 8px;background:var(--bdim2);border-radius:5px">🔒 Penalização média baixa aplicada ('+ajusteMgBaixa.toFixed(2)+'g) — um ou ambos os times jogam fechado historicamente</div>' : ''}
+        ${ajusteMgAlta > 0 ? '<div style="font-size:9px;color:var(--red);padding:4px 8px;background:var(--rdim);border-radius:5px">🔥 Bônus média alta aplicado (+'+ajusteMgAlta.toFixed(2)+'g) — ambos os times têm jogado com muitos gols</div>' : ''}
+      </div>
     </div>
 
     <!-- APOSTAS -->
