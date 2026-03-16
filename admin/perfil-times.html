@@ -1005,30 +1005,80 @@ function calcularConfronto() {
   const xGF = xGF_hist != null ? +(xGF_hist * 0.6 + xGF_dc * 0.4).toFixed(2) : xGF_dc;
   const xGTotal = +(xGC + xGF).toFixed(2);
 
-  // Gols totais esperados: também usar padrão total do jogo
-  let golsTotaisHist = null;
+  // ── GOLS TOTAIS — combina padrão casa + padrão visitante fora ──────
+  // Bug anterior: usava só padrão total da casa (2.0), ignorava que
+  // Fiorentina marca 3.14/j fora. Fix: combinar os dois padrões.
+  let golsTotaisCasa  = null; // total do jogo quando essa casa joga em casa vs essa faixa
+  let golsMarcFora    = null; // gols MARCADOS pelo visitante quando joga fora vs essa faixa
+
   if (mc.porForca?.[faixaAdvCasa]?.casa?.n >= 2) {
-    golsTotaisHist = mc.porForca[faixaAdvCasa].casa.gols;
+    golsTotaisCasa = mc.porForca[faixaAdvCasa].casa.gols;
   }
-  const golsTotaisFinal = golsTotaisHist != null
-    ? +(golsTotaisHist * 0.6 + xGTotal * 0.4).toFixed(2)
-    : xGTotal;
+  if (mf.porForca?.[faixaAdvFora]?.fora?.n >= 2) {
+    golsMarcFora = mf.porForca[faixaAdvFora].fora.gf; // gols MARCADOS fora
+  }
+
+  // Estratégia: se temos ambos os padrões, estimativa mais rica
+  let golsTotaisFinal;
+  if (golsTotaisCasa != null && golsMarcFora != null) {
+    // Casa mostra o histórico total do confronto naquela faixa
+    // Visitante mostra quantos gols ele especificamente marca fora nessa faixa
+    // Combinar: padrão total da casa (âncora) + ajuste pelo ataque real do visitante
+    const atqVisitRef  = xGF;         // Dixon-Coles estimativa do visitante
+    const atqVisitReal = golsMarcFora; // histórico real do visitante fora
+    const atqVisitAdj  = atqVisitRef * 0.4 + atqVisitReal * 0.6;
+    const golsAjustados = (golsTotaisCasa - xGF) + atqVisitAdj; // substitui xGF pelo real
+    golsTotaisFinal = +(golsTotaisCasa * 0.45 + golsAjustados * 0.55).toFixed(2);
+  } else if (golsTotaisCasa != null) {
+    golsTotaisFinal = +(golsTotaisCasa * 0.55 + xGTotal * 0.45).toFixed(2);
+  } else if (golsMarcFora != null) {
+    // Só temos o visitante — xGC da casa + gols reais do visitante
+    golsTotaisFinal = +(xGC + golsMarcFora * 0.6 + xGF * 0.4).toFixed(2);
+  } else {
+    golsTotaisFinal = xGTotal;
+  }
 
   // ── PROBABILIDADE DE RESULTADO ──────────────────────────
-  // Baseado na força relativa + vantagem de jogar em casa
-  // Usar Elo nota se disponível, fallback para forca5
-  const forcaCasa = (mc.eloNota ?? mc.forca5) + 0.5; // +0.5 vantagem casa
-  const forcaFora = (mf.eloNota ?? mf.forca5);
-  const forcaTotal = (forcaCasa + forcaFora) || 10;
+  // ── FORÇA BLEND: 55% contexto casa/fora + 45% Elo geral ────────────
+  // Contexto (statsCasa/statsFora) captura o estilo do time no ambiente
+  // Elo geral captura o talento/qualidade do elenco
+  // Blend evita que um time fraco em casa "apareça" favorito só por jogar em casa
+  const calcForcaCtx = (m, isCasa) => {
+    const s = isCasa ? m.statsCasa : m.statsFora;
+    if (s && s.n >= 3) {
+      const pts = s.pts_jogo, gf = s.gf_media, gs = s.gs_media;
+      return Math.min(10, (pts/3)*5 + Math.min(gf/2,2) + Math.max(0,1.5-gs/2));
+    }
+    return null;
+  };
+  const fcCtx  = calcForcaCtx(mc, true);
+  const ffCtx  = calcForcaCtx(mf, false);
+  const eloC   = mc.eloNota ?? mc.forca5 ?? 5;
+  const eloF   = mf.eloNota ?? mf.forca5 ?? 5;
 
-  let probCasa = (forcaCasa / forcaTotal) * 100;
-  let probEmp  = 26; // base histórica
-  // Quando times são próximos, empate sobe
-  const diffForca = Math.abs(forcaCasa - forcaFora);
-  if (diffForca < 1.5) probEmp = 30;
-  else if (diffForca < 0.5) probEmp = 35;
-  probCasa = Math.round(Math.min(72, Math.max(15, probCasa)));
-  probEmp  = Math.round(Math.min(38, Math.max(15, probEmp)));
+  // Se temos dados de contexto: blend. Se não: usar só Elo
+  const fcBlend = fcCtx != null
+    ? (fcCtx * 0.55 + (eloC + 0.3) * 0.45)  // +0.3 vantagem casa no Elo
+    : (eloC + 0.5);
+  const ffBlend = ffCtx != null
+    ? (ffCtx * 0.55 + eloF * 0.45)
+    : eloF;
+
+  const diffForca = fcBlend - ffBlend;
+
+  // Elo clássico para diferenças grandes
+  let probCasa, probEmp;
+  if (Math.abs(diffForca) >= 2.0) {
+    const ec = 1 / (1 + Math.pow(10, -diffForca / 3.5));
+    probCasa = Math.round(ec * 100);
+    probEmp  = Math.round(22 - Math.min(8, Math.abs(diffForca) * 1.2));
+  } else {
+    const tot2 = (fcBlend + ffBlend) || 10;
+    probCasa = Math.round((fcBlend / tot2) * 100);
+    probEmp  = Math.abs(diffForca) < 0.8 ? 32 : Math.abs(diffForca) < 1.5 ? 28 : 25;
+  }
+  probCasa = Math.min(78, Math.max(12, probCasa));
+  probEmp  = Math.min(38, Math.max(14, probEmp));
   let probFora = Math.max(8, 100 - probCasa - probEmp);
   const tot = probCasa + probEmp + probFora;
   probCasa = Math.round(probCasa/tot*100);
@@ -1046,14 +1096,25 @@ function calcularConfronto() {
   const tendFora = sf5?.tot_media ?? 2.5;
   const tendJogo = +((tendCasa + tendFora) / 2).toFixed(2);
   // Over 2.5 usando padrão histórico por força do adversário
-  let over25_hist = null;
-  if (mc.porForca?.[faixaAdvCasa]?.casa?.n >= 3) {
-    over25_hist = mc.porForca[faixaAdvCasa].casa.over25;
-  }
+  // Over2.5: combinar padrão da casa + padrão do visitante fora (quando disponível)
+  let over25_casa = null, over25_fora = null;
+  if (mc.porForca?.[faixaAdvCasa]?.casa?.n >= 3)
+    over25_casa = mc.porForca[faixaAdvCasa].casa.over25;
+  if (mf.porForca?.[faixaAdvFora]?.fora?.n >= 3)
+    over25_fora = mf.porForca[faixaAdvFora].fora.over25;
+
   const over25_tend = tendJogo >= 3.5 ? 65 : tendJogo >= 3.0 ? 55 : tendJogo >= 2.5 ? 45 : 30;
-  const over25 = over25_hist != null
-    ? Math.round(over25_hist * 0.65 + over25_tend * 0.35)
-    : over25_tend;
+  let over25;
+  if (over25_casa != null && over25_fora != null) {
+    // Ambos disponíveis — média ponderada dos dois padrões + tendência
+    over25 = Math.round((over25_casa * 0.4 + over25_fora * 0.4 + over25_tend * 0.2));
+  } else if (over25_casa != null) {
+    over25 = Math.round(over25_casa * 0.65 + over25_tend * 0.35);
+  } else if (over25_fora != null) {
+    over25 = Math.round(over25_fora * 0.65 + over25_tend * 0.35);
+  } else {
+    over25 = over25_tend;
+  }
 
   // ── EXPLICAÇÕES ─────────────────────────────────────────
   const exps = [];
