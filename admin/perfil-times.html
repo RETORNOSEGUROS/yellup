@@ -218,6 +218,13 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 
     <!-- PANE: PERFIL -->
     <div class="pane on" id="pane-perfil">
+      <div style="background:var(--adim);border:1px solid rgba(245,165,36,.2);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:10px;color:var(--t2);display:flex;align-items:center;gap:8px;" id="infoBanner">
+        <span style="font-size:14px">💡</span>
+        <span>Dados do <strong style="color:var(--acc)">fixtures-historico</strong> · 
+        Para atualizar: rode o <a href="mapeamento-historico.html" style="color:var(--blu)">Mapeamento</a> · 
+        Jogos novos só entram após nova coleta · 
+        Para mais precisão: colete temporadas 2021/2022</span>
+      </div>
       <div class="empty" id="perfilEmpty">
         <div class="empty-ico">👈</div>
         <p>Selecione um time na sidebar</p>
@@ -484,7 +491,8 @@ function calcularMetricas(jogos) {
     };
   }
 
-  const s5 = stats(u5), s10 = stats(u10), s15 = stats(u15), s20 = stats(u20);
+  const u70 = jogos.slice(0, 70);
+  const s5 = stats(u5), s10 = stats(u10), s15 = stats(u15), s20 = stats(u20), s70 = stats(u70);
   if (!s5 || !s10) return { forca5: 0, forca10: 0 };
 
   // Força Yellup 0–10: combinação de pts/jogo + ataque - defesa
@@ -499,6 +507,7 @@ function calcularMetricas(jogos) {
   const forca5  = forca(s5);
   const forca10 = forca(s10);
   const forca20 = forca(s20);
+  const forca70 = forca(s70);
 
   // Momentum: diferença de força ult5 vs ult10
   const momentum = +(forca5 - forca10).toFixed(1);
@@ -525,8 +534,8 @@ function calcularMetricas(jogos) {
   const statsFora = stats(emFora.slice(0,8));
 
   return {
-    s5, s10, s15, s20,
-    forca5, forca10, forca20,
+    s5, s10, s15, s20, s70,
+    forca5, forca10, forca20, forca70,
     momentum,
     tendGols,
     fadiga,
@@ -550,7 +559,7 @@ function enriquecerPorForca() {
       forte:   { label:'vs Fortes (7.5+)',    min:7.5, max:99,   jogos:[], casa:[], fora:[] },
     };
 
-    t.jogos.slice(0, 20).forEach(j => {
+    t.jogos.slice(0, 70).forEach(j => {  // usa até 1 temporada completa
       const advId = j.adversarioId;
       if (!advId || !PERFIS[advId]) return;
       const advForca = PERFIS[advId].metricas.forca5;
@@ -760,6 +769,10 @@ function renderPerfil(tid) {
             <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${m.mom20>0?'var(--grn)':m.mom20<0?'var(--red)':'var(--t3)'}">${m.mom20!=null?(m.mom20>0?'+':'')+m.mom20:'—'}</div>
             <div style="font-size:8px;color:var(--t3)">Mom20</div>
           </div>
+          <div style="text-align:center;background:var(--c3);border-radius:6px;padding:4px 8px">
+            <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${(m.eloNota??0)>(m.forca70??0)?'var(--grn)':(m.eloNota??0)<(m.forca70??0)?'var(--red)':'var(--t3)'}">${m.forca70??'—'}</div>
+            <div style="font-size:8px;color:var(--t3)">F.Temp</div>
+          </div>
         </div>
       </div>
     </div>
@@ -803,14 +816,14 @@ function renderPerfil(tid) {
           <div style="display:flex;gap:16px">
             <span style="font-size:8px;color:var(--acc);font-weight:700">Ult5</span>
             <span style="font-size:8px;color:var(--t2)">Ult10</span>
-            <span style="font-size:8px;color:var(--t3)">Ult20</span>
+            <span style="font-size:8px;color:var(--t3)">Temp.</span>
           </div>
         </div>
-        ${row('Pts/jogo', s5?.pts_jogo, s10?.pts_jogo, m.s20?.pts_jogo)}
-        ${row('Gols marcados', s5?.gf_media, s10?.gf_media, m.s20?.gf_media)}
-        ${row('Gols sofridos', s5?.gs_media, s10?.gs_media, m.s20?.gs_media, v => v)}
-        ${row('Total/jogo', s5?.tot_media, s10?.tot_media, m.s20?.tot_media)}
-        ${row('% Vitória', s5?.pct_vit, s10?.pct_vit, m.s20?.pct_vit, v => v+'%')}
+        ${row('Pts/jogo', s5?.pts_jogo, s10?.pts_jogo, m.s70?.pts_jogo)}
+        ${row('Gols marcados', s5?.gf_media, s10?.gf_media, m.s70?.gf_media)}
+        ${row('Gols sofridos', s5?.gs_media, s10?.gs_media, m.s70?.gs_media, v => v)}
+        ${row('Total/jogo', s5?.tot_media, s10?.tot_media, m.s70?.tot_media)}
+        ${row('% Vitória', s5?.pct_vit, s10?.pct_vit, m.s70?.pct_vit, v => v+'%')}
       </div>
 
       <div class="periodo-box">
@@ -837,16 +850,17 @@ function renderPerfil(tid) {
           <span class="periodo-val" style="color:${m.tendGols>0?'var(--red)':m.tendGols<0?'var(--grn)':'var(--t3)'}">${m.tendGols>0?'+':''}${m.tendGols}</span></div>
         <div class="periodo-row"><span class="periodo-lbl">Fadiga (15d)</span>
           <span class="periodo-val" style="color:${m.fadiga>=4?'var(--red)':'var(--t2)'}">${m.fadiga} jogos</span></div>
-        <div class="periodo-row"><span class="periodo-lbl">Força ult.5</span><span class="periodo-val" style="color:${forcaColor}">${m.forca5}/10</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Elo Yellup</span><span class="periodo-val" style="color:${forcaColor}">${m.eloNota}/10</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Força ult.5</span><span class="periodo-val">${m.forca5}/10</span></div>
         <div class="periodo-row"><span class="periodo-lbl">Força ult.10</span><span class="periodo-val">${m.forca10}/10</span></div>
-        <div class="periodo-row"><span class="periodo-lbl">Força ult.20</span><span class="periodo-val" style="color:var(--t3)">${m.forca20}/10</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Força temporada</span><span class="periodo-val" style="color:var(--t3)">${m.forca70}/10</span></div>
       </div>
     </div>
 
     <div class="tend-section">
       <div class="tend-title">🔥 Tendência Visual de Gols/Jogo</div>
       <div class="tend-bars">
-        ${[['Ult. 5 jogos', s5?.tot_media], ['Ult. 10 jogos', s10?.tot_media], ['Ult. 15 jogos', s15?.tot_media], ['Ult. 20 jogos', m.s20?.tot_media]].map(([lbl, val]) => {
+        ${[['Ult. 5 jogos', s5?.tot_media], ['Ult. 10 jogos', s10?.tot_media], ['Ult. 20 jogos', m.s20?.tot_media], ['Temporada (~70j)', m.s70?.tot_media]].map(([lbl, val]) => {
           if (!val) return '';
           const maxPossivel = 6;
           const pct = Math.min(100, (val / maxPossivel) * 100);
