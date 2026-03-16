@@ -790,7 +790,7 @@ function renderAprender() {
     const o15=Math.round(js.filter(j=>j.total>1).length/js.length*100);
     const o25=Math.round(js.filter(j=>j.total>2).length/js.length*100);
     const u15=Math.round(js.filter(j=>j.total<=1).length/js.length*100);
-    return {faixa:nomes[i],n:js.length,med,o15,o25,u15};
+    return {lbl:nomes[i],n:js.length,med,o15,o25,u15};
   }).filter(Boolean);
 
   // Insight 2: Diferença de força vs gols
@@ -840,33 +840,79 @@ function renderAprender() {
       </tr>`).join('')}</tbody>
     </table>`;
 
-  gc('aprenderContent').innerHTML = `
-    <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:4px">📈 O que os dados ensinam</div>
-    <div style="font-size:10px;color:var(--t2);margin-bottom:16px">${n} jogos analisados com features pré-jogo calculadas</div>
+  // ── Gera box de insight ─────────────────────────────────────────────
+  const iBox = (ico, titulo, corpo, cor) =>
+    '<div style="background:var(--bg3);border-left:3px solid '+cor+';border-radius:0 8px 8px 0;padding:10px 12px;font-size:10px;color:var(--t1);line-height:1.6">'
+    +'<div style="font-weight:700;margin-bottom:4px">'+ico+' '+titulo+'</div>'
+    +'<div style="color:var(--t2)">'+corpo+'</div></div>';
 
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div class="faixa-section">
-        <div class="faixa-title">📊 Média Gols Pré-Jogo → o que saiu</div>
-        <div style="font-size:9px;color:var(--t3);margin-bottom:8px">Media dos últimos 5 jogos de cada time (total do jogo) antes da partida</div>
-        ${tabelaHtml(tabelaMp, ['Faixa Média Pré','Jogos','Gols Real','Over 2.5','Under 1.5'])}
-      </div>
+  const bestOver25 = r => r.reduce((a,b)=>b.o25>a.o25?b:a);
+  const bestU15    = r => r.reduce((a,b)=>b.u15>a.u15?b:a);
 
-      <div class="faixa-section">
-        <div class="faixa-title">⚖️ Diferença de Força → Gols no Jogo</div>
-        <div style="font-size:9px;color:var(--t3);margin-bottom:8px">Força Yellup pré-jogo. Visitante muito mais fraco = MAIS gols (favorito ataca mais)</div>
-        ${tabelaHtml(tabelaDiff, ['Cenário','Jogos','Gols Real','Over 2.5','Under 1.5'])}
-      </div>
+  gc('aprenderContent').innerHTML =
+    '<div style="font-family:\'Syne\',sans-serif;font-size:14px;font-weight:700;margin-bottom:4px">📈 O que aprendemos com '+n+' jogos</div>'
+   +'<div style="font-size:10px;color:var(--t2);margin-bottom:14px">Cada tabela responde: <strong style="color:var(--acc)">dado esse cenário antes do jogo, o que historicamente aconteceu com os gols?</strong><br>'
+   +'<strong>Over 2.5%</strong> = de 100 jogos com esse perfil, quantos tiveram 3+ gols. <strong>Under 1.5%</strong> = quantos tiveram 0 ou 1 gol.</div>'
 
-      <div class="faixa-section">
-        <div class="faixa-title">📈 Tendência de Gols → o que saiu</div>
-        <div style="font-size:9px;color:var(--t3);margin-bottom:8px">Tendência = média gols ult.5 menos média gols ult.10 dos dois times</div>
-        ${tabelaHtml(tabelaTend, ['Tendência','Jogos','Gols Real','Over 2.5','Under 1.5'])}
-        <div style="font-size:9px;color:var(--acc);margin-top:8px;padding:6px 8px;background:var(--adim);border-radius:6px">
-          💡 Atenção: tendência CAINDO → mais Over 2.5 (regressão à média). Tendência subindo → jogo pode ser mais fechado.
-        </div>
-      </div>
-    </div>
-  `;
+   // BLOCO 1
+  +'<div class="faixa-section" style="margin-bottom:12px">'
+  +'<div class="faixa-title">📊 Variável 1 — Média de Gols dos Últimos 5 Jogos de Cada Time</div>'
+  +'<div style="font-size:10px;color:var(--t2);margin-bottom:8px;line-height:1.5">'
+  +'<strong>O que é:</strong> some os gols totais (placar completo, não só do time) dos últimos 5 jogos de cada time, tire a média e calcule (média casa + média fora) ÷ 2.<br>'
+  +'<strong>Exemplo:</strong> Palmeiras teve jogos de 4, 2, 3, 1, 3 gols = média 2.6. Mirassol teve jogos de 1, 2, 1, 2, 1 = média 1.4. Média pré-jogo = (2.6+1.4)/2 = <strong>2.0</strong>.</div>'
+  +tabelaHtml(tabelaMp, ['Média Pré-Jogo','Jogos','Gols Reais','Over 2.5','Under 1.5'])
+  +'<div style="display:flex;flex-direction:column;gap:5px;margin-top:8px">'
+  +(tabelaMp.length ? iBox('✅','Over 1.5 mais seguro quando:', 'Média pré-jogo <strong>'+bestOver25(tabelaMp).lbl+'</strong> → Under 1.5 foi só '+bestOver25(tabelaMp).u15+'%. Ou seja: '+(100-bestOver25(tabelaMp).u15)+'% das vezes saíram 2+ gols.', 'var(--grn)') : '')
+  +(tabelaMp.length ? iBox('🔒','Jogo mais fechado quando:', 'Média pré-jogo <strong>'+bestU15(tabelaMp).lbl+'</strong> → '+bestU15(tabelaMp).u15+'% dos jogos terminaram com 0 ou 1 gol. Evitar Over 2.5 nesses casos.', 'var(--blu)') : '')
+  +'</div></div>'
+
+  // BLOCO 2
+  +'<div class="faixa-section" style="margin-bottom:12px">'
+  +'<div class="faixa-title">⚖️ Variável 2 — Diferença de Força Yellup (Casa − Fora)</div>'
+  +'<div style="font-size:10px;color:var(--t2);margin-bottom:8px;line-height:1.5">'
+  +'<strong>O que é:</strong> Força Yellup do time da casa menos Força Yellup do visitante. +3 significa que a casa é muito melhor. -2 significa que o visitante é melhor.<br>'
+  +'<strong>Contra-intuitivo:</strong> quando a casa é muito mais forte (diff &gt; +3), saem <em>mais</em> gols — o favorito ataca constantemente. Jogos equilibrados tendem a ter menos gols porque ambos jogam com cautela.</div>'
+  +tabelaHtml(tabelaDiff, ['Cenário de Força','Jogos','Gols Reais','Over 2.5','Under 1.5'])
+  +'<div style="display:flex;flex-direction:column;gap:5px;margin-top:8px">'
+  +(tabelaDiff.length ? iBox('🎯','Mais Over 2.5 quando:', '<strong>'+bestOver25(tabelaDiff).lbl+'</strong> → Over 2.5 em '+bestOver25(tabelaDiff).o25+'% dos jogos. Média real de gols: '+bestOver25(tabelaDiff).med+'.', 'var(--acc)') : '')
+  +(tabelaDiff.length ? iBox('🔒','Menos gols quando:', '<strong>'+bestU15(tabelaDiff).lbl+'</strong> → '+bestU15(tabelaDiff).u15+'% terminaram com 0 ou 1 gol.', 'var(--blu)') : '')
+  +'</div></div>'
+
+  // BLOCO 3
+  +'<div class="faixa-section" style="margin-bottom:12px">'
+  +'<div class="faixa-title">📈 Variável 3 — Tendência de Gols (Últimos 5 vs Últimos 10 Jogos)</div>'
+  +'<div style="font-size:10px;color:var(--t2);margin-bottom:8px;line-height:1.5">'
+  +'<strong>O que é:</strong> se um time tinha média de 2.8 gols/jogo nos últimos 10 mas caiu para 2.2 nos últimos 5, a tendência é -0.6 (caindo). Soma os dois times e divide por 2.<br>'
+  +'<strong>Surpresa dos dados:</strong> tendência <em>caindo</em> → na prática saem <strong>mais</strong> gols do que quando está subindo. Por quê? Regressão à média — times que jogaram fechados recentemente voltam ao padrão histórico.</div>'
+  +tabelaHtml(tabelaTend, ['Tendência','Jogos','Gols Reais','Over 2.5','Under 1.5'])
+  +'<div style="background:var(--adim);border-radius:8px;padding:10px;margin-top:8px;font-size:10px;color:var(--t2);line-height:1.6">'
+  +'💡 <strong style="color:var(--acc)">Conclusão prática:</strong> não use tendência caindo para apostar Under. O Arsenal com média caindo de 3.1→2.6 ainda tem chance real de Over 2.5 porque o padrão histórico vai puxar de volta.</div>'
+  +'</div>'
+
+  // BLOCO 4: Como usar
+  +'<div style="background:var(--c2);border:1px solid var(--bd2);border-radius:11px;padding:16px">'
+  +'<div style="font-family:\'Syne\',sans-serif;font-size:12px;font-weight:700;margin-bottom:10px">🚀 Como usar na prática — exemplo Arsenal x Everton</div>'
+  +'<div style="display:flex;flex-direction:column;gap:8px;font-size:10px;line-height:1.6">'
+  +'<div style="background:var(--bg3);border-radius:7px;padding:8px;color:var(--t2)">'
+  +'<strong style="color:var(--t1)">Passo 1 — Calcule os 3 números</strong><br>'
+  +'Arsenal ult.5 gols/j: 2.6 | Everton ult.5 gols/j: 1.1<br>'
+  +'Média pré-jogo = (2.6+1.1)/2 = <strong style="color:var(--acc)">1.85</strong><br>'
+  +'Diferença força = 6.5 - 3.4 = <strong style="color:var(--acc)">+3.1</strong> (casa muito melhor)<br>'
+  +'Tendência = Arsenal -0.5 + Everton -0.2 = <strong style="color:var(--acc)">-0.35</strong> (caindo)'
+  +'</div>'
+  +'<div style="background:var(--bg3);border-radius:7px;padding:8px;color:var(--t2)">'
+  +'<strong style="color:var(--t1)">Passo 2 — Consulte as tabelas acima</strong><br>'
+  +'Média 1.85 → faixa 1.5-2.0 → veja o Under 1.5% e Over 2.5% histórico dessa faixa<br>'
+  +'Diff +3.1 → faixa "casa muito melhor" → veja o Over 2.5% histórico<br>'
+  +'Tendência -0.35 → "caindo leve" → Over 2.5 histórico nessa faixa'
+  +'</div>'
+  +'<div style="background:var(--gdim);border-radius:7px;padding:8px;color:var(--t2)">'
+  +'<strong style="color:var(--grn)">Passo 3 — Decida com base estatística</strong><br>'
+  +'Se as 3 variáveis apontam Over 2.5 acima de 50% → aposta com confiança<br>'
+  +'Se uma variável diz Under e duas dizem Over → Over 1.5 é mais seguro<br>'
+  +'Se todas apontam Under → só aposte Under 2.5 se Over 1.5 ainda for seguro (>75%)'
+  +'</div>'
+  +'</div></div>';
 }
 
 // ── UTILS ──────────────────────────────────────────────────────────────────
