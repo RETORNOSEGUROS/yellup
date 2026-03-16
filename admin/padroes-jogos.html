@@ -1087,29 +1087,57 @@ function calcularAoVivo() {
     }
   }
 
-  // ── AJUSTE 2: Média gols baixa — calibrado com 2271 jogos reais ──────
-  // Dados: quando ambos <= 1.8 → real 2.30 (-0.25 vs média geral 2.55)
-  //        quando um <= 1.5    → real 2.41 (-0.14)
-  //        quando ambos >= 2.8 → real 2.75 (+0.20)
+  // ── AJUSTE 2: Sinais de jogo fechado/aberto — calibrado com 2271 jogos ──
+  // Sinais validados nos dados:
+  // fc_casa<=3.0 E ff_fora<=2.0 → gols 2.49 (-0.10), U1.5=31%, O2.5=43%
+  // mgc<=1.8 E mgf<=1.8         → gols 2.30 (-0.25), O2.5=39%
+  // ambos>=2.8                  → gols 2.75 (+0.20), O2.5=53%
+  // NOTA: 0-0 é imprevisível em todos os cenários (varia 7-13%) — não tem sinal forte
   let ajusteMgBaixa = 0;
   let ajusteMgAlta  = 0;
-  const mgCval = mgC || med_base;
-  const mgFval = mgF || med_base;
-  const minMg  = Math.min(mgCval, mgFval);
-  const maxMg  = Math.max(mgCval, mgFval);
+  let sinalFechado  = [];
+  let sinalAberto   = [];
 
+  const mgCval   = mgC   || med_base;
+  const mgFval   = mgF   || med_base;
+  const fcCasaV  = fcCasa || fc;
+  const ffForaV  = ffFora || ff;
+  const minMg    = Math.min(mgCval, mgFval);
+  const maxMg    = Math.max(mgCval, mgFval);
+
+  // Sinal fechado 1: ambos têm média baixa de gols
   if (mgCval <= 1.8 && mgFval <= 1.8) {
-    ajusteMgBaixa = -0.25;  // ambos jogam fechado — sinal forte
+    ajusteMgBaixa -= 0.25;
+    sinalFechado.push('ambos jogam fechado (mg≤1.8) — O2.5 histórico: 39%');
   } else if (minMg <= 1.5) {
-    ajusteMgBaixa = -0.15;  // um deles muito fechado
+    ajusteMgBaixa -= 0.15;
+    sinalFechado.push('um dos times joga muito fechado (mg≤1.5)');
   } else if (minMg <= 1.8) {
-    ajusteMgBaixa = -0.10;  // um levemente fechado
+    ajusteMgBaixa -= 0.08;
+    sinalFechado.push('um dos times joga fechado (mg≤1.8)');
   }
+
+  // Sinal fechado 2: força casa baixa + força fora do visitante baixa
+  if (fcCasaV <= 3.0 && ffForaV <= 2.0) {
+    ajusteMgBaixa -= 0.10;
+    sinalFechado.push('casa fraca em casa (fc≤3.0) + visitante fraco fora (ff≤2.0) — U1.5=31%');
+  } else if (fcCasaV <= 3.5 && ffForaV <= 2.5) {
+    ajusteMgBaixa -= 0.05;
+    sinalFechado.push('ambos fracos em seus contextos casa/fora');
+  }
+
+  // Sinal aberto: ambos têm média alta
   if (mgCval >= 2.8 && mgFval >= 2.8) {
-    ajusteMgAlta = +0.20;   // ambos jogam aberto — sinal de mais gols
+    ajusteMgAlta += 0.20;
+    sinalAberto.push('ambos jogam aberto (mg≥2.8) — O2.5 histórico: 53%');
   } else if (maxMg >= 2.8) {
-    ajusteMgAlta = +0.10;
+    ajusteMgAlta += 0.10;
+    sinalAberto.push('um dos times tem histórico de jogos abertos (mg≥2.8)');
   }
+
+  // Limitar ajuste total
+  ajusteMgBaixa = Math.max(-0.40, ajusteMgBaixa);
+  ajusteMgAlta  = Math.min(+0.25, ajusteMgAlta);
 
   // ── COMBINAÇÃO FINAL ──────────────────────────────────────────────────
   // porForca (quando disponível): 55% histórico + 45% perfil individual
@@ -1180,10 +1208,12 @@ function calcularAoVivo() {
           <div style="font-size:8px;color:var(--t3);margin-top:2px">${l}</div>
         </div>`).join('')}
       </div>
-      <div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">
-        ${golsPorForca ? '<div style="font-size:9px;color:var(--pur);padding:4px 8px;background:var(--pdim);border-radius:5px">⚡ porForca ativo — 55% histórico + 45% perfil individual do visitante</div>' : '<div style="font-size:9px;color:var(--t3)">💡 Adicione o porForca do visitante (perfil-times) para maior precisão</div>'}
-        ${ajusteMgBaixa < 0 ? '<div style="font-size:9px;color:var(--blu);padding:4px 8px;background:var(--bdim2);border-radius:5px">🔒 Penalização média baixa aplicada ('+ajusteMgBaixa.toFixed(2)+'g) — um ou ambos os times jogam fechado historicamente</div>' : ''}
-        ${ajusteMgAlta > 0 ? '<div style="font-size:9px;color:var(--red);padding:4px 8px;background:var(--rdim);border-radius:5px">🔥 Bônus média alta aplicado (+'+ajusteMgAlta.toFixed(2)+'g) — ambos os times têm jogado com muitos gols</div>' : ''}
+      <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
+        ${golsPorForca ? '<div style="font-size:9px;color:var(--pur);padding:5px 9px;background:var(--pdim);border-radius:6px">⚡ porForca ativo — estimativa combina histórico geral + perfil específico do visitante nessa faixa</div>' : '<div style="font-size:9px;color:var(--t3);padding:5px 9px;background:var(--c3);border-radius:6px">💡 Adicione o porForca do visitante (perfil-times → Padrão por Força) para maior precisão</div>'}
+        ${sinalFechado.length > 0 ? '<div style="font-size:9px;color:var(--blu);padding:5px 9px;background:var(--bdim2);border-radius:6px">🔒 Sinais de jogo FECHADO detectados ('+ajusteMgBaixa.toFixed(2)+'g):<br>• '+sinalFechado.join('<br>• ')+'</div>' : ''}
+        ${sinalAberto.length > 0 ? '<div style="font-size:9px;color:var(--red);padding:5px 9px;background:var(--rdim);border-radius:6px">🔥 Sinais de jogo ABERTO detectados (+'+ajusteMgAlta.toFixed(2)+'g):<br>• '+sinalAberto.join('<br>• ')+'</div>' : ''}
+        ${sinalFechado.length === 0 && sinalAberto.length === 0 ? '<div style="font-size:9px;color:var(--t3);padding:5px 9px;background:var(--c3);border-radius:6px">➡️ Sem sinais fortes de jogo fechado ou aberto — perfil neutro</div>' : ''}
+        <div style="font-size:8px;color:var(--t3);margin-top:2px">⚠️ 0-0 tem probabilidade máxima de ~13% mesmo nos cenários mais fechados — é sempre imprevisível</div>
       </div>
     </div>
 
