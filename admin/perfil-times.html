@@ -1063,12 +1063,23 @@ function calcularConfronto() {
   const eloC   = mc.eloNota ?? mc.forca5 ?? 5;
   const eloF   = mf.eloNota ?? mf.forca5 ?? 5;
 
-  // Se temos dados de contexto: blend. Se não: usar só Elo
+  // Peso do contexto depende de ter eloNota ou não
+  // Se eloNota disponível: blend equilibrado (55% ctx + 45% elo)
+  // Se eloNota NULL (times recentes): contexto casa/fora tem peso 80%
+  //   porque forca5 geral é pouco confiável sem Elo calibrado
+  const temEloC = mc.eloNota != null;
+  const temEloF = mf.eloNota != null;
+
   const fcBlend = fcCtx != null
-    ? (fcCtx * 0.55 + (eloC + 0.3) * 0.45)  // +0.3 vantagem casa no Elo
+    ? (temEloC
+        ? fcCtx * 0.55 + (eloC + 0.3) * 0.45   // elo confiável: blend
+        : fcCtx * 0.80 + (eloC + 0.3) * 0.20)   // sem elo: pesa mais contexto
     : (eloC + 0.5);
+
   const ffBlend = ffCtx != null
-    ? (ffCtx * 0.55 + eloF * 0.45)
+    ? (temEloF
+        ? ffCtx * 0.55 + eloF * 0.45
+        : ffCtx * 0.80 + eloF * 0.20)
     : eloF;
 
   const diffForca = fcBlend - ffBlend;
@@ -1087,6 +1098,30 @@ function calcularConfronto() {
   probCasa = Math.min(78, Math.max(12, probCasa));
   probEmp  = Math.min(38, Math.max(14, probEmp));
   let probFora = Math.max(8, 100 - probCasa - probEmp);
+
+  // ── AJUSTE POR PORFORCA WIN RATE ─────────────────────────────────
+  // Se temos histórico real de vitórias do visitante nessa faixa,
+  // usar como âncora direta — é o sinal mais forte que temos
+  const pfForaData = mf.porForca?.[faixaAdvFora]?.fora;
+  const pfCasaData = mc.porForca?.[faixaAdvCasa]?.casa;
+
+  if (pfForaData && pfForaData.n >= 4) {
+    const vitRateF = pfForaData.vit / pfForaData.n; // win rate fora vs essa faixa
+    const derRateF = pfForaData.der / pfForaData.n;
+    const empRateF = pfForaData.emp / pfForaData.n;
+    // Blend: 50% force blend + 50% porForca win rate histórico
+    probFora = Math.round(probFora * 0.45 + vitRateF * 100 * 0.55);
+    probCasa = Math.round(probCasa * 0.45 + derRateF * 100 * 0.55);
+    probEmp  = Math.round(probEmp  * 0.45 + empRateF * 100 * 0.55);
+  } else if (pfCasaData && pfCasaData.n >= 4) {
+    const vitRateC = pfCasaData.vit / pfCasaData.n;
+    const derRateC = pfCasaData.der / pfCasaData.n;
+    const empRateC = pfCasaData.emp / pfCasaData.n;
+    probCasa = Math.round(probCasa * 0.45 + vitRateC * 100 * 0.55);
+    probFora = Math.round(probFora * 0.45 + derRateC * 100 * 0.55);
+    probEmp  = Math.round(probEmp  * 0.45 + empRateC * 100 * 0.55);
+  }
+
   const tot = probCasa + probEmp + probFora;
   probCasa = Math.round(probCasa/tot*100);
   probEmp  = Math.round(probEmp/tot*100);
