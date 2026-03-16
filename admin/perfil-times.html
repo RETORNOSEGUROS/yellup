@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Yellup — Perfil & Força dos Times</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#07080d;--bg2:#0b0d15;--bg3:#0f1119;
+  --c1:#131622;--c2:#181b28;--c3:#1d2133;
+  --bd1:#191c2c;--bd2:#212540;--bd3:#2a2e4a;
+  --t1:#eceef6;--t2:#858ba5;--t3:#41456a;
+  --acc:#f5a524;--adim:rgba(245,165,36,.1);
+  --grn:#27d49b;--gdim:rgba(39,212,155,.1);
+  --red:#ef5f5f;--rdim:rgba(239,95,95,.1);
+  --blu:#4f96f4;--bdim2:rgba(79,150,244,.1);
+  --pur:#a78bfa;--pdim:rgba(167,139,250,.1);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);}
+
+.topbar{height:52px;background:var(--bg2);border-bottom:1px solid var(--bd1);display:flex;align-items:center;padding:0 18px;gap:14px;position:sticky;top:0;z-index:100;}
+.logo{width:28px;height:28px;background:var(--acc);border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;color:#000;}
+.logo-txt{font-family:'Syne',sans-serif;font-size:15px;font-weight:800;}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.btn{padding:5px 12px;border-radius:7px;border:1px solid var(--bd2);background:none;color:var(--t2);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;text-decoration:none;display:inline-flex;align-items:center;gap:5px;}
+.btn:hover{border-color:var(--bd3);color:var(--t1);}
+.btn-acc{background:var(--acc);border-color:var(--acc);color:#000;}
+.btn-acc:hover{opacity:.88;color:#000;}
+.btn-grn{background:var(--gdim);border-color:var(--grn);color:var(--grn);}
+
+/* LAYOUT */
+.layout{display:grid;grid-template-columns:300px 1fr;height:calc(100vh - 52px);overflow:hidden;}
+
+/* SIDEBAR */
+.sidebar{background:var(--bg2);border-right:1px solid var(--bd1);display:flex;flex-direction:column;overflow:hidden;}
+.sb-head{padding:12px;border-bottom:1px solid var(--bd1);flex-shrink:0;}
+.sb-head h3{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;margin-bottom:6px;}
+.sb-search{width:100%;background:var(--c3);border:1px solid var(--bd2);border-radius:7px;color:var(--t1);font-size:11px;padding:6px 10px;outline:none;}
+.sb-search:focus{border-color:var(--acc);}
+.sb-filters{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;}
+.filt-btn{padding:3px 8px;border-radius:5px;border:1px solid var(--bd2);background:none;color:var(--t3);font-size:9px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:.5px;transition:all .12s;}
+.filt-btn:hover{color:var(--t2);}
+.filt-btn.on{background:var(--adim);border-color:rgba(245,165,36,.3);color:var(--acc);}
+.sb-list{flex:1;overflow-y:auto;}
+.sb-list::-webkit-scrollbar{width:3px;}
+.sb-list::-webkit-scrollbar-thumb{background:var(--bd3);}
+.time-item{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.03);transition:background .1s;}
+.time-item:hover{background:var(--c2);}
+.time-item.on{background:var(--adim);border-left:2px solid var(--acc);}
+.time-logo{width:24px;height:24px;object-fit:contain;flex-shrink:0;}
+.time-nome-sb{font-size:11px;font-weight:600;flex:1;}
+.time-liga-sb{font-size:9px;color:var(--t3);}
+.forma-sb{display:flex;gap:2px;}
+.fb{width:10px;height:10px;border-radius:2px;font-size:6px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+.fV{background:var(--gdim);color:var(--grn);}
+.fE{background:var(--bdim2);color:var(--blu);}
+.fD{background:var(--rdim);color:var(--red);}
+
+/* MAIN */
+.main{display:flex;flex-direction:column;overflow:hidden;}
+.main-tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--bd1);flex-shrink:0;}
+.mtab{padding:10px 18px;font-size:11px;font-weight:700;font-family:'Syne',sans-serif;cursor:pointer;border:none;background:none;color:var(--t3);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;}
+.mtab:hover{color:var(--t2);}
+.mtab.on{color:var(--acc);border-bottom-color:var(--acc);}
+.pane{display:none;flex:1;overflow-y:auto;padding:16px;}
+.pane.on{display:block;}
+.pane::-webkit-scrollbar{width:4px;}
+.pane::-webkit-scrollbar-thumb{background:var(--bd3);}
+
+/* EMPTY */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:var(--t3);}
+.empty-ico{font-size:40px;margin-bottom:10px;}
+
+/* PERFIL HEADER */
+.perfil-header{display:flex;align-items:center;gap:14px;margin-bottom:16px;padding:14px;background:var(--c2);border-radius:12px;border:1px solid var(--bd1);}
+.ph-logo{width:52px;height:52px;object-fit:contain;}
+.ph-info{flex:1;}
+.ph-nome{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;}
+.ph-sub{font-size:10px;color:var(--t3);margin-top:2px;}
+.ph-badges{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+.badge{font-size:9px;font-weight:700;padding:3px 8px;border-radius:20px;}
+.badge-alta{background:var(--rdim);color:var(--red);}
+.badge-media{background:var(--adim);color:var(--acc);}
+.badge-baixa{background:var(--gdim);color:var(--grn);}
+.badge-subindo{background:var(--gdim);color:var(--grn);}
+.badge-caindo{background:var(--rdim);color:var(--red);}
+.badge-estavel{background:var(--bdim2);color:var(--blu);}
+.badge-fadiga{background:var(--pdim);color:var(--pur);}
+
+/* METRICS GRID */
+.metrics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
+.metric-box{background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:10px 12px;}
+.metric-val{font-family:'DM Mono',monospace;font-size:22px;font-weight:700;}
+.metric-lbl{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-top:2px;}
+.metric-delta{font-size:10px;font-weight:700;margin-top:3px;}
+.delta-pos{color:var(--grn);}
+.delta-neg{color:var(--red);}
+.delta-neu{color:var(--t3);}
+
+/* PERIODOS */
+.periodo-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;}
+.periodo-box{background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:10px 12px;}
+.periodo-titulo{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);margin-bottom:8px;}
+.periodo-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.03);}
+.periodo-row:last-child{border-bottom:none;}
+.periodo-lbl{font-size:10px;color:var(--t2);}
+.periodo-val{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;}
+
+/* FORMA BAR */
+.forma-section{background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+.forma-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);margin-bottom:8px;}
+.forma-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
+.forma-label{font-size:9px;color:var(--t3);width:40px;flex-shrink:0;}
+.forma-balls{display:flex;gap:3px;}
+.fball{width:22px;height:22px;border-radius:5px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:default;position:relative;}
+.fball:hover .fball-tip{display:block;}
+.fball-tip{display:none;position:absolute;bottom:26px;left:50%;transform:translateX(-50%);background:var(--c3);border:1px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:9px;white-space:nowrap;z-index:10;color:var(--t1);}
+
+/* TENDENCIA GOLS */
+.tend-section{background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+.tend-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);margin-bottom:10px;}
+.tend-bars{display:flex;flex-direction:column;gap:6px;}
+.tend-row{display:flex;align-items:center;gap:8px;}
+.tend-lbl{font-size:10px;color:var(--t2);width:120px;flex-shrink:0;}
+.tend-bar-bg{flex:1;height:8px;background:var(--bd2);border-radius:4px;overflow:hidden;}
+.tend-bar-fill{height:100%;border-radius:4px;transition:width .5s;}
+.tend-num{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;width:36px;text-align:right;}
+
+/* CONFRONTO */
+.confronto-section{background:var(--c2);border:1px solid var(--bd1);border-radius:12px;padding:16px;margin-bottom:14px;}
+.confronto-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.conf-pick{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:14px;}
+.conf-team{display:flex;flex-direction:column;gap:4px;}
+.conf-team.away{align-items:flex-end;}
+.conf-team select{background:var(--c3);border:1px solid var(--bd2);color:var(--t1);font-size:11px;padding:5px 8px;border-radius:7px;outline:none;cursor:pointer;}
+.conf-vs{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--t3);text-align:center;}
+.conf-result{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;}
+.conf-box{background:var(--c3);border-radius:9px;padding:10px;text-align:center;}
+.conf-box-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:700;}
+.conf-box-lbl{font-size:9px;color:var(--t3);margin-top:2px;}
+.conf-explain{margin-top:12px;display:flex;flex-direction:column;gap:4px;}
+.conf-exp-item{font-size:10px;color:var(--t2);display:flex;align-items:flex-start;gap:5px;line-height:1.4;}
+.conf-exp-item::before{content:'•';color:var(--acc);flex-shrink:0;}
+.conf-probs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:10px;}
+.prob-box{background:var(--bg);border:1px solid var(--bd1);border-radius:8px;padding:8px;text-align:center;}
+.prob-val{font-family:'DM Mono',monospace;font-size:16px;font-weight:700;}
+.prob-lbl{font-size:9px;color:var(--t3);margin-top:2px;}
+.prob-bar{height:4px;border-radius:2px;margin-top:4px;}
+
+/* RANKING */
+.ranking-table{width:100%;border-collapse:collapse;}
+.ranking-table th{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--t3);padding:6px 8px;border-bottom:1px solid var(--bd1);text-align:left;position:sticky;top:0;background:var(--bg);}
+.ranking-table th.r{text-align:right;}
+.ranking-table td{padding:6px 8px;font-size:11px;border-bottom:1px solid rgba(255,255,255,.025);}
+.ranking-table td.r{text-align:right;font-family:'DM Mono',monospace;font-size:10px;}
+.ranking-table tr:hover td{background:rgba(255,255,255,.02);}
+.rank-n{font-family:'DM Mono',monospace;font-size:10px;color:var(--t3);width:24px;}
+.strength-bar{display:flex;align-items:center;gap:5px;}
+.sb-fill{height:6px;border-radius:3px;}
+.tag-subindo{color:var(--grn);font-size:9px;}
+.tag-caindo{color:var(--red);font-size:9px;}
+.tag-est{color:var(--t3);font-size:9px;}
+
+/* LOADING */
+.ld{width:14px;height:14px;border:2px solid rgba(245,165,36,.2);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.loading-center{display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;gap:10px;color:var(--t2);font-size:11px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">Y</div>
+  <span class="logo-txt" style="font-family:'Syne',sans-serif">Yellup <small style="font-size:9px;font-weight:400;color:var(--t3)">ADMIN</small></span>
+  <nav style="display:flex;gap:2px;margin-left:8px;">
+    <a class="btn" href="apostas.html">🎯 Previsões</a>
+    <a class="btn" href="campeonatos.html">🏆 Campeonatos</a>
+    <a class="btn" href="mapeamento-historico.html">🗺️ Mapeamento</a>
+  </nav>
+  <div class="topbar-right">
+    <span id="statusTxt" style="font-size:10px;color:var(--t3)">Carregando...</span>
+    <button class="btn btn-acc" onclick="recalcularTudo()">🔄 Recalcular</button>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sb-head">
+      <h3>📋 Times (<span id="totalTimes">0</span>)</h3>
+      <input class="sb-search" id="searchInput" placeholder="🔍 Buscar time..." oninput="filtrarTimes(this.value)">
+      <div class="sb-filters">
+        <button class="filt-btn on" onclick="setFiltroLiga('',this)">Todos</button>
+        <button class="filt-btn" onclick="setFiltroLiga('Brasileirão A',this)">BR-A</button>
+        <button class="filt-btn" onclick="setFiltroLiga('Premier League',this)">PL</button>
+        <button class="filt-btn" onclick="setFiltroLiga('La Liga',this)">ESP</button>
+        <button class="filt-btn" onclick="setFiltroLiga('Copa Libertadores',this)">LIB</button>
+      </div>
+    </div>
+    <div class="sb-list" id="sbList">
+      <div class="loading-center"><div class="ld"></div><span>Carregando times...</span></div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="main-tabs">
+      <button class="mtab on" onclick="switchTab('perfil',this)">📊 Perfil do Time</button>
+      <button class="mtab" onclick="switchTab('confronto',this)">⚔️ Confronto</button>
+      <button class="mtab" onclick="switchTab('ranking',this)">🏅 Ranking de Força</button>
+    </div>
+
+    <!-- PANE: PERFIL -->
+    <div class="pane on" id="pane-perfil">
+      <div class="empty" id="perfilEmpty">
+        <div class="empty-ico">👈</div>
+        <p>Selecione um time na sidebar</p>
+      </div>
+      <div id="perfilContent" style="display:none"></div>
+    </div>
+
+    <!-- PANE: CONFRONTO -->
+    <div class="pane" id="pane-confronto">
+      <div class="confronto-section">
+        <div class="confronto-title">⚔️ Calculadora de Confronto</div>
+        <div class="conf-pick">
+          <div class="conf-team">
+            <div style="font-size:9px;color:var(--t3);margin-bottom:3px">🏠 TIME CASA</div>
+            <select id="selectCasa" onchange="calcularConfronto()" style="width:100%">
+              <option value="">Selecionar time...</option>
+            </select>
+          </div>
+          <div class="conf-vs">VS</div>
+          <div class="conf-team away">
+            <div style="font-size:9px;color:var(--t3);margin-bottom:3px">✈️ TIME FORA</div>
+            <select id="selectFora" onchange="calcularConfronto()" style="width:100%">
+              <option value="">Selecionar time...</option>
+            </select>
+          </div>
+        </div>
+        <div id="confrontoResult">
+          <div class="empty" style="height:150px"><div class="empty-ico" style="font-size:28px">⚽</div><p style="font-size:11px">Selecione os dois times</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANE: RANKING -->
+    <div class="pane" id="pane-ranking">
+      <div id="rankingContent">
+        <div class="loading-center"><div class="ld"></div><span>Aguardando dados...</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+firebase.initializeApp({
+  apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain: "painel-yellup.firebaseapp.com",
+  projectId: "painel-yellup",
+  storageBucket: "painel-yellup.appspot.com",
+  messagingSenderId: "608347210297",
+  appId: "1:608347210297:web:75092713724e617c7203e8"
+});
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// ══════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════
+let PERFIS = {};       // { timeId: { nome, logo, liga, jogos[], metricas{} } }
+let LISTA_TIMES = [];  // array ordenado para sidebar
+let TIME_SELECIONADO = null;
+let FILTRO_LIGA = '';
+
+auth.onAuthStateChanged(u => {
+  if (!u || u.email !== 'admin@yellup.com') { window.location.href = 'login.html'; return; }
+  carregarDados();
+});
+
+// ══════════════════════════════════════════════════════════
+// CARREGAR DADOS DO FIRESTORE
+// ══════════════════════════════════════════════════════════
+async function carregarDados() {
+  gc('statusTxt').textContent = 'Carregando fixtures...';
+  try {
+    const snap = await db.collection('fixtures-historico').limit(5000).get();
+    const docs = snap.docs.map(d => d.data());
+    gc('statusTxt').textContent = `${docs.length} jogos carregados. Calculando perfis...`;
+    processarDados(docs);
+    gc('statusTxt').textContent = `✓ ${Object.keys(PERFIS).length} times processados`;
+    renderSidebar();
+    popularSelects();
+    renderRanking();
+  } catch(e) {
+    gc('statusTxt').textContent = '✗ Erro: ' + e.message;
+  }
+}
+
+function processarDados(docs) {
+  const raw = {};
+  docs.forEach(doc => {
+    ['casa', 'fora'].forEach(lado => {
+      const tid = doc[`${lado}Id`];
+      const tnome = doc[`${lado}Nome`];
+      const tlogo = doc[`${lado}Logo`];
+      if (!tid || !tnome) return;
+      if (!raw[tid]) raw[tid] = { nome: tnome, logo: tlogo || '', ligas: {}, jogos: [] };
+
+      const gc2 = doc.golsCasa ?? 0, gf2 = doc.golsFora ?? 0;
+      const ehCasa = lado === 'casa';
+      const gols = ehCasa ? gc2 : gf2;
+      const golsSof = ehCasa ? gf2 : gc2;
+      const total = gc2 + gf2;
+      const r = doc.resultado;
+      const resultado = (r === 'casa' && ehCasa) || (r === 'fora' && !ehCasa) ? 'V'
+                      : r === 'empate' ? 'E' : 'D';
+      const liga = doc.ligaNome || '';
+      raw[tid].ligas[liga] = (raw[tid].ligas[liga] || 0) + 1;
+      raw[tid].jogos.push({
+        data: doc.data || '',
+        casa: ehCasa,
+        gols, golsSof, total, resultado, liga,
+        season: doc.season,
+        adversario: ehCasa ? doc.foraNome : doc.casaNome,
+        adversarioId: ehCasa ? doc.foraId : doc.casaId,
+        adversarioLogo: ehCasa ? doc.foraLogo : doc.casaLogo,
+      });
+    });
+  });
+
+  // Ordenar jogos por data desc e calcular métricas
+  Object.entries(raw).forEach(([tid, t]) => {
+    t.jogos.sort((a, b) => b.data.localeCompare(a.data));
+    const ligaPrincipal = Object.entries(t.ligas).sort((a,b) => b[1]-a[1])[0]?.[0] || '';
+    PERFIS[tid] = {
+      ...t,
+      liga: ligaPrincipal,
+      metricas: calcularMetricas(t.jogos),
+    };
+  });
+
+  LISTA_TIMES = Object.entries(PERFIS)
+    .map(([id, t]) => ({ id, ...t }))
+    .filter(t => t.jogos.length >= 5)
+    .sort((a,b) => b.metricas.forca5 - a.metricas.forca5);
+}
+
+// ══════════════════════════════════════════════════════════
+// MÉTRICAS PRINCIPAIS
+// ══════════════════════════════════════════════════════════
+function calcularMetricas(jogos) {
+  const u5  = jogos.slice(0, 5);
+  const u10 = jogos.slice(0, 10);
+  const u15 = jogos.slice(0, 15);
+  const u20 = jogos.slice(0, 20);
+
+  function stats(js) {
+    const n = js.length;
+    if (!n) return null;
+    const vit = js.filter(j => j.resultado === 'V').length;
+    const emp = js.filter(j => j.resultado === 'E').length;
+    const der = js.filter(j => j.resultado === 'D').length;
+    const pts = vit * 3 + emp;
+    const gf  = js.reduce((a,j) => a + j.gols, 0);
+    const gs  = js.reduce((a,j) => a + j.golsSof, 0);
+    const tot = js.reduce((a,j) => a + j.total, 0);
+    return {
+      n, vit, emp, der,
+      pts_jogo: +(pts/n).toFixed(2),
+      gf_media: +(gf/n).toFixed(2),
+      gs_media: +(gs/n).toFixed(2),
+      tot_media: +(tot/n).toFixed(2),
+      pct_vit: +(vit/n*100).toFixed(1),
+      forma: js.slice(0,8).map(j => j.resultado),
+    };
+  }
+
+  const s5 = stats(u5), s10 = stats(u10), s15 = stats(u15), s20 = stats(u20);
+  if (!s5 || !s10) return { forca5: 0, forca10: 0 };
+
+  // Força Yellup 0–10: combinação de pts/jogo + ataque - defesa
+  const forca = (s) => {
+    if (!s) return 0;
+    const base = s.pts_jogo / 3 * 5;          // 0–5 pts
+    const atq  = Math.min(s.gf_media / 2, 2);  // 0–2 ataque
+    const def  = Math.max(0, 1.5 - s.gs_media / 2); // 0–1.5 defesa
+    return Math.round(Math.min(10, base + atq + def) * 10) / 10;
+  };
+
+  const forca5  = forca(s5);
+  const forca10 = forca(s10);
+  const forca20 = forca(s20);
+
+  // Momentum: diferença de força ult5 vs ult10
+  const momentum = +(forca5 - forca10).toFixed(1);
+
+  // Tendência gols: ult5 vs ult10
+  const tendGols = s5 && s10 ? +(s5.tot_media - s10.tot_media).toFixed(2) : 0;
+
+  // Fadiga: jogos nos últimos 15 dias
+  let fadiga = 0;
+  if (jogos.length > 0) {
+    try {
+      const dtUlt = new Date(jogos[0].data);
+      fadiga = jogos.filter(j => {
+        const diff = (dtUlt - new Date(j.data)) / 86400000;
+        return diff <= 15;
+      }).length;
+    } catch(e) {}
+  }
+
+  // Casa vs Fora
+  const emCasa = jogos.filter(j => j.casa);
+  const emFora = jogos.filter(j => !j.casa);
+  const statsCasa = stats(emCasa.slice(0,8));
+  const statsFora = stats(emFora.slice(0,8));
+
+  return {
+    s5, s10, s15, s20,
+    forca5, forca10, forca20,
+    momentum,
+    tendGols,
+    fadiga,
+    statsCasa, statsFora,
+    tendencia: momentum >= 1 ? 'subindo' : momentum <= -1 ? 'caindo' : 'estavel',
+    tendGolsTag: s5?.tot_media >= 3 ? 'alta' : s5?.tot_media <= 1.8 ? 'baixa' : 'media',
+  };
+}
+
+// ══════════════════════════════════════════════════════════
+// RENDER SIDEBAR
+// ══════════════════════════════════════════════════════════
+function renderSidebar(busca = '') {
+  let lista = LISTA_TIMES;
+  if (FILTRO_LIGA) lista = lista.filter(t => t.liga === FILTRO_LIGA || t.jogos.some(j => j.liga === FILTRO_LIGA));
+  if (busca) lista = lista.filter(t => t.nome.toLowerCase().includes(busca.toLowerCase()));
+
+  gc('totalTimes').textContent = lista.length;
+  gc('sbList').innerHTML = lista.map(t => {
+    const m = t.metricas;
+    const forma = (m.s5?.forma || []).slice(0, 5);
+    const forcaColor = m.forca5 >= 7 ? 'var(--grn)' : m.forca5 >= 4.5 ? 'var(--acc)' : 'var(--red)';
+    return `<div class="time-item${TIME_SELECIONADO === t.id ? ' on' : ''}" onclick="selecionarTime('${t.id}')">
+      <img src="${t.logo}" class="time-logo" onerror="this.style.display='none'">
+      <div style="flex:1;min-width:0">
+        <div class="time-nome-sb">${t.nome}</div>
+        <div class="time-liga-sb">${t.liga}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:${forcaColor}">${m.forca5}</div>
+        <div class="forma-sb">${forma.map(r => `<div class="fb f${r}">${r}</div>`).join('')}</div>
+      </div>
+    </div>`;
+  }).join('') || '<div style="padding:20px;text-align:center;color:var(--t3);font-size:11px">Nenhum time encontrado</div>';
+}
+
+function filtrarTimes(v) { renderSidebar(v); }
+function setFiltroLiga(liga, el) {
+  FILTRO_LIGA = liga;
+  document.querySelectorAll('.filt-btn').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  renderSidebar(gc('searchInput').value);
+}
+
+// ══════════════════════════════════════════════════════════
+// PERFIL DO TIME
+// ══════════════════════════════════════════════════════════
+function selecionarTime(tid) {
+  TIME_SELECIONADO = tid;
+  renderSidebar(gc('searchInput').value);
+  renderPerfil(tid);
+  // Trocar para aba perfil
+  switchTab('perfil', document.querySelector('.mtab'));
+}
+
+function renderPerfil(tid) {
+  const t = PERFIS[tid];
+  if (!t) return;
+  const m = t.metricas;
+  const s5 = m.s5, s10 = m.s10, s15 = m.s15;
+
+  gc('perfilEmpty').style.display = 'none';
+  gc('perfilContent').style.display = 'block';
+
+  const forcaColor = m.forca5 >= 7 ? 'var(--grn)' : m.forca5 >= 4.5 ? 'var(--acc)' : 'var(--red)';
+  const momColor = m.momentum > 0.5 ? 'var(--grn)' : m.momentum < -0.5 ? 'var(--red)' : 'var(--t3)';
+  const momSinal = m.momentum > 0 ? '+' : '';
+
+  // Badges
+  const badges = [];
+  if (m.tendencia === 'subindo') badges.push('<span class="badge badge-subindo">📈 Subindo</span>');
+  else if (m.tendencia === 'caindo') badges.push('<span class="badge badge-caindo">📉 Caindo</span>');
+  else badges.push('<span class="badge badge-estavel">➡️ Estável</span>');
+
+  if (m.tendGolsTag === 'alta') badges.push('<span class="badge badge-alta">🔥 Muitos Gols</span>');
+  else if (m.tendGolsTag === 'baixa') badges.push('<span class="badge badge-baixa">🔒 Poucos Gols</span>');
+  else badges.push('<span class="badge badge-media">⚖️ Gols Médio</span>');
+
+  if (m.fadiga >= 4) badges.push('<span class="badge badge-fadiga">😓 Fadiga (${m.fadiga} jogos/15d)</span>');
+
+  // Últimos 10 jogos detalhados
+  const ultJogos = t.jogos.slice(0, 10).map(j => {
+    const cor = j.resultado === 'V' ? 'var(--grn)' : j.resultado === 'E' ? 'var(--blu)' : 'var(--red)';
+    const placar = j.casa ? `${j.gols}-${j.golsSof}` : `${j.golsSof}-${j.gols}`;
+    const local = j.casa ? '🏠' : '✈️';
+    const dataFmt = j.data ? j.data.slice(0,10) : '';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.03)">
+      <div class="fb f${j.resultado}" style="width:18px;height:18px;font-size:8px;flex-shrink:0">${j.resultado}</div>
+      <span style="font-size:9px;color:var(--t3)">${local}</span>
+      <span style="font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.adversario}</span>
+      <span style="font-family:'DM Mono',monospace;font-size:10px;font-weight:700;color:${cor}">${placar}</span>
+      <span style="font-size:9px;color:var(--t3);width:32px;text-align:right">${j.total}g</span>
+      <span style="font-size:8px;color:var(--t3);width:72px;text-align:right">${dataFmt}</span>
+    </div>`;
+  }).join('');
+
+  // Comparativo ult5 vs ult10 vs ult20
+  function row(lbl, v5, v10, v20, fmt = v => v) {
+    const cor5 = v5 > v10 ? 'var(--grn)' : v5 < v10 ? 'var(--red)' : 'var(--t2)';
+    return `<div class="periodo-row">
+      <span class="periodo-lbl">${lbl}</span>
+      <span class="periodo-val" style="color:${cor5}">${fmt(v5)}</span>
+      <span class="periodo-val" style="color:var(--t2)">${fmt(v10)}</span>
+      <span class="periodo-val" style="color:var(--t3)">${fmt(v20 || v10)}</span>
+    </div>`;
+  }
+
+  // Cálculo de prognóstico de gols para próximo jogo (sem adversário)
+  const golsEspHome  = s5?.gf_media?.toFixed(2) ?? '—';
+  const golsEspAgainst = s5?.gs_media?.toFixed(2) ?? '—';
+
+  gc('perfilContent').innerHTML = `
+    <div class="perfil-header">
+      <img src="${t.logo}" class="ph-logo" onerror="this.style.display='none'">
+      <div class="ph-info">
+        <div class="ph-nome">${t.nome}</div>
+        <div class="ph-sub">${t.liga} · ${t.jogos.length} jogos no banco</div>
+        <div class="ph-badges">${badges.join('')}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:'DM Mono',monospace;font-size:36px;font-weight:800;color:${forcaColor}">${m.forca5}</div>
+        <div style="font-size:9px;color:var(--t3)">FORÇA YELLUP</div>
+        <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:${momColor}">${momSinal}${m.momentum} vs ult10</div>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-box">
+        <div class="metric-val" style="color:var(--acc)">${s5?.pts_jogo ?? '—'}</div>
+        <div class="metric-lbl">Pts/jogo ult.5</div>
+        <div class="metric-delta ${s5?.pts_jogo > s10?.pts_jogo ? 'delta-pos' : s5?.pts_jogo < s10?.pts_jogo ? 'delta-neg' : 'delta-neu'}">
+          vs ult10: ${s10?.pts_jogo ?? '—'}
+        </div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-val" style="color:var(--grn)">${s5?.gf_media ?? '—'}</div>
+        <div class="metric-lbl">Gols/jogo ult.5</div>
+        <div class="metric-delta ${s5?.gf_media > s10?.gf_media ? 'delta-pos' : s5?.gf_media < s10?.gf_media ? 'delta-neg' : 'delta-neu'}">
+          vs ult10: ${s10?.gf_media ?? '—'}
+        </div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-val" style="color:var(--red)">${s5?.gs_media ?? '—'}</div>
+        <div class="metric-lbl">Gols sof./jogo ult.5</div>
+        <div class="metric-delta ${s5?.gs_media < s10?.gs_media ? 'delta-pos' : s5?.gs_media > s10?.gs_media ? 'delta-neg' : 'delta-neu'}">
+          vs ult10: ${s10?.gs_media ?? '—'}
+        </div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-val" style="color:${m.tendGolsTag==='alta'?'var(--red)':m.tendGolsTag==='baixa'?'var(--grn)':'var(--acc)'}">${s5?.tot_media ?? '—'}</div>
+        <div class="metric-lbl">Total gols/jogo ult.5</div>
+        <div class="metric-delta ${m.tendGols > 0 ? 'delta-neg' : m.tendGols < 0 ? 'delta-pos' : 'delta-neu'}">
+          vs ult10: ${s10?.tot_media ?? '—'}
+        </div>
+      </div>
+    </div>
+
+    <div class="periodo-grid">
+      <div class="periodo-box">
+        <div class="periodo-titulo">📊 Comparativo Períodos</div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:8px;color:var(--t3)">Métrica</span>
+          <div style="display:flex;gap:16px">
+            <span style="font-size:8px;color:var(--acc);font-weight:700">Ult5</span>
+            <span style="font-size:8px;color:var(--t2)">Ult10</span>
+            <span style="font-size:8px;color:var(--t3)">Ult20</span>
+          </div>
+        </div>
+        ${row('Pts/jogo', s5?.pts_jogo, s10?.pts_jogo, m.s20?.pts_jogo)}
+        ${row('Gols marcados', s5?.gf_media, s10?.gf_media, m.s20?.gf_media)}
+        ${row('Gols sofridos', s5?.gs_media, s10?.gs_media, m.s20?.gs_media, v => v)}
+        ${row('Total/jogo', s5?.tot_media, s10?.tot_media, m.s20?.tot_media)}
+        ${row('% Vitória', s5?.pct_vit, s10?.pct_vit, m.s20?.pct_vit, v => v+'%')}
+      </div>
+
+      <div class="periodo-box">
+        <div class="periodo-titulo">🏠 Casa vs ✈️ Fora</div>
+        ${m.statsCasa ? `
+        <div class="periodo-row"><span class="periodo-lbl">🏠 Força casa</span><span class="periodo-val" style="color:var(--grn)">${(()=>{const s=m.statsCasa;return s?+(s.pts_jogo/3*5+Math.min(s.gf_media/2,2)+Math.max(0,1.5-s.gs_media/2)).toFixed(1):'—'})()}</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Pts/j em casa</span><span class="periodo-val">${m.statsCasa?.pts_jogo}</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">GF em casa</span><span class="periodo-val">${m.statsCasa?.gf_media}</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">GS em casa</span><span class="periodo-val">${m.statsCasa?.gs_media}</span></div>
+        ` : '<div class="periodo-row"><span class="periodo-lbl">Sem dados casa</span></div>'}
+        ${m.statsFora ? `
+        <div class="periodo-row" style="margin-top:4px"><span class="periodo-lbl">✈️ Força fora</span><span class="periodo-val" style="color:var(--acc)">${(()=>{const s=m.statsFora;return s?+(s.pts_jogo/3*5+Math.min(s.gf_media/2,2)+Math.max(0,1.5-s.gs_media/2)).toFixed(1):'—'})()}</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Pts/j fora</span><span class="periodo-val">${m.statsFora?.pts_jogo}</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">GF fora</span><span class="periodo-val">${m.statsFora?.gf_media}</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">GS fora</span><span class="periodo-val">${m.statsFora?.gs_media}</span></div>
+        ` : ''}
+      </div>
+
+      <div class="periodo-box">
+        <div class="periodo-titulo">📈 Diagnóstico</div>
+        <div class="periodo-row"><span class="periodo-lbl">Momentum</span>
+          <span class="periodo-val" style="color:${m.momentum>0?'var(--grn)':m.momentum<0?'var(--red)':'var(--t3)'}">${m.momentum > 0 ? '+' : ''}${m.momentum}</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Tend. gols/jogo</span>
+          <span class="periodo-val" style="color:${m.tendGols>0?'var(--red)':m.tendGols<0?'var(--grn)':'var(--t3)'}">${m.tendGols>0?'+':''}${m.tendGols}</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Fadiga (15d)</span>
+          <span class="periodo-val" style="color:${m.fadiga>=4?'var(--red)':'var(--t2)'}">${m.fadiga} jogos</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Força ult.5</span><span class="periodo-val" style="color:${forcaColor}">${m.forca5}/10</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Força ult.10</span><span class="periodo-val">${m.forca10}/10</span></div>
+        <div class="periodo-row"><span class="periodo-lbl">Força ult.20</span><span class="periodo-val" style="color:var(--t3)">${m.forca20}/10</span></div>
+      </div>
+    </div>
+
+    <div class="tend-section">
+      <div class="tend-title">🔥 Tendência Visual de Gols/Jogo</div>
+      <div class="tend-bars">
+        ${[['Ult. 5 jogos', s5?.tot_media], ['Ult. 10 jogos', s10?.tot_media], ['Ult. 15 jogos', s15?.tot_media], ['Ult. 20 jogos', m.s20?.tot_media]].map(([lbl, val]) => {
+          if (!val) return '';
+          const maxPossivel = 6;
+          const pct = Math.min(100, (val / maxPossivel) * 100);
+          const cor = val >= 3.5 ? '#ef5f5f' : val >= 2.5 ? '#f5a524' : '#27d49b';
+          return `<div class="tend-row">
+            <span class="tend-lbl">${lbl}</span>
+            <div class="tend-bar-bg"><div class="tend-bar-fill" style="width:${pct}%;background:${cor}"></div></div>
+            <span class="tend-num" style="color:${cor}">${val}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="font-size:9px;color:var(--t3);margin-top:8px">
+        🟢 ≤1.8 gols/jogo = jogo tende a fechar | 🟡 2.0–2.9 = médio | 🔴 ≥3.0 = jogo abre
+      </div>
+    </div>
+
+    <div class="forma-section">
+      <div class="forma-title">📅 Últimos 10 Jogos</div>
+      ${ultJogos}
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════════════════
+// CONFRONTO
+// ══════════════════════════════════════════════════════════
+function popularSelects() {
+  const opts = LISTA_TIMES.map(t => `<option value="${t.id}">${t.nome} (${t.liga})</option>`).join('');
+  gc('selectCasa').innerHTML = '<option value="">Time da casa...</option>' + opts;
+  gc('selectFora').innerHTML = '<option value="">Time visitante...</option>' + opts;
+}
+
+function calcularConfronto() {
+  const casaId = gc('selectCasa').value;
+  const foraId = gc('selectFora').value;
+  if (!casaId || !foraId || casaId === foraId) return;
+
+  const casa = PERFIS[casaId];
+  const fora = PERFIS[foraId];
+  if (!casa || !fora) return;
+
+  const mc = casa.metricas, mf = fora.metricas;
+  const sc5 = mc.s5, sf5 = mf.s5;
+  const sc10 = mc.s10, sf10 = mf.s10;
+
+  // ── GOLS ESPERADOS ──────────────────────────────────────
+  // Método Dixon-Coles com base de liga
+  // xGC = ataque_casa × defesa_fora / referência
+  const refAtq = 1.3; // média global de gols por time por jogo
+  const atqCasa = sc5?.gf_media ?? 1.3;
+  const defCasa = sc5?.gs_media ?? 1.3;
+  const atqFora = sf5?.gf_media ?? 1.3;
+  const defFora = sf5?.gs_media ?? 1.3;
+
+  const xGC = +(atqCasa * defFora / refAtq).toFixed(2);
+  const xGF = +(atqFora * defCasa / refAtq).toFixed(2);
+  const xGTotal = +(xGC + xGF).toFixed(2);
+
+  // ── PROBABILIDADE DE RESULTADO ──────────────────────────
+  // Baseado na força relativa + vantagem de jogar em casa
+  const forcaCasa = mc.forca5 + 0.5; // +0.5 vantagem casa
+  const forcaFora = mf.forca5;
+  const forcaTotal = (forcaCasa + forcaFora) || 10;
+
+  let probCasa = (forcaCasa / forcaTotal) * 100;
+  let probEmp  = 26; // base histórica
+  // Quando times são próximos, empate sobe
+  const diffForca = Math.abs(forcaCasa - forcaFora);
+  if (diffForca < 1.5) probEmp = 30;
+  else if (diffForca < 0.5) probEmp = 35;
+  probCasa = Math.round(Math.min(72, Math.max(15, probCasa)));
+  probEmp  = Math.round(Math.min(38, Math.max(15, probEmp)));
+  let probFora = Math.max(8, 100 - probCasa - probEmp);
+  const tot = probCasa + probEmp + probFora;
+  probCasa = Math.round(probCasa/tot*100);
+  probEmp  = Math.round(probEmp/tot*100);
+  probFora = 100 - probCasa - probEmp;
+
+  const veredito = probCasa >= probEmp && probCasa >= probFora ? 'casa'
+                 : probEmp >= probCasa && probEmp >= probFora ? 'empate' : 'fora';
+  const verditoNome = veredito === 'casa' ? casa.nome : veredito === 'fora' ? fora.nome : 'Empate';
+  const verditoIco  = veredito === 'casa' ? '🏠' : veredito === 'fora' ? '✈️' : '🤝';
+
+  // ── TENDÊNCIA DE GOLS DO JOGO ───────────────────────────
+  // Se ambos os times têm alta tendência de gols, o jogo tende a abrir
+  const tendCasa = sc5?.tot_media ?? 2.5;
+  const tendFora = sf5?.tot_media ?? 2.5;
+  const tendJogo = +((tendCasa + tendFora) / 2).toFixed(2);
+  const over25 = tendJogo >= 3.5 ? 65 : tendJogo >= 3.0 ? 55 : tendJogo >= 2.5 ? 45 : 30;
+
+  // ── EXPLICAÇÕES ─────────────────────────────────────────
+  const exps = [];
+  exps.push(`${casa.nome} força ${mc.forca5}/10 (ult.5) vs ${fora.nome} força ${mf.forca5}/10`);
+
+  if (mc.tendencia === 'caindo') exps.push(`⚠️ ${casa.nome} em queda — pts/j caiu ${mc.s10?.pts_jogo} → ${mc.s5?.pts_jogo}`);
+  if (mf.tendencia === 'caindo') exps.push(`⚠️ ${fora.nome} em queda — pts/j caiu ${mf.s10?.pts_jogo} → ${mf.s5?.pts_jogo}`);
+  if (mc.tendencia === 'subindo') exps.push(`📈 ${casa.nome} em ascensão — força crescendo`);
+  if (mf.tendencia === 'subindo') exps.push(`📈 ${fora.nome} em ascensão — força crescendo`);
+
+  if (sc5?.gs_media > 1.8) exps.push(`🔓 Defesa do ${casa.nome} porosa — sofre ${sc5.gs_media} gols/jogo`);
+  if (sf5?.gs_media > 1.8) exps.push(`🔓 Defesa do ${fora.nome} porosa — sofre ${sf5.gs_media} gols/jogo`);
+
+  if (tendJogo >= 3.0) exps.push(`🔥 Ambos os times com tendência ALTA de gols — média ${tendJogo} gols/jogo`);
+  else if (tendJogo <= 1.8) exps.push(`🔒 Tendência de jogo FECHADO — média ${tendJogo} gols/jogo`);
+
+  if (mc.fadiga >= 4) exps.push(`😓 ${casa.nome} pode estar fatigado — ${mc.fadiga} jogos nos últimos 15 dias`);
+  if (mf.fadiga >= 4) exps.push(`😓 ${fora.nome} pode estar fatigado — ${mf.fadiga} jogos nos últimos 15 dias`);
+
+  // Casa vs Fora específico
+  const forcaCasaEm = mc.statsCasa ? +(mc.statsCasa.pts_jogo/3*5+Math.min(mc.statsCasa.gf_media/2,2)+Math.max(0,1.5-mc.statsCasa.gs_media/2)).toFixed(1) : null;
+  const forcaForaEm = mf.statsFora ? +(mf.statsFora.pts_jogo/3*5+Math.min(mf.statsFora.gf_media/2,2)+Math.max(0,1.5-mf.statsFora.gs_media/2)).toFixed(1) : null;
+  if (forcaCasaEm) exps.push(`🏠 ${casa.nome} joga em casa: força ${forcaCasaEm}/10`);
+  if (forcaForaEm) exps.push(`✈️ ${fora.nome} joga fora: força ${forcaForaEm}/10`);
+
+  gc('confrontoResult').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+      <div class="conf-box">
+        <div class="conf-box-val" style="color:var(--acc)">${xGTotal}</div>
+        <div class="conf-box-lbl">Gols Esperados</div>
+        <div style="font-size:9px;color:var(--t3);margin-top:2px">${xGC} + ${xGF}</div>
+      </div>
+      <div class="conf-box">
+        <div class="conf-box-val" style="color:${over25>=55?'var(--red)':over25<=35?'var(--grn)':'var(--acc)'}">${over25}%</div>
+        <div class="conf-box-lbl">Over 2.5</div>
+        <div style="font-size:9px;color:var(--t3);margin-top:2px">base tendência</div>
+      </div>
+      <div class="conf-box">
+        <div class="conf-box-val" style="color:${veredito==='casa'?'var(--grn)':veredito==='fora'?'var(--red)':'var(--blu)'}">${verditoIco} ${verditoNome}</div>
+        <div class="conf-box-lbl">Favorito</div>
+        <div style="font-size:9px;color:var(--t3);margin-top:2px">pela força atual</div>
+      </div>
+    </div>
+
+    <div class="conf-probs">
+      <div class="prob-box">
+        <div class="prob-val" style="color:var(--grn)">${probCasa}%</div>
+        <div class="prob-lbl">🏠 ${casa.nome}</div>
+        <div class="prob-bar" style="background:var(--grn);width:${probCasa}%;max-width:100%"></div>
+      </div>
+      <div class="prob-box">
+        <div class="prob-val" style="color:var(--blu)">${probEmp}%</div>
+        <div class="prob-lbl">🤝 Empate</div>
+        <div class="prob-bar" style="background:var(--blu);width:${probEmp}%;max-width:100%"></div>
+      </div>
+      <div class="prob-box">
+        <div class="prob-val" style="color:var(--red)">${probFora}%</div>
+        <div class="prob-lbl">✈️ ${fora.nome}</div>
+        <div class="prob-bar" style="background:var(--red);width:${probFora}%;max-width:100%"></div>
+      </div>
+    </div>
+
+    <div class="conf-explain" style="margin-top:12px">
+      ${exps.slice(0,6).map(e => `<div class="conf-exp-item">${e}</div>`).join('')}
+    </div>
+
+    <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:8px;border:1px solid var(--bd1)">
+      <div style="font-size:9px;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Comparativo de Forma</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <div style="font-size:10px;font-weight:600;margin-bottom:4px">${casa.nome}</div>
+          <div style="display:flex;gap:3px">${(mc.s5?.forma||[]).map(r=>`<div class="fb f${r}" style="width:18px;height:18px">${r}</div>`).join('')}</div>
+          <div style="font-size:9px;color:var(--t3);margin-top:3px">${mc.s5?.vit}V ${mc.s5?.emp}E ${mc.s5?.der}D | ${mc.s5?.pts_jogo}pts/j</div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:600;margin-bottom:4px">${fora.nome}</div>
+          <div style="display:flex;gap:3px">${(mf.s5?.forma||[]).map(r=>`<div class="fb f${r}" style="width:18px;height:18px">${r}</div>`).join('')}</div>
+          <div style="font-size:9px;color:var(--t3);margin-top:3px">${mf.s5?.vit}V ${mf.s5?.emp}E ${mf.s5?.der}D | ${mf.s5?.pts_jogo}pts/j</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════════════════
+// RANKING DE FORÇA
+// ══════════════════════════════════════════════════════════
+function renderRanking() {
+  const lista = [...LISTA_TIMES].sort((a,b) => b.metricas.forca5 - a.metricas.forca5);
+  const maxForca = lista[0]?.metricas.forca5 || 10;
+
+  gc('rankingContent').innerHTML = `
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+      <span style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700">🏅 Ranking de Força — Yellup Score</span>
+      <span style="font-size:10px;color:var(--t3)">${lista.length} times · baseado nos últimos 5 jogos</span>
+    </div>
+    <table class="ranking-table">
+      <thead><tr>
+        <th>#</th><th>Time</th><th>Liga</th>
+        <th class="r">F.5</th><th class="r">F.10</th><th class="r">Mom.</th>
+        <th>Força Visual</th>
+        <th class="r">Gols/j</th><th class="r">GS/j</th>
+        <th>Forma</th><th class="r">Tend.Gols</th>
+      </tr></thead>
+      <tbody>
+      ${lista.slice(0, 100).map((t, i) => {
+        const m = t.metricas;
+        const forcaColor = m.forca5 >= 7 ? 'var(--grn)' : m.forca5 >= 4.5 ? 'var(--acc)' : 'var(--red)';
+        const momTag = m.tendencia === 'subindo' ? '<span class="tag-subindo">📈</span>'
+                     : m.tendencia === 'caindo' ? '<span class="tag-caindo">📉</span>'
+                     : '<span class="tag-est">→</span>';
+        const pct = (m.forca5 / maxForca * 100).toFixed(0);
+        const tendTag = m.tendGolsTag === 'alta' ? '<span style="color:var(--red);font-size:9px">🔥 Alta</span>'
+                      : m.tendGolsTag === 'baixa' ? '<span style="color:var(--grn);font-size:9px">🔒 Baixa</span>'
+                      : '<span style="color:var(--acc);font-size:9px">⚖️ Med.</span>';
+        return `<tr onclick="selecionarTime('${t.id}');switchTab('perfil',document.querySelector('.mtab'))" style="cursor:pointer">
+          <td><span class="rank-n">${i+1}</span></td>
+          <td>
+            <div style="display:flex;align-items:center;gap:7px">
+              <img src="${t.logo}" style="width:18px;height:18px;object-fit:contain" onerror="this.style.display='none'">
+              <span style="font-weight:600">${t.nome}</span>
+            </div>
+          </td>
+          <td style="font-size:9px;color:var(--t3)">${t.liga}</td>
+          <td class="r" style="color:${forcaColor};font-weight:700">${m.forca5}</td>
+          <td class="r">${m.forca10}</td>
+          <td class="r">${momTag} <span style="font-size:9px;color:${m.momentum>0?'var(--grn)':m.momentum<0?'var(--red)':'var(--t3)'}">${m.momentum>0?'+':''}${m.momentum}</span></td>
+          <td><div class="strength-bar"><div class="sb-fill" style="width:${pct}px;max-width:120px;background:${forcaColor}"></div></div></td>
+          <td class="r">${m.s5?.gf_media ?? '—'}</td>
+          <td class="r">${m.s5?.gs_media ?? '—'}</td>
+          <td><div style="display:flex;gap:2px">${(m.s5?.forma||[]).slice(0,5).map(r=>`<div class="fb f${r}">${r}</div>`).join('')}</div></td>
+          <td class="r">${tendTag}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ══════════════════════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════════════════════
+function switchTab(id, el) {
+  document.querySelectorAll('.mtab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('on'));
+  document.querySelectorAll('.mtab')[['perfil','confronto','ranking'].indexOf(id)]?.classList.add('on');
+  gc('pane-' + id).classList.add('on');
+}
+
+function recalcularTudo() {
+  PERFIS = {}; LISTA_TIMES = []; TIME_SELECIONADO = null;
+  gc('sbList').innerHTML = '<div class="loading-center"><div class="ld"></div><span>Recarregando...</span></div>';
+  carregarDados();
+}
+
+function gc(id) { return document.getElementById(id); }
+</script>
+</body>
+</html>
