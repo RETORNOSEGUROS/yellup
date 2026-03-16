@@ -637,6 +637,44 @@ function selecionarTime(tid) {
   switchTab('perfil', document.querySelector('.mtab'));
 }
 
+
+// ══════════════════════════════════════════════════════════
+// RENDER: Gráfico de evolução do Elo
+// ══════════════════════════════════════════════════════════
+function renderEloChart(m) {
+  const hist = m.histElo.slice(-20);
+  const elos = hist.map(h => h.elo);
+  const eloMin = Math.min(...elos) - 20;
+  const eloMax = Math.max(...elos) + 20;
+  const W = 500, H = 80, pad = 10;
+  
+  const pts = elos.map((e, i) => {
+    const x = pad + i / (elos.length - 1) * (W - 2 * pad);
+    const y = H - pad - (e - eloMin) / (eloMax - eloMin) * (H - 2 * pad);
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  });
+  
+  const corLinha = m.mom5 > 0.3 ? '#27d49b' : m.mom5 < -0.3 ? '#ef5f5f' : '#f5a524';
+  
+  const circles = hist.map((h, i) => {
+    const x = pad + i / (elos.length - 1) * (W - 2 * pad);
+    const y = H - pad - (h.elo - eloMin) / (eloMax - eloMin) * (H - 2 * pad);
+    const cor = h.res === 'V' ? '#27d49b' : h.res === 'E' ? '#4f96f4' : '#ef5f5f';
+    return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="3" fill="' + cor + '"/>';
+  }).join('');
+
+  return '<div class="tend-section" style="margin-bottom:14px">'
+    + '<div class="tend-title">📈 Evolução Elo — Últimos ' + hist.length + ' Jogos</div>'
+    + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:' + H + 'px;overflow:visible">'
+    + '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + corLinha + '" stroke-width="2"/>'
+    + circles
+    + '</svg>'
+    + '<div style="display:flex;gap:10px;margin-top:4px;font-size:9px;color:var(--t3)">'
+    + '<span>🟢 Vitória</span><span>🔵 Empate</span><span>🔴 Derrota</span>'
+    + '<span style="margin-left:auto">Elo: <strong style="color:' + corLinha + '">' + m.elo + '</strong> → Nota <strong style="color:' + corLinha + '">' + m.eloNota + '</strong></span>'
+    + '</div></div>';
+}
+
 function renderPerfil(tid) {
   const t = PERFIS[tid];
   if (!t) return;
@@ -825,34 +863,7 @@ function renderPerfil(tid) {
       </div>
     </div>
 
-  \${m.histElo?.length >= 5 ? (() => {
-    const hist = m.histElo.slice(-20);
-    const elos = hist.map(h => h.elo);
-    const eloMin = Math.min(...elos) - 20;
-    const eloMax = Math.max(...elos) + 20;
-    const W = 500, H = 80, pad = 10;
-    const pts = elos.map((e,i) => {
-      const x = pad + i/(elos.length-1)*(W-2*pad);
-      const y = H - pad - (e-eloMin)/(eloMax-eloMin)*(H-2*pad);
-      return x.toFixed(1)+','+y.toFixed(1);
-    });
-    const corLinha = m.mom5 > 0.3 ? '#27d49b' : m.mom5 < -0.3 ? '#ef5f5f' : '#f5a524';
-    return '<div class="tend-section" style="margin-bottom:14px">'
-      + '<div class="tend-title">📈 Evolução Elo — Últimos ' + hist.length + ' Jogos</div>'
-      + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:' + H + 'px">'
-      + '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + corLinha + '" stroke-width="2"/>'
-      + hist.map((h,i) => {
-          const x = pad + i/(elos.length-1)*(W-2*pad);
-          const y = H - pad - (h.elo-eloMin)/(eloMax-eloMin)*(H-2*pad);
-          const cor = h.res==='V'?'#27d49b':h.res==='E'?'#4f96f4':'#ef5f5f';
-          return '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="'+cor+'"/>';
-        }).join('')
-      + '</svg>'
-      + '<div style="display:flex;gap:10px;margin-top:4px;font-size:9px;color:var(--t3)">'
-      + '<span>🟢 V</span><span>🔵 E</span><span>🔴 D</span>'
-      + '<span style="margin-left:auto">Elo: <strong style="color:' + corLinha + '">' + m.elo + '</strong> → Nota <strong style="color:' + corLinha + '">' + m.eloNota + '</strong></span>'
-      + '</div></div>';
-  })() : ''}
+  ${m.histElo && m.histElo.length >= 5 ? renderEloChart(m) : ''}
 
     <div class="forma-section">
       <div class="forma-title">📅 Últimos 10 Jogos</div>
@@ -883,17 +894,18 @@ function renderPerfil(tid) {
             const golsCor = g.gols >= 3.5 ? 'var(--red)' : g.gols >= 2.5 ? 'var(--acc)' : 'var(--grn)';
             const casaGols = f.casa?.gols ?? '—';
             const foraGols = f.fora?.gols ?? '—';
-            return \`<tr style="border-bottom:1px solid rgba(255,255,255,.03)">
-              <td style="padding:6px 8px;font-weight:600">\${f.label}</td>
-              <td style="padding:6px 8px;text-align:center;color:var(--t2)">\${g.n}</td>
-              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;font-weight:700;color:\${golsCor}">\${g.gols}</td>
-              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;color:var(--grn)">\${casaGols}</td>
-              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;color:var(--blu)">\${foraGols}</td>
-              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace">\${g.gf}</td>
-              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace">\${g.gs}</td>
-              <td style="padding:6px 8px;text-align:center;color:var(--t2)">\${g.vit}V \${g.emp}E \${g.der}D</td>
-              <td style="padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;color:\${g.over25>=55?'var(--red)':g.over25<=35?'var(--grn)':'var(--acc)'}">\${g.over25}%</td>
-            </tr>\`;
+            const row = '<tr style="border-bottom:1px solid rgba(255,255,255,.03)">'
+              + '<td style="padding:6px 8px;font-weight:600">' + f.label + '</td>'
+              + '<td style="padding:6px 8px;text-align:center;color:var(--t2)">' + g.n + '</td>'
+              + '<td style="padding:6px 8px;text-align:center;font-family:\'DM Mono\',monospace;font-weight:700;color:' + golsCor + '">' + g.gols + '</td>'
+              + '<td style="padding:6px 8px;text-align:center;font-family:\'DM Mono\',monospace;color:var(--grn)">' + casaGols + '</td>'
+              + '<td style="padding:6px 8px;text-align:center;font-family:\'DM Mono\',monospace;color:var(--blu)">' + foraGols + '</td>'
+              + '<td style="padding:6px 8px;text-align:center;font-family:\'DM Mono\',monospace">' + g.gf + '</td>'
+              + '<td style="padding:6px 8px;text-align:center;font-family:\'DM Mono\',monospace">' + g.gs + '</td>'
+              + '<td style="padding:6px 8px;text-align:center;color:var(--t2)">' + g.vit + 'V ' + g.emp + 'E ' + g.der + 'D</td>'
+              + '<td style="padding:6px 8px;text-align:center;font-family:\'DM Mono\',monospace;color:' + (g.over25>=55?'var(--red)':g.over25<=35?'var(--grn)':'var(--acc)') + '">' + g.over25 + '%</td>'
+              + '</tr>';
+            return row;
           }).join('')}
           </tbody>
         </table>
@@ -903,7 +915,7 @@ function renderPerfil(tid) {
       </div>
     </div>
     ` : ''}
-  \`;
+  `;
 }
 
 // ══════════════════════════════════════════════════════════
