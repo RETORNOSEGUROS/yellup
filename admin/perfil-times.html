@@ -298,8 +298,26 @@ auth.onAuthStateChanged(u => {
 async function carregarDados() {
   gc('statusTxt').textContent = 'Carregando fixtures...';
   try {
-    const snap = await db.collection('fixtures-historico').limit(5000).get();
-    const docs = snap.docs.map(d => d.data());
+    // Buscar em batches ordenados por data desc para garantir jogos recentes
+    // Firestore sem orderBy retorna por ID interno (mais antigos primeiro)
+    gc('statusTxt').textContent = 'Carregando jogos recentes...';
+    let docs = [];
+    let lastDoc = null;
+    const BATCH_SIZE = 500;
+
+    while (docs.length < 10000) {
+      let q = db.collection('fixtures-historico')
+        .orderBy('data', 'desc')
+        .limit(BATCH_SIZE);
+      if (lastDoc) q = q.startAfter(lastDoc);
+      const batch = await q.get();
+      if (batch.empty) break;
+      docs = docs.concat(batch.docs.map(d => d.data()));
+      lastDoc = batch.docs[batch.docs.length - 1];
+      if (batch.docs.length < BATCH_SIZE) break;
+      gc('statusTxt').textContent = `Carregando... ${docs.length} jogos`;
+    }
+
     gc('statusTxt').textContent = `${docs.length} jogos carregados. Calculando perfis...`;
     processarDados(docs);
     gc('statusTxt').textContent = `✓ ${Object.keys(PERFIS).length} times processados. Calculando padrões...`;
