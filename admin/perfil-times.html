@@ -580,7 +580,10 @@ function enriquecerPorForca() {
     t.jogos.slice(0, 70).forEach(j => {  // usa até 1 temporada completa
       const advId = j.adversarioId;
       if (!advId || !PERFIS[advId]) return;
-      const advForca = PERFIS[advId].metricas.forca5;
+      // Usar eloNota se disponível (mais calibrado e spread melhor que forca5)
+      // eloNota: Barcelona~9.5, Man City~8.4, times médios~5, fracos~2
+      const advM = PERFIS[advId].metricas;
+      const advForca = advM.eloNota ?? advM.forca5;
       const faixa = advForca < 3.5 ? 'fraco'
                   : advForca < 5.5 ? 'medio'
                   : advForca < 7.5 ? 'bom' : 'forte';
@@ -992,9 +995,14 @@ function calcularConfronto() {
   // Prioridade 2: média dos últimos 5 jogos (Dixon-Coles)
 
   // Determinar faixa de força do adversário (do ponto de vista de cada time)
-  const faixaFn = (f) => !f ? 'medio' : f < 3.5 ? 'fraco' : f < 5.5 ? 'medio' : f < 7.5 ? 'bom' : 'forte';
-  const faixaAdvCasa = faixaFn(mf.forca5);
-  const faixaAdvFora = faixaFn(mc.forca5);
+  const faixaFn = (f) => {
+    if (!f && f !== 0) return 'medio';
+    // eloNota scale: <3.5=fraco, 3.5-5.5=medio, 5.5-7.5=bom, 7.5+=forte
+    return f < 3.5 ? 'fraco' : f < 5.5 ? 'medio' : f < 7.5 ? 'bom' : 'forte';
+  };
+  // Usar eloNota para classificar a faixa do adversário (mais preciso)
+  const faixaAdvCasa = faixaFn(mf.eloNota ?? mf.forca5);
+  const faixaAdvFora = faixaFn(mc.eloNota ?? mc.forca5);
 
   // Buscar padrão histórico do time da casa jogando em casa vs essa faixa
   let xGC_hist = null, xGF_hist = null;
