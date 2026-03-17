@@ -1373,7 +1373,7 @@ function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, 
     const defC = perfilCasaDB.defesaCasa  ?? refAtaque;
     const xGC = refAtaque * (atqC/refAtaque) * (defF/refAtaque);
     const xGF = refAtaque * (atqF/refAtaque) * (defC/refAtaque);
-    ajusteCamada2 = Math.max(-1.0, Math.min(1.0, (xGC+xGF) - estimativaBase));
+    ajusteCamada2 = Math.max(-1.5, Math.min(1.5, (xGC+xGF) - estimativaBase));
     temCamada2 = true;
     fonteCamada2 = 'banco_casa_fora';
 
@@ -1407,7 +1407,7 @@ function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, 
       const defF = jogosF.slice(0,m).reduce((a,jj)=>a+(jj.golsSofridos||0),0)/m;
       const xGC = refAtaque * (atqC/refAtaque) * (defF/refAtaque);
       const xGF = refAtaque * (atqF/refAtaque) * (defC/refAtaque);
-      ajusteCamada2 = Math.max(-0.8, Math.min(0.8, (xGC+xGF) - estimativaBase));
+      ajusteCamada2 = Math.max(-1.2, Math.min(1.2, (xGC+xGF) - estimativaBase));
       temCamada2 = true;
       fonteCamada2 = 'api_historico';
     } else if (n >= 3 || m >= 3) {
@@ -1437,22 +1437,45 @@ function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, 
   // COMBINAÇÃO FINAL com pesos calibrados
   // Camada 1 (base liga): 55% | Camada 2 (times): 35% | H2H: 10%
   // ══════════════════════════════════════════════════════════════
-  // Pesos calibrados: mais dados reais = menos peso na base da liga
+  // ── PESOS ADAPTATIVOS ────────────────────────────────────────────────
+  // Quando temos dados reais do time (banco), eles valem mais que a base da liga
+  // Quando os dados mostram times fracos (mg baixa), reduzir peso da base da liga
   const temBanco = fonteCamada2.startsWith('banco');
-  const pesoCamada1 = temBanco ? 0.50 : (temCamada2 ? 0.58 : (h2h?.length >= 4 ? 0.75 : 1.0));
-  const pesoCamada2 = temBanco ? 0.40 : (temCamada2 ? 0.30 : 0);
-  const pesoH2H     = h2h?.length >= 4 ? (temBanco ? 0.10 : 0.12) : 0;
+
+  // Média real de gols dos times (se disponível)
+  const mgC5real = perfilCasaDB?.s5?.tot ?? perfilCasaDB?.mediaGols5 ?? null;
+  const mgF5real = perfilForaDB?.s5?.tot  ?? perfilForaDB?.mediaGols5 ?? null;
+  const mgPre    = (mgC5real != null && mgF5real != null) ? (mgC5real + mgF5real) / 2 : null;
+
+  // Quando a média real dos times está muito abaixo da base da liga,
+  // dar muito mais peso aos dados reais
+  const desvioAbaixo = mgPre != null ? Math.max(0, estimativaBase - mgPre) : 0;
+  const pesoBaseReducao = Math.min(0.35, desvioAbaixo * 0.15); // cada -1 gol real reduz 15% do peso base
+
+  const pesoCamada1 = temBanco
+    ? Math.max(0.20, 0.50 - pesoBaseReducao)
+    : (temCamada2 ? 0.58 : (h2h?.length >= 4 ? 0.75 : 1.0));
+  const pesoCamada2 = temBanco
+    ? Math.min(0.70, 0.40 + pesoBaseReducao)
+    : (temCamada2 ? 0.30 : 0);
+  const pesoH2H = h2h?.length >= 4 ? (temBanco ? 0.10 : 0.12) : 0;
+
+  // Ampliar limite do ajuste quando dados reais mostram time muito fraco
+  const limAjuste = desvioAbaixo > 1.0 ? 1.5 : 1.0;
+  const ajusteCamada2Amp = Math.max(-limAjuste, Math.min(limAjuste, ajusteCamada2));
 
   const estimativaFinal = (
     estimativaBase * pesoCamada1 +
-    (estimativaBase + ajusteCamada2) * pesoCamada2 +
+    (estimativaBase + ajusteCamada2Amp) * pesoCamada2 +
     (estimativaBase + ajusteH2H) * pesoH2H
   );
 
-  // Correção de subestimativa: análise de 41 jogos mostrou que
-  // o sistema fica -0.49 gols abaixo da realidade em média.
-  // Corrige aplicando +0.3 na estimativa final (conservador).
-  const estimativaCorrigida = estimativaFinal + 0.3;
+  // Correção de subestimativa: +0.3 só quando média pré-jogo está ACIMA de 2.0
+  // Quando times são fracos (mgPre < 1.8), NÃO aplicar correção para cima
+  const correcaoSub = mgPre != null
+    ? (mgPre >= 2.5 ? 0.3 : mgPre >= 2.0 ? 0.15 : mgPre >= 1.5 ? 0 : -0.2)
+    : 0.15; // sem dados: correção conservadora
+  const estimativaCorrigida = estimativaFinal + correcaoSub;
   const est = Math.round(Math.max(0.5, estimativaCorrigida) * 2) / 2;
 
   // Over 2.5 baseado na base da liga + ajuste
