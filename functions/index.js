@@ -18793,6 +18793,8 @@ exports.calcularPerfisManual = functions
   .runWith({timeoutSeconds:540,memory:'1GB'})
   .https.onCall(async(data,context)=>{
     if(!context.auth) throw new functions.https.HttpsError('unauthenticated','Login necessário');
+    const email = context.auth.token?.email || '';
+    if(email !== 'admin@yellup.com') throw new functions.https.HttpsError('permission-denied','Apenas admin');
     try{
       const r=await _processarPerfis();
       return{sucesso:true,...r};
