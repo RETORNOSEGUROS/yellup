@@ -183,6 +183,9 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
     <a class="btn" href="mapeamento-historico.html">🗺️ Mapeamento</a>
   </nav>
   <div class="topbar-right">
+    <button class="btn" id="btnRecalcular" onclick="recalcularPerfis()" title="Força re-cálculo via Cloud Function">
+      🔄 Recalcular Perfis
+    </button>
     <span id="statusTxt" style="font-size:10px;color:var(--t3)">Carregando...</span>
     <button class="btn btn-acc" onclick="recalcularTudo()">🔄 Recalcular</button>
   </div>
@@ -296,16 +299,84 @@ auth.onAuthStateChanged(u => {
 // CARREGAR DADOS DO FIRESTORE
 // ══════════════════════════════════════════════════════════
 async function carregarDados() {
-  gc('statusTxt').textContent = 'Carregando fixtures...';
+  gc('statusTxt').textContent = 'Carregando perfis...';
   try {
-    // Buscar em batches ordenados por data desc para garantir jogos recentes
-    // Firestore sem orderBy retorna por ID interno (mais antigos primeiro)
-    gc('statusTxt').textContent = 'Carregando jogos recentes...';
-    let docs = [];
-    let lastDoc = null;
-    const BATCH_SIZE = 500;
+    // PRIORIDADE 1: Ler perfis-times (pré-calculado pela Cloud Function)
+    const snap = await db.collection('perfis-times').limit(600).get();
 
-    while (docs.length < 10000) {
+    if (!snap.empty) {
+      // Perfis já calculados — carregar diretamente
+      snap.docs.forEach(d => {
+        const p = d.data();
+        const tid = String(p.teamId || d.id);
+        PERFIS[tid] = {
+          nome: p.nome,
+          logo: p.logo || '',
+          jogos: [], // não precisamos dos jogos raw aqui
+          metricas: {
+            elo:        p.elo,
+            eloNota:    p.eloNota,
+            mom5:       p.mom5,
+            mom10:      p.mom10,
+            mom20:      p.mom20,
+            forca5:     p.forca5,
+            forca10:    p.forca10,
+            forca20:    p.forca20,
+            s5:         p.s5,
+            s10:        p.s10,
+            s20:        p.s20,
+            s70:        p.s70,
+            statsCasa:  p.statsCasa,
+            statsFora:  p.statsFora,
+            porForca:   p.porForca,
+            tendencia:  p.tendencia,
+            tendGolsTag: p.tendGolsTag,
+            histElo:    [],
+          }
+        };
+      });
+
+      LISTA_TIMES = Object.entries(PERFIS)
+        .map(([id, t]) => ({ id, ...t }))
+        .sort((a, b) => (b.metricas.elo || 0) - (a.metricas.elo || 0));
+
+      // Mostrar data de atualização
+      const primeiroDoc = snap.docs[0]?.data();
+      const atuEm = primeiroDoc?.atualizadoEm?.toDate?.();
+      const diasAtras = atuEm
+        ? Math.floor((Date.now() - atuEm.getTime()) / 86400000)
+        : null;
+      const statusAtu = diasAtras === 0 ? '✓ atualizado hoje'
+                      : diasAtras === 1 ? '⚠️ atualizado ontem'
+                      : diasAtras != null ? `⚠️ ${diasAtras} dias sem atualizar`
+                      : '';
+
+      gc('statusTxt').textContent =
+        `✓ ${LISTA_TIMES.length} times carregados de perfis-times ${statusAtu}`;
+
+      renderSidebar();
+      popularSelects();
+      renderRanking();
+      return; // pronto — não precisa calcular
+    }
+
+    // FALLBACK: perfis-times vazia → calcular do fixtures-historico (lento)
+    gc('statusTxt').textContent = 'perfis-times vazio — calculando do zero (lento)...';
+    await carregarDoFixtures();
+
+  } catch(e) {
+    gc('statusTxt').textContent = '✗ Erro: ' + e.message;
+    console.error('[carregarDados]', e);
+  }
+}
+
+// FALLBACK: calcula tudo no browser a partir do fixtures-historico
+// Igual ao comportamento antigo — usado só quando perfis-times está vazio
+async function carregarDoFixtures() {
+  try {
+    let docs = [], lastDoc = null;
+    const BATCH_SIZE = 500;
+    while (true) {
       let q = db.collection('fixtures-historico')
         .orderBy('data', 'desc')
         .limit(BATCH_SIZE);
@@ -318,306 +389,19 @@ async function carregarDados() {
       gc('statusTxt').textContent = `Carregando... ${docs.length} jogos`;
     }
 
-    gc('statusTxt').textContent = `${docs.length} jogos carregados. Calculando perfis...`;
+    gc('statusTxt').textContent = `${docs.length} jogos. Calculando perfis...`;
     processarDados(docs);
-    gc('statusTxt').textContent = `✓ ${Object.keys(PERFIS).length} times processados. Calculando padrões...`;
+    gc('statusTxt').textContent = `✓ ${Object.keys(PERFIS).length} times. Calculando padrões...`;
     enriquecerPorForca();
-    gc('statusTxt').textContent = `✓ ${Object.keys(PERFIS).length} times com padrões por força`;
+    gc('statusTxt').textContent = `✓ ${Object.keys(PERFIS).length} times com padrões (calculado no browser)`;
     renderSidebar();
     popularSelects();
     renderRanking();
   } catch(e) {
-    gc('statusTxt').textContent = '✗ Erro: ' + e.message;
+    gc('statusTxt').textContent = '✗ Erro no fallback: ' + e.message;
   }
 }
 
-function processarDados(docs) {
-  // 1. Calcular Elo global (ordem cronológica, todos os jogos)
-  ELO_GLOBAL = calcularEloGlobal(docs);
-
-  const raw = {};
-  docs.forEach(doc => {
-    ['casa', 'fora'].forEach(lado => {
-      const tid = doc[`${lado}Id`];
-      const tnome = doc[`${lado}Nome`];
-      const tlogo = doc[`${lado}Logo`];
-      if (!tid || !tnome) return;
-      if (!raw[tid]) raw[tid] = { nome: tnome, logo: tlogo || '', ligas: {}, jogos: [] };
-
-      const gc2 = doc.golsCasa ?? 0, gf2 = doc.golsFora ?? 0;
-      const ehCasa = lado === 'casa';
-      const gols = ehCasa ? gc2 : gf2;
-      const golsSof = ehCasa ? gf2 : gc2;
-      const total = gc2 + gf2;
-      const r = doc.resultado;
-      const resultado = (r === 'casa' && ehCasa) || (r === 'fora' && !ehCasa) ? 'V'
-                      : r === 'empate' ? 'E' : 'D';
-      const liga = doc.ligaNome || '';
-      raw[tid].ligas[liga] = (raw[tid].ligas[liga] || 0) + 1;
-      raw[tid].jogos.push({
-        data: doc.data || '',
-        casa: ehCasa,
-        gols, golsSof, total, resultado, liga,
-        season: doc.season,
-        adversario: ehCasa ? doc.foraNome : doc.casaNome,
-        adversarioId: ehCasa ? doc.foraId : doc.casaId,
-        adversarioLogo: ehCasa ? doc.foraLogo : doc.casaLogo,
-      });
-    });
-  });
-
-  // Ordenar jogos por data desc e calcular métricas
-  Object.entries(raw).forEach(([tid, t]) => {
-    t.jogos.sort((a, b) => b.data.localeCompare(a.data));
-    const ligaPrincipal = Object.entries(t.ligas).sort((a,b) => b[1]-a[1])[0]?.[0] || '';
-    PERFIS[tid] = {
-      ...t,
-      liga: ligaPrincipal,
-      metricas: calcularMetricas(t.jogos),
-    };
-  });
-
-  // 2. Injetar Elo em cada time
-  Object.entries(PERFIS).forEach(([tid, t]) => {
-    const elo = ELO_GLOBAL.elos[tid];
-    const hist = ELO_GLOBAL.histElo[tid] || [];
-    if (elo != null) {
-      t.metricas.elo     = Math.round(elo);
-      t.metricas.eloNota = eloParaNota(elo);
-      t.metricas.mom5    = calcMomentum(hist, 5);
-      t.metricas.mom10   = calcMomentum(hist, 10);
-      t.metricas.mom20   = calcMomentum(hist, 20);
-      t.metricas.histElo = hist;
-      t.metricas.tendenciaElo = t.metricas.mom5 >= 0.5 ? 'subindo'
-                              : t.metricas.mom5 <= -0.5 ? 'caindo' : 'estavel';
-    }
-  });
-
-  // 3. Ordenar por Elo (não mais por forca5)
-  LISTA_TIMES = Object.entries(PERFIS)
-    .map(([id, t]) => ({ id, ...t }))
-    .filter(t => t.jogos.length >= 5)
-    .sort((a,b) => (b.metricas.elo||0) - (a.metricas.elo||0));
-}
-
-// ══════════════════════════════════════════════════════════
-// ELO YELLUP — Rating ponderado por adversário
-// ══════════════════════════════════════════════════════════
-
-const LIGA_ELO_BASE = {
-  'Premier League':1600,'La Liga':1580,'Bundesliga':1560,
-  'Serie A':1540,'Ligue 1':1520,'Champions League':1620,
-  'Copa Libertadores':1480,'Copa Sudamericana':1440,
-  'Brasileirão A':1460,'Copa do Brasil':1440,
-  'Eliminat. Sul-Am':1500,'World Cup':1600,'UEFA Euro':1580,
-  'DEFAULT':1400,
-};
-
-function getLigaBase(nome) {
-  if (!nome) return 1400;
-  for (const [k,v] of Object.entries(LIGA_ELO_BASE)) {
-    if (k !== 'DEFAULT' && nome.toLowerCase().includes(k.toLowerCase())) return v;
-  }
-  return 1400;
-}
-
-// Normaliza Elo (1200-1900) para nota 0-10
-function eloParaNota(elo) {
-  return Math.round(Math.min(10, Math.max(0, (elo - 1200) / (1900 - 1200) * 10)) * 10) / 10;
-}
-
-// Calcula momentum: variação de elo nos últimos N jogos
-function calcMomentum(hist, n) {
-  if (hist.length < n + 1) return 0;
-  const atual = hist[hist.length - 1].elo;
-  const antes = hist[hist.length - n - 1].elo;
-  return Math.round((atual - antes) / 40 * 10) / 10;
-}
-
-// Processa todos os jogos cronologicamente para calcular Elo
-function calcularEloGlobal(docs) {
-  const elos = {};        // timeId → elo atual
-  const histElo = {};     // timeId → [{data, elo, advElo, res, liga, gf, gs}]
-  const K = 32;
-
-  // Ordenar por data
-  const sorted = [...docs].sort((a,b) => (a.data||'').localeCompare(b.data||''));
-
-  sorted.forEach(doc => {
-    const cid = doc.casaId, fid = doc.foraId;
-    if (!cid || !fid || doc.golsCasa == null) return;
-
-    // Inicializar se novo
-    if (!(cid in elos)) { elos[cid] = getLigaBase(doc.ligaNome); histElo[cid] = []; }
-    if (!(fid in elos)) { elos[fid] = getLigaBase(doc.ligaNome); histElo[fid] = []; }
-
-    const rc = elos[cid], rf = elos[fid];
-    const ec = 1 / (1 + Math.pow(10, (rf - rc - 50) / 400));
-    const r  = doc.resultado;
-    const sc = r === 'casa' ? 1.0 : r === 'empate' ? 0.5 : 0.0;
-    const diff = Math.abs((doc.golsCasa||0) - (doc.golsFora||0));
-    const fm = 1 + Math.min(diff * 0.1, 0.4); // fator margem gols
-
-    const deltaC = K * fm * (sc - ec);
-    const deltaF = K * fm * ((1 - sc) - (1 - ec));
-
-    const novoC = rc + deltaC, novoF = rf + deltaF;
-
-    histElo[cid].push({ data:doc.data, elo:novoC, advElo:rf,
-      res: r==='casa'?'V':r==='empate'?'E':'D', liga:doc.ligaNome,
-      gf:doc.golsCasa||0, gs:doc.golsFora||0 });
-    histElo[fid].push({ data:doc.data, elo:novoF, advElo:rc,
-      res: r==='fora'?'V':r==='empate'?'E':'D', liga:doc.ligaNome,
-      gf:doc.golsFora||0, gs:doc.golsCasa||0 });
-
-    elos[cid] = novoC;
-    elos[fid] = novoF;
-  });
-
-  return { elos, histElo };
-}
-
-let ELO_GLOBAL = null;   // { elos, histElo } — calculado uma vez
-
-// ══════════════════════════════════════════════════════════
-// MÉTRICAS PRINCIPAIS
-// ══════════════════════════════════════════════════════════
-function calcularMetricas(jogos) {
-  const u5  = jogos.slice(0, 5);
-  const u10 = jogos.slice(0, 10);
-  const u15 = jogos.slice(0, 15);
-  const u20 = jogos.slice(0, 20);
-
-  function stats(js) {
-    const n = js.length;
-    if (!n) return null;
-    const vit = js.filter(j => j.resultado === 'V').length;
-    const emp = js.filter(j => j.resultado === 'E').length;
-    const der = js.filter(j => j.resultado === 'D').length;
-    const pts = vit * 3 + emp;
-    const gf  = js.reduce((a,j) => a + j.gols, 0);
-    const gs  = js.reduce((a,j) => a + j.golsSof, 0);
-    const tot = js.reduce((a,j) => a + j.total, 0);
-    return {
-      n, vit, emp, der,
-      pts_jogo: +(pts/n).toFixed(2),
-      gf_media: +(gf/n).toFixed(2),
-      gs_media: +(gs/n).toFixed(2),
-      tot_media: +(tot/n).toFixed(2),
-      pct_vit: +(vit/n*100).toFixed(1),
-      forma: js.slice(0,8).map(j => j.resultado),
-    };
-  }
-
-  const u70 = jogos.slice(0, 70);
-  const s5 = stats(u5), s10 = stats(u10), s15 = stats(u15), s20 = stats(u20), s70 = stats(u70);
-  if (!s5 || !s10) return { forca5: 0, forca10: 0 };
-
-  // Força Yellup 0–10: combinação de pts/jogo + ataque - defesa
-  const forca = (s) => {
-    if (!s) return 0;
-    const base = s.pts_jogo / 3 * 5;          // 0–5 pts
-    const atq  = Math.min(s.gf_media / 2, 2);  // 0–2 ataque
-    const def  = Math.max(0, 1.5 - s.gs_media / 2); // 0–1.5 defesa
-    return Math.round(Math.min(10, base + atq + def) * 10) / 10;
-  };
-
-  const forca5  = forca(s5);
-  const forca10 = forca(s10);
-  const forca20 = forca(s20);
-  const forca70 = forca(s70);
-
-  // Momentum: diferença de força ult5 vs ult10
-  const momentum = +(forca5 - forca10).toFixed(1);
-
-  // Tendência gols: ult5 vs ult10
-  const tendGols = s5 && s10 ? +(s5.tot_media - s10.tot_media).toFixed(2) : 0;
-
-  // Fadiga: jogos nos últimos 15 dias
-  let fadiga = 0;
-  if (jogos.length > 0) {
-    try {
-      const dtUlt = new Date(jogos[0].data);
-      fadiga = jogos.filter(j => {
-        const diff = (dtUlt - new Date(j.data)) / 86400000;
-        return diff <= 15;
-      }).length;
-    } catch(e) {}
-  }
-
-  // Casa vs Fora
-  const emCasa = jogos.filter(j => j.casa);
-  const emFora = jogos.filter(j => !j.casa);
-  const statsCasa = stats(emCasa.slice(0,8));
-  const statsFora = stats(emFora.slice(0,8));
-
-  return {
-    s5, s10, s15, s20, s70,
-    forca5, forca10, forca20, forca70,
-    momentum,
-    tendGols,
-    fadiga,
-    statsCasa, statsFora,
-    tendencia: momentum >= 1 ? 'subindo' : momentum <= -1 ? 'caindo' : 'estavel',
-    tendGolsTag: s5?.tot_media >= 3 ? 'alta' : s5?.tot_media <= 1.8 ? 'baixa' : 'media',
-    porForca: null,
-    // Elo — preenchido depois de calcularEloGlobal
-    elo: null, elonota: null, mom5: null, mom10: null, mom20: null,
-    histElo: [],
-  };
-}
-
-// Chamada após PERFIS estar populado — enriquece com padrão vs força adversário
-function enriquecerPorForca() {
-  Object.entries(PERFIS).forEach(([tid, t]) => {
-    const faixas = {
-      fraco:   { label:'vs Fracos (0–3.5)',   min:0,   max:3.5,  jogos:[], casa:[], fora:[] },
-      medio:   { label:'vs Médios (3.5–5.5)', min:3.5, max:5.5,  jogos:[], casa:[], fora:[] },
-      bom:     { label:'vs Bons (5.5–7.5)',  min:5.5, max:7.5, jogos:[], casa:[], fora:[] },
-      forte:   { label:'vs Fortes (7.5+)',    min:7.5, max:99,   jogos:[], casa:[], fora:[] },
-    };
-
-    t.jogos.slice(0, 70).forEach(j => {  // usa até 1 temporada completa
-      const advId = j.adversarioId;
-      if (!advId || !PERFIS[advId]) return;
-      // Usar eloNota se disponível (mais calibrado e spread melhor que forca5)
-      // eloNota: Barcelona~9.5, Man City~8.4, times médios~5, fracos~2
-      const advM = PERFIS[advId].metricas;
-      const advForca = advM.eloNota ?? advM.forca5;
-      const faixa = advForca < 3.5 ? 'fraco'
-                  : advForca < 5.5 ? 'medio'
-                  : advForca < 7.5 ? 'bom' : 'forte';
-      faixas[faixa].jogos.push(j);
-      if (j.casa) faixas[faixa].casa.push(j);
-      else faixas[faixa].fora.push(j);
-    });
-
-    const resultado = {};
-    Object.entries(faixas).forEach(([key, f]) => {
-      const calc = (js) => {
-        const n = js.length;
-        if (!n) return null;
-        const gols = js.reduce((a,j)=>a+j.total,0)/n;
-        const gf   = js.reduce((a,j)=>a+j.gols,0)/n;
-        const gs   = js.reduce((a,j)=>a+j.golsSof,0)/n;
-        const vit  = js.filter(j=>j.resultado==='V').length;
-        const emp  = js.filter(j=>j.resultado==='E').length;
-        const der  = js.filter(j=>j.resultado==='D').length;
-        const over25 = js.filter(j=>j.total>2).length/n*100;
-        return { n, gols:+gols.toFixed(2), gf:+gf.toFixed(2), gs:+gs.toFixed(2),
-                 vit, emp, der, over25:+over25.toFixed(0) };
-      };
-      resultado[key] = {
-        label: f.label,
-        geral: calc(f.jogos),
-        casa:  calc(f.casa),
-        fora:  calc(f.fora),
-      };
-    });
-
-    t.metricas.porForca = resultado;
-  });
-}
 
 // ══════════════════════════════════════════════════════════
 // RENDER SIDEBAR
@@ -1339,6 +1123,25 @@ function recalcularTudo() {
 }
 
 function gc(id) { return document.getElementById(id); }
+
+async function recalcularPerfis() {
+  const btn = gc('btnRecalcular');
+  btn.disabled = true;
+  btn.textContent = '⏳ Calculando...';
+  gc('statusTxt').textContent = 'Chamando Cloud Function calcularPerfisManual...';
+  try {
+    const r = await fns.httpsCallable('calcularPerfisManual')({});
+    gc('statusTxt').textContent = `✓ ${r.data.totalTimes} times recalculados (${r.data.totalJogos} jogos). Recarregando...`;
+    btn.textContent = '✓ Recalculado';
+    // Limpar PERFIS e recarregar da nova coleção
+    Object.keys(PERFIS).forEach(k => delete PERFIS[k]);
+    setTimeout(() => carregarDados(), 1500);
+  } catch(e) {
+    gc('statusTxt').textContent = '✗ Erro: ' + e.message;
+    btn.textContent = '🔄 Recalcular Perfis';
+    btn.disabled = false;
+  }
+}
 </script>
 </body>
 </html>
