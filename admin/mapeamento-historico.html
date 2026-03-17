@@ -211,6 +211,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);displ
     <div class="pc-head">
       <h2 id="pcTitle">Mapeamento Histórico de Jogos</h2>
       <button class="btn btn-blu" onclick="analisarPadroes()" id="btnAnalise" disabled>🔬 Analisar Padrões</button>
+    <button class="btn" id="btnRecalcPerfis" onclick="recalcularPerfisTimes()" style="background:var(--pur);color:#fff">🧠 Recalcular Perfis Times</button>
     <button class="btn" id="btnPerfis" onclick="calcularPerfis()" style="border-color:var(--pur);color:var(--pur)">⚡ Calcular Perfis</button>
     </div>
     <div class="pc-tabs">
@@ -295,6 +296,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);displ
       <div class="stat-box"><div class="stat-v ca" id="stTotal">0</div><div class="stat-l">Jogos coletados</div></div>
       <div class="stat-box"><div class="stat-v cb" id="stLigas">0</div><div class="stat-l">Ligas cobertas</div></div>
       <div class="stat-box"><div class="stat-v cg" id="stComYS">0</div><div class="stat-l">Com YS calculado</div></div>
+      <div class="stat-box">
+        <div class="stat-v" id="stUltimoJogo" style="font-size:13px">—</div>
+        <div class="stat-l">Último jogo coletado <span id="stDiasAtraso" style="font-size:9px;margin-left:4px"></span></div>
+      </div>
       <div class="stat-box"><div class="stat-v cr" id="stErros">0</div><div class="stat-l">Erros na coleta</div></div>
     </div>
     <div class="pr-scroll" id="rightScroll">
@@ -500,6 +505,19 @@ async function carregarStats() {
     gc('stTotal').textContent = totalColetado + (totalColetado >= 5000 ? '+' : '');
     gc('stLigas').textContent = lgSet.size;
     gc('stComYS').textContent = comYS;
+    // Mostrar data do jogo mais recente
+    const firstDoc = countSnap.docs[0]?.data();
+    const ultimaData = firstDoc?.data || '—';
+    const elUlt = gc('stUltimoJogo');
+    if (elUlt) {
+      const diasAtras = ultimaData !== '—'
+        ? Math.floor((Date.now() - new Date(ultimaData).getTime()) / 86400000)
+        : null;
+      elUlt.textContent = ultimaData.slice(0,10);
+      elUlt.style.color = diasAtras === 0 ? 'var(--grn)' : diasAtras === 1 ? 'var(--acc)' : 'var(--red)';
+      const elDias = gc('stDiasAtraso');
+      if (elDias) elDias.textContent = diasAtras === 0 ? '✓ hoje' : diasAtras === 1 ? '1 dia atrás' : diasAtras !== null ? `${diasAtras} dias atrás` : '';
+    }
     renderDistLigas();
     renderDistSeasons();
     if (totalColetado > 50) gc('btnAnalise').disabled = false;
@@ -1282,6 +1300,20 @@ function toast(msg, tipo='info') {
   t.textContent = msg;
   t.className = `toast show ${tipo}`;
   setTimeout(() => { t.className = 'toast'; }, 3500);
+}
+
+async function recalcularPerfisTimes() {
+  const btn = gc('btnRecalcPerfis');
+  btn.disabled = true; btn.textContent = '⏳ Calculando...';
+  try {
+    const r = await fns.httpsCallable('calcularPerfisManual')({});
+    btn.textContent = `✓ ${r.data.totalTimes} times salvos`;
+    toast(`✓ ${r.data.totalTimes} perfis recalculados (${r.data.totalJogos} jogos)`, 'ok');
+  } catch(e) {
+    toast('Erro: ' + e.message, 'err');
+    btn.textContent = '🧠 Recalcular Perfis Times';
+  }
+  btn.disabled = false;
 }
 </script>
 </body>
