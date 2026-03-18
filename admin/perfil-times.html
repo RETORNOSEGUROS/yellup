@@ -304,7 +304,18 @@ async function carregarDados() {
   gc('statusTxt').textContent = 'Carregando perfis...';
   try {
     // PRIORIDADE 1: Ler perfis-times (pré-calculado pela Cloud Function)
-    const snap = await db.collection('perfis-times').limit(600).get();
+    // Sem orderBy para evitar necessidade de índice composto
+    let allDocs = [], lastPerf = null;
+    while (true) {
+      let qp = db.collection('perfis-times').limit(500);
+      if (lastPerf) qp = qp.startAfter(lastPerf);
+      const snap2 = await qp.get();
+      if (snap2.empty) break;
+      allDocs = allDocs.concat(snap2.docs);
+      lastPerf = snap2.docs[snap2.docs.length - 1];
+      if (snap2.docs.length < 500) break;
+    }
+    const snap = { empty: allDocs.length === 0, docs: allDocs };
 
     if (!snap.empty) {
       // Perfis já calculados — carregar diretamente
