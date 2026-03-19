@@ -8,6 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
 <style>
 :root{
   --bg:#080a10;--bg2:#0c0e17;--bg3:#10121c;
@@ -253,6 +254,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
       <button class="tab" onclick="switchTab('detalhe',this)">🔬 Detalhe Placar</button>
       <button class="tab" onclick="switchTab('padroes',this)">🧠 Padrões</button>
       <button class="tab" onclick="switchTab('aprender',this)">📈 Aprender</button>
+      <button class="tab" onclick="switchTab('padroesGol',this);carregarPadroesGol()">⚽ Padrões Gol</button>
     </div>
 
     <div class="pane on" id="pane-visao">
@@ -356,6 +358,69 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
     <div class="pane" id="pane-aprender">
       <div id="aprenderContent"><div class="loading-ctr"><div class="ld"></div></div></div>
     </div>
+
+    <!-- PADRÕES GOL — Fase 4 -->
+    <div class="pane" id="pane-padroesGol">
+
+      <!-- Toolbar -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700">⚽ Padrões que Antecederam Gols</div>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+          <select id="pgFiltroTime" onchange="filtrarPadroesGol()"
+            style="background:var(--c2);border:1px solid var(--bd2);color:var(--t1);font-size:11px;padding:5px 8px;border-radius:7px;font-family:inherit;">
+            <option value="">Todos os times</option>
+          </select>
+          <select id="pgFiltroTipo" onchange="filtrarPadroesGol()"
+            style="background:var(--c2);border:1px solid var(--bd2);color:var(--t1);font-size:11px;padding:5px 8px;border-radius:7px;font-family:inherit;">
+            <option value="">Todos os gols</option>
+            <option value="casa">Gols da Casa</option>
+            <option value="fora">Gols da Fora</option>
+          </select>
+          <button onclick="analisarJogoManual()"
+            style="background:var(--adim);border:1px solid rgba(245,165,36,.3);color:var(--acc);font-size:11px;padding:5px 12px;border-radius:7px;cursor:pointer;font-family:inherit;font-weight:600;">
+            🔬 Analisar Jogo
+          </button>
+        </div>
+      </div>
+
+      <!-- Resumo agregado -->
+      <div id="pgResumo" style="display:none;margin-bottom:14px;"></div>
+
+      <!-- Loading -->
+      <div id="pgLoad" class="loading-ctr" style="display:none;"><div class="ld"></div><span>Carregando padrões...</span></div>
+
+      <!-- Empty -->
+      <div id="pgEmpty" class="empty" style="display:none;">
+        <div class="empty-ico">🧠</div>
+        <span>Nenhum padrão encontrado.</span>
+        <span style="font-size:10px;color:var(--t3);margin-top:4px">Use "Analisar Jogo" ou aguarde o schedule de 01:00 BRT.</span>
+      </div>
+
+      <!-- Lista de padrões -->
+      <div id="pgLista"></div>
+
+      <!-- Modal analisar jogo manual -->
+      <div id="pgModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;display:none;align-items:center;justify-content:center;">
+        <div style="background:var(--c2);border:1px solid var(--bd2);border-radius:14px;padding:22px 24px;width:380px;max-width:94vw;">
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:14px;">🔬 Analisar Jogo Encerrado</div>
+          <div style="font-size:11px;color:var(--t2);margin-bottom:10px;">Informe o Fixture ID (apiFootballId) do jogo encerrado que já tem snapshots gravados.</div>
+          <input id="pgFixtureInput" type="number" placeholder="Ex: 1234567"
+            style="width:100%;background:var(--bg3);border:1px solid var(--bd2);color:var(--t1);font-size:14px;font-family:'DM Mono',monospace;padding:8px 12px;border-radius:8px;outline:none;margin-bottom:12px;">
+          <div id="pgModalStatus" style="font-size:11px;color:var(--t2);min-height:20px;margin-bottom:12px;"></div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="executarAnaliseJogo()"
+              style="flex:1;background:var(--adim);border:1px solid rgba(245,165,36,.3);color:var(--acc);padding:8px;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:600;font-size:12px;">
+              ▶ Analisar
+            </button>
+            <button onclick="gc('pgModal').style.display='none'"
+              style="flex:1;background:none;border:1px solid var(--bd2);color:var(--t3);padding:8px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:12px;">
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
   </div>
 </div>
 
@@ -368,7 +433,7 @@ firebase.initializeApp({
   messagingSenderId:"608347210297",
   appId:"1:608347210297:web:75092713724e617c7203e8"
 });
-const auth=firebase.auth(), db=firebase.firestore();
+const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions();
 
 // ── STATE ──────────────────────────────────────────────────────────────────
 let DATASET = [];
@@ -1290,6 +1355,149 @@ function calcularAoVivo() {
       <div style="margin-top:10px;font-size:9px;color:var(--t3)">* Média pré-jogo estimada pelos dados históricos quando não informada</div>
     </div>
   `;
+}
+
+// ══════════════════════════════════════════════════════════════
+// ⚽ FASE 4 — PADRÕES GOL
+// Lê padroes-gol do Firestore e exibe análise agregada + lista
+// ══════════════════════════════════════════════════════════════
+
+let _pgTodos = [];
+let _pgFiltrados = [];
+let _pgCarregado = false;
+
+async function carregarPadroesGol() {
+  if (_pgCarregado) { filtrarPadroesGol(); return; }
+  const load = gc('pgLoad'), empty = gc('pgEmpty'), lista = gc('pgLista');
+  load.style.display = 'flex'; empty.style.display = 'none'; lista.innerHTML = '';
+
+  try {
+    const snap = await db.collection('padroes-gol')
+      .orderBy('criadoEm', 'desc')
+      .limit(200)
+      .get();
+
+    _pgTodos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _pgCarregado = true;
+
+    const times = new Set();
+    _pgTodos.forEach(p => { if(p.casaNome) times.add(p.casaNome); if(p.foraNome) times.add(p.foraNome); });
+    const sel = gc('pgFiltroTime');
+    sel.innerHTML = '<option value="">Todos os times</option>';
+    [...times].sort().forEach(t => sel.innerHTML += `<option value="${t}">${t}</option>`);
+
+    load.style.display = 'none';
+    filtrarPadroesGol();
+  } catch(e) {
+    load.style.display = 'none';
+    lista.innerHTML = `<div class="empty"><div class="empty-ico">❌</div><span>Erro: ${e.message}</span></div>`;
+  }
+}
+
+function filtrarPadroesGol() {
+  const filtroTime = gc('pgFiltroTime')?.value || '';
+  const filtroTipo = gc('pgFiltroTipo')?.value || '';
+  _pgFiltrados = _pgTodos.filter(p => {
+    if (filtroTipo === 'casa' && p.timeMarcou !== 'casa') return false;
+    if (filtroTipo === 'fora' && p.timeMarcou !== 'fora') return false;
+    if (filtroTime && p.casaNome !== filtroTime && p.foraNome !== filtroTime) return false;
+    return true;
+  });
+  renderPadroesGol();
+}
+
+function renderPadroesGol() {
+  const lista = gc('pgLista'), empty = gc('pgEmpty'), resumo = gc('pgResumo');
+  if (!_pgFiltrados.length) {
+    lista.innerHTML = ''; empty.style.display = 'flex'; resumo.style.display = 'none'; return;
+  }
+  empty.style.display = 'none';
+
+  const n = _pgFiltrados.length;
+  const avg = key => {
+    const vals = _pgFiltrados.map(p => p.contexto?.[key]).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length*10)/10 : null;
+  };
+  const avgVar = key => {
+    const vals = _pgFiltrados.map(p => p.variacoes?.[key]).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length*100)/100 : null;
+  };
+  const pctCasa = Math.round(_pgFiltrados.filter(p=>p.timeMarcou==='casa').length/n*100);
+
+  resumo.style.display = 'block';
+  resumo.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+      ${[['Total',n,'var(--acc)'],['% Casa',pctCasa+'%','var(--grn)'],['Posse Casa',avg('posseCasa')!=null?avg('posseCasa')+'%':'—','var(--acc)'],['xG Casa',avg('xgCasa')??'—','var(--pur)']].map(([l,v,c])=>
+        `<div style="background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:10px 12px;">
+          <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:${c}">${v}</div>
+          <div style="font-size:9px;color:var(--t3);margin-top:2px">${l}</div>
+        </div>`).join('')}
+    </div>
+    <div style="background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:12px;margin-bottom:12px;">
+      <div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📈 Variações Médias nos 5 Min Antes do Gol</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:11px;">
+        ${[['Δ AP Casa',avgVar('dAtaquesPerCasa')],['Δ AP Fora',avgVar('dAtaquesPerFora')],['Δ Chutes Casa',avgVar('dChutesAlvoCasa')],['Δ Chutes Fora',avgVar('dChutesAlvoFora')],['Δ Erros Casa',avgVar('dPassosErradosCasa')],['Δ Erros Fora',avgVar('dPassosErradosFora')]].map(([l,v])=>{
+          if(v==null) return `<div style="color:var(--t3)">${l}: —</div>`;
+          const cor=v>0?'var(--grn)':v<0?'var(--red)':'var(--t2)';
+          return `<div><span style="color:var(--t2)">${l}:</span> <span style="font-family:'DM Mono',monospace;font-weight:700;color:${cor}">${v>0?'+':''}${v}</span></div>`;
+        }).join('')}
+      </div>
+    </div>`;
+
+  lista.innerHTML = _pgFiltrados.slice(0,50).map(p => {
+    const cor = p.timeMarcou==='casa'?'var(--grn)':'var(--red)';
+    const nomeM = p.timeMarcou==='casa'?p.casaNome:p.foraNome;
+    const pl = `${p.placarAntes?.casa??'?'}-${p.placarAntes?.fora??'?'}`;
+    const v = p.variacoes||{}, c = p.contexto||{};
+    const dStr = val => val!=null?(val>0?`<span style="color:var(--grn);font-size:9px"> +${val}</span>`:`<span style="color:var(--red);font-size:9px"> ${val}</span>`):'';
+    return `<div style="background:var(--c2);border:1px solid var(--bd1);border-radius:11px;padding:12px;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;">
+        <div style="background:${p.timeMarcou==='casa'?'rgba(34,212,155,.15)':'rgba(240,79,90,.15)'};border-radius:8px;padding:4px 10px;font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${cor}">⚽ ${p.minutoGol}'</div>
+        <div>
+          <div style="font-size:12px;font-weight:700">${p.casaNome||'?'} ${pl} ${p.foraNome||'?'}</div>
+          <div style="font-size:10px;color:var(--t2)">Marcou: <b style="color:${cor}">${nomeM||'?'}</b> · ${p.tipoGol||'Gol'} · ${p.ligaNome||''}</div>
+        </div>
+        <div style="margin-left:auto;text-align:right;font-size:10px;color:var(--t3)">
+          IYO Casa: <b style="color:var(--acc);font-family:'DM Mono',monospace">${p.indiceYOCasa?.toFixed(3)??'—'}</b><br>
+          IYO Fora: <b style="color:var(--blu);font-family:'DM Mono',monospace">${p.indiceYOFora?.toFixed(3)??'—'}</b>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;font-size:10px;">
+        ${[['Posse Casa',c.posseCasa!=null?c.posseCasa+'%':'—',v.dPosseCasa],['AP Casa',c.ataquesPerCasa??'—',v.dAtaquesPerCasa],['Chutes Casa',c.chutesAlvoCasa??'—',v.dChutesAlvoCasa],['xG Casa',c.xgCasa!=null?c.xgCasa.toFixed(2):'—',v.dXgCasa],['Erros Pass. Casa',c.passosErradosCasa??'—',v.dPassosErradosCasa],['Escanteios Casa',c.escanteiosCasa??'—',v.dEscanteiosCasa]].map(([l,val,delta])=>
+          `<div style="background:var(--bg3);border-radius:7px;padding:6px 8px;">
+            <div style="color:var(--t3);font-size:9px">${l}</div>
+            <div style="font-family:'DM Mono',monospace;font-weight:700">${val}${dStr(delta)}</div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function analisarJogoManual() {
+  const modal = gc('pgModal');
+  modal.style.display = 'flex';
+  gc('pgModalStatus').textContent = '';
+  gc('pgFixtureInput').value = '';
+}
+
+async function executarAnaliseJogo() {
+  const fixtureId = parseInt(gc('pgFixtureInput').value);
+  if (!fixtureId) { gc('pgModalStatus').textContent = '⚠️ Informe um Fixture ID válido'; return; }
+  const status = gc('pgModalStatus');
+  status.textContent = '⏳ Analisando...'; status.style.color = 'var(--t2)';
+  try {
+    const r = await fns.httpsCallable('analisarJogoEncerrado')({ fixtureId });
+    const d = r.data;
+    if (d.sucesso) {
+      status.style.color = 'var(--grn)'; status.textContent = `✅ ${d.msg}`;
+      _pgCarregado = false;
+      setTimeout(() => { gc('pgModal').style.display='none'; carregarPadroesGol(); }, 1500);
+    } else {
+      status.style.color = 'var(--red)'; status.textContent = `❌ ${d.msg}`;
+    }
+  } catch(e) {
+    status.style.color = 'var(--red)'; status.textContent = `❌ ${e.message}`;
+  }
 }
 </script>
 </body>
