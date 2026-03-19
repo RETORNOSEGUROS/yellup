@@ -1014,10 +1014,25 @@ async function _syncAdmComApiJogos(jogosApi, silencioso=true){
   let atualizados=0;
   const atuLocal=[];
 
+  const agora3 = new Date();
   for(const adm of admJogos){
     if(!adm.apiFixtureId)continue;
     const api=jogosApi.find(j=>String(j.id)===String(adm.apiFixtureId));
-    if(!api)continue;
+    // Jogo não encontrado na API: se já deveria ter terminado, marcar encerrado
+    if(!api){
+      if(['ao_vivo','agendado'].includes(adm.status) && adm.dataInicio){
+        const dt = adm.dataInicio.toDate?adm.dataInicio.toDate():new Date(adm.dataInicio);
+        const horasPassadas = (agora3 - dt) / 3600000;
+        // Após 3h do horário de início = jogo certamente encerrado
+        if(horasPassadas > 3){
+          const ref=db.collection('jogos-admin').doc(adm._id);
+          batch.update(ref,{status:'encerrado',atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+          atuLocal.push({id:adm._id,status:'encerrado'});
+          atualizados++;
+        }
+      }
+      continue;
+    }
     const novoStatus=mapStatus(api.statusCode);
     const novoCasa=api.placar.casa;
     const novaFora=api.placar.fora;
@@ -1035,7 +1050,12 @@ async function _syncAdmComApiJogos(jogosApi, silencioso=true){
     await batch.commit();
     atuLocal.forEach(u=>{
       const j=admJogos.find(t=>t._id===u.id);
-      if(j){j.status=u.status;j.placarCasa=u.placarCasa;j.placarFora=u.placarFora;j.minuto=u.minuto;}
+      if(j){
+        j.status=u.status;
+        if(u.placarCasa!==undefined)j.placarCasa=u.placarCasa;
+        if(u.placarFora!==undefined)j.placarFora=u.placarFora;
+        if(u.minuto!==undefined)j.minuto=u.minuto;
+      }
     });
     atuStats(); renderAdmin();
     if(!silencioso) toast(`🔄 ${atualizados} jogo(s) atualizado(s)`,'ok');
