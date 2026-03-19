@@ -844,6 +844,19 @@ function iniciarAutoSync(){
   autoSyncTimer=setInterval(async()=>{
     if(!syncAtivo)return;
     const temAoVivo=admJogos.some(j=>j.status==='ao_vivo');
+    // Auto-iniciar jogos agendados cuja hora já passou
+    const agora2=new Date();
+    const paraIniciar=admJogos.filter(j=>
+      j.status==='agendado' && j.dataInicio &&
+      (j.dataInicio.toDate?j.dataInicio.toDate():new Date(j.dataInicio)) <= agora2
+    );
+    if(paraIniciar.length>0){
+      const batch2=db.batch();
+      paraIniciar.forEach(j=>{
+        if(j._id) batch2.update(db.collection('jogos-admin').doc(j._id),{status:'ao_vivo'});
+      });
+      batch2.commit().catch(()=>{});
+    }
     const temAgendadoProximo=admJogos.some(j=>{
       if(j.status!=='agendado'||!j.dataInicio)return false;
       const dt=j.dataInicio.toDate?.()?.getTime()||new Date(j.dataInicio).getTime();
@@ -918,9 +931,12 @@ async function carregarAdmin(){
   try{
     // Buscar ±7 dias ao redor da data selecionada (BRT)
     const dtSel = gc('admData')?.value || toBRTDate(new Date());
-    const dtAlvo = new Date(dtSel + 'T12:00:00');
-    const dtIni  = new Date(dtAlvo); dtIni.setDate(dtIni.getDate() - 7);
-    const dtFim  = new Date(dtAlvo); dtFim.setDate(dtFim.getDate() + 7);
+    // Criar range em UTC correto: BRT = UTC-3
+    // Para pegar jogos do dia selecionado em BRT, precisamos de UTC do dia anterior às 03:00 ao próximo dia às 03:00
+    const dtAlvo = new Date(dtSel + 'T03:00:00Z'); // início do dia BRT (03:00 UTC = 00:00 BRT)
+    dtAlvo.setUTCDate(dtAlvo.getUTCDate() - 1); // dia anterior para garantir cobertura
+    const dtIni  = new Date(dtAlvo); dtIni.setUTCDate(dtIni.getUTCDate() - 6);
+    const dtFim  = new Date(dtAlvo); dtFim.setUTCDate(dtFim.getUTCDate() + 8);
 
     const snap = await db.collection('jogos-admin')
       .orderBy('dataInicio', 'asc')
@@ -1877,6 +1893,12 @@ async function salvarJogo(){
       await db.collection('jogos-admin').add(dados);
     }
     fecharJogo();
+    // Sincronizar filtro de data com a data do jogo salvo
+    const dtHora = gc('fDataHora')?.value;
+    if(dtHora){
+      const dtJogo = toBRTDate(new Date(dtHora));
+      if(gc('admData').value !== dtJogo) gc('admData').value = dtJogo;
+    }
     await carregarAdmin();
     renderAPI();
     toast('✓ Jogo salvo!','ok');
