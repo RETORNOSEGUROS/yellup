@@ -396,6 +396,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
     <button class="tab"    onclick="switchTab('insights',this)">&#129504; An&#225;lise</button>
     <button class="tab"    onclick="switchTab('perfilVivo',this)">&#128200; Perfil</button>
     <button class="tab"    onclick="switchTab('fingerprint',this);abrirFingerprint()">&#129534; Fingerprint</button>
+    <button class="tab"    onclick="switchTab('relatorio',this);abrirRelatorio()" id="tabRelatorio">&#128203; Relatório</button>
     <button class="tab"    onclick="abrirAlgoritmo()" style="background:linear-gradient(135deg,rgba(155,109,255,.2),rgba(75,142,255,.15));border-color:rgba(155,109,255,.4);color:var(--pur);">&#127919; Algoritmo</button>
   </div>
 
@@ -594,6 +595,38 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 
   </div>
 
+<!-- ══ PANE RELATÓRIO — Timeline minuto a minuto ══ -->
+<div id="pane-relatorio" class="pane" style="display:none;padding:0">
+
+  <!-- Toolbar -->
+  <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--brd);flex-wrap:wrap;">
+    <span style="font-size:11px;font-weight:700;font-family:'DM Mono',monospace;color:var(--t2)">📋 RELATÓRIO AO VIVO</span>
+    <div id="relBaseline" style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;"></div>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+      <span id="relLinhasCount" style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;"></span>
+      <button onclick="salvarRelatorioManual()"
+        style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--brd2);background:var(--bg3);color:var(--t3);cursor:pointer;font-family:'Syne',sans-serif;">
+        💾 Salvar
+      </button>
+    </div>
+  </div>
+
+  <!-- Loading baseline -->
+  <div id="relLoadBaseline" style="display:none;padding:16px;text-align:center;font-size:11px;color:var(--t3);font-family:'DM Mono',monospace;">
+    <div class="spinner" style="width:16px;height:16px;margin:0 auto 6px"></div>
+    Carregando baseline histórico...
+  </div>
+
+  <!-- Wrapper da tabela com scroll horizontal -->
+  <div style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 220px);">
+    <table id="relTable" style="width:100%;border-collapse:collapse;font-size:11px;font-family:'DM Mono',monospace;white-space:nowrap;">
+      <thead id="relHead"></thead>
+      <tbody id="relBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
   <div class="last-update" id="lastUpdate"></div>
 </div>
 
@@ -661,13 +694,16 @@ let PERFIL_CASA = null, PERFIL_FORA = null;   // 📈 Fase 3 — perfis-times ba
 let PREVISAO_PRE = null;                       // ⚡ Fase 5 — previsão pré-jogo salva
 let FP_DATA = null;                            // 🧬 Fase 6 — fingerprint de padrões
 let fpTimer = null;                            // timer de atualização do fingerprint
+let BASELINE_REL = null;                       // 📋 Relatório — baseline histórico por minuto
+let RELATORIO_ROWS = [];                       // 📋 todas as linhas do relatório (ilimitado)
+let REL_ABERTO = false;                        // se a aba relatório está visível
 let refreshTimer = null, sinaisTimer = null;
 const REFRESH_SEC = 15;
 
 // ── Histórico client-side (entre refreshes) ──────────────────────────────
 // Guardamos até 10 snapshots locais para calcular deltas sem precisar do Firestore
 let STATS_HIST = []; // [{ts, min, home:{}, away:{}}]
-const MAX_HIST = 10;
+const MAX_HIST = 200; // ampliado — guardamos todo o jogo para o Relatório
 
 // Scores anteriores (para mostrar tendência ↑↓)
 let PREV_SCORES = { casa: null, fora: null };
@@ -717,6 +753,7 @@ async function iniciar() {
   carregarPerfilArbitro();    // sempre — árbitro está definido antes do jogo
   carregarPerfisVivo();       // 📈 Fase 3 — baseline histórico dos times
   carregarPrevisaoPre();      // ⚡ Fase 5 — previsão pré-jogo salva no apostas.html
+  carregarBaselineRelatorio(); // 📋 Relatório — baseline por minuto dos últimos 5 jogos
   if (isAoVivo()) {
     iniciarAutoRefresh();
     iniciarSinaisLoop();
@@ -793,28 +830,65 @@ function pushStatsHist() {
     ts: Date.now(),
     min: f.status.elapsed || 0,
     home: {
-      corners:  parseInt(home["Corner Kicks"]) || 0,
-      shots:    parseInt(home["Total Shots"])  || 0,
-      shotsOn:  parseInt(home["Shots on Goal"])|| 0,
-      ap:       parseInt(home["Dangerous Attacks"]) || 0,
-      fouls:    parseInt(home["Fouls"]) || 0,
-      xg:       parseFloat(home["expected_goals"]) || 0,
-      posse:    parseInt(home["Ball Possession"]) || 50,
-      passes:   parseInt(home["Total passes"]) || 0,
+      corners:       parseInt(home["Corner Kicks"]) || 0,
+      shots:         parseInt(home["Total Shots"])  || 0,
+      shotsOn:       parseInt(home["Shots on Goal"])|| 0,
+      ap:            parseInt(home["Dangerous Attacks"]) || 0,
+      fouls:         parseInt(home["Fouls"]) || 0,
+      xg:            parseFloat(home["expected_goals"]) || 0,
+      posse:         parseInt(home["Ball Possession"]) || 50,
+      passes:        parseInt(home["Total passes"]) || 0,
+      passesAcertos: parseInt(home["Passes accurate"]) || 0,
     },
     away: {
-      corners:  parseInt(away["Corner Kicks"]) || 0,
-      shots:    parseInt(away["Total Shots"])  || 0,
-      shotsOn:  parseInt(away["Shots on Goal"])|| 0,
-      ap:       parseInt(away["Dangerous Attacks"]) || 0,
-      fouls:    parseInt(away["Fouls"]) || 0,
-      xg:       parseFloat(away["expected_goals"]) || 0,
-      posse:    parseInt(away["Ball Possession"]) || 50,
-      passes:   parseInt(away["Total passes"]) || 0,
+      corners:       parseInt(away["Corner Kicks"]) || 0,
+      shots:         parseInt(away["Total Shots"])  || 0,
+      shotsOn:       parseInt(away["Shots on Goal"])|| 0,
+      ap:            parseInt(away["Dangerous Attacks"]) || 0,
+      fouls:         parseInt(away["Fouls"]) || 0,
+      xg:            parseFloat(away["expected_goals"]) || 0,
+      posse:         parseInt(away["Ball Possession"]) || 50,
+      passes:        parseInt(away["Total passes"]) || 0,
+      passesAcertos: parseInt(away["Passes accurate"]) || 0,
     }
   };
   STATS_HIST.push(snap);
   if (STATS_HIST.length > MAX_HIST) STATS_HIST.shift();
+
+  // 📋 Relatório: guardar snapshot completo com eventos do minuto
+  const evts = (DADOS.eventosJogo || []).filter(e => {
+    const m = parseInt(String(e.tempo||'0').replace(/\+.*/,''));
+    return Math.abs(m - snap.min) <= 1; // eventos neste minuto ± 1
+  });
+  const rowRel = {
+    ...snap,
+    // Adicionar métricas derivadas
+    home: {
+      ...snap.home,
+      iyo: snap.home.ap + snap.home.corners + snap.home.shotsOn > 0 && snap.home.passes > 0
+        ? Math.round((snap.home.ap + snap.home.corners + snap.home.shotsOn) / snap.home.passes * 1000) / 1000
+        : null,
+      passosErrados: snap.home.passes > 0 ? snap.home.passes - (snap.home.passesAcertos || 0) : null,
+    },
+    away: {
+      ...snap.away,
+      iyo: snap.away.ap + snap.away.corners + snap.away.shotsOn > 0 && snap.away.passes > 0
+        ? Math.round((snap.away.ap + snap.away.corners + snap.away.shotsOn) / snap.away.passes * 1000) / 1000
+        : null,
+      passosErrados: snap.away.passes > 0 ? snap.away.passes - (snap.away.passesAcertos || 0) : null,
+    },
+    placarCasa: DADOS.placarCasa ?? DADOS.fixture?.goals?.home ?? 0,
+    placarFora: DADOS.placarFora ?? DADOS.fixture?.goals?.away ?? 0,
+    eventos: evts.map(e => ({ tempo: e.tempo, tipo: e.tipo, detalhe: e.detalhe, time: e.time, jogador: e.jogador })),
+  };
+
+  // Evitar duplicata do mesmo minuto
+  const existIdx = RELATORIO_ROWS.findIndex(r => r.min === snap.min);
+  if (existIdx >= 0) RELATORIO_ROWS[existIdx] = rowRel;
+  else RELATORIO_ROWS.push(rowRel);
+
+  // Atualizar tabela se a aba estiver aberta
+  if (REL_ABERTO) renderRelatorio();
 }
 
 // ── DELTA helper: diferença entre agora e N snaps atrás ───────────────────
@@ -3113,6 +3187,527 @@ function renderFingerprint(d) {
       </div>`).join('');
   } else {
     gc('fpDiagCard').style.display = 'none';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 📋 RELATÓRIO AO VIVO — Timeline minuto a minuto
+// ══════════════════════════════════════════════════════════════════════
+
+// Colunas do relatório
+const REL_COLS = [
+  { key: 'posse',         label: 'Posse%',    fmt: v => v != null ? v+'%' : '—',                  hi: 'up',   th: 60 },
+  { key: 'shotsOn',       label: 'ChutAlvo',  fmt: v => v ?? '—',                                  hi: 'up',   th: 0  },
+  { key: 'shots',         label: 'Chutes',    fmt: v => v ?? '—',                                  hi: 'up',   th: 0  },
+  { key: 'ap',            label: 'AtqPer',    fmt: v => v ?? '—',                                  hi: 'up',   th: 0  },
+  { key: 'xg',            label: 'xG',        fmt: v => v != null ? v.toFixed(2) : '—',            hi: 'up',   th: 0  },
+  { key: 'corners',       label: 'Esc',       fmt: v => v ?? '—',                                  hi: 'up',   th: 0  },
+  { key: 'fouls',         label: 'Faltas',    fmt: v => v ?? '—',                                  hi: 'down', th: 0  },
+  { key: 'passes',        label: 'Passes',    fmt: v => v ?? '—',                                  hi: 'up',   th: 0  },
+  { key: 'passosErrados', label: 'PsErro',    fmt: v => v ?? '—',                                  hi: 'down', th: 0  },
+  { key: 'iyo',           label: 'IYO',       fmt: v => v != null ? v.toFixed(3) : '—',            hi: 'up',   th: 0.09 },
+];
+
+async function carregarBaselineRelatorio() {
+  if (!DADOS?.fixture) return;
+  const f = DADOS.fixture;
+  gc('relLoadBaseline').style.display = 'block';
+  try {
+    const fn = fns.httpsCallable('buscarBaselineTime', { timeout: 30000 });
+    const r  = await fn({ timeCasaId: f.timeCasa.id, timeForaId: f.timeFora.id, numJogos: 5 });
+    BASELINE_REL = r.data;
+    gc('relLoadBaseline').style.display = 'none';
+
+    // Mostrar resumo do baseline na toolbar
+    const bC = BASELINE_REL.casa, bF = BASELINE_REL.fora;
+    const nomeCasa = bC?.nome || f.timeCasa.nome;
+    const nomeFora = bF?.nome || f.timeFora.nome;
+    const relB = gc('relBaseline');
+    if (relB && bC && bF) {
+      relB.innerHTML = `Baseline (últ.5j) — ` +
+        `🏠 ${nomeCasa}: ${bC.chutesAlvoMin?.toFixed(3)||'—'} ch/min · ${bC.apMin?.toFixed(3)||'—'} ap/min · ${bC.xgMin?.toFixed(4)||'—'} xg/min | ` +
+        `✈️ ${nomeFora}: ${bF.chutesAlvoMin?.toFixed(3)||'—'} ch/min · ${bF.apMin?.toFixed(3)||'—'} ap/min · ${bF.xgMin?.toFixed(4)||'—'} xg/min`;
+    }
+
+    if (REL_ABERTO) renderRelatorio();
+  } catch(e) {
+    gc('relLoadBaseline').style.display = 'none';
+    console.warn('carregarBaselineRelatorio:', e.message);
+  }
+}
+
+function abrirRelatorio() {
+  REL_ABERTO = true;
+  renderRelatorio();
+}
+
+function renderRelatorio() {
+  const head = gc('relHead');
+  const body = gc('relBody');
+  const count = gc('relLinhasCount');
+  if (!head || !body) return;
+
+  const f = DADOS?.fixture;
+  const nomeCasa = BASELINE_REL?.casa?.nome || f?.timeCasa?.nome || 'Casa';
+  const nomeFora = BASELINE_REL?.fora?.nome || f?.timeFora?.nome || 'Fora';
+
+  // ── Estilo comum de célula ────────────────────────────────────────
+  const tdBase = `padding:5px 7px;border-bottom:1px solid rgba(255,255,255,.04);text-align:right;`;
+  const thBase = `padding:6px 7px;text-align:right;font-size:9px;color:var(--t3);border-bottom:2px solid var(--brd2);position:sticky;top:0;background:var(--bg2);white-space:nowrap;`;
+
+  // ── Cabeçalho ────────────────────────────────────────────────────
+  const colSpan = REL_COLS.length;
+  head.innerHTML = `
+    <tr>
+      <th style="${thBase}text-align:left;left:0;z-index:2;min-width:46px">Min</th>
+      <th style="${thBase}text-align:left;color:var(--acc);min-width:60px">Placar</th>
+      <th style="${thBase}text-align:left;min-width:120px">Eventos</th>
+      ${REL_COLS.map(c => `
+        <th style="${thBase}" colspan="2">
+          ${c.label}
+          <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--t3);margin-top:1px">
+            <span style="color:var(--acc)">🏠</span>
+            <span style="color:var(--blu)">✈️</span>
+          </div>
+        </th>`).join('')}
+    </tr>`;
+
+  // ── Linha de baseline (minuto 0) ─────────────────────────────────
+  const bC = BASELINE_REL?.casa;
+  const bF = BASELINE_REL?.fora;
+  const minAtual = f?.status?.elapsed || 0;
+
+  // Projetar baseline para o minuto atual (taxa × minuto)
+  const proj = (taxa, min) => taxa != null ? taxa * min : null;
+
+  const renderBaselineCell = (bC_val, bF_val, col, min) => {
+    const pC = proj(bC_val, min);
+    const pF = proj(bF_val, min);
+    const fmtB = v => v != null ? (v < 1 ? v.toFixed(2) : Math.round(v)) : '—';
+    return `
+      <td style="${tdBase}color:rgba(245,165,36,.6);font-style:italic" colspan="2">
+        <span style="color:rgba(245,165,36,.7)">${fmtB(pC)}</span>
+        <span style="color:var(--t3);margin:0 2px">/</span>
+        <span style="color:rgba(75,142,255,.7)">${fmtB(pF)}</span>
+      </td>`;
+  };
+
+  let baselineRow = '';
+  if (bC && bF && minAtual > 0) {
+    baselineRow = `
+      <tr style="background:rgba(245,165,36,.04);">
+        <td style="${tdBase}color:var(--acc);font-weight:700;text-align:left;position:sticky;left:0;background:rgba(20,22,35,.95)">BASE</td>
+        <td style="${tdBase}color:var(--t3);font-style:italic;text-align:left" colspan="2">Projeção @${minAtual}'</td>
+        ${REL_COLS.map(c => {
+          const keyMap = {
+            posse: ['possePctMedio', 'possePctMedio'],
+            shotsOn: ['chutesAlvoMin', 'chutesAlvoMin'],
+            shots: ['chutesTotaisMin', 'chutesTotaisMin'],
+            ap: ['apMin', 'apMin'],
+            xg: ['xgMin', 'xgMin'],
+            corners: ['escanteiosMin', 'escanteiosMin'],
+            fouls: ['faltasMin', 'faltasMin'],
+            passes: ['passesMin', 'passesMin'],
+            passosErrados: ['passosErradosMin', 'passosErradosMin'],
+            iyo: [null, null],
+          };
+          const [kC, kF] = keyMap[c.key] || [null, null];
+          if (!kC) return `<td style="${tdBase}color:var(--t3)" colspan="2">—</td>`;
+          // Posse é média, não taxa por minuto
+          const pC2 = c.key === 'posse' ? bC[kC] : proj(bC[kC], minAtual);
+          const pF2 = c.key === 'posse' ? bF[kF] : proj(bF[kF], minAtual);
+          const fmtB2 = v => v != null ? (v < 1 ? v.toFixed(2) : Math.round(v)) : '—';
+          return `<td style="${tdBase}font-style:italic;opacity:.65;" colspan="2">
+            <span style="color:rgba(245,165,36,.8)">${c.key==='posse'?(pC2!=null?Math.round(pC2)+'%':'—'):fmtB2(pC2)}</span>
+            <span style="color:var(--t3);margin:0 2px">/</span>
+            <span style="color:rgba(75,142,255,.8)">${c.key==='posse'?(pF2!=null?Math.round(pF2)+'%':'—'):fmtB2(pF2)}</span>
+          </td>`;
+        }).join('')}
+      </tr>
+      <tr style="height:2px;background:rgba(245,165,36,.15)"><td colspan="${colSpan*2+3}"></td></tr>`;
+  }
+
+  // ── Linhas de dados ───────────────────────────────────────────────
+  const rows = [...RELATORIO_ROWS].sort((a,b) => a.min - b.min);
+
+  const dataRows = rows.map((row, idx) => {
+    const prev = idx > 0 ? rows[idx - 1] : null;
+
+    // Cor de variação vs linha anterior
+    const delta = (side, key) => {
+      if (!prev) return null;
+      const cur  = row[side]?.[key];
+      const prv  = prev[side]?.[key];
+      if (cur == null || prv == null) return null;
+      return cur - prv;
+    };
+
+    const colCell = (side, col) => {
+      const val = row[side]?.[col.key];
+      const d   = delta(side, col.key);
+      const cor = side === 'home' ? 'var(--acc)' : 'var(--blu)';
+
+      let bg = '';
+      if (d != null && d !== 0) {
+        const isGood = col.hi === 'up' ? d > 0 : d < 0;
+        bg = isGood
+          ? 'background:rgba(0,229,160,.08);'
+          : 'background:rgba(255,69,96,.07);';
+      }
+
+      // Destaque IYO > 0.09
+      const iyoAlert = col.key === 'iyo' && val != null && val > 0.09
+        ? 'font-weight:800;' : '';
+
+      // Seta de variação
+      let arrow = '';
+      if (d != null && Math.abs(d) > 0) {
+        const isGood = col.hi === 'up' ? d > 0 : d < 0;
+        arrow = `<span style="font-size:8px;margin-left:2px;color:${isGood?'var(--acc)':'var(--red)'}">${d > 0 ? '▲' : '▼'}</span>`;
+      }
+
+      return `<td style="${tdBase}${bg}${iyoAlert}color:${cor};">${col.fmt(val)}${arrow}</td>`;
+    };
+
+    // Eventos do minuto
+    const evtIcos = (row.eventos || []).map(e => {
+      if (e.tipo === 'Goal') return `<span title="${e.jogador||''} (${e.time||''})" style="color:var(--acc)">⚽</span>`;
+      if (e.tipo === 'Card' && e.detalhe === 'Yellow Card') return `<span title="${e.jogador||''}">🟨</span>`;
+      if (e.tipo === 'Card') return `<span title="${e.jogador||''}">🟥</span>`;
+      if (e.tipo === 'subst') return `<span style="color:var(--t3)">🔄</span>`;
+      return '';
+    }).join(' ');
+
+    const hasGol = (row.eventos || []).some(e => e.tipo === 'Goal');
+    const rowBg = hasGol ? 'background:rgba(245,165,36,.08);border-top:1px solid rgba(245,165,36,.3);border-bottom:1px solid rgba(245,165,36,.3);' : '';
+
+    // Placar
+    const placar = `${row.placarCasa ?? '—'}–${row.placarFora ?? '—'}`;
+
+    return `
+      <tr style="${rowBg}">
+        <td style="${tdBase}text-align:left;font-weight:700;color:var(--t2);position:sticky;left:0;background:${hasGol?'rgba(30,25,10,.95)':'rgba(13,16,24,.95)'}">${row.min}'</td>
+        <td style="${tdBase}text-align:left;font-weight:700;color:${hasGol?'var(--acc)':'var(--t2)'}">${placar}</td>
+        <td style="${tdBase}text-align:left;min-width:80px">${evtIcos}</td>
+        ${REL_COLS.map(c => colCell('home', c) + colCell('away', c)).join('')}
+      </tr>`;
+  }).join('');
+
+  body.innerHTML = baselineRow + dataRows;
+
+  if (count) count.textContent = `${rows.length} linhas`;
+
+  // Scroll para a última linha
+  const wrapper = body.closest('div');
+  if (wrapper) wrapper.scrollTop = wrapper.scrollHeight;
+}
+
+async function salvarRelatorioManual() {
+  if (!DADOS?.fixture || !RELATORIO_ROWS.length) {
+    alert('Sem dados para salvar ainda.');
+    return;
+  }
+  const f = DADOS.fixture;
+  try {
+    const fn = fns.httpsCallable('salvarRelatorioJogo');
+    await fn({
+      fixtureId:    FIX_ID,
+      timeCasaNome: f.timeCasa.nome,
+      timeForaNome: f.timeFora.nome,
+      ligaNome:     f.liga?.nome || '',
+      dataJogo:     f.date || null,
+      placarFinal:  `${DADOS.placarCasa||0}-${DADOS.placarFora||0}`,
+      totalGols:    (DADOS.placarCasa||0) + (DADOS.placarFora||0),
+      baseline:     BASELINE_REL || {},
+      linhas:       RELATORIO_ROWS,
+    });
+    alert(`✅ Relatório salvo — ${RELATORIO_ROWS.length} linhas`);
+  } catch(e) {
+    alert('Erro ao salvar: ' + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 📋 RELATÓRIO — Timeline minuto a minuto com baseline
+// ══════════════════════════════════════════════════════════════════════
+
+// Colunas do relatório — o que mostrar
+const REL_COLS = [
+  { key:'min',       lbl:'Min',    fmt: v => v+"'",                    desvio:false },
+  { key:'placar',    lbl:'Placar', fmt: v => v,                         desvio:false },
+  { key:'posse',     lbl:'Posse%', fmt: v => v!=null?v+'%':'—',         desvio:true, bk:'posse',     inv:false },
+  { key:'ap',        lbl:'AP',     fmt: v => v??'—',                   desvio:true, bk:'ataquesPerigosos', inv:false },
+  { key:'shots',     lbl:'Chutes', fmt: v => v??'—',                   desvio:true, bk:'chutesAlvo', inv:false },
+  { key:'xg',        lbl:'xG',     fmt: v => v!=null?v.toFixed(2):'—', desvio:true, bk:'xg',         inv:false },
+  { key:'corners',   lbl:'Esc',    fmt: v => v??'—',                   desvio:true, bk:'escanteios', inv:false },
+  { key:'fouls',     lbl:'Falt',   fmt: v => v??'—',                   desvio:true, bk:'faltas',     inv:true  },
+  { key:'passErr',   lbl:'ErrPass',fmt: v => v??'—',                   desvio:true, bk:'passosErrados',inv:true },
+  { key:'iyo',       lbl:'IYO',    fmt: v => v!=null?v.toFixed(3):'—', desvio:true, bk:null,         inv:false },
+];
+
+async function carregarBaselineRitmo() {
+  if (!DADOS?.fixture) return;
+  const f = DADOS.fixture;
+  const el = gc('relBaselineLoad');
+  if (el) el.style.display = 'block';
+
+  try {
+    const fn = fns.httpsCallable('buscarBaselineRitmo', { timeout: 30000 });
+    const [rC, rF] = await Promise.all([
+      fn({ teamId: f.timeCasa.id, local: 'casa', nJogos: 5 }).catch(() => null),
+      fn({ teamId: f.timeFora.id, local: 'fora',  nJogos: 5 }).catch(() => null),
+    ]);
+
+    REL_BASELINE.casa = rC?.data || null;
+    REL_BASELINE.fora = rF?.data || null;
+
+    if (el) el.style.display = 'none';
+
+    // Mostrar fonte do baseline
+    const srcEl = gc('relBaselineSrc');
+    if (srcEl) {
+      const nC = rC?.data?.nJogosAnalisados || 0;
+      const nF = rF?.data?.nJogosAnalisados || 0;
+      const fonte = rC?.data?.fonte || 'historico';
+      srcEl.textContent = `(${fonte}: ${nC}j casa / ${nF}j fora)`;
+    }
+
+    // Renderizar linha de baseline no header
+    renderBaselineHeader();
+
+    console.log('📋 Baseline carregado:', REL_BASELINE);
+  } catch(e) {
+    if (el) el.style.display = 'none';
+    console.warn('carregarBaselineRitmo:', e.message);
+  }
+}
+
+function renderBaselineHeader() {
+  const el = gc('relBaselineRow');
+  if (!el) return;
+
+  const bC = REL_BASELINE.casa?.porMin?.casa || {};
+  const bF = REL_BASELINE.fora?.porMin?.fora  || {};
+  const f  = DADOS?.fixture;
+  const nC = DADOS?.fixture?.timeCasa?.nome || 'Casa';
+  const nF = DADOS?.fixture?.timeFora?.nome || 'Fora';
+
+  // Projetar acumulado esperado até o minuto atual
+  const min = f?.status?.elapsed || 0;
+
+  const proj = (val) => val != null ? Math.round(val * (min||90) * 10)/10 : null;
+  const fmt  = (v,c) => v != null ? REL_COLS.find(x=>x.key===c)?.fmt(v) : '—';
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div style="font-size:9px;color:var(--t3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">
+      Baseline (esperado acumulado até ${min}') — médias últimos 5 jogos
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <div style="padding:4px 8px;background:rgba(0,229,160,.08);border-radius:6px;font-size:10px;">
+        <span style="color:var(--t3)">🏠 ${nC}</span>
+        ${['ap','shots','xg','corners','passErr'].map(k => {
+          const bk = REL_COLS.find(c=>c.key===k)?.bk;
+          const v = bC[bk] != null ? proj(bC[bk]) : null;
+          return `<span style="margin-left:8px;color:var(--acc)">${k}:<b>${v!=null?v:'—'}</b></span>`;
+        }).join('')}
+      </div>
+      <div style="padding:4px 8px;background:rgba(75,142,255,.08);border-radius:6px;font-size:10px;">
+        <span style="color:var(--t3)">✈️ ${nF}</span>
+        ${['ap','shots','xg','corners','passErr'].map(k => {
+          const bk = REL_COLS.find(c=>c.key===k)?.bk;
+          const v = bF[bk] != null ? proj(bF[bk]) : null;
+          return `<span style="margin-left:8px;color:var(--blu)">${k}:<b>${v!=null?v:'—'}</b></span>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+function pushRelatorioLinha() {
+  if (!DADOS?.fixture) return;
+  const f   = DADOS.fixture;
+  const min = f.status?.elapsed || 0;
+  if (min < 1) return;
+
+  const sts = DADOS.estatisticas || [];
+  const stC = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
+  const stF = sts.find(t => t.time.id === f.timeFora.id)?.stats  || {};
+
+  const n = v => { const x=v; if(x==null) return null; return parseFloat(String(x).replace('%',''))||null; };
+
+  const linha = {
+    min,
+    ts:      Date.now(),
+    placar:  `${DADOS.placarCasa??0}-${DADOS.placarFora??0}`,
+    // Casa
+    casa: {
+      posse:    n(stC['Ball Possession']),
+      ap:       n(stC['Dangerous Attacks']),
+      shots:    n(stC['Shots on Goal']),
+      xg:       n(stC['expected_goals']),
+      corners:  n(stC['Corner Kicks']),
+      fouls:    n(stC['Fouls']),
+      passErr:  (n(stC['Total passes'])||0) - (n(stC['Passes accurate'])||0),
+      iyo:      (() => {
+        const ap=n(stC['Dangerous Attacks'])||0, esc=n(stC['Corner Kicks'])||0, ch=n(stC['Shots on Goal'])||0, p=n(stC['Total passes'])||1;
+        return Math.round((ap+esc+ch)/p*1000)/1000;
+      })(),
+    },
+    // Fora
+    fora: {
+      posse:    n(stF['Ball Possession']),
+      ap:       n(stF['Dangerous Attacks']),
+      shots:    n(stF['Shots on Goal']),
+      xg:       n(stF['expected_goals']),
+      corners:  n(stF['Corner Kicks']),
+      fouls:    n(stF['Fouls']),
+      passErr:  (n(stF['Total passes'])||0) - (n(stF['Passes accurate'])||0),
+      iyo:      (() => {
+        const ap=n(stF['Dangerous Attacks'])||0, esc=n(stF['Corner Kicks'])||0, ch=n(stF['Shots on Goal'])||0, p=n(stF['Total passes'])||1;
+        return Math.round((ap+esc+ch)/p*1000)/1000;
+      })(),
+    },
+  };
+
+  // Evitar duplicatas do mesmo minuto
+  const idx = REL_LINHAS.findIndex(l => l.min === min);
+  if (idx >= 0) REL_LINHAS[idx] = linha; // atualiza
+  else REL_LINHAS.push(linha);
+
+  // Re-renderizar se a aba estiver aberta
+  if (gc('pane-relatorio')?.classList.contains('on')) renderRelatorio();
+}
+
+function abrirRelatorio() {
+  renderRelatorio();
+  renderBaselineHeader();
+}
+
+function renderRelatorio() {
+  const tbody = gc('relBody');
+  const thead = gc('relHead');
+  const empty = gc('relEmpty');
+  if (!tbody || !thead) return;
+
+  if (!REL_LINHAS.length) {
+    empty.style.display = 'block';
+    tbody.innerHTML = '';
+    thead.innerHTML = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const f   = DADOS?.fixture;
+  const nC  = f?.timeCasa?.nome || 'Casa';
+  const nF  = f?.timeFora?.nome || 'Fora';
+  const bC  = REL_BASELINE.casa?.porMin?.casa || {};
+  const bF  = REL_BASELINE.fora?.porMin?.fora  || {};
+
+  // Header: Min | Placar | [Casa: col col col...] | [Fora: col col col...]
+  const metCols = REL_COLS.filter(c => c.key !== 'min' && c.key !== 'placar');
+  thead.innerHTML = `
+    <tr style="background:var(--bg4)">
+      <th style="padding:6px 8px;text-align:center;color:var(--t3);font-size:9px;white-space:nowrap;border-bottom:1px solid var(--brd);border-right:1px solid var(--brd2)">Min</th>
+      <th style="padding:6px 8px;text-align:center;color:var(--t3);font-size:9px;border-bottom:1px solid var(--brd);border-right:1px solid var(--brd2)">Placar</th>
+      ${metCols.map(c => `
+        <th colspan="1" style="padding:6px 4px;text-align:center;color:var(--acc);font-size:9px;border-bottom:1px solid var(--brd);border-right:1px solid rgba(0,229,160,.1)">${c.lbl}</th>`).join('')}
+      <th style="width:4px;background:var(--brd2)"></th>
+      ${metCols.map(c => `
+        <th colspan="1" style="padding:6px 4px;text-align:center;color:var(--blu);font-size:9px;border-bottom:1px solid var(--brd);border-right:1px solid rgba(75,142,255,.1)">${c.lbl}</th>`).join('')}
+    </tr>
+    <tr style="background:var(--bg3)">
+      <td colspan="2" style="padding:3px 8px;font-size:9px;color:var(--t3);border-bottom:1px solid var(--brd);border-right:1px solid var(--brd2)">Times</td>
+      ${metCols.map(() => `<td style="padding:2px 4px;text-align:center;font-size:9px;font-weight:700;color:var(--acc);border-bottom:1px solid var(--brd)">🏠</td>`).join('')}
+      <td style="width:4px;background:var(--brd2)"></td>
+      ${metCols.map(() => `<td style="padding:2px 4px;text-align:center;font-size:9px;font-weight:700;color:var(--blu);border-bottom:1px solid var(--brd)">✈️</td>`).join('')}
+    </tr>`;
+
+  // Detectar eventos (gols) para destacar linhas
+  const eventos = DADOS?.eventosJogo || DADOS?.eventos || [];
+  const minGols  = new Set(eventos.filter(e=>e.tipo==='Goal').map(e=>parseInt(String(e.tempo).replace(/\+.*/,''))));
+
+  // Linhas ordenadas desc (mais recente primeiro)
+  const linhasOrd = [...REL_LINHAS].sort((a,b)=>b.min-a.min);
+
+  tbody.innerHTML = linhasOrd.map((linha, i) => {
+    const prev = linhasOrd[i+1]; // linha anterior (minuto anterior)
+    const isGol = minGols.has(linha.min) || minGols.has(linha.min-1) || minGols.has(linha.min+1);
+
+    const cellVal = (lado, col) => {
+      const v    = linha[lado]?.[col.key];
+      const vPrev = prev?.[lado]?.[col.key];
+      const bMin = (col.bk && bC[col.bk] != null) ? (lado==='casa' ? bC[col.bk] : bF[col.bk]) : null;
+      const bEsp = bMin != null ? Math.round(bMin * linha.min * 10)/10 : null;
+
+      // Cor de variação vs linha anterior
+      let deltaStyle = 'color:var(--t2)';
+      let deltaArrow = '';
+      if (col.desvio && v != null && vPrev != null) {
+        const diff = v - vPrev;
+        const limiar = col.key === 'xg' ? 0.05 : col.key === 'iyo' ? 0.005 : 1;
+        if (Math.abs(diff) >= limiar) {
+          const sobe = col.inv ? diff < 0 : diff > 0; // inv=true: subir é ruim (faltas, erros)
+          deltaStyle = sobe ? 'color:var(--acc);font-weight:700' : 'color:var(--red);font-weight:700';
+          deltaArrow = sobe ? '▲' : '▼';
+        }
+      }
+
+      // Desvio vs baseline esperado
+      let bStyle = '';
+      let bTip   = '';
+      if (col.desvio && v != null && bEsp != null) {
+        const pct = bEsp > 0 ? (v - bEsp) / bEsp * 100 : 0;
+        if (pct >= 20)       { bStyle = 'background:rgba(0,229,160,.08)';  bTip = `+${pct.toFixed(0)}% vs baseline`; }
+        else if (pct <= -20) { bStyle = 'background:rgba(255,69,96,.08)';  bTip = `${pct.toFixed(0)}% vs baseline`; }
+      }
+
+      const corLado = lado === 'casa' ? 'var(--acc)' : 'var(--blu)';
+      const bordColor = lado === 'casa' ? 'rgba(0,229,160,.1)' : 'rgba(75,142,255,.1)';
+      return `<td title="${bTip}" style="padding:4px 5px;text-align:center;${bStyle};border-right:1px solid ${bordColor};">
+        <span style="${deltaStyle}">${deltaArrow}${col.fmt(v)}</span>
+      </td>`;
+    };
+
+    const rowBg = isGol
+      ? 'background:rgba(255,184,0,.12);border-top:2px solid var(--yel);border-bottom:2px solid var(--yel);'
+      : i===0 ? 'background:rgba(255,255,255,.04)' : '';
+    const golMark = isGol ? '<td colspan="1" style="text-align:center;font-size:14px">⚽</td>' : '';
+
+    return `<tr style="${rowBg};cursor:default" title="${isGol?'⚽ GOL NESTE MINUTO':''}">
+      <td style="padding:5px 8px;text-align:center;font-family:'DM Mono',monospace;font-weight:700;color:${isGol?'var(--yel)':'var(--t2)'};border-right:1px solid var(--brd2);white-space:nowrap">
+        ${linha.min}'${isGol?'⚽':''}
+      </td>
+      <td style="padding:5px 8px;text-align:center;font-family:'DM Mono',monospace;font-weight:700;color:var(--t1);border-right:1px solid var(--brd2)">${linha.placar}</td>
+      ${metCols.map(c => cellVal('casa', c)).join('')}
+      <td style="width:4px;background:var(--brd2)"></td>
+      ${metCols.map(c => cellVal('fora', c)).join('')}
+    </tr>`;
+  }).join('');
+}
+
+async function salvarRelatorioFinal() {
+  const btn = gc('btnSalvarRel');
+  if (!btn || !REL_LINHAS.length || !DADOS) return;
+  btn.textContent = '⏳';
+  btn.disabled = true;
+  try {
+    const f = DADOS.fixture;
+    const fn = fns.httpsCallable('salvarRelatorioJogoCompleto');
+    await fn({
+      fixtureId:  FIX_ID,
+      linhas:     REL_LINHAS,
+      baseline:   { casa: REL_BASELINE.casa?.porMin, fora: REL_BASELINE.fora?.porMin },
+      placarFinal:`${DADOS.placarCasa??0}-${DADOS.placarFora??0}`,
+      nomeCasa:   f.timeCasa.nome,
+      nomeFora:   f.timeFora.nome,
+      ligaNome:   f.liga?.nome || '',
+    });
+    btn.textContent = '✅ Salvo';
+    btn.style.color = 'var(--acc)';
+  } catch(e) {
+    btn.textContent = '❌ Erro';
+    btn.disabled = false;
+    console.warn('salvarRelatorio:', e.message);
   }
 }
 </script>
