@@ -844,44 +844,31 @@ function iniciarAutoSync(){
     if(!syncAtivo) return;
 
     // 1. Transição agendado → ao_vivo para qualquer jogo cujo horário já passou
+    //    (sem janela de 10min — qualquer jogo que deveria ter começado)
     const agora2 = new Date();
     const paraIniciar = admJogos.filter(j=>{
       if(j.status!=='agendado'||!j.dataInicio) return false;
       const dt = j.dataInicio.toDate?j.dataInicio.toDate():new Date(j.dataInicio);
-      return agora2 >= dt; // sem janela de 10min — qualquer jogo que já deveria ter começado
+      return agora2 >= dt;
     });
     if(paraIniciar.length > 0){
       const b2 = db.batch();
       paraIniciar.forEach(j=>{
         if(j._id) b2.update(db.collection('jogos-admin').doc(j._id),{
-          status:'ao_vivo',
+          status: 'ao_vivo',
           atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
         });
       });
-      await b2.commit().catch(()=>{});
+      await b2.commit().catch(e=>console.warn('Transição ao_vivo:', e.message));
+      // Atualizar local sem recarregar
       paraIniciar.forEach(j=>{ j.status='ao_vivo'; });
     }
 
-    // 2. Chamar API automaticamente para atualizar placar/status/encerrado
-    // Usa a data da aba API se preenchida, senão data de hoje
-    const dataSync = gc('dataApi')?.value || toBRTDate(new Date());
-    if(dataSync){
-      try{
-        const fn2 = fns.httpsCallable('buscarJogosData');
-        const r = await fn2({data: dataSync, amanha: incluirAmanha});
-        const jogosApi = r.data.jogos || [];
-        apiJogos = jogosApi;
-        lastSyncAt = Date.now();
-        await _syncAdmComApiJogos(jogosApi, true);
-        renderAPI();
-      }catch(eApi){
-        console.warn('Auto-sync API:', eApi.message);
-      }
-    }
-
-    // 3. Recarregar admin do Firestore com status atualizado
+    // 2. Recarregar do Firestore (o schedulePlacarMinuto já atualizou status/placar)
+    //    NÃO chama API aqui — evita conflito com o backend
     const dtAntes = gc('admData')?.value;
     await carregarAdmin();
+    // Preservar data selecionada se mudou durante o carregamento
     if(dtAntes && gc('admData')?.value !== dtAntes){
       gc('admData').value = dtAntes;
       renderAdmin();
@@ -1021,7 +1008,7 @@ async function _syncAdmComApiJogos(jogosApi, silencioso=true){
 
   const agora3 = new Date();
   for(const adm of admJogos){
-    // Aceitar ambos os campos — apiFixtureId (jogos-admin) e apiFootballId (legado)
+    // Aceitar ambos os campos — apiFixtureId (jogos-admin) e apiFootballId (legado index.js)
     const admApiId = adm.apiFixtureId || adm.apiFootballId;
     if(!admApiId) continue;
     const api=jogosApi.find(j=>String(j.id)===String(admApiId));
