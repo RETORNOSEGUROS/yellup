@@ -2358,6 +2358,7 @@ function switchTab(id, btn) {
   document.querySelectorAll(".pane").forEach(p => p.classList.remove("on"));
   btn.classList.add("on"); gc("pane-" + id).classList.add("on");
   if (id === 'campo') { renderCampo(); }
+  if (id !== 'relatorio') { REL_ABERTO = false; clearInterval(window._relTimer); }
 }
 
 function abrirAlgoritmo() {
@@ -3239,6 +3240,13 @@ async function carregarBaselineRelatorio() {
 function abrirRelatorio() {
   REL_ABERTO = true;
   carregarRelatorioFirestore(); // lê jogo-snapshots direto do Firestore
+  // Auto-refresh a cada 60s se jogo ao vivo
+  clearInterval(window._relTimer);
+  if (isAoVivo()) {
+    window._relTimer = setInterval(() => {
+      if (REL_ABERTO) carregarRelatorioFirestore();
+    }, 60000);
+  }
 }
 
 // ── Carrega snapshots do Firestore (independente do browser estar aberto) ──
@@ -3281,7 +3289,7 @@ async function carregarRelatorioFirestore() {
       const s = d.data();
       const min = s.minuto || parseInt(d.id) || 0;
 
-      // Derivar IYO e passosErrados dos campos flat do snapshot
+      // IYO só calculável quando temStats
       const iyoH = (s.ataquesPerigososCasa||0) + (s.escanteiosCasa||0) + (s.chutesAlvoCasa||0);
       const iyoA = (s.ataquesPerigososFora||0) + (s.escanteiosFora||0) + (s.chutesAlvoFora||0);
       const passH = s.passesTotaisCasa || 0;
@@ -3289,8 +3297,13 @@ async function carregarRelatorioFirestore() {
 
       return {
         min,
+        temStats:  s.temStats !== false, // true por padrão para snapshots antigos
         placarCasa: s.placarCasa ?? null,
         placarFora: s.placarFora ?? null,
+        // Eventos vêm diretamente do snapshot (já mapeados no index.js)
+        eventos: (s.eventos || []),
+        golCasa: s.golCasa || false,
+        golFora: s.golFora || false,
         home: {
           posse:         s.posseCasa,
           shotsOn:       s.chutesAlvoCasa,
@@ -3302,7 +3315,8 @@ async function carregarRelatorioFirestore() {
           passes:        passH,
           passosErrados: s.passosErradosCasa,
           taxaErros:     s.taxaErrosCasaMin,
-          iyo:           passH > 0 ? Math.round(iyoH / passH * 1000) / 1000 : null,
+          iyo:           passH > 0 && s.temStats !== false
+            ? Math.round(iyoH / passH * 1000) / 1000 : null,
         },
         away: {
           posse:         s.posseFora,
@@ -3315,19 +3329,10 @@ async function carregarRelatorioFirestore() {
           passes:        passA,
           passosErrados: s.passosErradosFora,
           taxaErros:     s.taxaErrosForaMin,
-          iyo:           passA > 0 ? Math.round(iyoA / passA * 1000) / 1000 : null,
+          iyo:           passA > 0 && s.temStats !== false
+            ? Math.round(iyoA / passA * 1000) / 1000 : null,
         },
-        eventos: [], // eventos são buscados via DADOS.eventosJogo abaixo
       };
-    });
-
-    // Cruzar com eventos do DADOS para marcar gols/cartões em cada minuto
-    const evts = DADOS?.eventosJogo || [];
-    RELATORIO_ROWS.forEach(row => {
-      row.eventos = evts.filter(e => {
-        const m = parseInt(String(e.tempo||'0').replace(/\+.*/,''));
-        return Math.abs(m - row.min) <= 3;
-      }).map(e => ({ tempo: e.tempo, tipo: e.tipo, detalhe: e.detalhe, time: e.time, jogador: e.jogador }));
     });
 
     if (count) count.textContent = `${RELATORIO_ROWS.length} snapshots`;
@@ -3405,6 +3410,10 @@ function renderRelatorio() {
     const colCell=(side,col)=>{
       const val=row[side]?.[col.key],d=delta(side,col.key);
       const cor=side==='home'?'var(--acc)':'var(--blu)';
+      // Minutos sem stats: mostrar — em cinza (placar+eventos sempre disponíveis)
+      if (!row.temStats && col.key !== 'corners' && col.key !== 'fouls') {
+        return `<td style="${tdBase}color:var(--t3);opacity:.4;">—</td>`;
+      }
       let bg='';
       if(d!=null&&d!==0){const ok=col.hi==='up'?d>0:d<0;bg=ok?'background:rgba(0,229,160,.08);':'background:rgba(255,69,96,.07);';}
       const bold=col.key==='iyo'&&val!=null&&val>0.09?'font-weight:800;':'';
@@ -3419,8 +3428,9 @@ function renderRelatorio() {
       if(e.tipo==='subst') return `<span style="color:var(--t3)">🔄</span>`;
       return '';
     }).join('');
-    const hasGol=(row.eventos||[]).some(e=>e.tipo==='Goal');
-    const rowBg=hasGol?'background:rgba(245,165,36,.08);border-top:1px solid rgba(245,165,36,.3);':'';
+    const hasGol=(row.eventos||[]).some(e=>e.tipo==='Goal') || row.golCasa || row.golFora;
+    const rowBg=hasGol?'background:rgba(245,165,36,.08);border-top:1px solid rgba(245,165,36,.3);'
+      : !row.temStats ? 'background:rgba(255,255,255,.01);' : '';
     return `<tr style="${rowBg}">
       <td style="${tdBase}text-align:left;font-weight:700;color:var(--t2);position:sticky;left:0;background:${hasGol?'rgba(30,25,10,.95)':'rgba(13,16,24,.95)'}">${row.min}'</td>
       <td style="${tdBase}text-align:left;font-weight:700;color:${hasGol?'var(--acc)':'var(--t2)'}">${row.placarCasa??'—'}–${row.placarFora??'—'}</td>
