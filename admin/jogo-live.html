@@ -907,13 +907,20 @@ function iniciarAutoRefresh() {
   clearInterval(fpTimer);
   fpTimer = setInterval(() => { if (document.getElementById('pane-fingerprint')?.classList.contains('on')) buscarFingerprintAgora(); }, 60000);
   refreshTimer = setInterval(async () => {
+    const statusAntes = DADOS?.fixture?.status?.short;
     await buscarDados();
     renderTudo();
-    renderSinaisLocais(); // recalcula sinais client-side a cada refresh
-    detectarEscanteiosNovos(); // detecta novos escanteios e atualiza tracker
-    renderDesvioVivo();   // 📈 Fase 3 — atualiza desvio ao vivo vs baseline
-    renderDivergencia();  // ⚡ Fase 5 — alerta de divergência previsão vs realidade
+    renderSinaisLocais();
+    detectarEscanteiosNovos();
+    renderDesvioVivo();
+    renderDivergencia();
     animarBarra();
+    // Auto-salvar relatório quando jogo encerra
+    const statusDepois = DADOS?.fixture?.status?.short;
+    if (!['FT','AET','PEN'].includes(statusAntes) && ['FT','AET','PEN'].includes(statusDepois)) {
+      console.log('🏁 Jogo encerrado — salvando relatório automaticamente');
+      setTimeout(() => _salvarRelatorio(), 3000); // aguarda 3s para snapshots finais
+    }
   }, REFRESH_SEC * 1000);
 }
 
@@ -3352,18 +3359,132 @@ function renderRelatorio() {
   if (!head || !body || !RELATORIO_ROWS.length) return;
 
   const f = DADOS?.fixture;
-  const tdBase = `padding:5px 7px;border-bottom:1px solid rgba(255,255,255,.04);text-align:right;`;
-  const thBase = `padding:6px 7px;text-align:right;font-size:9px;color:var(--t3);border-bottom:2px solid var(--brd2);position:sticky;top:0;background:var(--bg2);white-space:nowrap;`;
+  const nC = BASELINE_REL?.casa?.nome || f?.timeCasa?.nome || 'Casa';
+  const nF = BASELINE_REL?.fora?.nome  || f?.timeFora?.nome || 'Fora';
+  const tdBase = `padding:4px 6px;border-bottom:1px solid rgba(255,255,255,.04);text-align:right;font-size:11px;`;
+  const thBase = `padding:5px 6px;text-align:right;font-size:9px;color:var(--t3);border-bottom:2px solid var(--brd2);position:sticky;top:0;background:var(--bg2);white-space:nowrap;`;
 
-  head.innerHTML = `<tr>
-    <th style="${thBase}text-align:left;min-width:44px">Min</th>
-    <th style="${thBase}text-align:left;color:var(--acc);min-width:54px">Placar</th>
-    <th style="${thBase}text-align:left;min-width:60px">Evt</th>
-    ${REL_COLS.map(c=>`<th style="${thBase}" colspan="2">${c.label}
-      <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--t3);margin-top:1px">
-        <span style="color:var(--acc)">🏠</span><span style="color:var(--blu)">✈️</span>
-      </div></th>`).join('')}
-  </tr>`;
+  // ── Cabeçalho — uma coluna por time por métrica ────────────────────
+  // Linha 1: nomes dos times abrangendo as métricas
+  // Linha 2: Min | Placar | Evt | [métrica C] [métrica F] ...
+  head.innerHTML = `
+    <tr>
+      <th style="${thBase}text-align:left;min-width:36px" rowspan="2">Min</th>
+      <th style="${thBase}text-align:left;min-width:50px;color:var(--acc)" rowspan="2">Placar</th>
+      <th style="${thBase}text-align:left;min-width:30px" rowspan="2">Evt</th>
+      <th style="${thBase}text-align:center;color:var(--acc);border-left:2px solid rgba(0,229,160,.2)"
+          colspan="${REL_COLS.length}">🏠 ${nC}</th>
+      <th style="${thBase}text-align:center;color:var(--blu);border-left:2px solid rgba(75,142,255,.2)"
+          colspan="${REL_COLS.length}">✈️ ${nF}</th>
+    </tr>
+    <tr>
+      ${REL_COLS.map((c,i) => `<th style="${thBase}${i===0?'border-left:2px solid rgba(0,229,160,.2)':''}">${c.label}</th>`).join('')}
+      ${REL_COLS.map((c,i) => `<th style="${thBase}${i===0?'border-left:2px solid rgba(75,142,255,.2)':''}">${c.label}</th>`).join('')}
+    </tr>`;
+
+  // ── Linha BASE ────────────────────────────────────────────────────
+  const bC = BASELINE_REL?.casa, bF = BASELINE_REL?.fora;
+  const minAtual = f?.status?.elapsed || RELATORIO_ROWS[RELATORIO_ROWS.length-1]?.min || 0;
+  const proj = (taxa, min) => taxa != null ? taxa * min : null;
+  const fmtB = (v, key) => {
+    if (v == null) return '—';
+    if (key === 'posse') return Math.round(v)+'%';
+    if (key === 'xg' || key === 'iyo') return v.toFixed(2);
+    return Math.round(v);
+  };
+  const keyMap = {
+    posse:['possePctMedio','possePctMedio'], shotsOn:['chutesAlvoMin','chutesAlvoMin'],
+    shots:['chutesTotaisMin','chutesTotaisMin'], ap:['apMin','apMin'],
+    xg:['xgMin','xgMin'], corners:['escanteiosMin','escanteiosMin'],
+    fouls:['faltasMin','faltasMin'], passes:['passesMin','passesMin'],
+    passosErrados:['passosErradosMin','passosErradosMin'], iyo:[null,null],
+  };
+
+  let baseRow = '';
+  if (bC && bF && minAtual > 0) {
+    baseRow = `
+      <tr style="background:rgba(245,165,36,.05);">
+        <td style="${tdBase}text-align:left;font-weight:700;color:var(--yel);font-style:italic">BASE</td>
+        <td style="${tdBase}color:var(--t3);font-style:italic;text-align:left" colspan="2">@${minAtual}'</td>
+        ${REL_COLS.map((c,i) => {
+          const [kC] = keyMap[c.key] || [null];
+          if (!kC) return `<td style="${tdBase}opacity:.35;${i===0?'border-left:2px solid rgba(0,229,160,.15)':''}">—</td>`;
+          const vC = c.key === 'posse' ? bC[kC] : proj(bC[kC], minAtual);
+          return `<td style="${tdBase}color:rgba(245,165,36,.7);font-style:italic;${i===0?'border-left:2px solid rgba(0,229,160,.15)':''}">${fmtB(vC, c.key)}</td>`;
+        }).join('')}
+        ${REL_COLS.map((c,i) => {
+          const [,kF] = keyMap[c.key] || [null,null];
+          if (!kF) return `<td style="${tdBase}opacity:.35;${i===0?'border-left:2px solid rgba(75,142,255,.15)':''}">—</td>`;
+          const vF = c.key === 'posse' ? bF[kF] : proj(bF[kF], minAtual);
+          return `<td style="${tdBase}color:rgba(75,142,255,.7);font-style:italic;${i===0?'border-left:2px solid rgba(75,142,255,.15)':''}"> ${fmtB(vF, c.key)}</td>`;
+        }).join('')}
+      </tr>
+      <tr style="height:2px;background:rgba(245,165,36,.2)"><td colspan="99"></td></tr>`;
+  }
+
+  // ── Linhas de dados ───────────────────────────────────────────────
+  const rows = [...RELATORIO_ROWS].sort((a,b) => a.min - b.min);
+  const dataRows = rows.map((row, idx) => {
+    const prev = idx > 0 ? rows[idx-1] : null;
+    const delta = (side, key) => {
+      if (!prev || !row.temStats || !prev.temStats) return null;
+      const c = row[side]?.[key], p = prev[side]?.[key];
+      return (c != null && p != null) ? c - p : null;
+    };
+    const cell = (side, col, isFirst) => {
+      const val = row[side]?.[col.key];
+      const d   = delta(side, col.key);
+      const cor = side === 'home' ? 'var(--acc)' : 'var(--blu)';
+      const border = isFirst ? (side==='home'?'border-left:2px solid rgba(0,229,160,.1);':'border-left:2px solid rgba(75,142,255,.1);') : '';
+
+      if (!row.temStats && col.key !== 'corners' && col.key !== 'fouls') {
+        return `<td style="${tdBase}color:var(--t3);opacity:.3;${border}">—</td>`;
+      }
+      let bg = '';
+      if (d != null && d !== 0) {
+        const ok = col.hi === 'up' ? d > 0 : d < 0;
+        bg = ok ? 'background:rgba(0,229,160,.07);' : 'background:rgba(255,69,96,.06);';
+      }
+      const bold = col.key === 'iyo' && val != null && val > 0.09 ? 'font-weight:800;' : '';
+      let arrow = '';
+      if (d != null && Math.abs(d) > 0) {
+        const ok = col.hi === 'up' ? d > 0 : d < 0;
+        arrow = `<span style="font-size:8px;color:${ok?'var(--acc)':'var(--red)'}">${d>0?'▲':'▼'}</span>`;
+      }
+      return `<td style="${tdBase}${bg}${bold}${border}color:${cor};">${col.fmt(val)}${arrow}</td>`;
+    };
+
+    const evtIcos = (row.eventos||[]).map(e => {
+      if (e.tipo==='Goal') return `<span title="${e.jogador||''}">⚽</span>`;
+      if (e.tipo==='Card' && e.detalhe==='Yellow Card') return `<span>🟨</span>`;
+      if (e.tipo==='Card') return `<span>🟥</span>`;
+      if (e.tipo==='subst') return `<span style="color:var(--t3)">🔄</span>`;
+      return '';
+    }).join('');
+
+    const hasGol = (row.eventos||[]).some(e=>e.tipo==='Goal') || row.golCasa || row.golFora;
+    const rowBg = hasGol
+      ? 'background:rgba(245,165,36,.08);border-top:2px solid rgba(245,165,36,.4);'
+      : !row.temStats ? 'opacity:.7;' : '';
+
+    // Placar: usar campos diretos do snapshot (nunca null)
+    const pC = row.placarCasa ?? '—';
+    const pF = row.placarFora ?? '—';
+
+    return `<tr style="${rowBg}">
+      <td style="${tdBase}text-align:left;font-weight:700;color:var(--t2);position:sticky;left:0;background:${hasGol?'rgba(30,25,10,.95)':'rgba(13,16,24,.95)'}">${row.min}'</td>
+      <td style="${tdBase}text-align:left;font-weight:700;color:${hasGol?'var(--yel)':'var(--t2)'}">${pC}–${pF}</td>
+      <td style="${tdBase}text-align:left;">${evtIcos}</td>
+      ${REL_COLS.map((c,i) => cell('home', c, i===0)).join('')}
+      ${REL_COLS.map((c,i) => cell('away', c, i===0)).join('')}
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = baseRow + dataRows;
+  if (count) count.textContent = `${rows.length} snapshots`;
+  const wrapper = body.closest('div[style*="overflow"]');
+  if (wrapper) wrapper.scrollTop = wrapper.scrollHeight;
+}
 
   const bC = BASELINE_REL?.casa, bF = BASELINE_REL?.fora;
   const minAtual = f?.status?.elapsed || RELATORIO_ROWS[RELATORIO_ROWS.length-1]?.min || 0;
@@ -3450,6 +3571,13 @@ async function salvarRelatorioManual() {
     alert('Sem dados para salvar ainda.');
     return;
   }
+  await _salvarRelatorio();
+  alert(`✅ Relatório salvo — ${RELATORIO_ROWS.length} snapshots`);
+}
+
+// Salvar automático (chamado quando jogo encerra ou manualmente)
+async function _salvarRelatorio() {
+  if (!DADOS?.fixture || !RELATORIO_ROWS.length) return;
   const f = DADOS.fixture;
   try {
     const fn = fns.httpsCallable('salvarRelatorioJogo');
@@ -3464,9 +3592,9 @@ async function salvarRelatorioManual() {
       baseline:     BASELINE_REL || {},
       linhas:       RELATORIO_ROWS,
     });
-    alert(`✅ Relatório salvo — ${RELATORIO_ROWS.length} linhas`);
+    console.log(`💾 Relatório auto-salvo — ${RELATORIO_ROWS.length} snapshots`);
   } catch(e) {
-    alert('Erro ao salvar: ' + e.message);
+    console.warn('_salvarRelatorio:', e.message);
   }
 }
 
