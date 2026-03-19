@@ -395,6 +395,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
     <button class="tab"    onclick="switchTab('termo',this)">&#127777;&#65039; Termo</button>
     <button class="tab"    onclick="switchTab('insights',this)">&#129504; An&#225;lise</button>
     <button class="tab"    onclick="switchTab('perfilVivo',this)">&#128200; Perfil</button>
+    <button class="tab"    onclick="switchTab('fingerprint',this);abrirFingerprint()">&#129534; Fingerprint</button>
     <button class="tab"    onclick="abrirAlgoritmo()" style="background:linear-gradient(135deg,rgba(155,109,255,.2),rgba(75,142,255,.15));border-color:rgba(155,109,255,.4);color:var(--pur);">&#127919; Algoritmo</button>
   </div>
 
@@ -596,6 +597,51 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
   <div class="last-update" id="lastUpdate"></div>
 </div>
 
+<!-- ══ PANE FINGERPRINT — Fase 6 ══ -->
+<div id="pane-fingerprint" class="pane" style="display:none">
+
+  <div class="card" id="fpLoad" style="text-align:center;padding:24px;display:none">
+    <div class="spinner" style="width:20px;height:20px;margin:0 auto 8px"></div>
+    <div style="font-size:11px;color:var(--t3);font-family:'DM Mono',monospace">Buscando padrões similares...</div>
+  </div>
+
+  <!-- Distribuição principal -->
+  <div class="card" id="fpDistCard" style="display:none">
+    <div class="card-title">🧬 Fingerprint — Padrões Similares</div>
+    <div id="fpDistEl"></div>
+  </div>
+
+  <!-- Médias históricas pré-gol -->
+  <div class="card" id="fpMediasCard" style="display:none">
+    <div class="card-title">📊 Médias Históricas Pré-Gol</div>
+    <div id="fpMediasEl"></div>
+  </div>
+
+  <!-- Diagnóstico -->
+  <div class="card" id="fpDiagCard" style="display:none">
+    <div class="card-title">🔍 Diagnóstico — Atual vs Histórico</div>
+    <div id="fpDiagEl"></div>
+  </div>
+
+  <!-- Empty -->
+  <div class="card" id="fpEmpty" style="display:none">
+    <div class="empty" style="padding:30px 0">
+      <div style="font-size:32px;margin-bottom:8px">🧬</div>
+      <p>Sem padrões históricos suficientes ainda.</p>
+      <p style="font-size:11px;color:var(--t3);margin-top:4px">Os padrões são aprendidos automaticamente após cada jogo monitorado (Fase 4).</p>
+    </div>
+  </div>
+
+  <!-- Botão atualizar manual -->
+  <div style="text-align:center;padding:8px 0;">
+    <button onclick="buscarFingerprintAgora()"
+      style="font-size:11px;padding:6px 16px;border-radius:8px;border:1px solid var(--brd2);background:var(--bg3);color:var(--t3);cursor:pointer;font-family:'Syne',sans-serif;">
+      🔄 Atualizar
+    </button>
+  </div>
+
+</div>
+
 <script>
 const gc = id => document.getElementById(id);
 
@@ -613,6 +659,8 @@ let DADOS = null, FIX_ID = null, DOC_ID = null;
 let HIST_MEDIAS = { casa: null, fora: null }; // médias históricas por 90min
 let PERFIL_CASA = null, PERFIL_FORA = null;   // 📈 Fase 3 — perfis-times baseline
 let PREVISAO_PRE = null;                       // ⚡ Fase 5 — previsão pré-jogo salva
+let FP_DATA = null;                            // 🧬 Fase 6 — fingerprint de padrões
+let fpTimer = null;                            // timer de atualização do fingerprint
 let refreshTimer = null, sinaisTimer = null;
 const REFRESH_SEC = 15;
 
@@ -781,6 +829,9 @@ function getDelta(side, key, nBack) {
 function iniciarAutoRefresh() {
   clearInterval(refreshTimer);
   animarBarra();
+  // Iniciar loop de fingerprint a cada 60s (menos frequente — query mais pesada)
+  clearInterval(fpTimer);
+  fpTimer = setInterval(() => { if (document.getElementById('pane-fingerprint')?.classList.contains('on')) buscarFingerprintAgora(); }, 60000);
   refreshTimer = setInterval(async () => {
     await buscarDados();
     renderTudo();
@@ -2914,6 +2965,155 @@ function renderDesvioVivo() {
   }
 
   el.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 🧬 FASE 6 — FINGERPRINT DE PADRÕES
+// Compara estado atual com padroes-gol históricos similares.
+// Responde: "Em X situações parecidas, a casa marcou Y% das vezes."
+// ══════════════════════════════════════════════════════════════════════
+
+function abrirFingerprint() {
+  if (!FP_DATA) buscarFingerprintAgora();
+  else renderFingerprint(FP_DATA);
+}
+
+async function buscarFingerprintAgora() {
+  if (!DADOS?.fixture) return;
+  const f   = DADOS.fixture;
+  const min = f.status?.elapsed || 0;
+  const sts = DADOS.estatisticas || [];
+
+  gc('fpLoad').style.display = 'block';
+  gc('fpDistCard').style.display  = 'none';
+  gc('fpMediasCard').style.display = 'none';
+  gc('fpDiagCard').style.display  = 'none';
+  gc('fpEmpty').style.display     = 'none';
+
+  const stC = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
+  const stF = sts.find(t => t.time.id === f.timeFora.id)?.stats  || {};
+  const n   = v => { const x = v; if (x==null) return null; return parseFloat(String(x).replace('%',''))||null; };
+
+  try {
+    const fn = fns.httpsCallable('buscarFingerprintPadroes', { timeout: 20000 });
+    const r  = await fn({
+      minutoAtual:      min,
+      posseCasa:        n(stC['Ball Possession']),
+      ataquesPerCasa:   n(stC['Dangerous Attacks']),
+      ataquesPerFora:   n(stF['Dangerous Attacks']),
+      chutesAlvoCasa:   n(stC['Shots on Goal']),
+      chutesAlvoFora:   n(stF['Shots on Goal']),
+      xgCasa:           n(stC['expected_goals']),
+      xgFora:           n(stF['expected_goals']),
+      placarCasa:       DADOS.placarCasa ?? f.goals?.home ?? 0,
+      placarFora:       DADOS.placarFora ?? f.goals?.away ?? 0,
+      timeCasaId:       f.timeCasa.id,
+      timeForaId:       f.timeFora.id,
+      ligaId:           f.liga?.id || null,
+    });
+    FP_DATA = r.data;
+    gc('fpLoad').style.display = 'none';
+    renderFingerprint(FP_DATA);
+  } catch(e) {
+    gc('fpLoad').style.display = 'none';
+    gc('fpEmpty').style.display = 'block';
+    console.warn('buscarFingerprintPadroes:', e.message);
+  }
+}
+
+function renderFingerprint(d) {
+  if (!d || d._vazio || d.totalAmostras < 5) {
+    gc('fpEmpty').style.display = 'block'; return;
+  }
+
+  const nomeCasa = DADOS?.fixture?.timeCasa?.nome || 'Casa';
+  const nomeFora = DADOS?.fixture?.timeFora?.nome || 'Fora';
+  const min      = DADOS?.fixture?.status?.elapsed || 0;
+  const { distribuicao, medias, diagnostico, totalAmostras, confianca, fase, situacao, modo } = d;
+
+  const confCor  = confianca==='alta' ? 'var(--acc)' : confianca==='media' ? 'var(--yel)' : 'var(--t3)';
+  const faseStr  = fase==='0_25'?'0–25\''
+                 : fase==='26_45'?'26–45\''
+                 : fase==='46_65'?'46–65\''
+                 : '66+\'';
+  const sitStr   = situacao==='casa_vencendo' ? `${nomeCasa} vencendo`
+                 : situacao==='fora_vencendo' ? `${nomeFora} vencendo`
+                 : 'Empate';
+
+  // ── Card Distribuição ────────────────────────────────────────────────
+  gc('fpDistCard').style.display = 'block';
+  const pC = distribuicao.pctCasa  || 0;
+  const pF = distribuicao.pctFora  || 0;
+  gc('fpDistEl').innerHTML = `
+    <div style="font-size:11px;color:var(--t3);margin-bottom:12px;font-family:'DM Mono',monospace;">
+      ${totalAmostras} padrões similares · Fase ${faseStr} · ${sitStr} · min ${min}'
+      <span style="margin-left:8px;padding:2px 7px;border-radius:10px;background:rgba(255,255,255,.05);color:${confCor}">${confianca}</span>
+      ${modo !== 'completo' ? `<span style="margin-left:4px;font-size:9px;color:var(--t3)">(filtro: ${modo})</span>` : ''}
+    </div>
+
+    <div style="font-size:11px;color:var(--t2);margin-bottom:6px;">Quem marcou em situações similares:</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div style="background:rgba(0,229,160,.07);border:1px solid rgba(0,229,160,.2);border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:32px;font-weight:800;color:var(--acc);font-family:'DM Mono',monospace">${pC}%</div>
+        <div style="font-size:11px;color:var(--t2);margin-top:2px">🏠 ${nomeCasa}</div>
+        <div style="font-size:9px;color:var(--t3);margin-top:1px">${distribuicao.totalCasa} gols</div>
+      </div>
+      <div style="background:rgba(75,142,255,.07);border:1px solid rgba(75,142,255,.2);border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:32px;font-weight:800;color:var(--blu);font-family:'DM Mono',monospace">${pF}%</div>
+        <div style="font-size:11px;color:var(--t2);margin-top:2px">✈️ ${nomeFora}</div>
+        <div style="font-size:9px;color:var(--t3);margin-top:1px">${distribuicao.totalFora} gols</div>
+      </div>
+    </div>
+
+    <!-- Barra proporcional -->
+    <div style="height:8px;border-radius:4px;overflow:hidden;display:flex;margin-bottom:6px;">
+      <div style="width:${pC}%;background:var(--acc);transition:width .5s"></div>
+      <div style="width:${pF}%;background:var(--blu);transition:width .5s"></div>
+      <div style="flex:1;background:var(--brd)"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--t3);">
+      <span style="color:var(--acc)">${nomeCasa} ${pC}%</span>
+      <span style="color:var(--blu)">${nomeFora} ${pF}%</span>
+    </div>`;
+
+  // ── Card Médias pré-gol ──────────────────────────────────────────────
+  gc('fpMediasCard').style.display = 'block';
+  const m = medias;
+  const fmt = v => v != null ? v : '—';
+  gc('fpMediasEl').innerHTML = `
+    <div style="font-size:10px;color:var(--t3);margin-bottom:8px;">Valores médios no momento imediatamente anterior aos gols históricos similares:</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;">
+      ${[
+        ['Posse Casa',        fmt(m.posseCasaAnteGol)+'%',       fmt(m.posseForaAnteGol)+'%'],
+        ['Ataques Per.',      fmt(m.ataquesPerCasaAnteGol),      fmt(m.ataquesPerForaAnteGol)],
+        ['Chutes Alvo',       fmt(m.chutesAlvoCasaAnteGol),      fmt(m.chutesAlvoForaAnteGol)],
+        ['xG',                fmt(m.xgCasaAnteGol),              fmt(m.xgForaAnteGol)],
+        ['Δ AP (5min antes)', m.dAtaquesPerCasa!=null?`${m.dAtaquesPerCasa>0?'+':''}${m.dAtaquesPerCasa}`:'—', m.dAtaquesPerFora!=null?`${m.dAtaquesPerFora>0?'+':''}${m.dAtaquesPerFora}`:'—'],
+        ['Δ Erros Passe',     m.dPassosErradosCasa!=null?`${m.dPassosErradosCasa>0?'+':''}${m.dPassosErradosCasa}`:'—', m.dPassosErradosFora!=null?`${m.dPassosErradosFora>0?'+':''}${m.dPassosErradosFora}`:'—'],
+      ].map(([lbl, vC, vF]) => `
+        <div style="background:var(--bg3);border-radius:7px;padding:7px 10px;grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;align-items:center;">
+          <span style="color:var(--t3);font-size:10px">${lbl}</span>
+          <span style="color:var(--acc);font-weight:700;text-align:center;font-family:'DM Mono',monospace">${vC}</span>
+          <span style="color:var(--blu);font-weight:700;text-align:right;font-family:'DM Mono',monospace">${vF}</span>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--t3);padding:4px 10px 0">
+      <span></span><span style="color:var(--acc)">🏠 Casa</span><span style="color:var(--blu);text-align:right">✈️ Fora</span>
+    </div>`;
+
+  // ── Card Diagnóstico ─────────────────────────────────────────────────
+  if (diagnostico?.length) {
+    gc('fpDiagCard').style.display = 'block';
+    const nivelCor = { positivo:'var(--acc)', alerta:'var(--yel)', negativo:'var(--red)' };
+    gc('fpDiagEl').innerHTML = diagnostico.map(diag => `
+      <div style="display:flex;gap:8px;padding:8px 10px;border-radius:8px;margin-bottom:6px;
+        background:rgba(255,255,255,.03);border-left:3px solid ${nivelCor[diag.nivel]||'var(--t3)'};">
+        <span style="font-size:14px;flex-shrink:0">${diag.icone||'•'}</span>
+        <div style="font-size:11px;color:var(--t2);line-height:1.4">${diag.texto}</div>
+      </div>`).join('');
+  } else {
+    gc('fpDiagCard').style.display = 'none';
+  }
 }
 </script>
 </body>
