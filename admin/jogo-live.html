@@ -3238,167 +3238,200 @@ async function carregarBaselineRelatorio() {
 
 function abrirRelatorio() {
   REL_ABERTO = true;
-  renderRelatorio();
+  carregarRelatorioFirestore(); // lê jogo-snapshots direto do Firestore
 }
+
+// ── Carrega snapshots do Firestore (independente do browser estar aberto) ──
+// Lê jogo-snapshots/{fixtureId}/minutos/* que o schedulePlacarMinuto popula
+// automaticamente a cada 5 minutos, mesmo sem ninguém na tela.
+async function carregarRelatorioFirestore() {
+  if (!FIX_ID) return;
+  const body = gc('relBody');
+  const head = gc('relHead');
+  const count = gc('relLinhasCount');
+  if (!body) return;
+
+  // Mostrar loading
+  body.innerHTML = `<tr><td colspan="99" style="padding:20px;text-align:center;color:var(--t3);font-family:'DM Mono',monospace;">
+    <div class="spinner" style="width:16px;height:16px;margin:0 auto 8px"></div>
+    Lendo snapshots do Firestore...
+  </td></tr>`;
+
+  try {
+    // Buscar todos os snapshots deste jogo ordenados por minuto
+    const snapsSnap = await db
+      .collection('jogo-snapshots')
+      .doc(String(FIX_ID))
+      .collection('minutos')
+      .orderBy(firebase.firestore.FieldPath.documentId())
+      .get();
+
+    if (snapsSnap.empty) {
+      body.innerHTML = `<tr><td colspan="99" style="padding:24px;text-align:center;color:var(--t3);font-family:'DM Mono',monospace;">
+        <div style="font-size:24px;margin-bottom:8px">📭</div>
+        Nenhum snapshot ainda para este jogo.<br>
+        <span style="font-size:10px">O sistema registra automaticamente a cada 5 minutos enquanto o jogo está ao vivo em jogos-admin.</span>
+      </td></tr>`;
+      if (count) count.textContent = '0 linhas';
+      return;
+    }
+
+    // Converter docs em linhas
+    RELATORIO_ROWS = snapsSnap.docs.map(d => {
+      const s = d.data();
+      const min = s.minuto || parseInt(d.id) || 0;
+
+      // Derivar IYO e passosErrados dos campos flat do snapshot
+      const iyoH = (s.ataquesPerigososCasa||0) + (s.escanteiosCasa||0) + (s.chutesAlvoCasa||0);
+      const iyoA = (s.ataquesPerigososFora||0) + (s.escanteiosFora||0) + (s.chutesAlvoFora||0);
+      const passH = s.passesTotaisCasa || 0;
+      const passA = s.passesTotaisFora || 0;
+
+      return {
+        min,
+        placarCasa: s.placarCasa ?? null,
+        placarFora: s.placarFora ?? null,
+        home: {
+          posse:         s.posseCasa,
+          shotsOn:       s.chutesAlvoCasa,
+          shots:         s.chutesTotaisCasa,
+          ap:            s.ataquesPerigososCasa,
+          xg:            s.xgCasa,
+          corners:       s.escanteiosCasa,
+          fouls:         s.faltasCasa,
+          passes:        passH,
+          passosErrados: s.passosErradosCasa,
+          taxaErros:     s.taxaErrosCasaMin,
+          iyo:           passH > 0 ? Math.round(iyoH / passH * 1000) / 1000 : null,
+        },
+        away: {
+          posse:         s.posseFora,
+          shotsOn:       s.chutesAlvoFora,
+          shots:         s.chutesTotaisFora,
+          ap:            s.ataquesPerigososFora,
+          xg:            s.xgFora,
+          corners:       s.escanteiosFora,
+          fouls:         s.faltasFora,
+          passes:        passA,
+          passosErrados: s.passosErradosFora,
+          taxaErros:     s.taxaErrosForaMin,
+          iyo:           passA > 0 ? Math.round(iyoA / passA * 1000) / 1000 : null,
+        },
+        eventos: [], // eventos são buscados via DADOS.eventosJogo abaixo
+      };
+    });
+
+    // Cruzar com eventos do DADOS para marcar gols/cartões em cada minuto
+    const evts = DADOS?.eventosJogo || [];
+    RELATORIO_ROWS.forEach(row => {
+      row.eventos = evts.filter(e => {
+        const m = parseInt(String(e.tempo||'0').replace(/\+.*/,''));
+        return Math.abs(m - row.min) <= 3;
+      }).map(e => ({ tempo: e.tempo, tipo: e.tipo, detalhe: e.detalhe, time: e.time, jogador: e.jogador }));
+    });
+
+    if (count) count.textContent = `${RELATORIO_ROWS.length} snapshots`;
+    renderRelatorio();
+
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="99" style="padding:20px;text-align:center;color:var(--red);font-size:12px">Erro: ${e.message}</td></tr>`;
+    console.warn('carregarRelatorioFirestore:', e.message);
+  }
+}
+
 
 function renderRelatorio() {
   const head = gc('relHead');
   const body = gc('relBody');
   const count = gc('relLinhasCount');
-  if (!head || !body) return;
+  if (!head || !body || !RELATORIO_ROWS.length) return;
 
   const f = DADOS?.fixture;
-  const nomeCasa = BASELINE_REL?.casa?.nome || f?.timeCasa?.nome || 'Casa';
-  const nomeFora = BASELINE_REL?.fora?.nome || f?.timeFora?.nome || 'Fora';
-
-  // ── Estilo comum de célula ────────────────────────────────────────
   const tdBase = `padding:5px 7px;border-bottom:1px solid rgba(255,255,255,.04);text-align:right;`;
   const thBase = `padding:6px 7px;text-align:right;font-size:9px;color:var(--t3);border-bottom:2px solid var(--brd2);position:sticky;top:0;background:var(--bg2);white-space:nowrap;`;
 
-  // ── Cabeçalho ────────────────────────────────────────────────────
-  const colSpan = REL_COLS.length;
-  head.innerHTML = `
-    <tr>
-      <th style="${thBase}text-align:left;left:0;z-index:2;min-width:46px">Min</th>
-      <th style="${thBase}text-align:left;color:var(--acc);min-width:60px">Placar</th>
-      <th style="${thBase}text-align:left;min-width:120px">Eventos</th>
-      ${REL_COLS.map(c => `
-        <th style="${thBase}" colspan="2">
-          ${c.label}
-          <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--t3);margin-top:1px">
-            <span style="color:var(--acc)">🏠</span>
-            <span style="color:var(--blu)">✈️</span>
-          </div>
-        </th>`).join('')}
-    </tr>`;
+  head.innerHTML = `<tr>
+    <th style="${thBase}text-align:left;min-width:44px">Min</th>
+    <th style="${thBase}text-align:left;color:var(--acc);min-width:54px">Placar</th>
+    <th style="${thBase}text-align:left;min-width:60px">Evt</th>
+    ${REL_COLS.map(c=>`<th style="${thBase}" colspan="2">${c.label}
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--t3);margin-top:1px">
+        <span style="color:var(--acc)">🏠</span><span style="color:var(--blu)">✈️</span>
+      </div></th>`).join('')}
+  </tr>`;
 
-  // ── Linha de baseline (minuto 0) ─────────────────────────────────
-  const bC = BASELINE_REL?.casa;
-  const bF = BASELINE_REL?.fora;
-  const minAtual = f?.status?.elapsed || 0;
-
-  // Projetar baseline para o minuto atual (taxa × minuto)
+  const bC = BASELINE_REL?.casa, bF = BASELINE_REL?.fora;
+  const minAtual = f?.status?.elapsed || RELATORIO_ROWS[RELATORIO_ROWS.length-1]?.min || 0;
   const proj = (taxa, min) => taxa != null ? taxa * min : null;
-
-  const renderBaselineCell = (bC_val, bF_val, col, min) => {
-    const pC = proj(bC_val, min);
-    const pF = proj(bF_val, min);
-    const fmtB = v => v != null ? (v < 1 ? v.toFixed(2) : Math.round(v)) : '—';
-    return `
-      <td style="${tdBase}color:rgba(245,165,36,.6);font-style:italic" colspan="2">
-        <span style="color:rgba(245,165,36,.7)">${fmtB(pC)}</span>
-        <span style="color:var(--t3);margin:0 2px">/</span>
-        <span style="color:rgba(75,142,255,.7)">${fmtB(pF)}</span>
-      </td>`;
+  const fmtB = (v, key) => {
+    if (v == null) return '—';
+    if (key === 'posse') return Math.round(v)+'%';
+    if (key === 'xg' || key === 'iyo') return v.toFixed(2);
+    return Math.round(v);
   };
-
-  let baselineRow = '';
+  const keyMap = {
+    posse:['possePctMedio','possePctMedio'], shotsOn:['chutesAlvoMin','chutesAlvoMin'],
+    shots:['chutesTotaisMin','chutesTotaisMin'], ap:['apMin','apMin'],
+    xg:['xgMin','xgMin'], corners:['escanteiosMin','escanteiosMin'],
+    fouls:['faltasMin','faltasMin'], passes:['passesMin','passesMin'],
+    passosErrados:['passosErradosMin','passosErradosMin'], iyo:[null,null],
+  };
+  let baseRow = '';
   if (bC && bF && minAtual > 0) {
-    baselineRow = `
-      <tr style="background:rgba(245,165,36,.04);">
-        <td style="${tdBase}color:var(--acc);font-weight:700;text-align:left;position:sticky;left:0;background:rgba(20,22,35,.95)">BASE</td>
-        <td style="${tdBase}color:var(--t3);font-style:italic;text-align:left" colspan="2">Projeção @${minAtual}'</td>
-        ${REL_COLS.map(c => {
-          const keyMap = {
-            posse: ['possePctMedio', 'possePctMedio'],
-            shotsOn: ['chutesAlvoMin', 'chutesAlvoMin'],
-            shots: ['chutesTotaisMin', 'chutesTotaisMin'],
-            ap: ['apMin', 'apMin'],
-            xg: ['xgMin', 'xgMin'],
-            corners: ['escanteiosMin', 'escanteiosMin'],
-            fouls: ['faltasMin', 'faltasMin'],
-            passes: ['passesMin', 'passesMin'],
-            passosErrados: ['passosErradosMin', 'passosErradosMin'],
-            iyo: [null, null],
-          };
-          const [kC, kF] = keyMap[c.key] || [null, null];
-          if (!kC) return `<td style="${tdBase}color:var(--t3)" colspan="2">—</td>`;
-          // Posse é média, não taxa por minuto
-          const pC2 = c.key === 'posse' ? bC[kC] : proj(bC[kC], minAtual);
-          const pF2 = c.key === 'posse' ? bF[kF] : proj(bF[kF], minAtual);
-          const fmtB2 = v => v != null ? (v < 1 ? v.toFixed(2) : Math.round(v)) : '—';
-          return `<td style="${tdBase}font-style:italic;opacity:.65;" colspan="2">
-            <span style="color:rgba(245,165,36,.8)">${c.key==='posse'?(pC2!=null?Math.round(pC2)+'%':'—'):fmtB2(pC2)}</span>
-            <span style="color:var(--t3);margin:0 2px">/</span>
-            <span style="color:rgba(75,142,255,.8)">${c.key==='posse'?(pF2!=null?Math.round(pF2)+'%':'—'):fmtB2(pF2)}</span>
-          </td>`;
-        }).join('')}
-      </tr>
-      <tr style="height:2px;background:rgba(245,165,36,.15)"><td colspan="${colSpan*2+3}"></td></tr>`;
+    baseRow = `<tr style="background:rgba(245,165,36,.05);">
+      <td style="${tdBase}color:var(--acc);font-weight:700;text-align:left;font-style:italic">BASE</td>
+      <td style="${tdBase}color:var(--t3);font-style:italic;text-align:left" colspan="2">@${minAtual}'</td>
+      ${REL_COLS.map(c=>{
+        const [kC,kF]=keyMap[c.key]||[null,null];
+        if(!kC) return `<td style="${tdBase}opacity:.4" colspan="2">—</td>`;
+        const vC=c.key==='posse'?bC[kC]:proj(bC[kC],minAtual);
+        const vF=c.key==='posse'?bF[kF]:proj(bF[kF],minAtual);
+        return `<td style="${tdBase}font-style:italic;opacity:.65;" colspan="2">
+          <span style="color:rgba(245,165,36,.8)">${fmtB(vC,c.key)}</span>
+          <span style="color:var(--t3);margin:0 2px">/</span>
+          <span style="color:rgba(75,142,255,.8)">${fmtB(vF,c.key)}</span></td>`;
+      }).join('')}
+    </tr><tr style="height:2px;background:rgba(245,165,36,.2)"><td colspan="99"></td></tr>`;
   }
 
-  // ── Linhas de dados ───────────────────────────────────────────────
-  const rows = [...RELATORIO_ROWS].sort((a,b) => a.min - b.min);
-
-  const dataRows = rows.map((row, idx) => {
-    const prev = idx > 0 ? rows[idx - 1] : null;
-
-    // Cor de variação vs linha anterior
-    const delta = (side, key) => {
-      if (!prev) return null;
-      const cur  = row[side]?.[key];
-      const prv  = prev[side]?.[key];
-      if (cur == null || prv == null) return null;
-      return cur - prv;
+  const rows = [...RELATORIO_ROWS].sort((a,b)=>a.min-b.min);
+  const dataRows = rows.map((row,idx)=>{
+    const prev=idx>0?rows[idx-1]:null;
+    const delta=(side,key)=>{
+      if(!prev) return null;
+      const c=row[side]?.[key],p=prev[side]?.[key];
+      return(c!=null&&p!=null)?c-p:null;
     };
-
-    const colCell = (side, col) => {
-      const val = row[side]?.[col.key];
-      const d   = delta(side, col.key);
-      const cor = side === 'home' ? 'var(--acc)' : 'var(--blu)';
-
-      let bg = '';
-      if (d != null && d !== 0) {
-        const isGood = col.hi === 'up' ? d > 0 : d < 0;
-        bg = isGood
-          ? 'background:rgba(0,229,160,.08);'
-          : 'background:rgba(255,69,96,.07);';
-      }
-
-      // Destaque IYO > 0.09
-      const iyoAlert = col.key === 'iyo' && val != null && val > 0.09
-        ? 'font-weight:800;' : '';
-
-      // Seta de variação
-      let arrow = '';
-      if (d != null && Math.abs(d) > 0) {
-        const isGood = col.hi === 'up' ? d > 0 : d < 0;
-        arrow = `<span style="font-size:8px;margin-left:2px;color:${isGood?'var(--acc)':'var(--red)'}">${d > 0 ? '▲' : '▼'}</span>`;
-      }
-
-      return `<td style="${tdBase}${bg}${iyoAlert}color:${cor};">${col.fmt(val)}${arrow}</td>`;
+    const colCell=(side,col)=>{
+      const val=row[side]?.[col.key],d=delta(side,col.key);
+      const cor=side==='home'?'var(--acc)':'var(--blu)';
+      let bg='';
+      if(d!=null&&d!==0){const ok=col.hi==='up'?d>0:d<0;bg=ok?'background:rgba(0,229,160,.08);':'background:rgba(255,69,96,.07);';}
+      const bold=col.key==='iyo'&&val!=null&&val>0.09?'font-weight:800;':'';
+      let arrow='';
+      if(d!=null&&Math.abs(d)>0){const ok=col.hi==='up'?d>0:d<0;arrow=`<span style="font-size:8px;margin-left:2px;color:${ok?'var(--acc)':'var(--red)'}">${d>0?'▲':'▼'}</span>`;}
+      return `<td style="${tdBase}${bg}${bold}color:${cor};">${col.fmt(val)}${arrow}</td>`;
     };
-
-    // Eventos do minuto
-    const evtIcos = (row.eventos || []).map(e => {
-      if (e.tipo === 'Goal') return `<span title="${e.jogador||''} (${e.time||''})" style="color:var(--acc)">⚽</span>`;
-      if (e.tipo === 'Card' && e.detalhe === 'Yellow Card') return `<span title="${e.jogador||''}">🟨</span>`;
-      if (e.tipo === 'Card') return `<span title="${e.jogador||''}">🟥</span>`;
-      if (e.tipo === 'subst') return `<span style="color:var(--t3)">🔄</span>`;
+    const evtIcos=(row.eventos||[]).map(e=>{
+      if(e.tipo==='Goal') return `<span title="${e.jogador||''}">⚽</span>`;
+      if(e.tipo==='Card'&&e.detalhe==='Yellow Card') return `<span>🟨</span>`;
+      if(e.tipo==='Card') return `<span>🟥</span>`;
+      if(e.tipo==='subst') return `<span style="color:var(--t3)">🔄</span>`;
       return '';
-    }).join(' ');
-
-    const hasGol = (row.eventos || []).some(e => e.tipo === 'Goal');
-    const rowBg = hasGol ? 'background:rgba(245,165,36,.08);border-top:1px solid rgba(245,165,36,.3);border-bottom:1px solid rgba(245,165,36,.3);' : '';
-
-    // Placar
-    const placar = `${row.placarCasa ?? '—'}–${row.placarFora ?? '—'}`;
-
-    return `
-      <tr style="${rowBg}">
-        <td style="${tdBase}text-align:left;font-weight:700;color:var(--t2);position:sticky;left:0;background:${hasGol?'rgba(30,25,10,.95)':'rgba(13,16,24,.95)'}">${row.min}'</td>
-        <td style="${tdBase}text-align:left;font-weight:700;color:${hasGol?'var(--acc)':'var(--t2)'}">${placar}</td>
-        <td style="${tdBase}text-align:left;min-width:80px">${evtIcos}</td>
-        ${REL_COLS.map(c => colCell('home', c) + colCell('away', c)).join('')}
-      </tr>`;
+    }).join('');
+    const hasGol=(row.eventos||[]).some(e=>e.tipo==='Goal');
+    const rowBg=hasGol?'background:rgba(245,165,36,.08);border-top:1px solid rgba(245,165,36,.3);':'';
+    return `<tr style="${rowBg}">
+      <td style="${tdBase}text-align:left;font-weight:700;color:var(--t2);position:sticky;left:0;background:${hasGol?'rgba(30,25,10,.95)':'rgba(13,16,24,.95)'}">${row.min}'</td>
+      <td style="${tdBase}text-align:left;font-weight:700;color:${hasGol?'var(--acc)':'var(--t2)'}">${row.placarCasa??'—'}–${row.placarFora??'—'}</td>
+      <td style="${tdBase}text-align:left;">${evtIcos}</td>
+      ${REL_COLS.map(c=>colCell('home',c)+colCell('away',c)).join('')}
+    </tr>`;
   }).join('');
 
-  body.innerHTML = baselineRow + dataRows;
-
-  if (count) count.textContent = `${rows.length} linhas`;
-
-  // Scroll para a última linha
-  const wrapper = body.closest('div');
+  body.innerHTML = baseRow + dataRows;
+  if (count) count.textContent = `${rows.length} snapshots`;
+  const wrapper = body.closest('div[style*="overflow"]');
   if (wrapper) wrapper.scrollTop = wrapper.scrollHeight;
 }
 
