@@ -438,6 +438,12 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
         🔕 Som desligado
       </button>
     </div>
+
+    <!-- ⚡ FASE 5: Alerta de Divergência — previsão pré-jogo vs ao vivo -->
+    <div class="card" id="divergenciaCard" style="display:none">
+      <div class="card-title">⚡ Divergência — Previsão vs Realidade</div>
+      <div id="divergenciaEl"></div>
+    </div>
     <div class="score-duo" id="scoreDuo">
       <div class="score-box" id="scoreCasaBox">
         <div class="score-num" id="scoreCasaNum" style="color:var(--acc)">&#8212;</div>
@@ -606,6 +612,7 @@ const auth = firebase.auth(), fns = firebase.functions(), db = firebase.firestor
 let DADOS = null, FIX_ID = null, DOC_ID = null;
 let HIST_MEDIAS = { casa: null, fora: null }; // médias históricas por 90min
 let PERFIL_CASA = null, PERFIL_FORA = null;   // 📈 Fase 3 — perfis-times baseline
+let PREVISAO_PRE = null;                       // ⚡ Fase 5 — previsão pré-jogo salva
 let refreshTimer = null, sinaisTimer = null;
 const REFRESH_SEC = 15;
 
@@ -661,6 +668,7 @@ async function iniciar() {
   carregarMediasHistoricas(); // sempre, ao vivo ou não
   carregarPerfilArbitro();    // sempre — árbitro está definido antes do jogo
   carregarPerfisVivo();       // 📈 Fase 3 — baseline histórico dos times
+  carregarPrevisaoPre();      // ⚡ Fase 5 — previsão pré-jogo salva no apostas.html
   if (isAoVivo()) {
     iniciarAutoRefresh();
     iniciarSinaisLoop();
@@ -779,6 +787,7 @@ function iniciarAutoRefresh() {
     renderSinaisLocais(); // recalcula sinais client-side a cada refresh
     detectarEscanteiosNovos(); // detecta novos escanteios e atualiza tracker
     renderDesvioVivo();   // 📈 Fase 3 — atualiza desvio ao vivo vs baseline
+    renderDivergencia();  // ⚡ Fase 5 — alerta de divergência previsão vs realidade
     animarBarra();
   }, REFRESH_SEC * 1000);
 }
@@ -2513,6 +2522,195 @@ function abrirPerfil(lado) {
   if (!DADOS) return;
   const f = DADOS.fixture, t = lado === "casa" ? f.timeCasa : f.timeFora;
   window.open("time-perfil.html?teamId=" + t.id + "&nome=" + encodeURIComponent(t.nome) + "&logo=" + encodeURIComponent(t.logo || "") + "&fixId=" + FIX_ID, "_blank");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ⚡ FASE 5 — ALERTAS DE DIVERGÊNCIA
+// Carrega previsão pré-jogo de previsoes-historico/{fixtureId}
+// e compara com o estado atual ao vivo a cada refresh (15s).
+// Alerta quando o jogo desvia significativamente do esperado.
+// ══════════════════════════════════════════════════════════════════════
+
+async function carregarPrevisaoPre() {
+  if (!FIX_ID) return;
+  try {
+    const snap = await db.collection('previsoes-historico').doc(String(FIX_ID)).get();
+    if (snap.exists) {
+      PREVISAO_PRE = snap.data();
+      console.log('⚡ Previsão pré-jogo carregada:', PREVISAO_PRE.veredito, PREVISAO_PRE.probCasa + '/' + PREVISAO_PRE.probEmpate + '/' + PREVISAO_PRE.probFora);
+      renderDivergencia();
+    } else {
+      console.log('⚡ Sem previsão pré-jogo para fixture', FIX_ID, '— gere em apostas.html antes do jogo');
+    }
+  } catch(e) {
+    console.warn('carregarPrevisaoPre:', e.message);
+  }
+}
+
+function renderDivergencia() {
+  const card = gc('divergenciaCard');
+  const el   = gc('divergenciaEl');
+  if (!card || !el || !PREVISAO_PRE || !DADOS) return;
+
+  const f   = DADOS.fixture;
+  const min = f?.status?.elapsed || 0;
+  const sts = DADOS.estatisticas || [];
+
+  // Só mostra a partir do minuto 10 (dados ainda instáveis antes disso)
+  if (min < 10) {
+    card.style.display = 'none';
+    return;
+  }
+
+  const placarCasa = DADOS.placarCasa ?? f.goals?.home ?? 0;
+  const placarFora = DADOS.placarFora ?? f.goals?.away ?? 0;
+
+  // Stats ao vivo
+  const stC = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
+  const stF = sts.find(t => t.time.id === f.timeFora.id)?.stats  || {};
+
+  function n(obj, key) {
+    const v = obj[key];
+    if (v == null) return null;
+    return parseFloat(String(v).replace('%','')) || null;
+  }
+
+  const posseCasa = n(stC, 'Ball Possession');
+  const apCasa    = n(stC, 'Dangerous Attacks');
+  const apFora    = n(stF, 'Dangerous Attacks');
+  const xgCasa    = n(stC, 'expected_goals');
+  const xgFora    = n(stF, 'expected_goals');
+
+  // Previsão pré-jogo
+  const pC = PREVISAO_PRE.probCasa   || 33;
+  const pE = PREVISAO_PRE.probEmpate || 34;
+  const pF = PREVISAO_PRE.probFora   || 33;
+  const golsEst = parseFloat(PREVISAO_PRE.golsEstimado) || 2.5;
+  const veredito = PREVISAO_PRE.veredito || 'empate';
+  const nomeCasa = f.timeCasa.nome;
+  const nomeFora = f.timeFora.nome;
+
+  // ── Calcular estado atual do jogo ──────────────────────────────────
+  const golsAtual = placarCasa + placarFora;
+  // Projetar gols totais para 90min baseado no ritmo atual
+  const golsProjetados = min > 0 ? +(golsAtual / min * 90).toFixed(1) : null;
+
+  // Quem está dominando ao vivo?
+  const dominaCasa = posseCasa != null ? posseCasa > 55 : (apCasa != null && apFora != null ? apCasa > apFora * 1.3 : null);
+  const dominaFora = posseCasa != null ? posseCasa < 45 : (apCasa != null && apFora != null ? apFora > apCasa * 1.3 : null);
+
+  // ── Detectar divergências ───────────────────────────────────────────
+  const alertas = [];
+
+  // 1. Placar invertido vs favorito
+  if (veredito === 'casa' && placarFora > placarCasa && min >= 20) {
+    const gap = placarFora - placarCasa;
+    alertas.push({
+      nivel: gap >= 2 ? 'alto' : 'medio',
+      ico: '🔄',
+      titulo: `Placar invertido — ${nomeCasa} era favorito (${pC}%)`,
+      detalhe: `Previsão: ${nomeCasa} vencia. Atual: ${placarCasa}–${placarFora}. Diferença de ${gap} gol(s) a favor de ${nomeFora}.`,
+    });
+  }
+  if (veredito === 'fora' && placarCasa > placarFora && min >= 20) {
+    const gap = placarCasa - placarFora;
+    alertas.push({
+      nivel: gap >= 2 ? 'alto' : 'medio',
+      ico: '🔄',
+      titulo: `Placar invertido — ${nomeFora} era favorito (${pF}%)`,
+      detalhe: `Previsão: ${nomeFora} vencia. Atual: ${placarCasa}–${placarFora}. Casa abriu ${gap} gol(s).`,
+    });
+  }
+
+  // 2. Jogo muito mais aberto que o esperado
+  if (golsProjetados != null && golsProjetados > golsEst * 1.6 && min >= 20) {
+    alertas.push({
+      nivel: 'alto',
+      ico: '🔥',
+      titulo: `Jogo muito mais aberto que o previsto`,
+      detalhe: `Previsão: ${golsEst} gols estimados. Ritmo atual: ${golsProjetados}/90min (${golsAtual} gols em ${min}').`,
+    });
+  }
+
+  // 3. Jogo muito mais fechado que o esperado
+  if (golsEst >= 2.8 && golsAtual === 0 && min >= 55) {
+    alertas.push({
+      nivel: 'medio',
+      ico: '🔒',
+      titulo: `Jogo fechado — previsão era de gols (${golsEst})`,
+      detalhe: `0 gols em ${min}'. Estimativa era ${golsEst} gols. Jogo mais defensivo que o esperado.`,
+    });
+  }
+
+  // 4. Domínio invertido vs favorito
+  if (veredito === 'casa' && pC >= 55 && dominaFora && min >= 25) {
+    alertas.push({
+      nivel: 'medio',
+      ico: '⚠️',
+      titulo: `${nomeFora} domina apesar de ser azarão`,
+      detalhe: `${nomeCasa} era favorito com ${pC}% mas ${nomeFora} está dominando ao vivo (posse ${posseCasa != null ? (100-posseCasa)+'%' : '—'}).`,
+    });
+  }
+  if (veredito === 'fora' && pF >= 55 && dominaCasa && min >= 25) {
+    alertas.push({
+      nivel: 'medio',
+      ico: '⚠️',
+      titulo: `${nomeCasa} domina apesar de ser azarão`,
+      detalhe: `${nomeFora} era favorito com ${pF}% mas ${nomeCasa} está dominando ao vivo (posse ${posseCasa != null ? posseCasa+'%' : '—'}).`,
+    });
+  }
+
+  // 5. xG muito acima/abaixo do esperado
+  if (xgCasa != null && xgFora != null) {
+    const xgTotal = xgCasa + xgFora;
+    if (xgTotal > golsEst * 2 && min >= 30) {
+      alertas.push({
+        nivel: 'medio',
+        ico: '📈',
+        titulo: `xG muito superior à previsão de gols`,
+        detalhe: `xG acumulado: ${xgCasa.toFixed(1)} + ${xgFora.toFixed(1)} = ${xgTotal.toFixed(1)}. Previsão era ${golsEst} gols. Chances desperdiçadas ou goleiro em grande fase.`,
+      });
+    }
+  }
+
+  card.style.display = 'block';
+
+  if (!alertas.length) {
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:12px;color:var(--t3);">
+        <span style="font-size:16px">✅</span>
+        <span>Jogo dentro do esperado — sem divergências significativas (${min}')</span>
+      </div>
+      <div style="margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:8px;font-size:11px;color:var(--t3);">
+        Previsão: <b style="color:${veredito==='casa'?'var(--acc)':veredito==='fora'?'var(--blu)':'var(--t2)'}">${veredito==='casa'?nomeCasa:veredito==='fora'?nomeFora:'Empate'}</b>
+        ${pC}% / ${pE}% / ${pF}% · ${golsEst} gols est.
+      </div>`;
+    return;
+  }
+
+  const nivelIco = { alto: '🔴', medio: '🟡', baixo: '🔵' };
+  const nivelCor = { alto: 'var(--red)', medio: 'var(--yel)', baixo: 'var(--blu)' };
+
+  el.innerHTML = `
+    <div style="padding:8px 10px;background:var(--bg3);border-radius:8px;font-size:11px;color:var(--t3);margin-bottom:10px;">
+      Previsão base: <b style="color:${veredito==='casa'?'var(--acc)':veredito==='fora'?'var(--blu)':'var(--t2)'}">${veredito==='casa'?nomeCasa:veredito==='fora'?nomeFora:'Empate'}</b>
+      ${pC}% / ${pE}% / ${pF}% · ${golsEst} gols est. · ${min}'
+    </div>
+    ${alertas.map(a => `
+      <div style="display:flex;gap:10px;padding:9px 10px;border-radius:8px;margin-bottom:6px;
+        background:${a.nivel==='alto'?'rgba(255,69,96,.07)':'rgba(255,184,0,.06)'};
+        border-left:3px solid ${nivelCor[a.nivel]||'var(--t3)'};">
+        <span style="font-size:16px;flex-shrink:0">${a.ico}</span>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--t1);margin-bottom:2px">${a.titulo}</div>
+          <div style="font-size:11px;color:var(--t2);line-height:1.4">${a.detalhe}</div>
+        </div>
+        <span style="margin-left:auto;font-size:9px;align-self:flex-start;padding:2px 7px;border-radius:10px;
+          background:rgba(255,255,255,.06);color:${nivelCor[a.nivel]}">${nivelIco[a.nivel]} ${a.nivel}</span>
+      </div>`).join('')}`;
+
+  // Som para alertas altos
+  if (alertas.some(a => a.nivel === 'alto')) checarSomSinais(alertas);
 }
 
 // ══════════════════════════════════════════════════════════════════════
