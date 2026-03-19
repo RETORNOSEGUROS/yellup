@@ -843,29 +843,50 @@ function iniciarAutoSync(){
   autoSyncTimer=setInterval(async()=>{
     if(!syncAtivo) return;
 
-    // 1. Marcar como ao_vivo jogos que já deveriam ter começado (sem janela de 10min)
+    // 1. Transição agendado → ao_vivo para qualquer jogo cujo horário já passou
     const agora2 = new Date();
     const paraIniciar = admJogos.filter(j=>{
       if(j.status!=='agendado'||!j.dataInicio) return false;
       const dt = j.dataInicio.toDate?j.dataInicio.toDate():new Date(j.dataInicio);
-      return agora2 >= dt; // qualquer jogo cujo horário já passou
+      return agora2 >= dt; // sem janela de 10min — qualquer jogo que já deveria ter começado
     });
     if(paraIniciar.length > 0){
       const b2 = db.batch();
       paraIniciar.forEach(j=>{
-        if(j._id) b2.update(db.collection('jogos-admin').doc(j._id),{status:'ao_vivo'});
+        if(j._id) b2.update(db.collection('jogos-admin').doc(j._id),{
+          status:'ao_vivo',
+          atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+        });
       });
-      b2.commit().catch(()=>{});
+      await b2.commit().catch(()=>{});
+      paraIniciar.forEach(j=>{ j.status='ao_vivo'; });
     }
 
-    // 2. Recarregar admin do Firestore preservando filtros do usuário
-    // NÃO chama sincronizarComAPI automaticamente — aba API é só vitrine manual
+    // 2. Chamar API automaticamente para atualizar placar/status/encerrado
+    // Usa a data da aba API se preenchida, senão data de hoje
+    const dataSync = gc('dataApi')?.value || toBRTDate(new Date());
+    if(dataSync){
+      try{
+        const fn2 = fns.httpsCallable('buscarJogosData');
+        const r = await fn2({data: dataSync, amanha: incluirAmanha});
+        const jogosApi = r.data.jogos || [];
+        apiJogos = jogosApi;
+        lastSyncAt = Date.now();
+        await _syncAdmComApiJogos(jogosApi, true);
+        renderAPI();
+      }catch(eApi){
+        console.warn('Auto-sync API:', eApi.message);
+      }
+    }
+
+    // 3. Recarregar admin do Firestore com status atualizado
     const dtAntes = gc('admData')?.value;
     await carregarAdmin();
     if(dtAntes && gc('admData')?.value !== dtAntes){
       gc('admData').value = dtAntes;
       renderAdmin();
     }
+    atuSyncUI();
   }, 60000);
   atuSyncUI();
 }
@@ -1000,8 +1021,10 @@ async function _syncAdmComApiJogos(jogosApi, silencioso=true){
 
   const agora3 = new Date();
   for(const adm of admJogos){
-    if(!adm.apiFixtureId)continue;
-    const api=jogosApi.find(j=>String(j.id)===String(adm.apiFixtureId));
+    // Aceitar ambos os campos — apiFixtureId (jogos-admin) e apiFootballId (legado)
+    const admApiId = adm.apiFixtureId || adm.apiFootballId;
+    if(!admApiId) continue;
+    const api=jogosApi.find(j=>String(j.id)===String(admApiId));
     // Jogo não encontrado na API: se já deveria ter terminado, marcar encerrado
     if(!api){
       if(['ao_vivo','agendado'].includes(adm.status) && adm.dataInicio){
@@ -1083,7 +1106,7 @@ function renderAPI(){
   const q=(gc('apiQ').value||'').toLowerCase();
   const pais=gc('apiPais').value;
   const status=gc('apiStatus').value;
-  const admIds=new Set(admJogos.map(j=>String(j.apiFixtureId)).filter(Boolean));
+  const admIds=new Set(admJogos.map(j=>String(j.apiFixtureId||j.apiFootballId||'')).filter(Boolean));
 
   const dataApiSel = gc('dataApi').value; // data selecionada na aba API
 
