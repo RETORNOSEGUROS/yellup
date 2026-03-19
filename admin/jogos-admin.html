@@ -844,12 +844,14 @@ function iniciarAutoSync(){
   autoSyncTimer=setInterval(async()=>{
     if(!syncAtivo)return;
     const temAoVivo=admJogos.some(j=>j.status==='ao_vivo');
-    // Auto-iniciar jogos agendados cuja hora já passou
     const agora2=new Date();
-    const paraIniciar=admJogos.filter(j=>
-      j.status==='agendado' && j.dataInicio &&
-      (j.dataInicio.toDate?j.dataInicio.toDate():new Date(j.dataInicio)) <= agora2
-    );
+    // Auto-iniciar apenas jogos que começam nos próximos 5 minutos (não jogos antigos)
+    const paraIniciar=admJogos.filter(j=>{
+      if(j.status!=='agendado'||!j.dataInicio) return false;
+      const dt = j.dataInicio.toDate?j.dataInicio.toDate():new Date(j.dataInicio);
+      const diff = agora2 - dt; // positivo = já passou
+      return diff >= 0 && diff < 10*60*1000; // só até 10min depois do horário
+    });
     if(paraIniciar.length>0){
       const batch2=db.batch();
       paraIniciar.forEach(j=>{
@@ -872,8 +874,14 @@ function iniciarAutoSync(){
       await sincronizarComAPI(true);
     }
 
-    // A cada ciclo, recarregar admin do Firestore para pegar mudanças do backend
+    // A cada ciclo, recarregar admin do Firestore preservando a data atual do filtro
+    const dtAntes = gc('admData')?.value;
     await carregarAdmin();
+    // Restaurar data se o reload tiver mudado (não deve mudar, mas garante)
+    if(dtAntes && gc('admData')?.value !== dtAntes) {
+      gc('admData').value = dtAntes;
+      renderAdmin();
+    }
   }, 60000);
   atuSyncUI();
 }
