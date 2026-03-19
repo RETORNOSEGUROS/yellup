@@ -394,6 +394,7 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
     <button class="tab"    onclick="switchTab('sinais',this)" id="tabSinais">&#128308; Sinais</button>
     <button class="tab"    onclick="switchTab('termo',this)">&#127777;&#65039; Termo</button>
     <button class="tab"    onclick="switchTab('insights',this)">&#129504; An&#225;lise</button>
+    <button class="tab"    onclick="switchTab('perfilVivo',this)">&#128200; Perfil</button>
     <button class="tab"    onclick="abrirAlgoritmo()" style="background:linear-gradient(135deg,rgba(155,109,255,.2),rgba(75,142,255,.15));border-color:rgba(155,109,255,.4);color:var(--pur);">&#127919; Algoritmo</button>
   </div>
 
@@ -548,6 +549,44 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
     </div>
   </div>
 
+  <!-- PERFIL AO VIVO — Fase 3 -->
+  <div class="pane" id="pane-perfilVivo">
+
+    <!-- Loading -->
+    <div id="pvLoad" style="display:none;padding:20px;text-align:center;color:var(--t3);font-size:12px;font-family:'DM Mono',monospace;">
+      <div class="spinner" style="width:20px;height:20px;margin:0 auto 8px;"></div>
+      Carregando perfis históricos...
+    </div>
+
+    <!-- Sem dados -->
+    <div id="pvEmpty" style="display:none;" class="card">
+      <div class="empty" style="padding:30px 0">
+        <div style="font-size:32px;margin-bottom:8px">📈</div>
+        <p>Perfis não encontrados para estes times.</p>
+        <p style="font-size:11px;color:var(--t3);margin-top:4px">Execute "Recalcular Perfis Times" no Mapeamento.</p>
+      </div>
+    </div>
+
+    <!-- Cards Elo lado a lado -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px" id="pvEloGrid" style="display:none">
+      <div class="card" id="pvEloCasa"></div>
+      <div class="card" id="pvEloFora"></div>
+    </div>
+
+    <!-- Desvio ao vivo vs baseline (aparece só com stats ao vivo) -->
+    <div class="card" id="pvDesvioCard" style="display:none">
+      <div class="card-title">🔬 Desvio ao Vivo vs Baseline Histórico</div>
+      <div id="pvDesvioEl"></div>
+    </div>
+
+    <!-- porForca -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px" id="pvForcaGrid" style="display:none">
+      <div class="card" id="pvForcaCasa"></div>
+      <div class="card" id="pvForcaFora"></div>
+    </div>
+
+  </div>
+
   <div class="last-update" id="lastUpdate"></div>
 </div>
 
@@ -562,10 +601,11 @@ firebase.initializeApp({
   messagingSenderId:"608347210297",
   appId:"1:608347210297:web:75092713724e617c7203e8"
 });
-const auth = firebase.auth(), fns = firebase.functions();
+const auth = firebase.auth(), fns = firebase.functions(), db = firebase.firestore();
 
 let DADOS = null, FIX_ID = null, DOC_ID = null;
 let HIST_MEDIAS = { casa: null, fora: null }; // médias históricas por 90min
+let PERFIL_CASA = null, PERFIL_FORA = null;   // 📈 Fase 3 — perfis-times baseline
 let refreshTimer = null, sinaisTimer = null;
 const REFRESH_SEC = 15;
 
@@ -620,6 +660,7 @@ async function iniciar() {
   renderTudo();
   carregarMediasHistoricas(); // sempre, ao vivo ou não
   carregarPerfilArbitro();    // sempre — árbitro está definido antes do jogo
+  carregarPerfisVivo();       // 📈 Fase 3 — baseline histórico dos times
   if (isAoVivo()) {
     iniciarAutoRefresh();
     iniciarSinaisLoop();
@@ -737,6 +778,7 @@ function iniciarAutoRefresh() {
     renderTudo();
     renderSinaisLocais(); // recalcula sinais client-side a cada refresh
     detectarEscanteiosNovos(); // detecta novos escanteios e atualiza tracker
+    renderDesvioVivo();   // 📈 Fase 3 — atualiza desvio ao vivo vs baseline
     animarBarra();
   }, REFRESH_SEC * 1000);
 }
@@ -2471,6 +2513,209 @@ function abrirPerfil(lado) {
   if (!DADOS) return;
   const f = DADOS.fixture, t = lado === "casa" ? f.timeCasa : f.timeFora;
   window.open("time-perfil.html?teamId=" + t.id + "&nome=" + encodeURIComponent(t.nome) + "&logo=" + encodeURIComponent(t.logo || "") + "&fixId=" + FIX_ID, "_blank");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 📈 FASE 3 — PERFIL AO VIVO
+// Lê perfis-times do Firestore (pré-calculado por calcularPerfisManual)
+// e exibe baseline histórico + desvio ao vivo atualizado a cada 15s
+// ══════════════════════════════════════════════════════════════════════
+
+async function carregarPerfisVivo() {
+  if (!DADOS?.fixture) return;
+  const casaId = String(DADOS.fixture.timeCasa.id);
+  const foraId = String(DADOS.fixture.timeFora.id);
+  const pvLoad = gc('pvLoad');
+  if (pvLoad) pvLoad.style.display = 'block';
+  try {
+    const [snapC, snapF] = await Promise.all([
+      db.collection('perfis-times').doc(casaId).get(),
+      db.collection('perfis-times').doc(foraId).get(),
+    ]);
+    PERFIL_CASA = snapC.exists ? snapC.data() : null;
+    PERFIL_FORA = snapF.exists ? snapF.data() : null;
+    if (pvLoad) pvLoad.style.display = 'none';
+    renderPerfilVivo();
+  } catch(e) {
+    if (pvLoad) pvLoad.style.display = 'none';
+    console.warn('carregarPerfisVivo:', e.message);
+  }
+}
+
+function renderPerfilVivo() {
+  if (!PERFIL_CASA && !PERFIL_FORA) {
+    const el = gc('pvEmpty'); if (el) el.style.display = 'block';
+    return;
+  }
+  const eloGrid  = gc('pvEloGrid');
+  const forcaGrid = gc('pvForcaGrid');
+  if (eloGrid)   eloGrid.style.display   = 'grid';
+  if (forcaGrid) forcaGrid.style.display = 'grid';
+
+  const nomeCasa = PERFIL_CASA?.nome || DADOS?.fixture?.timeCasa?.nome || 'Casa';
+  const nomeFora = PERFIL_FORA?.nome || DADOS?.fixture?.timeFora?.nome || 'Fora';
+
+  // ── helper: dots de últimos jogos ───────────────────────────────────
+  function dots(ultJogos) {
+    if (!ultJogos?.length) return '<span style="color:var(--t3)">—</span>';
+    return ultJogos.slice(0, 8).map(j => {
+      const cor = j.resultado==='V' ? 'var(--acc)' : j.resultado==='E' ? 'var(--blu)' : 'var(--red)';
+      const bg  = j.resultado==='V' ? 'rgba(0,229,160,.15)' : j.resultado==='E' ? 'rgba(75,142,255,.15)' : 'rgba(255,69,96,.15)';
+      return `<span title="${j.adversario||''} ${j.gols}-${j.golsSof}" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${bg};color:${cor};font-size:10px;font-weight:700;cursor:default">${j.resultado}</span>`;
+    }).join('');
+  }
+
+  // ── helper: card Elo ────────────────────────────────────────────────
+  function cardElo(perfil, nome, cor) {
+    if (!perfil) return `<div class="empty">Perfil não encontrado</div>`;
+    const nota = perfil.eloNota?.toFixed(1) ?? '—';
+    const elo  = perfil.elo ?? '—';
+    const tend = perfil.tendencia;
+    const tendCor = tend==='subindo' ? 'var(--acc)' : tend==='caindo' ? 'var(--red)' : 'var(--t3)';
+    const tendTxt = tend==='subindo' ? '▲ Subindo' : tend==='caindo' ? '▼ Caindo' : '→ Estável';
+    const s5  = perfil.s5;
+    const fad = perfil.fadiga ?? 0;
+    return `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <div style="width:44px;height:44px;border-radius:50%;border:2px solid ${cor};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <span style="font-size:17px;font-weight:800;color:${cor};font-family:'DM Mono',monospace">${nota}</span>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:700">${nome}</div>
+          <div style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace">Elo ${elo} · <span style="color:${tendCor}">${tendTxt}</span></div>
+          <div style="font-size:10px;color:var(--t3);margin-top:2px">Fadiga 15d: ${fad}j</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:10px">${dots(perfil.ultJogos)}</div>
+      ${s5 ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;">
+        ${[['Pts/j', s5.pts_jogo], ['GF', s5.gf_media], ['GS', s5.gs_media]].map(([l,v]) => `
+          <div style="background:var(--bg3);border-radius:8px;padding:7px;text-align:center;">
+            <div style="font-size:16px;font-weight:800;color:${cor};font-family:'DM Mono',monospace">${v?.toFixed(1)??'—'}</div>
+            <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px">${l}</div>
+          </div>`).join('')}
+      </div>` : ''}`;
+  }
+
+  // ── helper: card porForca ───────────────────────────────────────────
+  function cardForca(perfil, nome, cor) {
+    if (!perfil?.porForca) return `<div class="empty">Sem dados porForca</div>`;
+    const rows = ['fraco','medio','bom','forte'].map(fk => {
+      const d = perfil.porForca[fk]?.geral;
+      if (!d?.n) return '';
+      const pVit = Math.round(d.vit / d.n * 100);
+      const mgG  = d.gols?.toFixed(1) ?? '—';
+      return `<div style="margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+          <span style="color:var(--t2);text-transform:capitalize">${fk} <span style="color:var(--t3);font-size:9px">${d.n}j</span></span>
+          <span style="font-weight:700;color:${cor}">${pVit}% vit · ${mgG}g/j</span>
+        </div>
+        <div style="height:4px;background:var(--brd);border-radius:2px;overflow:hidden;">
+          <div style="width:${pVit}%;height:100%;background:${cor};border-radius:2px;"></div>
+        </div>
+      </div>`;
+    }).filter(Boolean).join('');
+    return `
+      <div class="card-title">${nome} vs Força do Adversário</div>
+      ${rows || '<div class="empty">Dados insuficientes</div>'}`;
+  }
+
+  const eloCasa = gc('pvEloCasa');
+  const eloFora = gc('pvEloFora');
+  if (eloCasa) eloCasa.innerHTML = cardElo(PERFIL_CASA, nomeCasa, 'var(--acc)');
+  if (eloFora) eloFora.innerHTML = cardElo(PERFIL_FORA, nomeFora, 'var(--blu)');
+
+  const fCasa = gc('pvForcaCasa');
+  const fFora = gc('pvForcaFora');
+  if (fCasa) fCasa.innerHTML = cardForca(PERFIL_CASA, nomeCasa, 'var(--acc)');
+  if (fFora) fFora.innerHTML = cardForca(PERFIL_FORA, nomeFora, 'var(--blu)');
+
+  // Renderizar desvio inicial
+  renderDesvioVivo();
+}
+
+function renderDesvioVivo() {
+  const card = gc('pvDesvioCard');
+  const el   = gc('pvDesvioEl');
+  if (!card || !el || (!PERFIL_CASA && !PERFIL_FORA)) return;
+
+  const sts = DADOS?.estatisticas || [];
+  const f   = DADOS?.fixture;
+  const min = f?.status?.elapsed || 0;
+
+  if (sts.length < 2 || min < 5) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  const stC = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
+  const stF = sts.find(t => t.time.id === f.timeFora.id)?.stats  || {};
+
+  function n(obj, key) {
+    const v = obj[key];
+    if (v == null) return null;
+    return parseFloat(String(v).replace('%', '')) || null;
+  }
+
+  const nomeCasa = PERFIL_CASA?.nome || f.timeCasa.nome;
+  const nomeFora = PERFIL_FORA?.nome || f.timeFora.nome;
+
+  const metricas = [
+    { lbl:'Posse %',           kAPI:'Ball Possession',   max:100 },
+    { lbl:'Chutes ao alvo',    kAPI:'Shots on Goal',     max:15  },
+    { lbl:'Ataques Perigosos', kAPI:'Dangerous Attacks', max:80  },
+    { lbl:'Escanteios',        kAPI:'Corner Kicks',      max:20  },
+    { lbl:'xG',                kAPI:'expected_goals',    max:4   },
+  ];
+
+  let html = `
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--t3);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--brd);">
+      <span style="color:var(--acc);font-weight:700">🏠 ${nomeCasa}</span>
+      <span style="font-family:'DM Mono',monospace">${min}'</span>
+      <span style="color:var(--blu);font-weight:700">✈️ ${nomeFora}</span>
+    </div>`;
+
+  let alertas = [];
+
+  metricas.forEach(({ lbl, kAPI, max }) => {
+    const vC = n(stC, kAPI);
+    const vF = n(stF, kAPI);
+    if (vC == null && vF == null) return;
+
+    const pC = Math.min(100, Math.round((vC||0) / max * 100));
+    const pF = Math.min(100, Math.round((vF||0) / max * 100));
+    const fmt = v => v == null ? '—' : (max===100 ? v+'%' : (Number.isInteger(v) ? v : v.toFixed(2)));
+
+    // Detectar dominância
+    const diff = (vC||0) - (vF||0);
+    const limiar = max === 100 ? 10 : max * 0.2;
+    let corC = 'var(--t1)', corF = 'var(--t1)', badge = '';
+    if (diff > limiar)       { corC='var(--acc)'; badge=`<span style="font-size:9px;color:var(--acc);margin-left:6px">▲ Casa</span>`; alertas.push(lbl+': Casa domina'); }
+    else if (diff < -limiar) { corF='var(--blu)'; badge=`<span style="font-size:9px;color:var(--blu);margin-left:6px">▲ Fora</span>`; alertas.push(lbl+': Fora domina'); }
+
+    html += `
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--t3);margin-bottom:4px;">
+          <span>${lbl}</span>${badge}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="width:36px;text-align:right;font-weight:700;color:${corC};font-family:'DM Mono',monospace;font-size:13px">${fmt(vC)}</span>
+          <div style="flex:1;height:6px;background:var(--brd);border-radius:3px;overflow:hidden;">
+            <div style="width:${pC}%;height:100%;background:var(--acc);border-radius:3px;transition:width .5s"></div>
+          </div>
+          <div style="flex:1;height:6px;background:var(--brd);border-radius:3px;overflow:hidden;direction:rtl;">
+            <div style="width:${pF}%;height:100%;background:var(--blu);border-radius:3px;transition:width .5s"></div>
+          </div>
+          <span style="width:36px;font-weight:700;color:${corF};font-family:'DM Mono',monospace;font-size:13px">${fmt(vF)}</span>
+        </div>
+      </div>`;
+  });
+
+  if (alertas.length >= 2) {
+    html = `<div style="padding:8px 12px;background:rgba(0,229,160,.08);border-radius:8px;font-size:11px;color:var(--acc);margin-bottom:12px;border-left:3px solid var(--acc);">
+      ⚡ Desvio significativo: ${alertas.slice(0,2).join(' · ')}
+    </div>` + html;
+  }
+
+  el.innerHTML = html;
 }
 </script>
 </body>
