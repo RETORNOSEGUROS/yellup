@@ -508,8 +508,7 @@ select:focus{border-color:var(--acc);}
               <button class="dn-btn" onclick="mudaData(1)">›</button>
             </div>
             <button class="btn-sm" onclick="toggleAmanha()">+amanhã</button>
-            <button class="btn-sm" id="syncBtn" onclick="toggleSync()" style="color:var(--grn);border-color:var(--grn);">🔄 Sync ON</button>
-            <button class="btn-acc" onclick="sincronizarComAPI(false)" style="background:var(--blu)">⚡ Sincronizar</button>
+            <button class="btn-acc" onclick="buscarAPI()" style="background:var(--blu)">🔍 Buscar</button>
             <button class="btn-sm" onclick="buscarAPI()">↺</button>
             <span id="syncAgo" style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;white-space:nowrap;"></span>
           </div>
@@ -842,43 +841,29 @@ function mudaDataAdm(d){
 function iniciarAutoSync(){
   pararAutoSync();
   autoSyncTimer=setInterval(async()=>{
-    if(!syncAtivo)return;
-    const temAoVivo=admJogos.some(j=>j.status==='ao_vivo');
-    const agora2=new Date();
-    // Auto-iniciar apenas jogos que começam nos próximos 5 minutos (não jogos antigos)
-    const paraIniciar=admJogos.filter(j=>{
+    if(!syncAtivo) return;
+
+    // 1. Marcar como ao_vivo apenas jogos que começaram nos últimos 10min
+    const agora2 = new Date();
+    const paraIniciar = admJogos.filter(j=>{
       if(j.status!=='agendado'||!j.dataInicio) return false;
       const dt = j.dataInicio.toDate?j.dataInicio.toDate():new Date(j.dataInicio);
-      const diff = agora2 - dt; // positivo = já passou
-      return diff >= 0 && diff < 10*60*1000; // só até 10min depois do horário
+      const diff = agora2 - dt;
+      return diff >= 0 && diff < 10*60*1000;
     });
-    if(paraIniciar.length>0){
-      const batch2=db.batch();
+    if(paraIniciar.length > 0){
+      const b2 = db.batch();
       paraIniciar.forEach(j=>{
-        if(j._id) batch2.update(db.collection('jogos-admin').doc(j._id),{status:'ao_vivo'});
+        if(j._id) b2.update(db.collection('jogos-admin').doc(j._id),{status:'ao_vivo'});
       });
-      batch2.commit().catch(()=>{});
-    }
-    const temAgendadoProximo=admJogos.some(j=>{
-      if(j.status!=='agendado'||!j.dataInicio)return false;
-      const dt=j.dataInicio.toDate?.()?.getTime()||new Date(j.dataInicio).getTime();
-      return dt - Date.now() < 30*60*1000;
-    });
-
-    // Garantir que dataApi tem valor (usa hoje como fallback)
-    if(!gc('dataApi').value){
-      gc('dataApi').value=new Date().toLocaleDateString('en-CA');
+      b2.commit().catch(()=>{});
     }
 
-    if(temAoVivo||temAgendadoProximo){
-      await sincronizarComAPI(true);
-    }
-
-    // A cada ciclo, recarregar admin do Firestore preservando a data atual do filtro
+    // 2. Recarregar admin do Firestore preservando filtros do usuário
+    // NÃO chama sincronizarComAPI automaticamente — aba API é só vitrine manual
     const dtAntes = gc('admData')?.value;
     await carregarAdmin();
-    // Restaurar data se o reload tiver mudado (não deve mudar, mas garante)
-    if(dtAntes && gc('admData')?.value !== dtAntes) {
+    if(dtAntes && gc('admData')?.value !== dtAntes){
       gc('admData').value = dtAntes;
       renderAdmin();
     }
@@ -999,8 +984,8 @@ async function buscarAPI(){
     renderAPI();
     lastSyncAt=Date.now();
     atuSyncUI();
-    // sincronizar automaticamente jogos já adicionados
-    await _syncAdmComApiJogos(apiJogos, false);
+    // Atualizar placar/status apenas dos jogos JÁ no Yellup (não importar novos)
+    await _syncAdmComApiJogos(apiJogos, true);
     toast(`✓ ${apiJogos.length} jogos encontrados`,'ok');
   }catch(e){
     gc('apiBody').innerHTML=`<div class="empty"><div class="ico">⚠️</div><p>Erro na API</p><small>${e.message}</small></div>`;
@@ -1107,12 +1092,16 @@ function renderAPI(){
     // Filtrar ligas inexpressivas (tier 10)
     if(ligaFiltrada(j.liga)) return false;
     if(tierFiltroAPI>0 && ligaTier(j.liga)>tierFiltroAPI) return false;
-    // Filtrar jogos de datas diferentes (API às vezes retorna jogos do dia anterior)
+    // Filtrar por data BRT correta
     if(j.data && dataApiSel) {
       const dtJogo = toBRTDate(new Date(j.data));
-      // Aceitar jogos do dia selecionado e do dia seguinte (amanhã flag)
       const dtAmanha = toBRTDate(new Date(new Date(dataApiSel+'T12:00:00').getTime() + 86400000));
-      if(dtJogo !== dataApiSel && !(incluirAmanha && dtJogo === dtAmanha)) return false;
+      const dtOntem  = toBRTDate(new Date(new Date(dataApiSel+'T12:00:00').getTime() - 86400000));
+      // Aceitar: dia selecionado, amanhã (se flag ativa), ontem (jogos que passam meia-noite BRT)
+      const ok = dtJogo === dataApiSel ||
+                 (incluirAmanha && dtJogo === dtAmanha) ||
+                 dtJogo === dtOntem; // Brasileirão: jogo das 21h BRT pode ser UTC do dia seguinte
+      if(!ok) return false;
     }
     if(q){
       const h=[j.timeCasa.nome,j.timeFora.nome,j.liga.nome,j.liga.pais].join(' ').toLowerCase();
@@ -1182,7 +1171,7 @@ function renderAPI(){
       else stLbl=`<span class="ac-status st-other">${j.statusCode||'?'}</span>`;
 
       const placar=j.placar.casa!==null?`${j.placar.casa} – ${j.placar.fora}`:'–';
-      const dtHora=j.data?fmtDataHora(j.data):'';
+      const dtHora=j.data?fmtDataHora(j.data):''; // fmtDataHora já converte para BRT
 
       html+=`<div class="api-card ${statusCls}" id="ac-${id}" onclick="${jaAdicionado?'':(`toggleSel('${id}')`)}">
         <div class="ac-match" style="padding:10px 12px;">
