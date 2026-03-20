@@ -462,6 +462,7 @@ select:focus{border-color:var(--acc);}
     </div>
     <div style="display:flex;gap:8px;">
       <button class="btn-sm" onclick="abrirNovoJogo()">+ Jogo manual</button>
+      <button class="btn-sm" id="btnCorrigir" onclick="corrigirStatusTodos()" style="border-color:var(--grn);color:var(--grn);">✅ Corrigir Status</button>
       <button class="btn-acc" onclick="recarregarAdmin()">↺ Recarregar</button>
     </div>
   </div>
@@ -864,7 +865,26 @@ function iniciarAutoSync(){
       paraIniciar.forEach(j=>{ j.status='ao_vivo'; });
     }
 
-    // 2. Recarregar do Firestore (o schedulePlacarMinuto já atualizou status/placar)
+    // 2. Marcar encerrado jogos ao_vivo que passaram de 3h (sem precisar da API)
+    const agora3b = new Date();
+    const paraEncerrar = admJogos.filter(j => {
+      if(j.status !== 'ao_vivo' || !j.dataInicio) return false;
+      const dt = j.dataInicio.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio);
+      return (agora3b - dt) / 3600000 > 3;
+    });
+    if(paraEncerrar.length > 0){
+      const b3 = db.batch();
+      paraEncerrar.forEach(j => {
+        if(j._id) b3.update(db.collection('jogos-admin').doc(j._id),{
+          status: 'encerrado',
+          atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        j.status = 'encerrado';
+      });
+      await b3.commit().catch(e => console.warn('Transição encerrado:', e.message));
+    }
+
+    // 3. Recarregar do Firestore (o schedulePlacarMinuto já atualizou status/placar)
     //    NÃO chama API aqui — evita conflito com o backend
     const dtAntes = gc('admData')?.value;
     await carregarAdmin();
@@ -954,6 +974,90 @@ async function carregarAdmin(){
   }
 }
 async function recarregarAdmin(){await carregarAdmin();toast('✓ Recarregado','ok');}
+
+// ─── CORRIGIR STATUS DE TODOS OS JOGOS (força sync com API) ───────────────
+async function corrigirStatusTodos(){
+  const btn = gc('btnCorrigir');
+  if(btn){ btn.textContent='⏳ Corrigindo...'; btn.disabled=true; }
+  try{
+    // Buscar todos os jogos ao_vivo e agendados que podem ter mudado de status
+    const jogosParaVerificar = admJogos.filter(j =>
+      ['ao_vivo','agendado'].includes(j.status) && (j.apiFixtureId || j.apiFootballId)
+    );
+    if(!jogosParaVerificar.length){
+      toast('Nenhum jogo ao vivo para verificar','ok');
+      return;
+    }
+
+    // Agrupar por data para minimizar chamadas à API
+    const datas = [...new Set(jogosParaVerificar.map(j => {
+      const dt = j.dataInicio?.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio);
+      return toBRTDate(dt);
+    }))];
+
+    // Buscar todos os jogos dessas datas
+    let todosApi = [];
+    const fn2 = fns.httpsCallable('buscarJogosData');
+    for(const dt of datas){
+      try{
+        const r = await fn2({ data: dt, amanha: false });
+        todosApi = todosApi.concat(r.data.jogos || []);
+      } catch(e){ console.warn('Erro buscar data', dt, e.message); }
+    }
+
+    // Sincronizar
+    const batch = db.batch();
+    let corrigidos = 0;
+    const agora = new Date();
+
+    for(const adm of jogosParaVerificar){
+      const admApiId = String(adm.apiFixtureId || adm.apiFootballId || '');
+      const api = todosApi.find(j => String(j.id) === admApiId);
+      const ref = db.collection('jogos-admin').doc(adm._id);
+
+      if(!api){
+        // Não veio da API — se passou 3h, marcar encerrado
+        const dt = adm.dataInicio?.toDate ? adm.dataInicio.toDate() : new Date(adm.dataInicio);
+        if((agora - dt) / 3600000 > 3){
+          batch.update(ref,{ status:'encerrado', atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+          adm.status = 'encerrado';
+          corrigidos++;
+        }
+        continue;
+      }
+
+      const novoStatus = mapStatus(api.statusCode || api.status);
+      const novoCasa   = api.placar?.casa ?? adm.placarCasa;
+      const novaFora   = api.placar?.fora ?? adm.placarFora;
+      const novoMin    = api.minutos ?? adm.minuto ?? null;
+
+      const mudou = novoStatus !== adm.status || novoCasa !== adm.placarCasa || novaFora !== adm.placarFora;
+      if(mudou){
+        batch.update(ref,{
+          status:    novoStatus,
+          placarCasa: novoCasa,
+          placarFora: novaFora,
+          minuto:    novoMin,
+          atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        adm.status    = novoStatus;
+        adm.placarCasa = novoCasa;
+        adm.placarFora = novaFora;
+        adm.minuto    = novoMin;
+        corrigidos++;
+      }
+    }
+
+    if(corrigidos > 0) await batch.commit();
+    atuStats(); renderAdmin();
+    toast(`✅ ${corrigidos} jogo(s) corrigido(s)`, 'ok');
+  } catch(e){
+    toast('Erro: '+e.message, 'err');
+    console.error('corrigirStatusTodos:', e);
+  } finally{
+    if(btn){ btn.textContent='✅ Corrigir Status'; btn.disabled=false; }
+  }
+}
 
 // ─── CACHE TIMES ───
 async function carregarTimesCache(){
