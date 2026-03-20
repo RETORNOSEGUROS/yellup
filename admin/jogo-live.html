@@ -3258,7 +3258,7 @@ function abrirRelatorio() {
 
 // ── Carrega snapshots do Firestore (independente do browser estar aberto) ──
 // Lê jogo-snapshots/{fixtureId}/minutos/* que o schedulePlacarMinuto popula
-// automaticamente a cada 5 minutos, mesmo sem ninguém na tela.
+// automaticamente a cada minuto, mesmo sem ninguém na tela.
 async function carregarRelatorioFirestore() {
   if (!FIX_ID) return;
   const body = gc('relBody');
@@ -3266,26 +3266,28 @@ async function carregarRelatorioFirestore() {
   const count = gc('relLinhasCount');
   if (!body) return;
 
-  // Mostrar loading
-  body.innerHTML = `<tr><td colspan="99" style="padding:20px;text-align:center;color:var(--t3);font-family:'DM Mono',monospace;">
-    <div class="spinner" style="width:16px;height:16px;margin:0 auto 8px"></div>
-    Lendo snapshots do Firestore...
-  </td></tr>`;
+  // Mostrar loading só se não tiver dados ainda
+  if (!RELATORIO_ROWS.length) {
+    body.innerHTML = `<tr><td colspan="99" style="padding:20px;text-align:center;color:var(--t3);font-family:'DM Mono',monospace;">
+      <div class="spinner" style="width:16px;height:16px;margin:0 auto 8px"></div>
+      Lendo snapshots do Firestore...
+    </td></tr>`;
+  }
 
   try {
-    // Buscar todos os snapshots deste jogo ordenados por minuto
+    // Buscar todos os snapshots sem orderBy — evita falha com docs fantasma
+    // Ordenamos em memória pelo minuto
     const snapsSnap = await db
       .collection('jogo-snapshots')
       .doc(String(FIX_ID))
       .collection('minutos')
-      .orderBy(firebase.firestore.FieldPath.documentId())
       .get();
 
     if (snapsSnap.empty) {
       body.innerHTML = `<tr><td colspan="99" style="padding:24px;text-align:center;color:var(--t3);font-family:'DM Mono',monospace;">
         <div style="font-size:24px;margin-bottom:8px">📭</div>
         Nenhum snapshot ainda para este jogo.<br>
-        <span style="font-size:10px">O sistema registra automaticamente a cada 5 minutos enquanto o jogo está ao vivo em jogos-admin.</span>
+        <span style="font-size:10px">O sistema registra automaticamente a cada minuto enquanto o jogo está ao vivo em jogos-admin.</span>
       </td></tr>`;
       if (count) count.textContent = '0 linhas';
       return;
