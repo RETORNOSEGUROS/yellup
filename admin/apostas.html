@@ -1359,6 +1359,15 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG, perfilCasaDB, perfilForaDB) {
   // ── ALERTAS DE RISCO — situações que historicamente causam erro ──────────
   const alertas = [];
 
+  // Calcular estimativa de gols antecipadamente para usar nos alertas
+  const _golsEstAntecipado = (() => {
+    const ligaNome2 = j.liga?.nome || '';
+    const ligaApiId2 = j.liga?.apiId || j.liga?.id || null;
+    const tri2 = getTrimestre(j.dataInicio?.toDate ? j.dataInicio.toDate().toISOString() : '') || 2;
+    const base2 = getBaseLiga(ligaNome2, ligaApiId2);
+    return base2.gols[`T${tri2}`] || base2.gols['T2'] || 2.5;
+  })();
+
   // 1. Mata-mata/Eliminatória → prorrogação possível, gols extras
   const ligaStr = (j.liga?.nome || '').toLowerCase();
   const ehMataMata = ligaStr.includes('champions') || ligaStr.includes('europa') ||
@@ -1410,7 +1419,7 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG, perfilCasaDB, perfilForaDB) {
   // 5. Ambos atacam muito → jogo pode ser mais aberto que o previsto
   const golsTotC = perfilCasaDB?.s5?.tot || 0;
   const golsTotF = perfilForaDB?.s5?.tot || 0;
-  const golsEst  = parseFloat(gols?.estimado || 2.5);
+  const golsEst  = _golsEstAntecipado;
   if (golsTotC >= 3.5 && golsTotF >= 3.5 && golsEst < 3.0) {
     alertas.push({ tipo: 'subestimacao_gols', nivel: 'medio',
       txt: `⚠️ Ambos os times fazem 3.5+ gols/jogo nos últimos 5 — previsão de ${golsEst} pode estar subestimada` });
