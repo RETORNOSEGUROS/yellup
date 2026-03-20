@@ -824,8 +824,9 @@ function pushStatsHist() {
   if (!DADOS) return;
   const sts = DADOS.estatisticas || [], f = DADOS.fixture;
   if (sts.length < 2) return;
-  const rawHome = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const rawAway = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  // FIX: usar String() para evitar falha quando id vem como number em um lado e string no outro
+  const rawHome = sts.find(t => String(t.time.id) === String(f.timeCasa.id))?.stats || {};
+  const rawAway = sts.find(t => String(t.time.id) === String(f.timeFora.id))?.stats || {};
 
   // FIX: stats pode vir como array [{type,value}] OU objeto {key:value}
   // Normalizar para sempre objeto antes de ler
@@ -891,7 +892,7 @@ function pushStatsHist() {
       iyo: snap.home.passes > 0 && (snap.home.ap != null || snap.home.corners != null)
         ? Math.round(((snap.home.ap||0) + (snap.home.corners||0) + (snap.home.shotsOn||0) + (snap.home.shots||0)) / snap.home.passes * 1000) / 1000
         : null,
-      passosErrados: snap.home.passes > 0 ? snap.home.passes - (snap.home.passesAcertos || 0) : null,
+      passosErrados: snap.home.passes > 0 ? Math.round((snap.home.passes - (snap.home.passesAcertos||0)) / snap.home.passes * 1000) / 10 : null,
     },
     away: {
       ...snap.away,
@@ -899,7 +900,7 @@ function pushStatsHist() {
       iyo: snap.away.passes > 0 && (snap.away.ap != null || snap.away.corners != null)
         ? Math.round(((snap.away.ap||0) + (snap.away.corners||0) + (snap.away.shotsOn||0) + (snap.away.shots||0)) / snap.away.passes * 1000) / 1000
         : null,
-      passosErrados: snap.away.passes > 0 ? snap.away.passes - (snap.away.passesAcertos || 0) : null,
+      passosErrados: snap.away.passes > 0 ? Math.round((snap.away.passes - (snap.away.passesAcertos||0)) / snap.away.passes * 1000) / 10 : null,
     },
     placarCasa: DADOS.placarCasa ?? DADOS.fixture?.goals?.home ?? 0,
     placarFora: DADOS.placarFora ?? DADOS.fixture?.goals?.away ?? 0,
@@ -3292,7 +3293,7 @@ const REL_COLS = [
   { key: 'corners',       label: 'Esc',       fmt: v => v ?? '—',                                  hi: 'up',   th: 0  },
   { key: 'fouls',         label: 'Faltas',    fmt: v => v ?? '—',                                  hi: 'down', th: 0  },
   { key: 'passes',        label: 'Passes',    fmt: v => v ?? '—',                                  hi: 'up',   th: 0  },
-  { key: 'passosErrados', label: 'PsErro',    fmt: v => v ?? '—',                                  hi: 'down', th: 0  },
+  { key: 'passosErrados', label: 'PsErro%',   fmt: v => v != null ? v.toFixed(1)+'%' : '—',        hi: 'down', th: 0  },
   { key: 'iyo',           label: 'IYO',       fmt: v => v != null ? v.toFixed(3) : '—',            hi: 'up',   th: 0.09 },
 ];
 
@@ -3412,7 +3413,7 @@ async function carregarRelatorioFirestore() {
           corners:       s.escanteiosCasa,
           fouls:         s.faltasCasa,
           passes:        passH,
-          passosErrados: s.passosErradosCasa,
+          passosErrados: passH > 0 && s.passosErradosCasa != null ? Math.round(s.passosErradosCasa / passH * 1000) / 10 : null,
           taxaErros:     s.taxaErrosCasaMin,
           // IYO inclui chutes totais também
           iyo:           passH > 0
@@ -3427,7 +3428,7 @@ async function carregarRelatorioFirestore() {
           corners:       s.escanteiosFora,
           fouls:         s.faltasFora,
           passes:        passA,
-          passosErrados: s.passosErradosFora,
+          passosErrados: passA > 0 && s.passosErradosFora != null ? Math.round(s.passosErradosFora / passA * 1000) / 10 : null,
           taxaErros:     s.taxaErrosForaMin,
           // IYO inclui chutes totais também
           iyo:           passA > 0
