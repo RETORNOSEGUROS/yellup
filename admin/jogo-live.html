@@ -824,6 +824,22 @@ function pushStatsHist() {
   if (!DADOS) return;
   const sts = DADOS.estatisticas || [], f = DADOS.fixture;
   if (sts.length < 2) return;
+  // Helper: placar real — tenta todas as fontes disponíveis no DADOS
+  // DADOS.fixture.placar.casa = fixture.goals.home (live)
+  // DADOS.fixture.placarFinal.casa = fixture.score.fulltime.home (encerrado)
+  const _placarCasa = () => {
+    const v = DADOS.fixture?.placarFinal?.casa ?? DADOS.fixture?.placar?.casa;
+    // Se for null ou undefined, buscar do último snapshot em memória
+    if (v != null) return v;
+    const lastRow = RELATORIO_ROWS.length ? RELATORIO_ROWS[RELATORIO_ROWS.length - 1] : null;
+    return lastRow?.placarCasa ?? 0;
+  };
+  const _placarFora = () => {
+    const v = DADOS.fixture?.placarFinal?.fora ?? DADOS.fixture?.placar?.fora;
+    if (v != null) return v;
+    const lastRow = RELATORIO_ROWS.length ? RELATORIO_ROWS[RELATORIO_ROWS.length - 1] : null;
+    return lastRow?.placarFora ?? 0;
+  };
   // FIX: usar String() para evitar falha quando id vem como number em um lado e string no outro
   const rawHome = sts.find(t => String(t.time.id) === String(f.timeCasa.id))?.stats || {};
   const rawAway = sts.find(t => String(t.time.id) === String(f.timeFora.id))?.stats || {};
@@ -914,8 +930,8 @@ function pushStatsHist() {
         : null,
       passosErrados: snap.away.passes > 0 ? Math.round((snap.away.passes - (snap.away.passesAcertos||0)) / snap.away.passes * 1000) / 10 : null,
     },
-    placarCasa: DADOS.placarCasa ?? DADOS.fixture?.goals?.home ?? 0,
-    placarFora: DADOS.placarFora ?? DADOS.fixture?.goals?.away ?? 0,
+    placarCasa: _placarCasa(),
+    placarFora: _placarFora(),
     eventos: evts.map(e => ({ tempo: e.tempo, tipo: e.tipo, detalhe: e.detalhe, time: e.time, jogador: e.jogador })),
   };
 
@@ -935,7 +951,7 @@ function pushStatsHist() {
 // Salva um snapshot no Firestore — espelho do que o schedulePlacarMinuto faz no backend
 // Usa merge:true para não sobrescrever dados que o backend possa ter com mais detalhes
 async function _salvarSnapshotFirestore(min, row) {
-  if (!FIX_ID || !isAoVivo() || min < 1) return;
+  if (!FIX_ID || min < 1) return; // salva mesmo encerrado para preservar placar final
   try {
     const docId = String(min).padStart(3, '0');
     const h = row.home || {}, a = row.away || {};
@@ -943,8 +959,11 @@ async function _salvarSnapshotFirestore(min, row) {
       minuto:               min,
       minutoExibicao:       String(min),
       temStats:             true,
-      placarCasa:           row.placarCasa ?? 0,
-      placarFora:           row.placarFora ?? 0,
+      // Placar: row já tem o valor certo; fallback para DADOS se for 0 ou null
+      placarCasa: (row.placarCasa != null && row.placarCasa > 0) ? row.placarCasa
+                  : (DADOS?.fixture?.placar?.casa ?? DADOS?.fixture?.goals?.home ?? 0),
+      placarFora: (row.placarFora != null && row.placarFora > 0) ? row.placarFora
+                  : (DADOS?.fixture?.placar?.fora ?? DADOS?.fixture?.goals?.away ?? 0),
       posseCasa:            h.posse   ?? null,
       posseFora:            a.posse   ?? null,
       chutesAlvoCasa:       h.shotsOn ?? null,
@@ -2788,8 +2807,8 @@ function renderDivergencia() {
     return;
   }
 
-  const placarCasa = DADOS.placarCasa ?? f.goals?.home ?? 0;
-  const placarFora = DADOS.placarFora ?? f.goals?.away ?? 0;
+  const placarCasa = DADOS.fixture?.placar?.casa ?? f.placar?.casa ?? 0;
+  const placarFora = DADOS.fixture?.placar?.fora ?? f.placar?.fora ?? 0;
 
   // Stats ao vivo
   const stC = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
@@ -3180,8 +3199,8 @@ async function buscarFingerprintAgora() {
       chutesAlvoFora:   n(stF['Shots on Goal']),
       xgCasa:           n(stC['expected_goals']),
       xgFora:           n(stF['expected_goals']),
-      placarCasa:       DADOS.placarCasa ?? f.goals?.home ?? 0,
-      placarFora:       DADOS.placarFora ?? f.goals?.away ?? 0,
+      placarCasa:       DADOS.fixture?.placar?.casa ?? f.placar?.casa ?? 0,
+      placarFora:       DADOS.fixture?.placar?.fora ?? f.placar?.fora ?? 0,
       timeCasaId:       f.timeCasa.id,
       timeForaId:       f.timeFora.id,
       ligaId:           f.liga?.id || null,
@@ -3532,14 +3551,58 @@ function renderRelatorio() {
   // ── Linhas de dados ───────────────────────────────────────────────
   const rows = [...RELATORIO_ROWS].sort((a,b) => a.min - b.min);
 
-  // Propagar placar: se uma linha tem null, usar o último placar conhecido
-  let lastPlacarCasa = 0, lastPlacarFora = 0;
-  rows.forEach(r => {
-    if (r.placarCasa != null) lastPlacarCasa = r.placarCasa;
-    else r.placarCasa = lastPlacarCasa;
-    if (r.placarFora != null) lastPlacarFora = r.placarFora;
-    else r.placarFora = lastPlacarFora;
-  });
+  // Placar final — usar TODAS as fontes disponíveis de DADOS
+  const fx = DADOS?.fixture;
+
+  // Placar final: tentar todas as fontes, da mais confiável para a menos
+  const _fPlacarC = fx?.placarFinal?.casa  // score.fulltime.home (FT)
+                 ?? fx?.placarPen?.casa
+                 ?? fx?.placarPror?.casa
+                 ?? fx?.placar?.casa;
+  const _fPlacarF = fx?.placarFinal?.fora
+                 ?? fx?.placarPen?.fora
+                 ?? fx?.placarPror?.fora
+                 ?? fx?.placar?.fora;
+
+  // Fallback: contar gols direto dos eventos (mais confiável quando API retorna null nos scores)
+  const _contarGolsEventos = () => {
+    const evts = DADOS?.eventosJogo || DADOS?.eventos || [];
+    let gC = 0, gF = 0;
+    const casaId = String(fx?.timeCasa?.id || '');
+    evts.forEach(e => {
+      const tipo = e.tipo || e.type || '';
+      const det  = e.detalhe || e.detail || '';
+      if (tipo === 'Goal' && det !== 'Missed Penalty') {
+        const tid = String(e.timeId || e.time?.id || '');
+        if (tid === casaId) gC++; else gF++;
+      }
+    });
+    return { gC, gF };
+  };
+
+  // Resolver placar final — usar contagem de eventos se API retornou null
+  let finalC = _fPlacarC != null ? _fPlacarC : null;
+  let finalF = _fPlacarF != null ? _fPlacarF : null;
+  if (finalC == null || finalF == null || (finalC === 0 && finalF === 0 && !isAoVivo())) {
+    const { gC, gF } = _contarGolsEventos();
+    if (gC > 0 || gF > 0) { finalC = gC; finalF = gF; }
+  }
+  finalC = finalC ?? 0;
+  finalF = finalF ?? 0;
+
+  // Passo 1: seed pelo maior valor entre placar final e snapshots
+  let runC = finalC, runF = finalF;
+  rows.forEach(r => { if ((r.placarCasa ?? 0) > runC) runC = r.placarCasa; });
+  rows.forEach(r => { if ((r.placarFora ?? 0) > runF) runF = r.placarFora; });
+
+  // Passo 2: backward-fill — linhas antigas com 0 recebem o placar correto
+  let backC = runC, backF = runF;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if ((rows[i].placarCasa ?? 0) > backC) backC = rows[i].placarCasa;
+    if ((rows[i].placarFora ?? 0) > backF) backF = rows[i].placarFora;
+    rows[i].placarCasa = (rows[i].placarCasa > 0) ? rows[i].placarCasa : backC;
+    rows[i].placarFora = (rows[i].placarFora > 0) ? rows[i].placarFora : backF;
+  }
 
   const dataRows = rows.map((row, idx) => {
     const prev = idx > 0 ? rows[idx-1] : null;
@@ -3626,8 +3689,8 @@ async function _salvarRelatorio() {
       timeForaNome: f.timeFora.nome,
       ligaNome:     f.liga?.nome || '',
       dataJogo:     f.date || null,
-      placarFinal:  `${DADOS.placarCasa||0}-${DADOS.placarFora||0}`,
-      totalGols:    (DADOS.placarCasa||0) + (DADOS.placarFora||0),
+      placarFinal:  `${DADOS.fixture?.placar?.casa??0}-${DADOS.fixture?.placar?.fora??0}`,
+      totalGols:    (DADOS.fixture?.placar?.casa??0) + (DADOS.fixture?.placar?.fora??0),
       baseline:     BASELINE_REL || {},
       linhas:       RELATORIO_ROWS,
     });
