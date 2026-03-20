@@ -824,32 +824,54 @@ function pushStatsHist() {
   if (!DADOS) return;
   const sts = DADOS.estatisticas || [], f = DADOS.fixture;
   if (sts.length < 2) return;
-  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  const rawHome = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
+  const rawAway = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+
+  // FIX: stats pode vir como array [{type,value}] OU objeto {key:value}
+  // Normalizar para sempre objeto antes de ler
+  const normStats = raw => {
+    if (Array.isArray(raw)) {
+      const o = {};
+      raw.forEach(s => { if (s?.type != null) o[s.type] = s.value; });
+      return o;
+    }
+    return raw || {};
+  };
+  const home = normStats(rawHome);
+  const away = normStats(rawAway);
+
+  // Helper: lê número ou null (não converte undefined→0)
+  const pn = (obj, key) => {
+    const v = obj[key];
+    if (v == null || v === '') return null;
+    const n = parseFloat(String(v).replace('%',''));
+    return isNaN(n) ? null : n;
+  };
+
   const snap = {
     ts: Date.now(),
     min: f.status.elapsed || 0,
     home: {
-      corners:       parseInt(home["Corner Kicks"]) || 0,
-      shots:         parseInt(home["Total Shots"])  || 0,
-      shotsOn:       parseInt(home["Shots on Goal"])|| 0,
-      ap:            parseInt(home["Dangerous Attacks"]) || 0,
-      fouls:         parseInt(home["Fouls"]) || 0,
-      xg:            parseFloat(home["expected_goals"]) || 0,
-      posse:         parseInt(home["Ball Possession"]) || 50,
-      passes:        parseInt(home["Total passes"]) || 0,
-      passesAcertos: parseInt(home["Passes accurate"]) || 0,
+      corners:       pn(home, "Corner Kicks"),
+      shots:         pn(home, "Total Shots"),
+      shotsOn:       pn(home, "Shots on Goal"),
+      ap:            pn(home, "Dangerous Attacks"),
+      fouls:         pn(home, "Fouls"),
+      xg:            pn(home, "expected_goals"),
+      posse:         pn(home, "Ball Possession") ?? 50,
+      passes:        pn(home, "Total passes")    ?? 0,
+      passesAcertos: pn(home, "Passes accurate") ?? 0,
     },
     away: {
-      corners:       parseInt(away["Corner Kicks"]) || 0,
-      shots:         parseInt(away["Total Shots"])  || 0,
-      shotsOn:       parseInt(away["Shots on Goal"])|| 0,
-      ap:            parseInt(away["Dangerous Attacks"]) || 0,
-      fouls:         parseInt(away["Fouls"]) || 0,
-      xg:            parseFloat(away["expected_goals"]) || 0,
-      posse:         parseInt(away["Ball Possession"]) || 50,
-      passes:        parseInt(away["Total passes"]) || 0,
-      passesAcertos: parseInt(away["Passes accurate"]) || 0,
+      corners:       pn(away, "Corner Kicks"),
+      shots:         pn(away, "Total Shots"),
+      shotsOn:       pn(away, "Shots on Goal"),
+      ap:            pn(away, "Dangerous Attacks"),
+      fouls:         pn(away, "Fouls"),
+      xg:            pn(away, "expected_goals"),
+      posse:         pn(away, "Ball Possession") ?? 50,
+      passes:        pn(away, "Total passes")    ?? 0,
+      passesAcertos: pn(away, "Passes accurate") ?? 0,
     }
   };
   STATS_HIST.push(snap);
@@ -865,15 +887,17 @@ function pushStatsHist() {
     // Adicionar métricas derivadas
     home: {
       ...snap.home,
-      iyo: snap.home.ap + snap.home.corners + snap.home.shotsOn > 0 && snap.home.passes > 0
-        ? Math.round((snap.home.ap + snap.home.corners + snap.home.shotsOn) / snap.home.passes * 1000) / 1000
+      // IYO = (AP + Escanteios + Chutes Alvo + Chutes Totais) / Passes
+      iyo: snap.home.passes > 0 && (snap.home.ap != null || snap.home.corners != null)
+        ? Math.round(((snap.home.ap||0) + (snap.home.corners||0) + (snap.home.shotsOn||0) + (snap.home.shots||0)) / snap.home.passes * 1000) / 1000
         : null,
       passosErrados: snap.home.passes > 0 ? snap.home.passes - (snap.home.passesAcertos || 0) : null,
     },
     away: {
       ...snap.away,
-      iyo: snap.away.ap + snap.away.corners + snap.away.shotsOn > 0 && snap.away.passes > 0
-        ? Math.round((snap.away.ap + snap.away.corners + snap.away.shotsOn) / snap.away.passes * 1000) / 1000
+      // IYO = (AP + Escanteios + Chutes Alvo + Chutes Totais) / Passes
+      iyo: snap.away.passes > 0 && (snap.away.ap != null || snap.away.corners != null)
+        ? Math.round(((snap.away.ap||0) + (snap.away.corners||0) + (snap.away.shotsOn||0) + (snap.away.shots||0)) / snap.away.passes * 1000) / 1000
         : null,
       passosErrados: snap.away.passes > 0 ? snap.away.passes - (snap.away.passesAcertos || 0) : null,
     },
@@ -3365,9 +3389,7 @@ async function carregarRelatorioFirestore() {
       const min = minBase2 + (minExtra2 / 100); // ex: 45.02, 90.03 — só para ordenar
       const minLabel = s.minutoExibicao || (minExtra2 > 0 ? `${minBase2}+${minExtra2}` : String(minBase2));
 
-      // IYO só calculável quando temStats
-      const iyoH = (s.ataquesPerigososCasa||0) + (s.escanteiosCasa||0) + (s.chutesAlvoCasa||0);
-      const iyoA = (s.ataquesPerigososFora||0) + (s.escanteiosFora||0) + (s.chutesAlvoFora||0);
+      // IYO calculado inline abaixo (inclui AP + Escanteios + Chutes Alvo + Chutes Totais)
       const passH = s.passesTotaisCasa || 0;
       const passA = s.passesTotaisFora || 0;
 
@@ -3392,8 +3414,9 @@ async function carregarRelatorioFirestore() {
           passes:        passH,
           passosErrados: s.passosErradosCasa,
           taxaErros:     s.taxaErrosCasaMin,
-          iyo:           passH > 0 && s.temStats !== false
-            ? Math.round(iyoH / passH * 1000) / 1000 : null,
+          // IYO inclui chutes totais também
+          iyo:           passH > 0
+            ? Math.round(((s.ataquesPerigososCasa||0)+(s.escanteiosCasa||0)+(s.chutesAlvoCasa||0)+(s.chutesTotaisCasa||0)) / passH * 1000) / 1000 : null,
         },
         away: {
           posse:         s.posseFora,
@@ -3406,8 +3429,9 @@ async function carregarRelatorioFirestore() {
           passes:        passA,
           passosErrados: s.passosErradosFora,
           taxaErros:     s.taxaErrosForaMin,
-          iyo:           passA > 0 && s.temStats !== false
-            ? Math.round(iyoA / passA * 1000) / 1000 : null,
+          // IYO inclui chutes totais também
+          iyo:           passA > 0
+            ? Math.round(((s.ataquesPerigososFora||0)+(s.escanteiosFora||0)+(s.chutesAlvoFora||0)+(s.chutesTotaisFora||0)) / passA * 1000) / 1000 : null,
         },
       };
     });
