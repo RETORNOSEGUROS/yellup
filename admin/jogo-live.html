@@ -3301,7 +3301,13 @@ async function carregarRelatorioFirestore() {
     // Converter docs em linhas
     RELATORIO_ROWS = snapsSnap.docs.map(d => {
       const s = d.data();
-      const min = s.minuto || parseInt(d.id) || 0;
+      // Suporte a acréscimos: "045+02" → exibe "45+2", ordena correto
+      const rawId = d.id || '';
+      const minBase2 = parseInt(rawId) || s.minuto || 0;
+      const extraMatch = rawId.match(/\+(\d+)$/);
+      const minExtra2 = extraMatch ? parseInt(extraMatch[1]) : 0;
+      const min = minBase2 + (minExtra2 / 100); // ex: 45.02, 90.03 — só para ordenar
+      const minLabel = s.minutoExibicao || (minExtra2 > 0 ? `${minBase2}+${minExtra2}` : String(minBase2));
 
       // IYO só calculável quando temStats
       const iyoH = (s.ataquesPerigososCasa||0) + (s.escanteiosCasa||0) + (s.chutesAlvoCasa||0);
@@ -3311,6 +3317,7 @@ async function carregarRelatorioFirestore() {
 
       return {
         min,
+        minLabel,  // "45+2", "90+1" ou "78" para exibição
         temStats:  s.temStats !== false, // true por padrão para snapshots antigos
         placarCasa: s.placarCasa ?? null,
         placarFora: s.placarFora ?? null,
@@ -3431,6 +3438,16 @@ function renderRelatorio() {
 
   // ── Linhas de dados ───────────────────────────────────────────────
   const rows = [...RELATORIO_ROWS].sort((a,b) => a.min - b.min);
+
+  // Propagar placar: se uma linha tem null, usar o último placar conhecido
+  let lastPlacarCasa = 0, lastPlacarFora = 0;
+  rows.forEach(r => {
+    if (r.placarCasa != null) lastPlacarCasa = r.placarCasa;
+    else r.placarCasa = lastPlacarCasa;
+    if (r.placarFora != null) lastPlacarFora = r.placarFora;
+    else r.placarFora = lastPlacarFora;
+  });
+
   const dataRows = rows.map((row, idx) => {
     const prev = idx > 0 ? rows[idx-1] : null;
     const delta = (side, key) => {
@@ -3481,7 +3498,7 @@ function renderRelatorio() {
     const pF = row.placarFora ?? '—';
 
     return `<tr style="${rowBg}">
-      <td style="${tdBase}text-align:left;font-weight:700;color:var(--t2);position:sticky;left:0;background:${hasGol?'rgba(30,25,10,.95)':'rgba(13,16,24,.95)'}">${row.min}'</td>
+      <td style="${tdBase}text-align:left;font-weight:700;color:var(--t2);position:sticky;left:0;background:${hasGol?'rgba(30,25,10,.95)':'rgba(13,16,24,.95)'}">${row.minLabel || row.min}'</td>
       <td style="${tdBase}text-align:left;font-weight:700;color:${hasGol?'var(--yel)':'var(--t2)'}">${pC}–${pF}</td>
       <td style="${tdBase}text-align:left;">${evtIcos}</td>
       ${REL_COLS.map((c,i) => cell('home', c, i===0)).join('')}
