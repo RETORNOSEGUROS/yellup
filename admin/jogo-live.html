@@ -887,8 +887,64 @@ function pushStatsHist() {
   if (existIdx >= 0) RELATORIO_ROWS[existIdx] = rowRel;
   else RELATORIO_ROWS.push(rowRel);
 
+  // 💾 Persistir snapshot no Firestore direto do navegador (backup do schedulePlacarMinuto)
+  // Garante que nenhum minuto se perde mesmo se a Cloud Function falhar
+  _salvarSnapshotFirestore(snap.min, rowRel).catch(() => {});
+
   // Atualizar tabela se a aba estiver aberta
   if (REL_ABERTO) renderRelatorio();
+}
+
+// Salva um snapshot no Firestore — espelho do que o schedulePlacarMinuto faz no backend
+// Usa merge:true para não sobrescrever dados que o backend possa ter com mais detalhes
+async function _salvarSnapshotFirestore(min, row) {
+  if (!FIX_ID || !isAoVivo() || min < 1) return;
+  try {
+    const docId = String(min).padStart(3, '0');
+    const h = row.home || {}, a = row.away || {};
+    const snapDoc = {
+      minuto:               min,
+      minutoExibicao:       String(min),
+      temStats:             true,
+      placarCasa:           row.placarCasa ?? 0,
+      placarFora:           row.placarFora ?? 0,
+      posseCasa:            h.posse   ?? null,
+      posseFora:            a.posse   ?? null,
+      chutesAlvoCasa:       h.shotsOn ?? null,
+      chutesAlvoFora:       a.shotsOn ?? null,
+      chutesTotaisCasa:     h.shots   ?? null,
+      chutesTotaisFora:     a.shots   ?? null,
+      ataquesPerigososCasa: h.ap      ?? null,
+      ataquesPerigososFora: a.ap      ?? null,
+      escanteiosCasa:       h.corners ?? null,
+      escanteiosFora:       a.corners ?? null,
+      faltasCasa:           h.fouls   ?? null,
+      faltasFora:           a.fouls   ?? null,
+      xgCasa:               h.xg      ?? null,
+      xgFora:               a.xg      ?? null,
+      passesTotaisCasa:     h.passes  ?? 0,
+      passesTotaisFora:     a.passes  ?? 0,
+      passosErradosCasa:    h.passosErrados ?? null,
+      passosErradosFora:    a.passosErrados ?? null,
+      eventos: (row.eventos || []).map(e => ({
+        tipo: e.tipo, detalhe: e.detalhe, tempo: e.tempo,
+        jogador: e.jogador || '', timeId: null,
+      })),
+      golCasa: (row.eventos||[]).some(e => e.tipo==='Goal'),
+      golFora: false,
+      _fonteNavegador: true, // flag: gravado pelo browser (não pela Cloud Function)
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    await db
+      .collection('jogo-snapshots')
+      .doc(String(FIX_ID))
+      .collection('minutos')
+      .doc(docId)
+      .set(snapDoc, { merge: true }); // merge: backend tem prioridade nos campos que já existem
+    console.log(`💾 Snapshot min ${min} salvo pelo navegador`);
+  } catch(e) {
+    console.warn('_salvarSnapshotFirestore:', e.message);
+  }
 }
 
 // ── DELTA helper: diferença entre agora e N snaps atrás ───────────────────
