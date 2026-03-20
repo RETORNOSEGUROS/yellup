@@ -1307,9 +1307,13 @@ function toast(msg, tipo='info') {
 // Chama exports.backfillStatsHistoricos (Fase 1 do roadmap)
 // Parâmetros configuráveis direto no modal sem precisar de novo deploy
 
-function abrirBackfill() {
+let _bfTotal = null;      // total de fixtures sem stats (contado ao abrir)
+let _bfProcessados = 0;   // acumulado desta sessão
+let _bfRodando = false;   // modo automático ativo
+
+async function abrirBackfill() {
   const existente = document.getElementById('modalBackfill');
-  if (existente) { existente.style.display = 'flex'; return; }
+  if (existente) { existente.style.display = 'flex'; _contarPendentes(); return; }
 
   const modal = document.createElement('div');
   modal.id = 'modalBackfill';
@@ -1318,29 +1322,52 @@ function abrirBackfill() {
     display:flex;align-items:center;justify-content:center;
   `;
   modal.innerHTML = `
-    <div style="background:var(--c2);border:1px solid var(--bd3);border-radius:14px;padding:22px 24px;width:400px;max-width:94vw;">
+    <div style="background:var(--c2);border:1px solid var(--bd3);border-radius:14px;padding:22px 24px;width:420px;max-width:94vw;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">📊 Backfill Stats Históricos</span>
-        <span onclick="document.getElementById('modalBackfill').style.display='none'"
+        <span onclick="pararBackfill();document.getElementById('modalBackfill').style.display='none'"
               style="cursor:pointer;color:var(--t3);font-size:18px;line-height:1">×</span>
+      </div>
+
+      <!-- Contador de pendentes -->
+      <div id="bfContador" style="
+        background:var(--c3);border-radius:8px;padding:10px 12px;
+        font-size:12px;margin-bottom:14px;display:flex;align-items:center;gap:10px
+      ">
+        <span style="font-size:18px">⏳</span>
+        <div>
+          <div id="bfContadorNum" style="font-weight:700;color:var(--t1)">Contando pendentes...</div>
+          <div id="bfContadorSub" style="font-size:10px;color:var(--t3);margin-top:1px"></div>
+        </div>
+      </div>
+
+      <!-- Barra de progresso geral -->
+      <div id="bfBarraWrapper" style="display:none;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--t3);margin-bottom:3px">
+          <span id="bfBarraTxt">Progresso desta sessão</span>
+          <span id="bfBarraPct">0%</span>
+        </div>
+        <div style="background:var(--c3);border-radius:4px;height:6px;overflow:hidden">
+          <div id="bfBarra" style="height:100%;background:var(--grn);width:0%;transition:width .5s"></div>
+        </div>
       </div>
 
       <div style="display:grid;gap:10px;font-size:12px;margin-bottom:16px">
         <div>
           <label style="color:var(--t2);display:block;margin-bottom:3px">Limite de fixtures por execução</label>
-          <input id="bfLimite" type="number" value="50" min="1" max="300"
+          <input id="bfLimite" type="number" value="100" min="1" max="300"
             style="width:100%;background:var(--c3);border:1px solid var(--bd2);border-radius:7px;padding:6px 9px;color:var(--t1);font-family:inherit;font-size:12px">
           <span style="color:var(--t3);font-size:10px;display:block;margin-top:2px">
-            50 fixtures ≈ 1,5 min de execução (timeout: 9 min)
+            100 fixtures ≈ 2 min de execução (timeout: 9 min)
           </span>
         </div>
 
         <div>
           <label style="color:var(--t2);display:block;margin-bottom:3px">Delay entre chamadas (ms)</label>
-          <input id="bfDelay" type="number" value="1200" min="500" max="5000"
+          <input id="bfDelay" type="number" value="200" min="100" max="5000"
             style="width:100%;background:var(--c3);border:1px solid var(--bd2);border-radius:7px;padding:6px 9px;color:var(--t1);font-family:inherit;font-size:12px">
           <span style="color:var(--t3);font-size:10px;display:block;margin-top:2px">
-            1200 ms = seguro para plano free da API-Football (~50 req/min)
+            200ms = seguro para plano pago · 1200ms = plano free (~50 req/min)
           </span>
         </div>
 
@@ -1350,81 +1377,171 @@ function abrirBackfill() {
             style="width:100%;background:var(--c3);border:1px solid var(--bd2);border-radius:7px;padding:6px 9px;color:var(--t1);font-family:inherit;font-size:12px">
         </div>
 
-        <div style="display:flex;align-items:center;gap:8px">
-          <input id="bfForcar" type="checkbox">
-          <label for="bfForcar" style="color:var(--t2);cursor:pointer">
-            Forçar reprocessamento (ignora fixtures que já têm stats)
+        <div style="display:flex;gap:16px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--t2)">
+            <input id="bfForcar" type="checkbox">
+            Forçar reprocessamento
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--acc)">
+            <input id="bfAuto" type="checkbox" checked>
+            Modo automático
           </label>
         </div>
       </div>
 
       <div id="bfStatus" style="
         display:none;background:var(--c3);border-radius:8px;padding:10px 12px;
-        font-size:11px;color:var(--t2);margin-bottom:12px;line-height:1.6
+        font-size:11px;color:var(--t2);margin-bottom:12px;line-height:1.7
       "></div>
 
       <div style="display:flex;gap:8px">
         <button id="bfBtnRun" onclick="executarBackfill()" class="btn btn-grn" style="flex:1">
           ▶ Iniciar Backfill
         </button>
-        <button onclick="document.getElementById('modalBackfill').style.display='none'" class="btn" style="flex:1">
+        <button id="bfBtnStop" onclick="pararBackfill()" class="btn"
+          style="flex:0.5;display:none;color:var(--red);border-color:var(--red)">
+          ⏹ Parar
+        </button>
+        <button onclick="pararBackfill();document.getElementById('modalBackfill').style.display='none'" class="btn" style="flex:1">
           Fechar
         </button>
       </div>
 
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bd1);font-size:10px;color:var(--t3);line-height:1.5">
-        ℹ️ Cada execução processa <b style="color:var(--t2)">limite</b> fixtures com <code>stats == null</code>.<br>
-        Fixtures sem dados na API são marcados como <code>sem_dados</code> (não reprocessados).<br>
-        Para processar todos os ~10.500 jogos: rode várias vezes até zerar os pendentes.
+        ℹ️ <b>Modo automático</b>: continua rodando até zerar todos os pendentes.<br>
+        Fixtures sem dados na API são marcados como <code>sem_dados</code> (não reprocessados).
       </div>
     </div>
   `;
   document.body.appendChild(modal);
+  _contarPendentes();
+}
+
+async function _contarPendentes() {
+  try {
+    // Contar direto no Firestore sem precisar de Cloud Function
+    const snap = await db.collection('fixtures-historico')
+      .where('ataquesPerCasa', '==', null)
+      .limit(1000).get(); // Firestore limit
+    const numEl = document.getElementById('bfContadorNum');
+    const subEl = document.getElementById('bfContadorSub');
+    if (!numEl) return;
+
+    // Como o Firestore limita a 1000, indicar se há mais
+    const count = snap.size;
+    const temMais = count >= 1000;
+    _bfTotal = temMais ? null : count; // null = mais de 1000
+
+    numEl.textContent = temMais
+      ? `Mais de 1.000 fixtures pendentes`
+      : count === 0
+        ? `✅ Nenhum fixture pendente — backfill completo!`
+        : `${count.toLocaleString('pt-BR')} fixtures pendentes`;
+
+    numEl.style.color = count === 0 ? 'var(--grn)' : 'var(--yel)';
+
+    if (count > 0) {
+      const execucoes = Math.ceil((temMais ? 12000 : count) / (parseInt(document.getElementById('bfLimite')?.value)||100));
+      subEl.textContent = `≈ ${execucoes} execuções restantes`;
+    } else {
+      subEl.textContent = 'Todos os jogos já têm stats completos';
+    }
+  } catch(e) {
+    const numEl = document.getElementById('bfContadorNum');
+    if (numEl) numEl.textContent = 'Não foi possível contar';
+  }
+}
+
+function pararBackfill() {
+  _bfRodando = false;
+  const btn = document.getElementById('bfBtnRun');
+  const stop = document.getElementById('bfBtnStop');
+  if (btn) { btn.disabled = false; btn.textContent = '▶ Iniciar Backfill'; }
+  if (stop) stop.style.display = 'none';
 }
 
 async function executarBackfill() {
   const btn    = document.getElementById('bfBtnRun');
+  const stop   = document.getElementById('bfBtnStop');
   const status = document.getElementById('bfStatus');
-  const limite = parseInt(document.getElementById('bfLimite').value) || 50;
-  const delay  = parseInt(document.getElementById('bfDelay').value)  || 1200;
+  const limite = parseInt(document.getElementById('bfLimite').value) || 100;
+  const delay  = parseInt(document.getElementById('bfDelay').value)  || 200;
   const ligaId = parseInt(document.getElementById('bfLiga').value)   || null;
   const forcar = document.getElementById('bfForcar').checked;
+  const auto   = document.getElementById('bfAuto').checked;
 
+  _bfRodando = true;
+  _bfProcessados = 0;
   btn.disabled = true;
   btn.textContent = '⏳ Processando...';
+  if (stop) stop.style.display = 'block';
   status.style.display = 'block';
-  status.innerHTML = `
-    <span style="color:var(--acc)">⏳ Executando…</span><br>
-    Limite: <b>${limite}</b> fixtures · Delay: <b>${delay}ms</b>
-    ${ligaId ? ` · Liga: <b>${ligaId}</b>` : ''}
-    ${forcar ? ' · <b style="color:var(--red)">Forçando reprocessamento</b>' : ''}<br>
-    <span style="color:var(--t3)">
-      Estimativa: ~${Math.ceil(limite * delay / 60000)} min.
-      Não feche esta aba.
-    </span>
-  `;
 
-  try {
-    const res = await fns.httpsCallable('backfillStatsHistoricos')({
-      limite, delayMs: delay, ligaId, forcar
-    });
-    const d = res.data;
+  const barra = document.getElementById('bfBarra');
+  const barraPct = document.getElementById('bfBarraPct');
+  const barraTxt = document.getElementById('bfBarraTxt');
+  const barraWrapper = document.getElementById('bfBarraWrapper');
+  if (barraWrapper) barraWrapper.style.display = 'block';
 
+  let rodada = 0;
+
+  while (_bfRodando) {
+    rodada++;
     status.innerHTML = `
-      <b style="color:var(--grn)">✅ Concluído!</b><br>
-      Enriquecidos: <b style="color:var(--grn)">${d.processados}</b><br>
-      Erros / sem dados: <b style="color:var(--red)">${d.erros}</b><br>
-      Total processado: <b>${d.total}</b><br>
-      <span style="color:var(--t3)">${d.msg}</span>
+      <span style="color:var(--acc)">⏳ Rodada ${rodada}…</span><br>
+      Processando <b>${limite}</b> fixtures · Delay: <b>${delay}ms</b>
+      ${ligaId ? ` · Liga: <b>${ligaId}</b>` : ''}<br>
+      <span style="color:var(--t3)">Esta sessão: <b style="color:var(--grn)">${_bfProcessados}</b> enriquecidos</span>
     `;
-    toast(`✓ ${d.processados} fixtures enriquecidos`, 'ok');
-  } catch(e) {
-    status.innerHTML = `<b style="color:var(--red)">✗ Erro:</b> ${e.message}`;
-    toast('Erro no backfill: ' + e.message, 'err');
+
+    try {
+      const res = await fns.httpsCallable('backfillStatsHistoricos')({
+        limite, delayMs: delay, ligaId, forcar
+      });
+      const d = res.data;
+      _bfProcessados += (d.processados || 0);
+
+      // Atualizar barra de progresso
+      if (_bfTotal !== null && _bfTotal > 0) {
+        const pct = Math.min(100, Math.round(_bfProcessados / _bfTotal * 100));
+        if (barra) barra.style.width = pct + '%';
+        if (barraPct) barraPct.textContent = pct + '%';
+        if (barraTxt) barraTxt.textContent = `${_bfProcessados.toLocaleString('pt-BR')} de ${_bfTotal.toLocaleString('pt-BR')} processados esta sessão`;
+      }
+
+      const acabou = d.processados === 0 || d.total === 0;
+
+      status.innerHTML = `
+        <b style="color:${acabou ? 'var(--grn)' : 'var(--acc)'}">
+          ${acabou ? '✅ Completo!' : `⏳ Rodada ${rodada} OK`}
+        </b><br>
+        Esta rodada: <b style="color:var(--grn)">${d.processados}</b> enriquecidos
+        · <b style="color:var(--red)">${d.erros}</b> erros<br>
+        <b>Total desta sessão: <span style="color:var(--grn)">${_bfProcessados}</span></b><br>
+        <span style="color:var(--t3)">${d.msg || ''}</span>
+      `;
+
+      // Atualizar contador de pendentes
+      await _contarPendentes();
+
+      if (acabou || !auto) {
+        // Acabou ou modo manual
+        if (acabou) toast('✅ Backfill completo! Todos os fixtures processados.', 'ok');
+        break;
+      }
+
+      // Pausa entre rodadas (2s)
+      await new Promise(r => setTimeout(r, 2000));
+
+    } catch(e) {
+      status.innerHTML = `<b style="color:var(--red)">✗ Erro na rodada ${rodada}:</b> ${e.message}<br>
+        <span style="color:var(--t3)">Total desta sessão: ${_bfProcessados} enriquecidos</span>`;
+      toast('Erro no backfill: ' + e.message, 'err');
+      break;
+    }
   }
 
-  btn.disabled = false;
-  btn.textContent = '▶ Iniciar Backfill';
+  pararBackfill();
 }
 
 async function recalcularPerfisTimes() {
