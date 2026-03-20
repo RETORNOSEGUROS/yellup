@@ -745,6 +745,40 @@ function renderPrevisaoArea(j, prev) {
           ${gols?.periodo ? `<div class="gols-range" style="margin-top:2px">⏱ ${gols.periodo}</div>` : ''}
         </div>
       </div>
+      ${(() => {
+        // Placar exato por Poisson
+        if (!gols?._lambdaCasa || !gols?._lambdaFora) return '';
+        const poi = calcularPlacarPoisson(gols._lambdaCasa, gols._lambdaFora);
+        const nomeCasa = j.timeCasa?.nome?.split(' ')[0] || 'Casa';
+        const nomeFora = j.timeFora?.nome?.split(' ')[0] || 'Fora';
+        // Aposta Yellup — placar mais provável
+        const apostaCasa = poi.top5[0]?.casa ?? '?';
+        const apostaFora = poi.top5[0]?.fora ?? '?';
+        const apostaPct  = poi.top5[0]?.pct ?? 0;
+        return `
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--brd)">
+            <div style="font-size:10px;color:var(--t3);margin-bottom:6px;font-weight:600">🎯 APOSTA YELLUP — Placares Prováveis</div>
+            <div style="background:rgba(0,229,160,.07);border:1px solid rgba(0,229,160,.2);border-radius:8px;padding:7px 10px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+              <div style="font-size:20px;font-weight:800;color:var(--acc);font-family:'DM Mono',monospace">${apostaCasa}–${apostaFora}</div>
+              <div>
+                <div style="font-size:10px;color:var(--acc);font-weight:700">Mais provável · ${apostaPct}%</div>
+                <div style="font-size:9px;color:var(--t3)">${nomeCasa} ${apostaCasa} · ${nomeFora} ${apostaFora}</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+              ${poi.top5.slice(1).map(p => `
+                <div style="background:var(--bg3);border:1px solid var(--brd);border-radius:6px;padding:4px 8px;text-align:center;min-width:44px">
+                  <div style="font-size:13px;font-weight:700;color:var(--t1);font-family:'DM Mono',monospace">${p.label}</div>
+                  <div style="font-size:9px;color:var(--t3)">${p.pct}%</div>
+                </div>`).join('')}
+            </div>
+            <div style="display:flex;gap:8px;font-size:10px;flex-wrap:wrap">
+              <span style="background:var(--bg3);border-radius:5px;padding:2px 7px;color:${poi.goleada>=20?'var(--red)':'var(--t3)'}">💥 Goleada (4+): ${poi.goleada}%</span>
+              <span style="background:var(--bg3);border-radius:5px;padding:2px 7px;color:var(--t3)">🔒 Under 1.5: ${poi.under15}%</span>
+              <span style="background:var(--bg3);border-radius:5px;padding:2px 7px;color:var(--t3)">⚽⚽ BTTS: ${poi.btts}%</span>
+            </div>
+          </div>`;
+      })()}
       <div class="explicacao">${exps}</div>
       <div class="fontes-mini">${fontesTags}</div>
     </div>
@@ -1315,7 +1349,7 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG, perfilCasaDB, perfilForaDB) {
 
   return {
     resultado: { casa: probCasa, empate: probEmpate, fora: probFora, veredito },
-    gols: calcularGols(j, jogosC, jogosF, hC?.h2h, periodoC, periodoF, perfilCasaDB, perfilForaDB),
+    gols: calcularGols(j, jogosC, jogosF, hC?.h2h, periodoC, periodoF, perfilCasaDB, perfilForaDB, probCasa, probFora),
     confianca: confiancaFinal,
     altaIncerteza,
     explicacoes: explicacoes.slice(0, 4),
@@ -1326,7 +1360,7 @@ function calcularPrevisao(j, hC, hF, cC, cF, cG, perfilCasaDB, perfilForaDB) {
 }
 
 // ── CALCULAR GOLS ─────────────────────────────────────────────────────────
-function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, perfilForaDB) {
+function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, perfilForaDB, probCasa=45, probFora=29) {
   // ══════════════════════════════════════════════════════════════
   // CAMADA 1 — Base estatística real por liga + trimestre
   // Anchor: média histórica da liga no período do ano
@@ -1476,6 +1510,8 @@ function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, 
     ? (mgPre >= 2.5 ? 0.3 : mgPre >= 2.0 ? 0.15 : mgPre >= 1.5 ? 0 : -0.2)
     : 0.15; // sem dados: correção conservadora
   const estimativaCorrigida = estimativaFinal + correcaoSub;
+  // Piso real: 0.5 gols (jogo pode terminar 0x0)
+  // Não forçar mínimo artificial de 2.5
   const est = Math.round(Math.max(0.5, estimativaCorrigida) * 2) / 2;
 
   // Over 2.5 baseado na base da liga + ajuste
@@ -1510,12 +1546,65 @@ function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, 
     fontes: [fonteLabel],
     camada: fonteCamada2.startsWith('banco') ? 2 : 1,
     fonteCamada2,
+    // Lambdas para Poisson — split proporcional às probabilidades de resultado
+    _lambdaCasa: Math.max(0.1, +(est * (probCasa / Math.max(1, probCasa + probFora))).toFixed(3)),
+    _lambdaFora: Math.max(0.1, +(est * (probFora  / Math.max(1, probCasa + probFora))).toFixed(3)),
   };
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
 function base5050() { return { casa: 45, empate: 26, fora: 29, veredito: 'casa' }; }
 function golsDefault() { return { estimado: '2.5', range: '1.5–3.5', tendencia: 'medio' }; }
+
+// ── DISTRIBUIÇÃO DE POISSON ───────────────────────────────────────────────
+// P(X = k) = e^(-λ) * λ^k / k!
+function poisson(lambda, k) {
+  if (lambda <= 0 || k < 0) return 0;
+  let logP = -lambda + k * Math.log(lambda);
+  for (let i = 1; i <= k; i++) logP -= Math.log(i);
+  return Math.exp(logP);
+}
+
+// Calcular distribuição de placares usando Poisson
+// Retorna: { placares: [{casa,fora,prob,pct}], goleada, under15, btts }
+function calcularPlacarPoisson(lambdaCasa, lambdaFora) {
+  const MAX = 7; // até 7 gols por time
+  const placares = [];
+
+  for (let i = 0; i <= MAX; i++) {
+    for (let j = 0; j <= MAX; j++) {
+      const prob = poisson(lambdaCasa, i) * poisson(lambdaFora, j);
+      if (prob > 0.001) { // ignorar < 0.1%
+        placares.push({ casa: i, fora: j, prob });
+      }
+    }
+  }
+
+  // Ordenar por probabilidade
+  placares.sort((a, b) => b.prob - a.prob);
+
+  // Calcular métricas agregadas
+  let goleada = 0, under15 = 0, btts = 0, over25 = 0;
+  for (const p of placares) {
+    const total = p.casa + p.fora;
+    if (total >= 4) goleada += p.prob;
+    if (total <= 1) under15 += p.prob;
+    if (p.casa >= 1 && p.fora >= 1) btts += p.prob;
+    if (total > 2.5) over25 += p.prob;
+  }
+
+  return {
+    top5: placares.slice(0, 5).map(p => ({
+      ...p,
+      pct: Math.round(p.prob * 100),
+      label: `${p.casa}-${p.fora}`,
+    })),
+    goleada: Math.round(goleada * 100),
+    under15: Math.round(under15 * 100),
+    btts: Math.round(btts * 100),
+    over25Poisson: Math.round(over25 * 100),
+  };
+}
 
 function atualizarResumo() {
   const filtroLiga = gc('filtroLiga').value;
@@ -1564,8 +1653,12 @@ function setTab(tab) {
 async function salvarPrevisao(j, prev) {
   try {
     const dt = j.dataInicio?.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio||0);
+    // Calcular Poisson para salvar placar exato
+    const poi = (prev.gols?._lambdaCasa && prev.gols?._lambdaFora)
+      ? calcularPlacarPoisson(prev.gols._lambdaCasa, prev.gols._lambdaFora)
+      : null;
     await fns.httpsCallable('salvarPrevisao')({
-      fixtureId:     j.apiFootballId || j.id,
+      fixtureId:     j.apiFootballId || j.apiFixtureId || j.id,
       timeCasaId:    j.timeCasa?.apiId || j.timeCasa?.id,
       timeForaId:    j.timeFora?.apiId || j.timeFora?.id,
       timeCasaNome:  j.timeCasa?.nome,
@@ -1573,18 +1666,25 @@ async function salvarPrevisao(j, prev) {
       liga:          j.liga?.nome,
       dataJogo:      dt.toISOString(),
       previsao: {
-        probCasa:     prev.resultado.casa,
-        probEmpate:   prev.resultado.empate,
-        probFora:     prev.resultado.fora,
-        veredito:     prev.resultado.veredito,
-        golsEstimado: prev.gols?.estimado,
-        golsRange:    prev.gols?.range,
-        confianca:    prev.confianca,
-        ysC:          prev.ysC,
-        ysF:          prev.ysF,
-        forcaC:       prev.forcaC,
-        forcaF:       prev.forcaF,
-        fontes:       (prev.fontes||[]).map(f => f.nome),
+        probCasa:        prev.resultado.casa,
+        probEmpate:      prev.resultado.empate,
+        probFora:        prev.resultado.fora,
+        veredito:        prev.resultado.veredito,
+        golsEstimado:    prev.gols?.estimado,
+        golsRange:       prev.gols?.range,
+        confianca:       prev.confianca,
+        ysC:             prev.ysC,
+        ysF:             prev.ysF,
+        forcaC:          prev.forcaC,
+        forcaF:          prev.forcaF,
+        fontes:          (prev.fontes||[]).map(f => f.nome),
+        // Aposta Yellup — placar exato mais provável
+        apostaPlacar:    poi ? `${poi.top5[0]?.casa}-${poi.top5[0]?.fora}` : null,
+        apostaPct:       poi?.top5[0]?.pct || null,
+        top5Placares:    poi?.top5?.map(p => ({ l: p.label, p: p.pct })) || [],
+        probGoleada:     poi?.goleada || null,
+        probBTTS:        poi?.btts || null,
+        probUnder15:     poi?.under15 || null,
       }
     });
   } catch(e) {
@@ -1763,6 +1863,18 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
       <div class="apr-big" style="color:var(--acc)">${desvioMedio >= 0 ? '+' : ''}${desvioMedio.toFixed(1)}</div>
       <div class="apr-sub">${desvioMedio > 0 ? 'Subestimamos gols' : desvioMedio < 0 ? 'Superestimamos gols' : 'Calibrado'}</div>
     </div>
+    ${(() => {
+      // Calcular acurácia de placar exato das ultimas previsões
+      const comPlacar = ultimas.filter(p => p.apostaPlacar && p.golsCasaReal != null);
+      const acertouPlacar = comPlacar.filter(p => p.apostaPlacar === `${p.golsCasaReal}-${p.golsForaReal}`).length;
+      if (!comPlacar.length) return '';
+      const pctP = Math.round(acertouPlacar/comPlacar.length*100);
+      return `<div class="apr-card">
+        <div class="apr-card-title">🎯 Acurácia placar exato</div>
+        <div class="apr-big" style="color:${pctP>=15?'var(--grn)':pctP>=8?'var(--acc)':'var(--red)'}">${pctP}%</div>
+        <div class="apr-sub">${acertouPlacar} de ${comPlacar.length} (esperado ~10%)</div>
+      </div>`;
+    })()}
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
@@ -1818,14 +1930,20 @@ function renderAprendizado(ligas, ultimas, fatorGlobal) {
       const acertouG = p.acertouGols;
       const ver = p.veredito === 'casa' ? p.timeCasaNome : p.veredito === 'fora' ? p.timeForaNome : 'Empate';
       const real = p.resultadoReal === 'casa' ? p.timeCasaNome : p.resultadoReal === 'fora' ? p.timeForaNome : 'Empate';
+      // Placar exato
+      const placarReal = (p.golsCasaReal != null && p.golsForaReal != null) ? `${p.golsCasaReal}-${p.golsForaReal}` : null;
+      const apostaPlacar = p.apostaPlacar || null;
+      const acertouPlacar = apostaPlacar && placarReal && apostaPlacar === placarReal;
       return `<div class="prev-hist-row">
         <div class="prev-hist-times">${p.timeCasaNome} × ${p.timeForaNome}</div>
         <div style="font-size:11px;color:var(--t2)">${p.liga||''}</div>
         <div class="prev-hist-result ${acertouR?'acertou':'errou'}">
           ${acertouR ? '✓' : '✗'} ${real} (${p.golsCasaReal}-${p.golsForaReal})
         </div>
-        <div style="font-size:10px;color:var(--t3)">prev: ${ver}</div>
+        <div style="font-size:10px;color:var(--t3)">Prev resultado: ${ver}</div>
         <div style="font-size:10px;color:${acertouG?'var(--grn)':'var(--red)'}">⚽${acertouG?'✓':'✗'} est.${p.golsEstimado}</div>
+        ${apostaPlacar ? `<div style="font-size:10px;color:${acertouPlacar?'var(--grn)':'var(--t3)'}">
+          🎯${acertouPlacar?'✓':'✗'} placar: ${apostaPlacar}${p.top5Placares?.length>1?' (2°: '+p.top5Placares[1]?.l+')':''}</div>` : ''}
       </div>`;
     }).join('')}
   </div>` : ''}
