@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Yellup · Análise Cruzada Stats × Resultado</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#07080d;--bg2:#0b0d15;--bg3:#0f1119;
+  --c1:#131622;--c2:#181b28;--c3:#1d2133;
+  --bd1:#191c2c;--bd2:#212540;--bd3:#2a2e4a;
+  --t1:#eceef6;--t2:#858ba5;--t3:#41456a;
+  --acc:#f5a524;--adim:rgba(245,165,36,.10);--abright:rgba(245,165,36,.25);
+  --grn:#27d49b;--gdim:rgba(39,212,155,.10);
+  --red:#ef5f5f;--rdim:rgba(239,95,95,.10);
+  --blu:#4f96f4;--bdim2:rgba(79,150,244,.10);
+  --pur:#a78bfa;--pdim:rgba(167,139,250,.10);
+  --ora:#f97316;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);overflow:hidden;}
+
+/* TOPBAR */
+.topbar{height:50px;background:var(--bg2);border-bottom:1px solid var(--bd1);
+  display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;}
+.logo{width:26px;height:26px;background:var(--acc);border-radius:6px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Syne',sans-serif;font-weight:800;font-size:11px;color:#000;}
+.logo-txt{font-family:'Syne',sans-serif;font-size:14px;font-weight:800;}
+.topbar-tag{font-size:8px;font-weight:700;background:var(--adim);color:var(--acc);
+  border:1px solid rgba(245,165,36,.3);border-radius:20px;padding:2px 7px;letter-spacing:.5px;text-transform:uppercase;}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.tpill{font-size:9px;color:var(--t3);background:var(--c2);border:1px solid var(--bd1);
+  border-radius:6px;padding:3px 8px;font-family:'DM Mono',monospace;}
+.tpill span{color:var(--acc);font-weight:700;}
+.btn-sm{padding:5px 11px;border-radius:6px;border:1px solid var(--bd2);background:none;
+  color:var(--t2);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit;
+  transition:all .15s;display:inline-flex;align-items:center;gap:4px;}
+.btn-sm:hover{border-color:var(--acc);color:var(--acc);}
+.btn-sm.primary{background:var(--adim);border-color:rgba(245,165,36,.4);color:var(--acc);}
+
+/* LAYOUT */
+.layout{display:flex;height:calc(100vh - 50px);overflow:hidden;}
+
+/* SIDEBAR */
+.sidebar{width:260px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--bd1);
+  display:flex;flex-direction:column;overflow:hidden;}
+.sb-head{padding:10px 12px;border-bottom:1px solid var(--bd1);flex-shrink:0;}
+.sb-head h3{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;margin-bottom:8px;}
+.sb-scroll{flex:1;overflow-y:auto;padding:8px;}
+.sb-scroll::-webkit-scrollbar{width:2px;}
+.sb-scroll::-webkit-scrollbar-thumb{background:var(--bd3);}
+
+/* Placar grid */
+.placar-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;}
+.pcel{padding:5px 3px;border-radius:5px;border:1px solid var(--bd1);
+  text-align:center;cursor:pointer;transition:all .1s;background:var(--bg3);}
+.pcel:hover{border-color:var(--bd3);background:var(--c2);}
+.pcel.on{background:var(--adim);border-color:var(--acc);}
+.pcel-score{font-family:'DM Mono',monospace;font-size:9px;font-weight:700;color:var(--t2);}
+.pcel.on .pcel-score{color:var(--acc);}
+.pcel-n{font-size:7px;color:var(--t3);margin-top:1px;}
+.pcel.casa .pcel-score{color:var(--grn);}
+.pcel.empate .pcel-score{color:var(--blu);}
+.pcel.fora .pcel-score{color:var(--red);}
+
+/* Filtros */
+.filter-sect{padding:8px 12px;border-bottom:1px solid var(--bd1);flex-shrink:0;}
+.filter-lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--t3);margin-bottom:5px;}
+.filter-chips{display:flex;flex-wrap:wrap;gap:3px;}
+.fchip{padding:2px 7px;border-radius:20px;border:1px solid var(--bd2);background:none;
+  color:var(--t3);font-size:8px;font-weight:600;cursor:pointer;letter-spacing:.3px;transition:all .1s;}
+.fchip:hover{color:var(--t2);}
+.fchip.on{background:var(--adim);border-color:rgba(245,165,36,.4);color:var(--acc);}
+.fchip.grn.on{background:var(--gdim);border-color:rgba(39,212,155,.4);color:var(--grn);}
+.fchip.blu.on{background:var(--bdim2);border-color:rgba(79,150,244,.4);color:var(--blu);}
+.fchip.red.on{background:var(--rdim);border-color:rgba(239,95,95,.4);color:var(--red);}
+
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--bd1);flex-shrink:0;}
+.tab{padding:10px 15px;font-size:10px;font-weight:700;font-family:'Syne',sans-serif;
+  cursor:pointer;border:none;background:none;color:var(--t3);
+  border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;white-space:nowrap;}
+.tab:hover{color:var(--t2);}
+.tab.on{color:var(--acc);border-bottom-color:var(--acc);}
+.pane{display:none;flex:1;overflow-y:auto;padding:14px 16px;}
+.pane.on{display:block;}
+.pane::-webkit-scrollbar{width:4px;}
+.pane::-webkit-scrollbar-thumb{background:var(--bd2);}
+
+/* LOADING */
+.loading-state{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:14px;color:var(--t2);}
+.ld-spinner{width:32px;height:32px;border:3px solid var(--bd2);border-top-color:var(--acc);
+  border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.ld-txt{font-size:11px;text-align:center;}
+.ld-prog{font-family:'DM Mono',monospace;font-size:13px;color:var(--acc);}
+.ld-bar{width:220px;height:4px;background:var(--bd2);border-radius:2px;overflow:hidden;}
+.ld-fill{height:100%;background:var(--acc);border-radius:2px;transition:width .3s;}
+
+/* CARDS / SECTIONS */
+.section{background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:12px 14px;margin-bottom:10px;}
+.sec-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;
+  margin-bottom:10px;display:flex;align-items:center;gap:6px;color:var(--t1);}
+.sec-sub{font-size:9px;color:var(--t3);margin-left:auto;}
+
+/* STATS GRID */
+.stat-grid{display:grid;gap:6px;margin-bottom:8px;}
+.stat-grid.cols2{grid-template-columns:1fr 1fr;}
+.stat-grid.cols3{grid-template-columns:1fr 1fr 1fr;}
+.stat-grid.cols4{grid-template-columns:1fr 1fr 1fr 1fr;}
+.stat-card{background:var(--c3);border:1px solid var(--bd2);border-radius:8px;padding:9px 11px;text-align:center;}
+.sc-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:700;}
+.sc-lbl{font-size:8px;color:var(--t3);margin-top:3px;text-transform:uppercase;letter-spacing:.5px;}
+.sc-sub{font-size:8px;color:var(--t2);margin-top:2px;}
+
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse;font-size:10px;}
+.tbl th{text-align:left;padding:5px 8px;font-size:8px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.6px;color:var(--t3);border-bottom:1px solid var(--bd1);}
+.tbl th.r{text-align:right;}
+.tbl td{padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.025);}
+.tbl td.r{text-align:right;font-family:'DM Mono',monospace;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:rgba(255,255,255,.02);}
+
+/* Color helpers */
+.c-acc{color:var(--acc);}.c-grn{color:var(--grn);}.c-red{color:var(--red);}.c-blu{color:var(--blu);}
+.c-pur{color:var(--pur);}.c-t2{color:var(--t2);}
+
+/* HEAT cells */
+.heat-hi{color:var(--grn);font-weight:700;}
+.heat-md{color:var(--acc);}
+.heat-lo{color:var(--red);}
+.heat-vlo{color:var(--t3);}
+
+/* BAR INLINE */
+.bar-wrap{display:flex;align-items:center;gap:6px;}
+.bar-bg{flex:1;height:5px;background:var(--bd1);border-radius:3px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:3px;transition:width .3s;}
+
+/* DUAL PROGRESS (casa vs fora) */
+.dual-bar{margin:4px 0;}
+.dual-bar-lbl{display:flex;justify-content:space-between;font-size:9px;color:var(--t2);margin-bottom:3px;}
+.dual-bar-track{height:6px;background:var(--bd1);border-radius:3px;overflow:hidden;position:relative;}
+.dual-bar-casa{height:100%;background:var(--grn);border-radius:3px 0 0 3px;float:left;transition:width .3s;}
+.dual-bar-fora{height:100%;background:var(--red);border-radius:0 3px 3px 0;float:right;transition:width .3s;}
+
+/* DISTORTION TABLE */
+.dist-cell{
+  padding:6px 8px;border-radius:6px;text-align:center;
+  font-family:'DM Mono',monospace;font-size:11px;font-weight:700;
+  transition:all .2s;cursor:default;
+}
+
+/* HT FLOW */
+.ht-flow{display:flex;flex-wrap:wrap;gap:5px;}
+.ht-item{background:var(--c3);border:1px solid var(--bd2);border-radius:7px;padding:6px 9px;min-width:80px;}
+.ht-score{font-family:'DM Mono',monospace;font-size:12px;font-weight:700;}
+.ht-pct{font-size:9px;color:var(--t2);}
+.ht-n{font-size:8px;color:var(--t3);}
+.ht-arrow{color:var(--acc);font-size:10px;margin:0 3px;}
+
+/* HEADER PLACAR */
+.placar-hero{background:var(--c3);border:1px solid var(--bd2);border-radius:12px;
+  padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;gap:16px;}
+.hero-score{font-family:'DM Mono',monospace;font-size:40px;font-weight:700;}
+.hero-info{flex:1;}
+.hero-tipo{font-size:12px;font-weight:700;}
+.hero-sub{font-size:10px;color:var(--t2);margin-top:2px;}
+.hero-badges{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;}
+.badge{padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;}
+.badge.grn{background:var(--gdim);color:var(--grn);border:1px solid rgba(39,212,155,.3);}
+.badge.acc{background:var(--adim);color:var(--acc);border:1px solid rgba(245,165,36,.3);}
+.badge.blu{background:var(--bdim2);color:var(--blu);border:1px solid rgba(79,150,244,.3);}
+.badge.red{background:var(--rdim);color:var(--red);border:1px solid rgba(239,95,95,.3);}
+.badge.pur{background:var(--pdim);color:var(--pur);border:1px solid rgba(167,139,250,.3);}
+
+/* OVERVIEW GRID */
+.ov-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-bottom:10px;}
+.ov-card{background:var(--c2);border:1px solid var(--bd1);border-radius:8px;padding:8px 10px;text-align:center;}
+.ov-num{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;}
+.ov-lbl{font-size:8px;color:var(--t3);margin-top:2px;text-transform:uppercase;letter-spacing:.5px;}
+
+/* CORRELATION ROW */
+.corr-row{display:grid;grid-template-columns:120px 1fr 50px 50px 50px 50px;
+  align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.025);}
+.corr-row:last-child{border-bottom:none;}
+.corr-lbl{font-size:9px;color:var(--t2);font-weight:600;}
+.corr-bars{display:flex;height:14px;border-radius:4px;overflow:hidden;}
+.corr-seg{display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;transition:width .3s;}
+
+/* EMPTY */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:200px;color:var(--t3);gap:8px;}
+.empty-ico{font-size:28px;}
+
+/* NOTA BOX */
+.nota{background:var(--adim);border:1px solid rgba(245,165,36,.2);border-radius:8px;
+  padding:9px 12px;font-size:10px;color:var(--t2);margin-bottom:10px;line-height:1.6;}
+.nota strong{color:var(--acc);}
+
+/* MINI HEATMAP */
+.mini-hm{display:grid;gap:2px;}
+.mh-row{display:flex;gap:2px;}
+.mh-cel{height:20px;border-radius:3px;display:flex;align-items:center;justify-content:center;
+  font-size:8px;font-weight:700;flex:1;cursor:pointer;transition:all .1s;}
+.mh-cel:hover{opacity:.8;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">Y</div>
+  <div class="logo-txt">Yellup</div>
+  <div class="topbar-tag">Análise Cruzada</div>
+  <div class="topbar-right">
+    <div class="tpill">Total: <span id="tTotal">—</span></div>
+    <div class="tpill">Com Stats: <span id="tStats">—</span></div>
+    <div class="tpill">Ligas: <span id="tLigas">—</span></div>
+    <button class="btn-sm primary" onclick="recarregar()">↺ Recarregar</button>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="filter-sect">
+      <div class="filter-lbl">Resultado final</div>
+      <div class="filter-chips" id="filtroRes">
+        <button class="fchip on" onclick="setFiltro('res','todos',this)">Todos</button>
+        <button class="fchip grn" onclick="setFiltro('res','casa',this)">🏠 Casa</button>
+        <button class="fchip blu" onclick="setFiltro('res','empate',this)">🤝 Empate</button>
+        <button class="fchip red" onclick="setFiltro('res','fora',this)">✈️ Fora</button>
+      </div>
+    </div>
+    <div class="filter-sect">
+      <div class="filter-lbl">Gols no jogo</div>
+      <div class="filter-chips" id="filtroGols">
+        <button class="fchip on" onclick="setFiltro('gols','todos',this)">Todos</button>
+        <button class="fchip" onclick="setFiltro('gols','0',this)">0 gols</button>
+        <button class="fchip" onclick="setFiltro('gols','1',this)">1 gol</button>
+        <button class="fchip" onclick="setFiltro('gols','2',this)">2 gols</button>
+        <button class="fchip" onclick="setFiltro('gols','3',this)">3 gols</button>
+        <button class="fchip" onclick="setFiltro('gols','4+',this)">4+ gols</button>
+      </div>
+    </div>
+    <div class="filter-sect">
+      <div class="filter-lbl">Liga <span id="ligaCount" style="color:var(--t3)"></span></div>
+      <div class="filter-chips" id="filtroLiga" style="max-height:80px;overflow-y:auto;">
+        <button class="fchip on" onclick="setFiltro('liga','todos',this)">Todas</button>
+      </div>
+    </div>
+    <div class="sb-head">
+      <h3>📋 Placares — clique para detalhar</h3>
+      <div style="font-size:8px;color:var(--t3)">Verde=Casa · Azul=Empate · Vermelho=Fora</div>
+    </div>
+    <div class="sb-scroll">
+      <div class="placar-grid" id="placarGrid">
+        <div style="color:var(--t3);font-size:9px;padding:8px;grid-column:1/-1;">Carregando...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="tabs">
+      <button class="tab on" onclick="switchTab('overview',this)">📊 Visão Geral</button>
+      <button class="tab" onclick="switchTab('fingerprint',this)">🔬 Fingerprint por Placar</button>
+      <button class="tab" onclick="switchTab('distorcoes',this)">⚡ Distorções Stats</button>
+      <button class="tab" onclick="switchTab('correlacoes',this)">📈 Correlações</button>
+      <button class="tab" onclick="switchTab('ht',this)">⏱️ Padrões HT</button>
+    </div>
+
+    <!-- OVERVIEW -->
+    <div class="pane on" id="pane-overview">
+      <div id="overviewContent">
+        <div class="loading-state">
+          <div class="ld-spinner"></div>
+          <div class="ld-txt">Conectando ao Firebase...</div>
+          <div class="ld-prog" id="ldProg">0 jogos</div>
+          <div class="ld-bar"><div class="ld-fill" id="ldFill" style="width:0%"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FINGERPRINT -->
+    <div class="pane" id="pane-fingerprint">
+      <div id="fingerprintContent">
+        <div class="empty"><div class="empty-ico">🔬</div><span>Selecione um placar no painel esquerdo</span></div>
+      </div>
+    </div>
+
+    <!-- DISTORÇÕES -->
+    <div class="pane" id="pane-distorcoes">
+      <div id="distorcoesContent">
+        <div class="empty"><div class="empty-ico">⏳</div><span>Aguardando carregamento...</span></div>
+      </div>
+    </div>
+
+    <!-- CORRELAÇÕES -->
+    <div class="pane" id="pane-correlacoes">
+      <div id="correlacoesContent">
+        <div class="empty"><div class="empty-ico">⏳</div><span>Aguardando carregamento...</span></div>
+      </div>
+    </div>
+
+    <!-- HT PATTERNS -->
+    <div class="pane" id="pane-ht">
+      <div id="htContent">
+        <div class="empty"><div class="empty-ico">⏳</div><span>Aguardando carregamento...</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain:"painel-yellup.firebaseapp.com",
+  projectId:"painel-yellup",
+  storageBucket:"painel-yellup.appspot.com",
+  messagingSenderId:"608347210297",
+  appId:"1:608347210297:web:75092713724e617c7203e8"
+});
+const auth = firebase.auth(), db = firebase.firestore();
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let DATASET = [];
+let FILTERED = [];
+let FILTROS = { res:'todos', gols:'todos', liga:'todos' };
+let PLACAR_SEL = null;
+let ACTIVE_TAB = 'overview';
+
+const gc = id => document.getElementById(id);
+
+auth.onAuthStateChanged(u => {
+  if (!u) { window.location.href = 'login.html'; return; }
+  carregarDados();
+});
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+function n(v, digits=1){ return v == null ? '—' : (+v).toFixed(digits); }
+function pct(v, t){ return t ? ((v/t)*100).toFixed(1)+'%' : '—'; }
+function avg(arr, fn){ if(!arr.length) return null; return arr.reduce((a,j)=>a+(fn(j)||0),0)/arr.length; }
+function parsePosse(s){ return parseFloat(String(s||'0').replace('%','')) || 0; }
+function parseNum(v){ return parseFloat(v) || 0; }
+
+function corHeat(v, hi=60, lo=40){
+  if(v>=hi) return 'var(--grn)';
+  if(v>=lo) return 'var(--acc)';
+  return 'var(--red)';
+}
+function corPct(v){ // para % resultado
+  if(v>=55) return 'var(--grn)';
+  if(v>=45) return 'var(--acc)';
+  if(v>=35) return 'var(--t2)';
+  return 'var(--t3)';
+}
+function corGols(v){
+  if(v>=3.0) return 'var(--red)';
+  if(v>=2.5) return 'var(--acc)';
+  if(v>=2.0) return 'var(--grn)';
+  return 'var(--blu)';
+}
+
+function getStats(j, lado){
+  const s = j.stats?.[lado] || {};
+  return {
+    posse: parsePosse(s.posse),
+    chutesAlvo: parseNum(s.chutesAlvo || s.shotsOnGoal),
+    chutesTotais: parseNum(s.chutesTotais || s.totalShots),
+    xg: parseNum(s.xg || s.expectedGoals),
+    escanteios: parseNum(s.escanteios || s.corners),
+    passes: parseNum(s.passes || s.totalPasses),
+    cartoes: parseNum(s.cartoes || s.yellowCards),
+    defesas: parseNum(s.defesas || s.saves),
+  };
+}
+
+function temStats(j){
+  if(!j.stats) return false;
+  const c = j.stats.casa || {}, f = j.stats.fora || {};
+  return !!(c.posse || c.chutesAlvo || c.chutesTotais || f.posse || f.chutesAlvo);
+}
+
+// ── CARREGAR ───────────────────────────────────────────────────────────────
+async function carregarDados(){
+  let jogos = [], lastDoc = null, tentativa = 0, total = 0;
+  const BATCH = 500;
+
+  while(tentativa < 80){ // até 40k docs
+    let q = db.collection('fixtures-historico').orderBy('fixtureId').limit(BATCH);
+    if(lastDoc) q = q.startAfter(lastDoc);
+    const snap = await q.get();
+    if(snap.empty) break;
+
+    const docs = snap.docs.map(d => d.data()).filter(j =>
+      j.golsCasa != null && j.golsFora != null && j.resultado &&
+      ['casa','empate','fora'].includes(j.resultado)
+    );
+    jogos = jogos.concat(docs);
+    lastDoc = snap.docs[snap.docs.length - 1];
+    tentativa++;
+    total += snap.docs.length;
+
+    // Update loading UI
+    const pct2 = Math.min(100, Math.round(jogos.length / 30000 * 100));
+    gc('ldProg').textContent = `${jogos.length.toLocaleString()} jogos carregados`;
+    gc('ldFill').style.width = pct2 + '%';
+
+    if(snap.docs.length < BATCH) break;
+  }
+
+  DATASET = jogos;
+  aplicarFiltros(true);
+}
+
+// ── FILTROS ────────────────────────────────────────────────────────────────
+function setFiltro(tipo, val, el){
+  FILTROS[tipo] = val;
+  const container = tipo === 'res' ? 'filtroRes' : tipo === 'gols' ? 'filtroGols' : 'filtroLiga';
+  gc(container).querySelectorAll('.fchip').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  aplicarFiltros();
+}
+
+function aplicarFiltros(init = false){
+  FILTERED = DATASET.filter(j => {
+    if(FILTROS.res !== 'todos' && j.resultado !== FILTROS.res) return false;
+    if(FILTROS.gols !== 'todos'){
+      const tg = j.totalGols || 0;
+      if(FILTROS.gols === '0' && tg !== 0) return false;
+      if(FILTROS.gols === '1' && tg !== 1) return false;
+      if(FILTROS.gols === '2' && tg !== 2) return false;
+      if(FILTROS.gols === '3' && tg !== 3) return false;
+      if(FILTROS.gols === '4+' && tg < 4) return false;
+    }
+    if(FILTROS.liga !== 'todos' && j.ligaNome !== FILTROS.liga) return false;
+    return true;
+  });
+
+  const withStats = FILTERED.filter(temStats).length;
+  const ligas = [...new Set(DATASET.map(j => j.ligaNome).filter(Boolean))].sort();
+
+  gc('tTotal').textContent = FILTERED.length.toLocaleString();
+  gc('tStats').textContent = withStats.toLocaleString();
+  gc('tLigas').textContent = ligas.length;
+
+  if(init){
+    // Popular ligas
+    const lf = gc('filtroLiga');
+    ligas.forEach(l => {
+      const b = document.createElement('button');
+      b.className = 'fchip';
+      b.textContent = l.length > 18 ? l.slice(0,16)+'…' : l;
+      b.title = l;
+      b.onclick = () => setFiltro('liga', l, b);
+      lf.appendChild(b);
+    });
+    gc('ligaCount').textContent = `(${ligas.length})`;
+  }
+
+  renderPlacarGrid();
+  renderActiveTab();
+}
+
+function recarregar(){
+  DATASET = [];
+  FILTERED = [];
+  gc('overviewContent').innerHTML = '<div class="loading-state"><div class="ld-spinner"></div><div class="ld-txt">Recarregando...</div><div class="ld-prog" id="ldProg">0 jogos</div><div class="ld-bar"><div class="ld-fill" id="ldFill" style="width:0%"></div></div></div>';
+  carregarDados();
+}
+
+// ── RENDER PLACAR GRID ─────────────────────────────────────────────────────
+function renderPlacarGrid(){
+  const contagem = {};
+  FILTERED.forEach(j => {
+    const k = `${j.golsCasa}-${j.golsFora}`;
+    contagem[k] = (contagem[k] || 0) + 1;
+  });
+  const total = FILTERED.length || 1;
+  const sorted = Object.entries(contagem).sort((a,b) => b[1]-a[1]).slice(0,40);
+  const maxN = sorted[0]?.[1] || 1;
+
+  gc('placarGrid').innerHTML = sorted.map(([placar, n]) => {
+    const [g1,g2] = placar.split('-').map(Number);
+    const tipo = g1>g2?'casa':g1<g2?'fora':'empate';
+    const intensity = n/maxN;
+    const bg = tipo==='casa'?`rgba(39,212,155,${intensity*0.25})`:tipo==='fora'?`rgba(239,95,95,${intensity*0.25})`:`rgba(79,150,244,${intensity*0.25})`;
+    const on = PLACAR_SEL === placar ? ' on' : '';
+    return `<div class="pcel ${tipo}${on}" style="background:${bg}" onclick="selecionarPlacar('${placar}')">
+      <div class="pcel-score">${placar}</div>
+      <div class="pcel-n">${n}x · ${(n/total*100).toFixed(1)}%</div>
+    </div>`;
+  }).join('');
+}
+
+function selecionarPlacar(placar){
+  PLACAR_SEL = PLACAR_SEL === placar ? null : placar;
+  renderPlacarGrid();
+  if(PLACAR_SEL){
+    switchTab('fingerprint', document.querySelectorAll('.tab')[1]);
+  }
+}
+
+// ── TAB SWITCH ────────────────────────────────────────────────────────────
+function switchTab(id, el){
+  ACTIVE_TAB = id;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('on'));
+  if(el) el.classList.add('on');
+  gc('pane-'+id).classList.add('on');
+  renderActiveTab();
+}
+
+function renderActiveTab(){
+  if(FILTERED.length < 10) return;
+  if(ACTIVE_TAB === 'overview') renderOverview();
+  if(ACTIVE_TAB === 'fingerprint') renderFingerprint();
+  if(ACTIVE_TAB === 'distorcoes') renderDistorcoes();
+  if(ACTIVE_TAB === 'correlacoes') renderCorrelacoes();
+  if(ACTIVE_TAB === 'ht') renderHT();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB 1 — OVERVIEW
+// ═══════════════════════════════════════════════════════════════════════════
+function renderOverview(){
+  const d = FILTERED, n = d.length;
+  if(!n){ gc('overviewContent').innerHTML='<div class="empty"><div class="empty-ico">🔍</div><span>Sem dados</span></div>'; return; }
+
+  const ws = d.filter(temStats), ws_n = ws.length;
+  const res = {casa:0, empate:0, fora:0};
+  d.forEach(j => res[j.resultado]++);
+
+  const med_gols = (d.reduce((a,j)=>a+(j.totalGols||0),0)/n).toFixed(2);
+  const over25 = Math.round(d.filter(j=>(j.totalGols||0)>2).length/n*100);
+  const over15 = Math.round(d.filter(j=>(j.totalGols||0)>1).length/n*100);
+  const btts = Math.round(d.filter(j=>j.btts).length/n*100);
+  const comHT = d.filter(j=>j.htCasa!=null&&j.htFora!=null);
+  const golHT = comHT.length ? comHT.filter(j=>(j.htCasa||0)+(j.htFora||0)>0).length/comHT.length*100 : null;
+
+  // Distribuição de gols
+  const distG = {};
+  d.forEach(j => { const k=j.totalGols||0; distG[k]=(distG[k]||0)+1; });
+
+  // Top 10 placares
+  const distP = {};
+  d.forEach(j => { const k=`${j.golsCasa}-${j.golsFora}`; distP[k]=(distP[k]||0)+1; });
+  const top10 = Object.entries(distP).sort((a,b)=>b[1]-a[1]).slice(0,12);
+
+  // Stats médias gerais (jogos com stats)
+  let statsSummary = '';
+  if(ws_n >= 50){
+    const avgPossaCasa = avg(ws, j => getStats(j,'casa').posse).toFixed(1);
+    const avgChutesAlvoCasa = avg(ws, j => getStats(j,'casa').chutesAlvo).toFixed(1);
+    const avgChutesAlvoFora = avg(ws, j => getStats(j,'fora').chutesAlvo).toFixed(1);
+    const avgXgCasa = avg(ws, j => getStats(j,'casa').xg).toFixed(2);
+    const avgXgFora = avg(ws, j => getStats(j,'fora').xg).toFixed(2);
+    const avgEsc = avg(ws, j => getStats(j,'casa').escanteios + getStats(j,'fora').escanteios).toFixed(1);
+    const avgPasses = avg(ws, j => getStats(j,'casa').passes + getStats(j,'fora').passes).toFixed(0);
+
+    statsSummary = `
+    <div class="section">
+      <div class="sec-title">📌 Médias Gerais (Stats) <span class="sec-sub">${ws_n.toLocaleString()} jogos com stats</span></div>
+      <div class="stat-grid cols4">
+        <div class="stat-card"><div class="sc-val c-grn">${avgPossaCasa}%</div><div class="sc-lbl">Posse Casa (avg)</div></div>
+        <div class="stat-card"><div class="sc-val c-acc">${avgChutesAlvoCasa}</div><div class="sc-lbl">Chutes Alvo Casa</div></div>
+        <div class="stat-card"><div class="sc-val c-red">${avgChutesAlvoFora}</div><div class="sc-lbl">Chutes Alvo Fora</div></div>
+        <div class="stat-card"><div class="sc-val c-pur">${avgEsc}</div><div class="sc-lbl">Escanteios Total</div></div>
+        <div class="stat-card"><div class="sc-val" style="color:var(--grn)">${avgXgCasa}</div><div class="sc-lbl">xG Casa (avg)</div></div>
+        <div class="stat-card"><div class="sc-val" style="color:var(--red)">${avgXgFora}</div><div class="sc-lbl">xG Fora (avg)</div></div>
+        <div class="stat-card"><div class="sc-val c-blu">${avgPasses}</div><div class="sc-lbl">Passes Totais</div></div>
+        <div class="stat-card"><div class="sc-val c-t2">${ws_n.toLocaleString()}</div><div class="sc-lbl">Jogos c/ Stats</div></div>
+      </div>
+    </div>`;
+  }
+
+  gc('overviewContent').innerHTML = `
+  <div class="ov-grid">
+    <div class="ov-card"><div class="ov-num c-acc">${n.toLocaleString()}</div><div class="ov-lbl">Jogos</div></div>
+    <div class="ov-card"><div class="ov-num" style="color:${corGols(+med_gols)}">${med_gols}</div><div class="ov-lbl">Gols/jogo</div></div>
+    <div class="ov-card"><div class="ov-num c-grn">${(res.casa/n*100).toFixed(1)}%</div><div class="ov-lbl">🏠 Casa</div></div>
+    <div class="ov-card"><div class="ov-num c-blu">${(res.empate/n*100).toFixed(1)}%</div><div class="ov-lbl">🤝 Empate</div></div>
+    <div class="ov-card"><div class="ov-num c-red">${(res.fora/n*100).toFixed(1)}%</div><div class="ov-lbl">✈️ Fora</div></div>
+    <div class="ov-card"><div class="ov-num c-acc">${over25}%</div><div class="ov-lbl">Over 2.5</div></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="section">
+      <div class="sec-title">📉 Distribuição de Gols Totais</div>
+      <div style="display:flex;gap:6px;align-items:flex-end;height:70px">
+        ${[0,1,2,3,4,5,6,7].map(g => {
+          const cnt = distG[g]||0, pp=(cnt/n*100).toFixed(1);
+          const h = Math.max(4, (cnt/n)*100*1.8);
+          const cor = g===0?'var(--blu)':g===1?'var(--grn)':g<=3?'var(--acc)':'var(--red)';
+          return `<div style="text-align:center;flex:1">
+            <div style="font-size:8px;color:var(--acc);margin-bottom:2px">${pp}%</div>
+            <div style="height:${h}px;background:${cor};border-radius:3px 3px 0 0;opacity:.85"></div>
+            <div style="font-size:8px;color:var(--t3);margin-top:3px">${g}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <span style="font-size:9px;background:var(--c3);padding:2px 7px;border-radius:4px;color:var(--blu)">Under 1.5: ${(d.filter(j=>(j.totalGols||0)<=1).length/n*100).toFixed(1)}%</span>
+        <span style="font-size:9px;background:var(--c3);padding:2px 7px;border-radius:4px;color:var(--grn)">Over 1.5: ${over15}%</span>
+        <span style="font-size:9px;background:var(--c3);padding:2px 7px;border-radius:4px;color:var(--acc)">Over 2.5: ${over25}%</span>
+        <span style="font-size:9px;background:var(--c3);padding:2px 7px;border-radius:4px;color:var(--red)">BTTS: ${btts}%</span>
+        ${golHT != null ? `<span style="font-size:9px;background:var(--c3);padding:2px 7px;border-radius:4px;color:var(--pur)">Gol 1ºT: ${golHT.toFixed(1)}%</span>` : ''}
+      </div>
+    </div>
+    <div class="section">
+      <div class="sec-title">🏆 Top Placares</div>
+      ${top10.map(([placar, cnt]) => {
+        const [g1,g2] = placar.split('-').map(Number);
+        const pp = (cnt/n*100).toFixed(1);
+        const cor = g1>g2?'var(--grn)':g1<g2?'var(--red)':'var(--blu)';
+        return `<div style="display:flex;align-items:center;gap:7px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.025)">
+          <span style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:${cor};min-width:34px">${placar}</span>
+          <div style="flex:1;height:5px;background:var(--bd1);border-radius:2px">
+            <div style="height:100%;width:${Math.min(100,+pp*5)}%;background:${cor};border-radius:2px;opacity:.7"></div>
+          </div>
+          <span style="font-size:9px;color:${cor};min-width:32px;text-align:right">${pp}%</span>
+          <span style="font-size:8px;color:var(--t3)">${cnt}x</span>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+  ${statsSummary}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB 2 — FINGERPRINT POR PLACAR
+// ═══════════════════════════════════════════════════════════════════════════
+function renderFingerprint(){
+  if(!PLACAR_SEL){ gc('fingerprintContent').innerHTML='<div class="empty"><div class="empty-ico">🔬</div><span>Selecione um placar no painel esquerdo</span></div>'; return; }
+
+  const placar = PLACAR_SEL;
+  const d = FILTERED.filter(j => `${j.golsCasa}-${j.golsFora}` === placar);
+  const ws = d.filter(temStats);
+  const n = d.length, ws_n = ws.length;
+
+  if(!n){ gc('fingerprintContent').innerHTML='<div class="empty"><div class="empty-ico">📭</div><span>Sem dados para este placar</span></div>'; return; }
+
+  const [g1,g2] = placar.split('-').map(Number);
+  const tipo = g1>g2?'Vitória Casa 🏠':g1<g2?'Vitória Fora ✈️':'Empate 🤝';
+  const cor = g1>g2?'var(--grn)':g1<g2?'var(--red)':'var(--blu)';
+  const pctTotal = (n/FILTERED.length*100).toFixed(2);
+
+  // Stats médias
+  let statsBlock = '';
+  if(ws_n >= 10){
+    const aC = j => getStats(j,'casa'), aF = j => getStats(j,'fora');
+    const avgPoC = avg(ws, j => aC(j).posse).toFixed(1);
+    const avgPoF = avg(ws, j => aF(j).posse).toFixed(1);
+    const avgCaC = avg(ws, j => aC(j).chutesAlvo).toFixed(1);
+    const avgCaF = avg(ws, j => aF(j).chutesAlvo).toFixed(1);
+    const avgCtC = avg(ws, j => aC(j).chutesTotais).toFixed(1);
+    const avgCtF = avg(ws, j => aF(j).chutesTotais).toFixed(1);
+    const avgXgC = avg(ws, j => aC(j).xg).toFixed(2);
+    const avgXgF = avg(ws, j => aF(j).xg).toFixed(2);
+    const avgEscC = avg(ws, j => aC(j).escanteios).toFixed(1);
+    const avgEscF = avg(ws, j => aF(j).escanteios).toFixed(1);
+    const avgPassC = avg(ws, j => aC(j).passes).toFixed(0);
+    const avgPassF = avg(ws, j => aF(j).passes).toFixed(0);
+    const poC = +avgPoC, poF = +avgPoF;
+    const posseTotal = poC + poF || 100;
+
+    // Distribuição de chutes a gol
+    const chDist = {'0':0,'1-2':0,'3-4':0,'5-7':0,'8+':0};
+    ws.forEach(j => {
+      const total = aC(j).chutesAlvo + aF(j).chutesAlvo;
+      if(total===0) chDist['0']++;
+      else if(total<=2) chDist['1-2']++;
+      else if(total<=4) chDist['3-4']++;
+      else if(total<=7) chDist['5-7']++;
+      else chDist['8+']++;
+    });
+
+    // Distribuição posse dominância
+    const possDist = {'Casa >60%':0,'Casa 50-60%':0,'Equilibrado':0,'Fora 50-60%':0,'Fora >60%':0};
+    ws.forEach(j => {
+      const pc = getStats(j,'casa').posse;
+      if(pc>60) possDist['Casa >60%']++;
+      else if(pc>50) possDist['Casa 50-60%']++;
+      else if(pc>=40) possDist['Equilibrado']++;
+      else if(pc>=30) possDist['Fora 50-60%']++;
+      else possDist['Fora >60%']++;
+    });
+
+    statsBlock = `
+    <div class="section">
+      <div class="sec-title">📊 Médias de Stats <span class="sec-sub">${ws_n} jogos com stats</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--t3);margin-bottom:8px;letter-spacing:.6px">🏠 Time da Casa</div>
+          ${statRow('Posse bola', avgPoC+'%', 'var(--acc)')}
+          ${statRow('Chutes a gol', avgCaC, 'var(--grn)')}
+          ${statRow('Chutes totais', avgCtC, 'var(--t2)')}
+          ${statRow('xG', avgXgC, 'var(--pur)')}
+          ${statRow('Escanteios', avgEscC, 'var(--blu)')}
+          ${statRow('Passes', avgPassC, 'var(--t2)')}
+        </div>
+        <div>
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--t3);margin-bottom:8px;letter-spacing:.6px">✈️ Time Visitante</div>
+          ${statRow('Posse bola', avgPoF+'%', 'var(--acc)')}
+          ${statRow('Chutes a gol', avgCaF, 'var(--red)')}
+          ${statRow('Chutes totais', avgCtF, 'var(--t2)')}
+          ${statRow('xG', avgXgF, 'var(--pur)')}
+          ${statRow('Escanteios', avgEscF, 'var(--blu)')}
+          ${statRow('Passes', avgPassF, 'var(--t2)')}
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <div style="font-size:9px;color:var(--t3);margin-bottom:4px">Domínio de posse — Casa ${avgPoC}% × Fora ${avgPoF}%</div>
+        <div class="dual-bar-track">
+          <div class="dual-bar-casa" style="width:${poC/posseTotal*100}%"></div>
+          <div class="dual-bar-fora" style="width:${poF/posseTotal*100}%"></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="section">
+        <div class="sec-title">🎯 Distribuição Chutes a Gol (total)</div>
+        ${Object.entries(chDist).map(([faixa,cnt]) => {
+          const pp = ws_n ? (cnt/ws_n*100).toFixed(1) : 0;
+          return `<div style="display:flex;align-items:center;gap:7px;padding:3px 0">
+            <span style="font-size:9px;color:var(--t2);min-width:50px">${faixa}</span>
+            <div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${pp}%;background:var(--acc)"></div></div>
+            <span style="font-size:9px;color:var(--acc);min-width:36px;text-align:right">${pp}%</span>
+            <span style="font-size:8px;color:var(--t3)">${cnt}x</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="section">
+        <div class="sec-title">⚖️ Distribuição Domínio Posse</div>
+        ${Object.entries(possDist).map(([nome,cnt]) => {
+          const pp = ws_n ? (cnt/ws_n*100).toFixed(1) : 0;
+          const cor2 = nome.includes('Casa')&&nome.includes('>60')?'var(--grn)':nome.includes('Fora')&&nome.includes('>60')?'var(--red)':'var(--acc)';
+          return `<div style="display:flex;align-items:center;gap:7px;padding:3px 0">
+            <span style="font-size:8px;color:var(--t2);min-width:80px">${nome}</span>
+            <div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${pp}%;background:${cor2}"></div></div>
+            <span style="font-size:9px;color:${cor2};min-width:36px;text-align:right">${pp}%</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  } else if(ws_n > 0){
+    statsBlock = `<div class="nota">⚠️ Apenas <strong>${ws_n}</strong> jogos com stats completas para este placar. Estatísticas podem ser imprecisas.</div>`;
+  } else {
+    statsBlock = `<div class="nota">Nenhum jogo com stats detalhadas disponíveis para o placar <strong>${placar}</strong>.</div>`;
+  }
+
+  // Padrão de HT
+  let htBlock = '';
+  const comHT = d.filter(j => j.htCasa != null && j.htFora != null);
+  if(comHT.length >= 5){
+    const htDist = {};
+    comHT.forEach(j => { const k=`${j.htCasa}-${j.htFora}`; htDist[k]=(htDist[k]||0)+1; });
+    const topHT = Object.entries(htDist).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    htBlock = `
+    <div class="section">
+      <div class="sec-title">⏱️ Placar no HT que levou a ${placar} <span class="sec-sub">${comHT.length} jogos</span></div>
+      <div class="ht-flow">
+        ${topHT.map(([ht,cnt]) => {
+          const pp = (cnt/comHT.length*100).toFixed(1);
+          const [h1,h2] = ht.split('-').map(Number);
+          const htCor = h1>h2?'var(--grn)':h1<h2?'var(--red)':'var(--blu)';
+          return `<div class="ht-item">
+            <span class="ht-score" style="color:${htCor}">${ht}</span><span class="ht-arrow">→</span><span class="ht-score" style="color:${cor}">${placar}</span>
+            <div class="ht-pct">${pp}% (${cnt}x)</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Liga breakdown
+  const ligaDist = {};
+  d.forEach(j => { const l=j.ligaNome||'?'; ligaDist[l]=(ligaDist[l]||0)+1; });
+  const topLigas = Object.entries(ligaDist).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  gc('fingerprintContent').innerHTML = `
+  <div class="placar-hero">
+    <div class="hero-score" style="color:${cor}">${placar}</div>
+    <div class="hero-info">
+      <div class="hero-tipo" style="color:${cor}">${tipo}</div>
+      <div class="hero-sub">${n} ocorrências · <strong style="color:${cor}">${pctTotal}%</strong> de todos os jogos</div>
+      <div class="hero-badges">
+        ${g1+g2===0?'<span class="badge blu">0 Gols</span>':''}
+        ${g1+g2===1?'<span class="badge grn">1 Gol</span>':''}
+        ${g1+g2>=3?`<span class="badge red">${g1+g2} Gols</span>`:''}
+        ${g1+g2===2?'<span class="badge acc">2 Gols</span>':''}
+        ${g1>0&&g2>0?'<span class="badge pur">BTTS</span>':''}
+        ${ws_n>=10?`<span class="badge acc">${ws_n} c/ stats</span>`:'<span class="badge red" style="opacity:.6">Poucos stats</span>'}
+      </div>
+    </div>
+  </div>
+  ${statsBlock}
+  ${htBlock}
+  <div class="section">
+    <div class="sec-title">🏆 Ligas onde mais ocorre</div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px">
+      ${topLigas.map(([liga,cnt]) => {
+        const pp = (cnt/n*100).toFixed(1);
+        return `<span style="font-size:9px;background:var(--c3);border:1px solid var(--bd2);padding:3px 8px;border-radius:5px;cursor:pointer"
+          onclick="setFiltroLiga('${liga}')">${liga} <strong style="color:var(--acc)">${pp}%</strong></span>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function statRow(label, val, cor){
+  return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.025)">
+    <span style="font-size:10px;color:var(--t2)">${label}</span>
+    <span style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:${cor}">${val}</span>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB 3 — DISTORÇÕES STATS
+// ═══════════════════════════════════════════════════════════════════════════
+function renderDistorcoes(){
+  const ws = FILTERED.filter(temStats), n = ws.length;
+  if(n < 50){ gc('distorcoesContent').innerHTML=`<div class="empty"><div class="empty-ico">📊</div><span>Mínimo 50 jogos com stats necessários (atual: ${n})</span></div>`; return; }
+
+  function analisar(label, filtro, emoji=''){
+    const sub = ws.filter(filtro);
+    if(sub.length < 5) return null;
+    const sn = sub.length;
+    const res = {casa:0,empate:0,fora:0};
+    let gols=0, over25=0, btts=0, over15=0;
+    sub.forEach(j => {
+      res[j.resultado]++;
+      gols += j.totalGols||0;
+      if((j.totalGols||0)>2) over25++;
+      if((j.totalGols||0)>1) over15++;
+      if(j.btts) btts++;
+    });
+    return {
+      label, n: sn, emoji,
+      pCasa: +(res.casa/sn*100).toFixed(1),
+      pEmp: +(res.empate/sn*100).toFixed(1),
+      pFora: +(res.fora/sn*100).toFixed(1),
+      mGols: +(gols/sn).toFixed(2),
+      pOver25: +(over25/sn*100).toFixed(1),
+      pOver15: +(over15/sn*100).toFixed(1),
+      pBTTS: +(btts/sn*100).toFixed(1),
+    };
+  }
+
+  function tableBlock(titulo, icone, rows){
+    if(!rows.filter(Boolean).length) return '';
+    return `<div class="section">
+      <div class="sec-title">${icone} ${titulo}</div>
+      <table class="tbl">
+        <thead><tr>
+          <th>Cenário</th><th class="r">J</th>
+          <th class="r">🏠 Casa</th><th class="r">🤝 Emp</th><th class="r">✈️ Fora</th>
+          <th class="r">⚽ Gols</th><th class="r">O2.5</th><th class="r">BTTS</th>
+        </tr></thead>
+        <tbody>
+          ${rows.filter(Boolean).map(r => `<tr>
+            <td style="font-weight:600">${r.label} <span style="font-size:8px;color:var(--t3)">(${r.n}x)</span></td>
+            <td class="r">${r.n}</td>
+            <td class="r" style="color:${corPct(r.pCasa)};font-weight:${r.pCasa>=55?700:400}">${r.pCasa}%</td>
+            <td class="r" style="color:${corPct(r.pEmp)}">${r.pEmp}%</td>
+            <td class="r" style="color:${corPct(r.pFora)};font-weight:${r.pFora>=55?700:400}">${r.pFora}%</td>
+            <td class="r" style="color:${corGols(r.mGols)};font-weight:700">${r.mGols}</td>
+            <td class="r" style="color:${r.pOver25>=55?'var(--red)':r.pOver25>=45?'var(--acc)':'var(--t2)'}">${r.pOver25}%</td>
+            <td class="r" style="color:${r.pBTTS>=55?'var(--pur)':'var(--t2)'}">${r.pBTTS}%</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
+
+  // 1. POSSE
+  const rowsPosse = [
+    analisar('Casa domina total (>65%)', j => getStats(j,'casa').posse > 65),
+    analisar('Casa domina (55-65%)', j => { const p=getStats(j,'casa').posse; return p>55&&p<=65; }),
+    analisar('Equilibrado (45-55%)', j => { const p=getStats(j,'casa').posse; return p>=45&&p<=55; }),
+    analisar('Fora domina (55-65%)', j => { const p=getStats(j,'fora').posse; return p>55&&p<=65; }),
+    analisar('Fora domina total (>65%)', j => getStats(j,'fora').posse > 65),
+  ];
+
+  // 2. CHUTES A GOL
+  const rowsChutes = [
+    analisar('Casa +5 alvo de diferença', j => getStats(j,'casa').chutesAlvo - getStats(j,'fora').chutesAlvo >= 5),
+    analisar('Casa +3 alvo de diferença', j => { const d=getStats(j,'casa').chutesAlvo-getStats(j,'fora').chutesAlvo; return d>=3&&d<5; }),
+    analisar('Equilíbrio chutes alvo (±2)', j => Math.abs(getStats(j,'casa').chutesAlvo-getStats(j,'fora').chutesAlvo)<=2),
+    analisar('Fora +3 alvo de diferença', j => { const d=getStats(j,'fora').chutesAlvo-getStats(j,'casa').chutesAlvo; return d>=3&&d<5; }),
+    analisar('Fora +5 alvo de diferença', j => getStats(j,'fora').chutesAlvo - getStats(j,'casa').chutesAlvo >= 5),
+    analisar('Total chutes alvo 0-2 (jogo fechado)', j => getStats(j,'casa').chutesAlvo+getStats(j,'fora').chutesAlvo<=2),
+    analisar('Total chutes alvo 3-5', j => { const t=getStats(j,'casa').chutesAlvo+getStats(j,'fora').chutesAlvo; return t>=3&&t<=5; }),
+    analisar('Total chutes alvo 6-9', j => { const t=getStats(j,'casa').chutesAlvo+getStats(j,'fora').chutesAlvo; return t>=6&&t<=9; }),
+    analisar('Total chutes alvo 10+ (jogo aberto)', j => getStats(j,'casa').chutesAlvo+getStats(j,'fora').chutesAlvo>=10),
+  ];
+
+  // 3. xG
+  const wsXg = ws.filter(j => getStats(j,'casa').xg + getStats(j,'fora').xg > 0);
+  const rowsXg = wsXg.length >= 50 ? [
+    analisar('xG total < 0.8 (jogo travado)', j => { const t=getStats(j,'casa').xg+getStats(j,'fora').xg; return t>0&&t<0.8; }),
+    analisar('xG total 0.8 – 1.5', j => { const t=getStats(j,'casa').xg+getStats(j,'fora').xg; return t>=0.8&&t<1.5; }),
+    analisar('xG total 1.5 – 2.5', j => { const t=getStats(j,'casa').xg+getStats(j,'fora').xg; return t>=1.5&&t<2.5; }),
+    analisar('xG total 2.5 – 3.5', j => { const t=getStats(j,'casa').xg+getStats(j,'fora').xg; return t>=2.5&&t<3.5; }),
+    analisar('xG total > 3.5 (jogo muito aberto)', j => getStats(j,'casa').xg+getStats(j,'fora').xg >= 3.5),
+    analisar('Casa domina xG (+1.0 de vantagem)', j => getStats(j,'casa').xg - getStats(j,'fora').xg >= 1.0),
+    analisar('xG equilibrado (±0.5)', j => Math.abs(getStats(j,'casa').xg - getStats(j,'fora').xg) < 0.5),
+    analisar('Fora domina xG (+1.0 de vantagem)', j => getStats(j,'fora').xg - getStats(j,'casa').xg >= 1.0),
+  ] : [];
+
+  // 4. ESCANTEIOS
+  const wsEsc = ws.filter(j => getStats(j,'casa').escanteios+getStats(j,'fora').escanteios > 0);
+  const rowsEsc = wsEsc.length >= 50 ? [
+    analisar('Total escanteios < 5', j => { const t=getStats(j,'casa').escanteios+getStats(j,'fora').escanteios; return t>0&&t<5; }),
+    analisar('Total escanteios 5-8', j => { const t=getStats(j,'casa').escanteios+getStats(j,'fora').escanteios; return t>=5&&t<=8; }),
+    analisar('Total escanteios 9-12', j => { const t=getStats(j,'casa').escanteios+getStats(j,'fora').escanteios; return t>=9&&t<=12; }),
+    analisar('Total escanteios 13+', j => getStats(j,'casa').escanteios+getStats(j,'fora').escanteios >= 13),
+    analisar('Casa +4 escanteios de diferença', j => getStats(j,'casa').escanteios - getStats(j,'fora').escanteios >= 4),
+    analisar('Fora +4 escanteios de diferença', j => getStats(j,'fora').escanteios - getStats(j,'casa').escanteios >= 4),
+  ] : [];
+
+  // 5. CHUTES TOTAIS
+  const rowsCtot = [
+    analisar('Chutes totais < 15 (jogo inativo)', j => getStats(j,'casa').chutesTotais+getStats(j,'fora').chutesTotais>0&&getStats(j,'casa').chutesTotais+getStats(j,'fora').chutesTotais<15),
+    analisar('Chutes totais 15-22', j => { const t=getStats(j,'casa').chutesTotais+getStats(j,'fora').chutesTotais; return t>=15&&t<=22; }),
+    analisar('Chutes totais 23-30', j => { const t=getStats(j,'casa').chutesTotais+getStats(j,'fora').chutesTotais; return t>=23&&t<=30; }),
+    analisar('Chutes totais 31+ (jogo intenso)', j => getStats(j,'casa').chutesTotais+getStats(j,'fora').chutesTotais >= 31),
+  ];
+
+  gc('distorcoesContent').innerHTML = `
+  <div class="nota">⚡ Baseado em <strong>${n.toLocaleString()}</strong> jogos com stats completas. Cada linha mostra o resultado final quando aquela stat estava naquela faixa.</div>
+  ${tableBlock('Domínio de Posse de Bola', '⚽'+'🔵', rowsPosse)}
+  ${tableBlock('Chutes a Gol (Alvo)', '🎯', rowsChutes)}
+  ${wsXg.length >= 50 ? tableBlock('Expected Goals (xG)', '📐', rowsXg) : '<div class="nota">xG não disponível em quantidade suficiente para análise.</div>'}
+  ${wsEsc.length >= 50 ? tableBlock('Escanteios', '🚩', rowsEsc) : ''}
+  ${tableBlock('Volume de Chutes (Total)', '💥', rowsCtot)}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB 4 — CORRELAÇÕES NUMÉRICAS
+// ═══════════════════════════════════════════════════════════════════════════
+function renderCorrelacoes(){
+  const ws = FILTERED.filter(temStats), n = ws.length;
+  if(n < 50){ gc('correlacoesContent').innerHTML=`<div class="empty"><div class="empty-ico">📈</div><span>Necessário 50+ jogos com stats (atual: ${n})</span></div>`; return; }
+
+  function correlaBlock(titulo, faixas, getKey){
+    const groups = {};
+    faixas.forEach(f => groups[f.k] = { lbl:f.lbl, cor:f.cor, jogos:[], min:f.min, max:f.max });
+
+    ws.forEach(j => {
+      const v = getKey(j);
+      if(v == null) return;
+      for(const [k, g] of Object.entries(groups)){
+        if((g.min == null || v >= g.min) && (g.max == null || v < g.max)){ g.jogos.push(j); break; }
+      }
+    });
+
+    const rows = Object.values(groups).filter(g => g.jogos.length >= 5);
+    if(!rows.length) return '';
+
+    return `<div class="section">
+      <div class="sec-title">📈 ${titulo}</div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Faixa</th><th class="r">J</th>
+            <th class="r">⚽ Gols/jogo</th><th class="r">O1.5</th><th class="r">O2.5</th><th class="r">O3.5</th>
+            <th class="r">🏠 Casa%</th><th class="r">🤝 Emp%</th><th class="r">✈️ Fora%</th><th class="r">BTTS</th>
+          </tr></thead>
+          <tbody>
+          ${rows.map(g => {
+            const sn=g.jogos.length;
+            const gols=g.jogos.reduce((a,j)=>a+(j.totalGols||0),0)/sn;
+            const o15=g.jogos.filter(j=>(j.totalGols||0)>1).length/sn*100;
+            const o25=g.jogos.filter(j=>(j.totalGols||0)>2).length/sn*100;
+            const o35=g.jogos.filter(j=>(j.totalGols||0)>3).length/sn*100;
+            const pCasa=g.jogos.filter(j=>j.resultado==='casa').length/sn*100;
+            const pEmp=g.jogos.filter(j=>j.resultado==='empate').length/sn*100;
+            const pFora=g.jogos.filter(j=>j.resultado==='fora').length/sn*100;
+            const pBtts=g.jogos.filter(j=>j.btts).length/sn*100;
+            return `<tr>
+              <td><span style="font-size:8px;background:var(--c3);border:1px solid var(--bd2);padding:2px 7px;border-radius:4px;color:${g.cor}">${g.lbl}</span></td>
+              <td class="r">${sn}</td>
+              <td class="r heat-${gols>=3?'hi':gols>=2.3?'md':'lo'}" style="font-weight:700">${gols.toFixed(2)}</td>
+              <td class="r" style="color:${o15>=65?'var(--grn)':o15>=50?'var(--acc)':'var(--t2)'}">${o15.toFixed(1)}%</td>
+              <td class="r" style="color:${o25>=55?'var(--red)':o25>=45?'var(--acc)':'var(--t2)'}">${o25.toFixed(1)}%</td>
+              <td class="r" style="color:${o35>=35?'var(--red)':o35>=25?'var(--acc)':'var(--t2)'}">${o35.toFixed(1)}%</td>
+              <td class="r" style="color:${corPct(pCasa)};font-weight:${pCasa>=55?700:400}">${pCasa.toFixed(1)}%</td>
+              <td class="r" style="color:${corPct(pEmp)}">${pEmp.toFixed(1)}%</td>
+              <td class="r" style="color:${corPct(pFora)};font-weight:${pFora>=55?700:400}">${pFora.toFixed(1)}%</td>
+              <td class="r" style="color:${pBtts>=55?'var(--pur)':'var(--t2)'}">${pBtts.toFixed(1)}%</td>
+            </tr>`;
+          }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  const faixasChAlvo = [
+    {k:'0-2', lbl:'0–2 chutes',   cor:'var(--blu)', min:0, max:3},
+    {k:'3-4', lbl:'3–4 chutes',   cor:'var(--grn)', min:3, max:5},
+    {k:'5-7', lbl:'5–7 chutes',   cor:'var(--acc)', min:5, max:8},
+    {k:'8-10',lbl:'8–10 chutes',  cor:'var(--ora)', min:8, max:11},
+    {k:'11+', lbl:'11+ chutes',   cor:'var(--red)', min:11, max:null},
+  ];
+  const faixasXg = [
+    {k:'<1',  lbl:'xG < 1.0',     cor:'var(--blu)', min:0.01, max:1.0},
+    {k:'1-2', lbl:'xG 1.0–2.0',  cor:'var(--grn)', min:1.0, max:2.0},
+    {k:'2-3', lbl:'xG 2.0–3.0',  cor:'var(--acc)', min:2.0, max:3.0},
+    {k:'3-4', lbl:'xG 3.0–4.0',  cor:'var(--ora)', min:3.0, max:4.0},
+    {k:'>4',  lbl:'xG > 4.0',    cor:'var(--red)', min:4.0, max:null},
+  ];
+  const faixasCtot = [
+    {k:'<12', lbl:'< 12 chutes totais', cor:'var(--blu)', min:1, max:12},
+    {k:'12-18',lbl:'12–18',             cor:'var(--grn)', min:12, max:19},
+    {k:'19-25',lbl:'19–25',             cor:'var(--acc)', min:19, max:26},
+    {k:'26-33',lbl:'26–33',             cor:'var(--ora)', min:26, max:34},
+    {k:'>33',  lbl:'34+ chutes',        cor:'var(--red)', min:34, max:null},
+  ];
+  const faixasPosse = [
+    {k:'<36',  lbl:'Casa < 36%',   cor:'var(--red)', min:1, max:36},
+    {k:'36-44',lbl:'Casa 36–44%', cor:'var(--ora)', min:36, max:45},
+    {k:'45-55',lbl:'Equilíbrio',  cor:'var(--acc)', min:45, max:56},
+    {k:'56-64',lbl:'Casa 56–64%', cor:'var(--grn)', min:56, max:65},
+    {k:'>64',  lbl:'Casa > 64%',  cor:'var(--grn)', min:65, max:null},
+  ];
+  const faixasEsc = [
+    {k:'<5',   lbl:'< 5 escanteios', cor:'var(--blu)', min:1, max:5},
+    {k:'5-8',  lbl:'5–8',            cor:'var(--acc)', min:5, max:9},
+    {k:'9-12', lbl:'9–12',           cor:'var(--ora)', min:9, max:13},
+    {k:'>12',  lbl:'13+',            cor:'var(--red)', min:13, max:null},
+  ];
+
+  const wsXg = ws.filter(j => getStats(j,'casa').xg + getStats(j,'fora').xg > 0);
+  const wsEsc = ws.filter(j => getStats(j,'casa').escanteios + getStats(j,'fora').escanteios > 0);
+
+  gc('correlacoesContent').innerHTML = `
+  <div class="nota">Cada linha = todos os jogos naquela faixa de stat. Veja como gols, resultados e mercados se distribuem. <strong>Verde = alto, Amarelo = médio, Vermelho = baixo.</strong></div>
+  ${correlaBlock('Total de Chutes a Gol × Resultado & Gols', faixasChAlvo, j => getStats(j,'casa').chutesAlvo + getStats(j,'fora').chutesAlvo)}
+  ${correlaBlock('Posse de Bola Casa × Resultado & Gols', faixasPosse, j => getStats(j,'casa').posse)}
+  ${correlaBlock('Volume Total de Chutes × Resultado & Gols', faixasCtot, j => { const t=getStats(j,'casa').chutesTotais+getStats(j,'fora').chutesTotais; return t>0?t:null; })}
+  ${wsXg.length >= 50 ? correlaBlock('Expected Goals (xG Total) × Resultado & Gols', faixasXg, j => { const t=getStats(j,'casa').xg+getStats(j,'fora').xg; return t>0?t:null; }) : '<div class="nota">xG insuficiente para análise de correlação.</div>'}
+  ${wsEsc.length >= 50 ? correlaBlock('Total de Escanteios × Resultado & Gols', faixasEsc, j => { const t=getStats(j,'casa').escanteios+getStats(j,'fora').escanteios; return t>0?t:null; }) : ''}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB 5 — PADRÕES HT
+// ═══════════════════════════════════════════════════════════════════════════
+function renderHT(){
+  const comHT = FILTERED.filter(j => j.htCasa != null && j.htFora != null);
+  const n = comHT.length;
+  if(n < 50){ gc('htContent').innerHTML=`<div class="empty"><div class="empty-ico">⏱️</div><span>Necessário 50+ jogos com placar HT (atual: ${n})</span></div>`; return; }
+
+  // Para cada placar HT: qual foi o placar final?
+  const htGroups = {};
+  comHT.forEach(j => {
+    const ht = `${j.htCasa}-${j.htFora}`;
+    if(!htGroups[ht]) htGroups[ht] = [];
+    htGroups[ht].push(j);
+  });
+  const topHT = Object.entries(htGroups).sort((a,b)=>b[1].length-a[1].length).slice(0,10);
+
+  // Taxa de virada
+  let virada=0, manuteve=0, perdeu=0;
+  comHT.forEach(j => {
+    const htR = j.htCasa>j.htFora?'casa':j.htCasa<j.htFora?'fora':'empate';
+    const ftR = j.resultado;
+    if(htR==='empate'&&ftR==='empate') manuteve++;
+    else if(htR===ftR) manuteve++;
+    else if(htR!=='empate'&&((htR==='casa'&&ftR==='fora')||(htR==='fora'&&ftR==='casa'))) virada++;
+    else perdeu++;
+  });
+
+  // HT 0-0 especial
+  const ht00 = htGroups['0-0'] || [];
+  let ht00block = '';
+  if(ht00.length >= 10){
+    const dist00 = {};
+    ht00.forEach(j => { const k=`${j.golsCasa}-${j.golsFora}`; dist00[k]=(dist00[k]||0)+1; });
+    const top00 = Object.entries(dist00).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    ht00block = `
+    <div class="section">
+      <div class="sec-title">🧊 HT 0-0 → Qual foi o placar final? <span class="sec-sub">${ht00.length} jogos</span></div>
+      <div class="ht-flow">
+        ${top00.map(([placar,cnt]) => {
+          const pp = (cnt/ht00.length*100).toFixed(1);
+          const [g1,g2] = placar.split('-').map(Number);
+          const cor = g1>g2?'var(--grn)':g1<g2?'var(--red)':'var(--blu)';
+          return `<div class="ht-item">
+            <div class="ht-score" style="color:${cor}">${placar}</div>
+            <div class="ht-pct">${pp}% · ${cnt}x</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <span style="font-size:9px;background:var(--c3);padding:2px 8px;border-radius:4px;color:var(--grn)">Gol no 2T: ${(ht00.filter(j=>j.golsCasa+j.golsFora>0).length/ht00.length*100).toFixed(1)}%</span>
+        <span style="font-size:9px;background:var(--c3);padding:2px 8px;border-radius:4px;color:var(--red)">Ficou 0-0: ${(ht00.filter(j=>j.golsCasa===0&&j.golsFora===0).length/ht00.length*100).toFixed(1)}%</span>
+        <span style="font-size:9px;background:var(--c3);padding:2px 8px;border-radius:4px;color:var(--acc)">Over 1.5 final: ${(ht00.filter(j=>(j.totalGols||0)>1).length/ht00.length*100).toFixed(1)}%</span>
+      </div>
+    </div>`;
+  }
+
+  gc('htContent').innerHTML = `
+  <div class="stat-grid cols3" style="margin-bottom:10px">
+    <div class="stat-card"><div class="sc-val c-acc">${n.toLocaleString()}</div><div class="sc-lbl">Jogos com HT</div></div>
+    <div class="stat-card"><div class="sc-val c-grn">${(manuteve/n*100).toFixed(1)}%</div><div class="sc-lbl">Manteve resultado HT</div></div>
+    <div class="stat-card"><div class="sc-val c-red">${(virada/n*100).toFixed(1)}%</div><div class="sc-lbl">Virada completa</div></div>
+  </div>
+
+  ${ht00block}
+
+  <div class="section">
+    <div class="sec-title">📋 Por Placar HT → Distribuição Final</div>
+    ${topHT.map(([ht, jogos]) => {
+      const sn=jogos.length;
+      const pp=(sn/n*100).toFixed(1);
+      const [h1,h2]=ht.split('-').map(Number);
+      const htCor=h1>h2?'var(--grn)':h1<h2?'var(--red)':'var(--blu)';
+      const dist={};
+      jogos.forEach(j=>{ const k=`${j.golsCasa}-${j.golsFora}`; dist[k]=(dist[k]||0)+1; });
+      const topFT=Object.entries(dist).sort((a,b)=>b[1]-a[1]).slice(0,6);
+      const pCasa=(jogos.filter(j=>j.resultado==='casa').length/sn*100).toFixed(1);
+      const pEmp=(jogos.filter(j=>j.resultado==='empate').length/sn*100).toFixed(1);
+      const pFora=(jogos.filter(j=>j.resultado==='fora').length/sn*100).toFixed(1);
+      const mGols=(jogos.reduce((a,j)=>a+(j.totalGols||0),0)/sn).toFixed(2);
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--bd1)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+          <span style="font-family:'DM Mono',monospace;font-size:15px;font-weight:700;color:${htCor}">HT ${ht}</span>
+          <span style="font-size:10px;color:var(--t2)">${sn}x (${pp}%)</span>
+          <span style="font-size:9px;background:var(--gdim);color:var(--grn);padding:2px 6px;border-radius:4px">Casa ${pCasa}%</span>
+          <span style="font-size:9px;background:var(--bdim2);color:var(--blu);padding:2px 6px;border-radius:4px">Emp ${pEmp}%</span>
+          <span style="font-size:9px;background:var(--rdim);color:var(--red);padding:2px 6px;border-radius:4px">Fora ${pFora}%</span>
+          <span style="font-size:9px;background:var(--c3);color:var(--acc);padding:2px 6px;border-radius:4px">⚽ ${mGols} gols/j</span>
+        </div>
+        <div class="ht-flow">
+          ${topFT.map(([placar,cnt]) => {
+            const p=(cnt/sn*100).toFixed(1);
+            const [g1,g2]=placar.split('-').map(Number);
+            const cor=g1>g2?'var(--grn)':g1<g2?'var(--red)':'var(--blu)';
+            return `<div class="ht-item" style="min-width:70px">
+              <div class="ht-score" style="color:${cor}">${placar}</div>
+              <div class="ht-pct">${p}%</div>
+              <div class="ht-n">${cnt}x</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+// Inicializa tabs pelos botões
+document.querySelectorAll('.tab').forEach((btn, i) => {
+  const ids = ['overview','fingerprint','distorcoes','correlacoes','ht'];
+  btn.onclick = () => switchTab(ids[i], btn);
+});
+</script>
+</body>
+</html>
