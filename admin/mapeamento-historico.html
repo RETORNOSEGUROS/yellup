@@ -1355,10 +1355,10 @@ async function abrirBackfill() {
       <div style="display:grid;gap:10px;font-size:12px;margin-bottom:16px">
         <div>
           <label style="color:var(--t2);display:block;margin-bottom:3px">Limite de fixtures por execução</label>
-          <input id="bfLimite" type="number" value="100" min="1" max="300"
+          <input id="bfLimite" type="number" value="50" min="1" max="300"
             style="width:100%;background:var(--c3);border:1px solid var(--bd2);border-radius:7px;padding:6px 9px;color:var(--t1);font-family:inherit;font-size:12px">
           <span style="color:var(--t3);font-size:10px;display:block;margin-top:2px">
-            100 fixtures ≈ 2 min de execução (timeout: 9 min)
+            50 fixtures ≈ 1,5 min de execução (timeout: 9 min)
           </span>
         </div>
 
@@ -1501,13 +1501,15 @@ async function executarBackfill() {
       const d = res.data;
       _bfProcessados += (d.processados || 0);
 
-      // Atualizar barra de progresso
-      if (_bfTotal !== null && _bfTotal > 0) {
-        const pct = Math.min(100, Math.round(_bfProcessados / _bfTotal * 100));
-        if (barra) barra.style.width = pct + '%';
-        if (barraPct) barraPct.textContent = pct + '%';
-        if (barraTxt) barraTxt.textContent = `${_bfProcessados.toLocaleString('pt-BR')} de ${_bfTotal.toLocaleString('pt-BR')} processados esta sessão`;
-      }
+      // Atualizar barra de progresso — funciona mesmo sem total exato
+      if (barraWrapper) barraWrapper.style.display = 'block';
+      const totalEstimado = _bfTotal || 17000; // usa real se souber, senão ~17k
+      const pct = Math.min(99, Math.round(_bfProcessados / totalEstimado * 100));
+      if (barra) barra.style.width = pct + '%';
+      if (barraPct) barraPct.textContent = _bfTotal ? pct + '%' : `${_bfProcessados} enriq.`;
+      if (barraTxt) barraTxt.textContent = _bfTotal
+        ? `${_bfProcessados.toLocaleString('pt-BR')} de ~${_bfTotal.toLocaleString('pt-BR')} pendentes`
+        : `${_bfProcessados.toLocaleString('pt-BR')} enriquecidos esta sessão`;
 
       const acabou = d.processados === 0 || d.total === 0;
 
@@ -1534,6 +1536,18 @@ async function executarBackfill() {
       await new Promise(r => setTimeout(r, 2000));
 
     } catch(e) {
+      const isTimeout = e.message?.includes('deadline') || e.message?.includes('timeout');
+      if (isTimeout && auto && _bfRodando) {
+        // Timeout: reduzir limite e continuar
+        const bfEl = document.getElementById('bfLimite');
+        const limiteAtual = parseInt(bfEl?.value || limite);
+        const novoLimite = Math.max(20, Math.floor(limiteAtual * 0.6));
+        if (bfEl) bfEl.value = novoLimite;
+        status.innerHTML = `<b style="color:var(--yel)">⚠️ Timeout na rodada ${rodada}</b> — reduzindo para ${novoLimite} fixtures/rodada e continuando...<br>
+          <span style="color:var(--t3)">Total desta sessão: ${_bfProcessados} enriquecidos</span>`;
+        await new Promise(r => setTimeout(r, 3000));
+        continue; // tenta próxima rodada com limite menor
+      }
       status.innerHTML = `<b style="color:var(--red)">✗ Erro na rodada ${rodada}:</b> ${e.message}<br>
         <span style="color:var(--t3)">Total desta sessão: ${_bfProcessados} enriquecidos</span>`;
       toast('Erro no backfill: ' + e.message, 'err');
