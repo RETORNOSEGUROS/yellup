@@ -113,9 +113,11 @@ td.iyo-hot{font-weight:800;color:var(--yel);}
   <div class="header">
     <h1><div class="pulse" id="pulseEl" style="background:var(--t3)"></div> Monitor de Jogos</h1>
     <div class="header-right">
+      <span class="badge live" id="badgeLive">0 ao vivo</span>
       <span class="badge" id="badgeTotal">0 registros</span>
-      <span class="badge" id="badgeTimer" style="color:var(--t3);">--</span>
-      <button class="btn" onclick="carregarRegistros()">↺ Atualizar</button>
+      <span class="badge" id="badgeTimer" style="color:var(--acc);">--</span>
+      <button class="btn on" id="btnMonitor" onclick="toggleMonitor()">⏸ Pausar</button>
+      <button class="btn btn-red" onclick="confirmarLimpar()" style="font-size:11px">🗑 Limpar</button>
     </div>
   </div>
 
@@ -201,8 +203,7 @@ auth.onAuthStateChanged(async u => {
   await carregarRegistros();
   gc('pgLoad').style.display = 'none';
   gc('app').style.display = 'block';
-  // Backend registra. Frontend só lê e atualiza a cada 60s.
-  setInterval(carregarRegistros, 60000);
+  iniciarMonitor();
 });
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
@@ -277,7 +278,216 @@ async function buscarJogosAoVivo() {
   }
 }
 
-// Registro feito 100% pelo backend (schedulePlacarMinuto). Frontend só lê.
+// ── CICLO PRINCIPAL ─────────────────────────────────────────────────────────
+async function cicloPrincipal() {
+  if (!monitorAtivo) return;
+
+  const inicio = Date.now();
+
+  // 1. Buscar jogos ao vivo
+  jogosAtivos = await buscarJogosAoVivo();
+  renderChips();
+
+  if (!jogosAtivos.length) {
+    gc('sbJogos').textContent = '0';
+    gc('sbUltMin').textContent = new Date().toLocaleTimeString('pt-BR');
+    return;
+  }
+
+  gc('sbJogos').textContent = jogosAtivos.length;
+
+  // 2. Para cada jogo, buscar stats e registrar
+  let registradosNoCiclo = 0;
+  const batch = db.batch();
+
+  for (const jogo of jogosAtivos) {
+    const fixtureId = String(jogo.apiFixtureId || jogo.apiFootballId || '');
+    if (!fixtureId) continue;
+
+    try {
+      // Buscar dados via Cloud Function existente
+      const fn = fns.httpsCallable('buscarDadosJogo', { timeout: 25000 });
+      const r = await fn({ fixtureId: parseInt(fixtureId) });
+      const dados = r.data;
+      if (!dados?.fixture || !dados?.estatisticas?.length) continue;
+
+      const f   = dados.fixture;
+      const sts = dados.estatisticas;
+      const min = f.status?.elapsed || 0;
+      if (min < 1) continue; // jogo ainda não começou
+
+      // Identificar stats casa/fora por ID
+      const stCasa = sts.find(t => String(t.time.id) === String(f.timeCasa.id))?.stats || {};
+      const stFora = sts.find(t => String(t.time.id) === String(f.timeFora.id))?.stats || {};
+
+      // Normalizar stats (pode vir como array ou objeto)
+      const norm = raw => {
+        if (Array.isArray(raw)) {
+          const o = {};
+          raw.forEach(s => { if (s?.type != null) o[s.type] = s.value; });
+          return o;
+        }
+        return raw || {};
+      };
+      const sC = norm(stCasa);
+      const sF = norm(stFora);
+
+      // Calcular AP com YAI fallback
+      const apC = calcAP(sC);
+      const apF = calcAP(sF);
+
+      // Passes
+      const passesCasa = pn(sC['Total passes']) || 0;
+      const passesFora = pn(sF['Total passes']) || 0;
+
+      // Chutes
+      const chutesCasa  = pn(sC['Total Shots']);
+      const chutesForа  = pn(sF['Total Shots']);
+      const alvoCasa    = pn(sC['Shots on Goal']);
+      const alvoFora    = pn(sF['Shots on Goal']);
+
+      // Escanteios
+      const escCasa = pn(sC['Corner Kicks']);
+      const escFora = pn(sF['Corner Kicks']);
+
+      // IYO
+      const iyoCasa = calcIYO(apC.val, escCasa, alvoCasa, chutesCasa, passesCasa);
+      const iyoFora = calcIYO(apF.val, escFora, alvoFora, chutesForа, passesFora);
+
+      // Cartões
+      const amarCasa = pn(sC['Yellow Cards']);
+      const amarFora = pn(sF['Yellow Cards']);
+      const vermCasa = pn(sC['Red Cards']);
+      const vermFora = pn(sF['Red Cards']);
+
+      // Força dos times (lida 1x, antes do jogo mudar)
+      const fC = await carregarForca(f.timeCasa.id);
+      const fF = await carregarForca(f.timeFora.id);
+
+      // ID do documento: fixtureId + minuto com padding
+      const minExtra = f.status?.extra || 0;
+      const docId = `${fixtureId}_${String(min).padStart(3,'0')}${minExtra>0?'+'+String(minExtra).padStart(2,'0'):''}`;
+
+      const doc = {
+        fixtureId:     Number(fixtureId),
+        minuto:        min,
+        minutoExtra:   minExtra || 0,
+        minutoLabel:   minExtra > 0 ? `${min}+${minExtra}` : String(min),
+        statusJogo:    f.status?.short || '',
+        tsRegistro:    firebase.firestore.FieldValue.serverTimestamp(),
+        dataJogo:      toBRTDate(new Date()),
+
+        timeCasa: { id: f.timeCasa.id, nome: f.timeCasa.nome, logo: f.timeCasa.logo },
+        timeFora: { id: f.timeFora.id, nome: f.timeFora.nome, logo: f.timeFora.logo },
+
+        // Força PRÉ-JOGO (lida antes do jogo, não muda mesmo se time ganhar depois)
+        forcaCasa:      fC?.forca5  ?? null,
+        eloCasa:        fC?.elo     ?? null,
+        eloNotaCasa:    fC?.eloNota ?? null,
+        forcaFora:      fF?.forca5  ?? null,
+        eloFora:        fF?.elo     ?? null,
+        eloNotaFora:    fF?.eloNota ?? null,
+
+        placarCasa:    dados.placarCasa ?? f.placar?.casa ?? 0,
+        placarFora:    dados.placarFora ?? f.placar?.fora ?? 0,
+
+        posseCasa:     pn(sC['Ball Possession']),
+        posseFora:     pn(sF['Ball Possession']),
+
+        apCasa:        apC.val,
+        apFora:        apF.val,
+        apEstimado:    apC.estimado || apF.estimado,
+
+        chutesCasa,
+        chutesForа,
+        alvoCasa,
+        alvoFora,
+        passesCasa,
+        passesFora,
+        passosErradosCasa: passesCasa > 0 ? passesCasa - (pn(sC['Passes accurate'])||0) : null,
+        passosErradosFora: passesFora > 0 ? passesFora - (pn(sF['Passes accurate'])||0) : null,
+
+        faltasCasa:    pn(sC['Fouls']),
+        faltasFora:    pn(sF['Fouls']),
+
+        escCasa,
+        escFora,
+
+        amarCasa,
+        amarFora,
+        vermCasa,
+        vermFora,
+
+        xgCasa:        pn(sC['expected_goals']),
+        xgFora:        pn(sF['expected_goals']),
+
+        iyoCasa,
+        iyoFora,
+      };
+
+      const ref = db.collection(COLECAO).doc(docId);
+      batch.set(ref, doc); // set sobrescreve se minuto repetir (ok)
+      registradosNoCiclo++;
+
+    } catch(e) {
+      console.warn(`Erro fixture ${fixtureId}:`, e.message);
+    }
+  }
+
+  if (registradosNoCiclo > 0) {
+    await batch.commit().catch(e => console.warn('Batch commit:', e.message));
+    toast(`📸 ${registradosNoCiclo} snapshot(s) registrado(s)`, 'ok');
+    // Recarregar tabela com novos dados
+    await carregarRegistros();
+  }
+
+  gc('sbUltMin').textContent = new Date().toLocaleTimeString('pt-BR');
+}
+
+// ── MONITOR LOOP ─────────────────────────────────────────────────────────────
+function iniciarMonitor() {
+  pararMonitor();
+  monitorAtivo = true;
+  gc('btnMonitor').textContent = '⏸ Pausar';
+  gc('btnMonitor').className = 'btn on';
+  gc('pulseEl').style.background = 'var(--red)';
+
+  // Executar imediatamente
+  cicloPrincipal();
+
+  // Countdown + ciclo a cada 60s
+  countdown = CICLO_SEG;
+  countdownTimer = setInterval(() => {
+    countdown--;
+    gc('badgeTimer').textContent = `próximo: ${countdown}s`;
+    if (countdown <= 0) {
+      countdown = CICLO_SEG;
+      cicloPrincipal();
+    }
+  }, 1000);
+}
+
+function pararMonitor() {
+  clearInterval(monitorTimer);
+  clearInterval(countdownTimer);
+  monitorTimer = null;
+  countdownTimer = null;
+}
+
+function toggleMonitor() {
+  if (monitorAtivo) {
+    monitorAtivo = false;
+    pararMonitor();
+    gc('btnMonitor').textContent = '▶ Retomar';
+    gc('btnMonitor').className = 'btn';
+    gc('pulseEl').style.background = 'var(--t3)';
+    gc('badgeTimer').textContent = 'pausado';
+    toast('Monitor pausado');
+  } else {
+    iniciarMonitor();
+    toast('Monitor retomado', 'ok');
+  }
+}
 
 // ── CARREGAR REGISTROS DO FIRESTORE ──────────────────────────────────────────
 async function carregarRegistros() {
@@ -297,13 +507,14 @@ async function carregarRegistros() {
     atualizarFiltroJogo();
 
     gc('sbRegistros').textContent = registros.length;
-    const jogosDistintos = new Set(registros.map(r => r.fixtureId)).size;
-    gc('sbJogos').textContent = jogosDistintos;
-    gc('badgeTotal').textContent = registros.length + ' registros';
-    gc('badgeTimer').textContent = new Date().toLocaleTimeString('pt-BR');
+
+    // Total geral (aproximado)
+    const totalSnap = await db.collection(COLECAO).limit(1).get();
+    // Não busca count exato (caro), usa o que temos
+    gc('sbTotal').textContent = '—';
+
     paginaAtual = 0;
     renderTabela();
-    renderChips();
 
   } catch(e) {
     console.warn('carregarRegistros:', e.message);
@@ -334,35 +545,30 @@ function atualizarFiltroJogo() {
     if (id === cur) o.selected = true;
     sel.appendChild(o);
   });
-
+  gc('badgeLive').textContent = `${jogosAtivos.length} ao vivo`;
 }
 
-// ── RENDER CHIPS — último minuto registrado de cada jogo ─────────────────────
+// ── RENDER CHIPS DE JOGOS ATIVOS ─────────────────────────────────────────────
 function renderChips() {
   const grid = gc('jogosGrid');
-  if (!registros.length) {
-    grid.innerHTML = '<div style="font-size:11px;color:var(--t3);font-family:\'DM Mono\',monospace;">Nenhum registro para esta data.</div>';
+  if (!jogosAtivos.length) {
+    grid.innerHTML = '<div style="font-size:11px;color:var(--t3);font-family:\'DM Mono\',monospace;">Nenhum jogo ao vivo no momento</div>';
     return;
   }
-  const jogoMap = {};
-  registros.forEach(r => {
-    const key = String(r.fixtureId);
-    if (!jogoMap[key] || r.minuto > jogoMap[key].minuto) jogoMap[key] = r;
-  });
-  grid.innerHTML = Object.values(jogoMap).map(r => {
-    const pC   = r.placarCasa ?? '?';
-    const pF   = r.placarFora ?? '?';
-    const min  = r.minutoLabel || r.minuto || '?';
-    const casa = r.timeCasa?.nome || '?';
-    const fora = r.timeFora?.nome || '?';
-    const isLive = ['1H','2H','ET','HT','BT','P'].includes(r.statusJogo);
-    return `<div class="jogo-chip ${isLive?'live':''}">
-      <div class="chip-status ${isLive?'live':''}"></div>
+  grid.innerHTML = jogosAtivos.map(j => {
+    const pC = j.placarCasa ?? '?';
+    const pF = j.placarFora ?? '?';
+    const min = j.minutosJogo || j.minuto || '?';
+    const casa = j.timeCasa?.nome || '?';
+    const fora = j.timeFora?.nome || '?';
+    return `<div class="jogo-chip live">
+      <div class="chip-status live"></div>
       <span class="min">${min}'</span>
       <span class="placar">${pC}–${pF}</span>
       <span class="times">${casa} × ${fora}</span>
     </div>`;
   }).join('');
+  gc('badgeLive').textContent = `${jogosAtivos.length} ao vivo`;
 }
 
 // ── RENDER TABELA ─────────────────────────────────────────────────────────────
