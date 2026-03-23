@@ -402,21 +402,51 @@ async function carregarRelatorio() {
     console.log('[5] monitor stats:', Object.keys(monitorMap).length);
 
     // ── ETAPA 6: montar JOGOS_DATA com todos os jogos do dia ──
+    // Usa jogos-admin como fonte primária de resultado quando fixtures-historico não tem
     JOGOS_DATA = fixtureIds.map(fid => {
       const fidStr = String(fid);
       const jogo   = jogoMap[fidStr] || {};
       const prev   = previsaoMap[fidStr] || null;
-      const hist   = historicoMap[fidStr] || null;
       const mon    = monitorMap[fidStr] || null;
+
+      // Resultado real: tenta fixtures-historico primeiro, senão usa jogos-admin
+      let hist = historicoMap[fidStr] || null;
+      if (!hist && jogo.status === 'encerrado' && jogo.placarCasa != null) {
+        const gc2 = Number(jogo.placarCasa), gf2 = Number(jogo.placarFora);
+        hist = {
+          _fonte: 'jogos-admin',
+          golsCasa:   gc2,
+          golsFora:   gf2,
+          htCasa:     jogo.placarHT?.casa ?? jogo.htCasa ?? null,
+          htFora:     jogo.placarHT?.fora ?? jogo.htFora ?? null,
+          totalGols:  gc2 + gf2,
+          resultado:  gc2 > gf2 ? 'casa' : gf2 > gc2 ? 'fora' : 'empate',
+          ligaNome:   jogo.liga?.nome || '',
+          casaNome:   jogo.timeCasa?.nome || '',
+          foraNome:   jogo.timeFora?.nome || '',
+        };
+      }
+
+      // Previsão: tenta previsoes collection, senão tenta dentro do próprio jogos-admin
+      let previsao = null;
+      if (prev) {
+        // A Cloud Function salva com campo "previsao" aninhado
+        previsao = prev.previsao || prev;
+      } else if (jogo._previsao) {
+        previsao = jogo._previsao;
+      }
+
       return {
         fixtureId:    fid,
-        _semPrevisao: !prev,
+        _semPrevisao: !previsao,
+        _histFonte:   hist?._fonte || 'fixtures-historico',
         timeCasaNome: jogo.timeCasa?.nome || jogo.casaNome || prev?.timeCasaNome || '?',
         timeForaNome: jogo.timeFora?.nome || jogo.foraNome || prev?.timeForaNome || '?',
         liga:         jogo.liga?.nome || jogo.ligaNome || prev?.liga || '',
         dataJogo:     jogo.dataInicio?.toDate ? jogo.dataInicio.toDate().toISOString() : prev?.dataJogo || null,
-        previsao:     prev ? (prev.previsao || prev) : null,
-        hist, mon,
+        previsao,
+        hist,
+        mon,
       };
     });
 
@@ -591,52 +621,56 @@ function renderSummary() {
   const n = jj.length;
   if (!n) return;
 
-  const acertos = jj.filter(j => {
+  // Jogos com resultado real (de qualquer fonte)
+  const comHist = jj.filter(j => j.hist);
+  const nh = comHist.length;
+
+  const acertos = comHist.filter(j => {
     const v = j.previsao?.veredito;
     const r = j.hist?.resultado;
-    return v === r;
+    return v && r && v === r;
   }).length;
 
-  const comGols = jj.filter(j => j.previsao?.golsEstimado && j.hist?.totalGols != null);
+  const comGols = comHist.filter(j => j.previsao?.golsEstimado && j.hist?.totalGols != null);
   const golsOk = comGols.filter(j => Math.abs(j.hist.totalGols - parseFloat(j.previsao.golsEstimado)) <= 1).length;
   const desvioMed = comGols.length
     ? (comGols.reduce((a,j) => a + (j.hist.totalGols - parseFloat(j.previsao.golsEstimado)), 0) / comGols.length).toFixed(2)
     : null;
 
-  const comHT = jj.filter(j => j.hist?.htCasa != null && j.previsao?.top5Placares?.length);
+  const comHT = comHist.filter(j => j.hist?.htCasa != null && j.previsao?.top5Placares?.length);
   const ht1 = comHT.filter(j => {
     const ht = `${j.hist.htCasa}-${j.hist.htFora}`;
     return j.previsao.top5Placares[0]?.l === ht;
   }).length;
 
-  const ft4 = jj.filter(j => {
+  const ft4 = comHist.filter(j => {
     if (!j.hist || !j.previsao?.top5Placares?.length) return false;
     const ft = `${j.hist.golsCasa}-${j.hist.golsFora}`;
     return j.previsao.top5Placares[3]?.l === ft;
   }).length;
 
-  const pct = v => n ? Math.round(v/n*100) + '%' : '—';
+  const pct = (v, base) => base ? Math.round(v/base*100) + '%' : '—';
 
-  gc('sbJogos').textContent = n;
-  gc('sbAcerto').textContent = pct(acertos);
-  gc('sbAcerto').style.color = acertos/n >= 0.6 ? 'var(--grn)' : acertos/n >= 0.45 ? 'var(--acc)' : 'var(--red)';
-  gc('sbAcertoSub').textContent = `${acertos}/${n}`;
-  gc('sbGols').textContent = comGols.length ? pct(golsOk) : '—';
+  gc('sbJogos').textContent = `${n} (${nh} c/ resultado)`;
+  gc('sbAcerto').textContent = pct(acertos, nh);
+  gc('sbAcerto').style.color = nh && acertos/nh >= 0.6 ? 'var(--grn)' : nh && acertos/nh >= 0.45 ? 'var(--acc)' : 'var(--red)';
+  gc('sbAcertoSub').textContent = `${acertos}/${nh}`;
+  gc('sbGols').textContent = comGols.length ? pct(golsOk, comGols.length) : '—';
   gc('sbGolsSub').textContent = `${golsOk}/${comGols.length} c/ est.`;
   gc('sbDesvio').textContent = desvioMed ? (desvioMed > 0 ? '+' : '') + desvioMed : '—';
   gc('sbDesvio').style.color = desvioMed == null ? 'var(--t2)'
     : Math.abs(desvioMed) <= 0.3 ? 'var(--grn)' : parseFloat(desvioMed) > 0 ? 'var(--red)' : 'var(--blu)';
   gc('sbHT').textContent = comHT.length ? `${Math.round(ht1/comHT.length*100)}%` : '—';
   gc('sbHTsub').textContent = `${ht1}/${comHT.length} c/ HT`;
-  gc('sb4FT').textContent = pct(ft4);
-  gc('sb4FTsub').textContent = `${ft4}/${n}`;
+  gc('sb4FT').textContent = pct(ft4, nh);
+  gc('sb4FTsub').textContent = `${ft4}/${nh}`;
 
   // Topbar pills
   gc('tJogos').textContent = n;
-  gc('tAcerto').textContent = pct(acertos);
-  gc('tGols').textContent = comGols.length ? pct(golsOk) : '—';
+  gc('tAcerto').textContent = pct(acertos, nh);
+  gc('tGols').textContent = comGols.length ? pct(golsOk, comGols.length) : '—';
   gc('tHT').textContent = comHT.length ? `${Math.round(ht1/comHT.length*100)}%` : '—';
-  gc('t4FT').textContent = pct(ft4);
+  gc('t4FT').textContent = pct(ft4, nh);
 }
 
 // ── RENDER JOGOS ──────────────────────────────────────────────────────────
@@ -961,17 +995,19 @@ Responda em português, com base estritamente nos dados fornecidos.`;
 
 function calcStats(jj) {
   const n = jj.length;
-  const acertos = jj.filter(j => j.previsao?.veredito === j.hist?.resultado).length;
-  const comGols = jj.filter(j => j.previsao?.golsEstimado && j.hist?.totalGols != null);
+  const comHist = jj.filter(j => j.hist);
+  const nh = comHist.length;
+  const acertos = comHist.filter(j => j.previsao?.veredito && j.previsao.veredito === j.hist?.resultado).length;
+  const comGols = comHist.filter(j => j.previsao?.golsEstimado && j.hist?.totalGols != null);
   const golsOk = comGols.filter(j => Math.abs(j.hist.totalGols - parseFloat(j.previsao.golsEstimado)) <= 1).length;
   const desvioMed = comGols.length
     ? (comGols.reduce((a,j) => a + (j.hist.totalGols - parseFloat(j.previsao.golsEstimado)), 0) / comGols.length).toFixed(2)
     : null;
-  const comHT = jj.filter(j => j.hist?.htCasa != null && j.previsao?.top5Placares?.length);
+  const comHT = comHist.filter(j => j.hist?.htCasa != null && j.previsao?.top5Placares?.length);
   const ht1 = comHT.filter(j => j.previsao.top5Placares[0]?.l === `${j.hist.htCasa}-${j.hist.htFora}`).length;
-  const ft4 = jj.filter(j => j.hist && j.previsao?.top5Placares?.length >= 4 && j.previsao.top5Placares[3]?.l === `${j.hist.golsCasa}-${j.hist.golsFora}`).length;
-  const ftAny = jj.filter(j => j.hist && (j.previsao?.top5Placares||[]).some(x => x.l === `${j.hist.golsCasa}-${j.hist.golsFora}`)).length;
-  return { n, acertos, comGols: comGols.length, golsOk, desvioMed, comHT: comHT.length, ht1, ft4, ftAny };
+  const ft4 = comHist.filter(j => j.previsao?.top5Placares?.length >= 4 && j.previsao.top5Placares[3]?.l === `${j.hist.golsCasa}-${j.hist.golsFora}`).length;
+  const ftAny = comHist.filter(j => (j.previsao?.top5Placares||[]).some(x => x.l === `${j.hist.golsCasa}-${j.hist.golsFora}`)).length;
+  return { n, nh, acertos, comGols: comGols.length, golsOk, desvioMed, comHT: comHT.length, ht1, ft4, ftAny };
 }
 
 function formatText(txt) {
