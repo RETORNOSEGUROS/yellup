@@ -341,89 +341,99 @@ function setLoad(msg, sub='') {
 }
 
 // ── BUSCAR PREVISÕES ──────────────────────────────────────────────────────
-// Estratégia: jogos-admin (allow read: true) como pivot para obter fixtureIds do dia,
-// depois busca previsoes por fixtureId individual (evita range query + índice composto)
+// Mesma lógica do apostas.html: range Timestamp em dataInicio + filtro BRT no cliente
 async function buscarPrevisoes(data) {
-  // PASSO 1 — pegar fixtureIds do dia via jogos-admin (sem permissão especial)
-  const camposDatas = ['dataBRT', 'data', 'dataJogo'];
-  let fixtureIds = [];
 
-  for (const campo of camposDatas) {
-    try {
-      const snap = await db.collection('jogos-admin')
-        .where(campo, '==', data).limit(100).get();
-      if (!snap.empty) {
-        fixtureIds = snap.docs
-          .map(d => d.data().apiFootballId || d.data().apiFixtureId || d.data().fixtureId)
-          .filter(Boolean).map(Number);
-        setLoad(`${fixtureIds.length} jogos encontrados no dia (campo: ${campo})...`);
-        break;
-      }
-    } catch(e) { /* tenta próximo campo */ }
+  // PASSO 1 — jogos do dia via dataInicio Timestamp (exatamente como apostas.html)
+  const dtAlvo   = new Date(data + 'T12:00:00');
+  const dtInicio = new Date(dtAlvo); dtInicio.setDate(dtInicio.getDate() - 1);
+  const dtFim    = new Date(dtAlvo); dtFim.setDate(dtFim.getDate() + 1);
+
+  setLoad('Buscando jogos via dataInicio...', data);
+
+  let jogosAdmin = [];
+  try {
+    const snap = await db.collection('jogos-admin')
+      .orderBy('dataInicio', 'asc')
+      .startAt(firebase.firestore.Timestamp.fromDate(dtInicio))
+      .endAt(firebase.firestore.Timestamp.fromDate(dtFim))
+      .limit(300).get();
+
+    jogosAdmin = snap.docs
+      .map(d => ({ _docId: d.id, ...d.data() }))
+      .filter(j => {
+        if (!j.dataInicio) return false;
+        const dt = j.dataInicio.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio);
+        return toBRT(dt) === data;
+      });
+  } catch(e) {
+    throw new Error('Erro ao buscar jogos-admin: ' + e.message);
   }
 
-  // PASSO 2 — se não achou por data, tentar busca por status encerrado + data ISO range
-  if (!fixtureIds.length) {
-    try {
-      const ini = new Date(data + 'T03:00:00Z'); // midnight BRT = 03:00 UTC
-      const fim = new Date(data + 'T26:59:59Z'); // ~midnight próximo dia BRT
-      const snap = await db.collection('jogos-admin')
-        .where('status', '==', 'encerrado')
-        .where('dataInicio', '>=', ini)
-        .where('dataInicio', '<=', fim)
-        .limit(100).get();
-      fixtureIds = snap.docs
-        .map(d => d.data().apiFootballId || d.data().apiFixtureId)
-        .filter(Boolean).map(Number);
-    } catch(e) { /* sem índice */ }
+  if (!jogosAdmin.length) {
+    throw new Error('Nenhum jogo encontrado para ' + data + '. O campo dataInicio existe nos documentos de jogos-admin?');
   }
 
-  if (!fixtureIds.length) {
-    throw new Error(`Nenhum jogo encontrado em jogos-admin para ${data}. Verifique se o campo data está como "dataBRT".`);
-  }
+  setLoad(jogosAdmin.length + ' jogos encontrados — buscando previsoes...');
 
-  // PASSO 3 — buscar previsão de cada fixtureId individualmente (leitura direta, sem range)
-  // REQUER que previsoes/{docId} tenha allow read: if isAdmin() nas Firestore Rules
+  // Extrair fixtureIds
+  const fixtureIds = [...new Set(
+    jogosAdmin
+      .map(j => j.apiFootballId || j.apiFixtureId || j.fixtureId)
+      .filter(Boolean).map(Number)
+  )];
+
+  // Mapa fixture -> dados jogo para enriquecer cards
+  const jogosPorFixture = {};
+  jogosAdmin.forEach(j => {
+    const fid = j.apiFootballId || j.apiFixtureId || j.fixtureId;
+    if (fid) jogosPorFixture[String(fid)] = j;
+  });
+
+  // PASSO 2 — previsoes por fixtureId em chunks de 10
+  // REQUER: match /previsoes/{docId} { allow read: if isAdmin(); } nas Firestore Rules
   const docs = [];
-  const unique = [...new Set(fixtureIds)];
-
-  // Tenta primeiro busca em lote com 'in' (máx 10 por vez)
-  let usouIn = false;
-  for (let i = 0; i < unique.length; i += 10) {
-    const chunk = unique.slice(i, i + 10);
+  for (let i = 0; i < fixtureIds.length; i += 10) {
+    const chunk = fixtureIds.slice(i, i + 10);
     try {
       const snap = await db.collection('previsoes')
         .where('fixtureId', 'in', chunk).get();
-      // Se múltiplas previsões por fixture (re-análises), pegar a mais recente
       const porFixture = {};
       snap.docs.forEach(d => {
         const fd = d.data();
         const fid = String(fd.fixtureId);
-        if (!porFixture[fid] || (fd.criadoEm > (porFixture[fid].criadoEm || ''))) {
-          porFixture[fid] = { _id: d.id, ...fd };
+        const ts  = fd.criadoEm?.seconds || 0;
+        if (!porFixture[fid] || ts > (porFixture[fid]._ts || 0)) {
+          porFixture[fid] = { _id: d.id, _ts: ts, ...fd };
         }
       });
       Object.values(porFixture).forEach(d => docs.push(d));
-      usouIn = true;
     } catch(e) {
-      // 'in' falhou (sem permissão ou índice) — tenta um por um
-      usouIn = false;
-      break;
+      if (e.message?.includes('permission') || e.message?.includes('Missing')) {
+        throw new Error(
+          'Permissao negada em "previsoes". Adicione nas Firestore Rules antes da regra padrao:\n\n' +
+          'match /previsoes/{docId} {\n  allow read: if isAdmin();\n  allow write: if isAdmin();\n}'
+        );
+      }
+      console.warn('previsoes chunk erro:', e.message);
     }
   }
 
-  // Fallback: buscar um por um se 'in' falhou
-  if (!usouIn) {
-    const snaps = await Promise.all(
-      unique.slice(0, 40).map(id =>
-        db.collection('previsoes').doc(String(id)).get()
-          .catch(() => null)
-      )
-    );
-    snaps.forEach(s => {
-      if (s && s.exists) docs.push({ _id: s.id, ...s.data() });
-    });
-  }
+  // PASSO 3 — jogos sem previsao salva aparecem como card vazio
+  fixtureIds.forEach(fid => {
+    if (!docs.find(d => String(d.fixtureId) === String(fid))) {
+      const j = jogosPorFixture[String(fid)];
+      if (j) docs.push({
+        _id: String(fid), _semPrevisao: true,
+        fixtureId: fid,
+        timeCasaNome: j.timeCasa?.nome || j.casaNome || '?',
+        timeForaNome: j.timeFora?.nome || j.foraNome || '?',
+        liga: j.liga?.nome || j.ligaNome || '',
+        dataJogo: j.dataInicio?.toDate ? j.dataInicio.toDate().toISOString() : null,
+        previsao: null,
+      });
+    }
+  });
 
   return docs;
 }
