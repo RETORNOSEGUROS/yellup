@@ -488,8 +488,32 @@ async function carregarRelatorio() {
       for (const jd of semPrev) {
         const jogoAdmin = jogoMap[String(jd.fixtureId)] || {};
         try {
-          const prev = await analisarJogoRelatorio(jogoAdmin);
-          jd.previsao = prev;
+          const raw = await analisarJogoRelatorio(jogoAdmin);
+          // Normaliza estrutura aninhada → flat (igual ao salvarPrevisao)
+          const poi = (raw.gols?._lambdaCasa && raw.gols?._lambdaFora)
+            ? calcularPlacarPoisson(raw.gols._lambdaCasa, raw.gols._lambdaFora)
+            : null;
+          jd.previsao = {
+            probCasa:     raw.resultado?.casa,
+            probEmpate:   raw.resultado?.empate,
+            probFora:     raw.resultado?.fora,
+            veredito:     raw.resultado?.veredito,
+            golsEstimado: raw.gols?.estimado,
+            golsRange:    raw.gols?.range,
+            over25:       raw.gols?.over25,
+            confianca:    raw.confianca,
+            ysC:          raw.ysC,
+            ysF:          raw.ysF,
+            forca5C:      raw.forca5C,
+            forca5F:      raw.forca5F,
+            mom5C:        raw.mom5C,
+            mom5F:        raw.mom5F,
+            top5Placares: poi?.top5?.map(p => ({ l: p.label, p: p.pct })) || [],
+            probGoleada:  poi?.goleada || null,
+            probBTTS:     poi?.btts || null,
+            probUnder15:  poi?.under15 || null,
+            periodo:      raw.gols?.periodo || null,
+          };
           jd._semPrevisao = false;
           jd._previsaoCalculada = true;
         } catch(e) { console.warn('Calc prev:', e.message); }
@@ -2557,7 +2581,7 @@ function gerarResumoParaIA() {
     lines.push(j.liga + ' | ' + j.timeCasaNome + ' x ' + j.timeForaNome);
     lines.push('  HT: ' + ht + ' | FT: ' + ft + ' | Resultado: ' + h.resultado);
     if (p) {
-      lines.push('  Previsão: ' + p.veredito + ' ' + acertou + ' | Gols est: ' + (p.golsEstimado||'?') + ' → real: ' + h.totalGols + ' (dev:' + desvio + ')');
+      lines.push('  Previsão: ' + (p.veredito||'?') + ' ' + acertou + ' | Gols est: ' + (p.golsEstimado||'?') + ' → real: ' + h.totalGols + ' (dev:' + desvio + ') | ' + (p.periodo||''));
       lines.push('  Conf: ' + (p.confianca||'?') + ' | YS: ' + (p.ysC||'?') + ' vs ' + (p.ysF||'?') + ' | Força: ' + (p.forca5C||'?') + '(m' + (p.mom5C>=0?'+':'') + (p.mom5C||'?') + ') vs ' + (p.forca5F||'?') + '(m' + (p.mom5F>=0?'+':'') + (p.mom5F||'?') + ')');
       lines.push('  Top5: [' + t5 + ']');
       lines.push('  1º=HT: ' + ht1match + ' | 4º=FT: ' + ft4match + ' | FT na pos: ' + ftPos);
