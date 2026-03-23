@@ -294,34 +294,45 @@ async function carregarRelatorio() {
   </div>`;
 
   try {
-    setLoad('Buscando previsões...', DATA_ATUAL);
-
-    // 1. Buscar previsões do dia
+    // PASSO 1 — jogos + previsões
+    setLoad('Buscando jogos e previsões...', DATA_ATUAL);
     const previsoes = await buscarPrevisoes(DATA_ATUAL);
     if (!previsoes.length) {
-      gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">🔍</div><p>Nenhuma previsão encontrada para ${fmtData(DATA_ATUAL)}</p></div>`;
+      gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">🔍</div><p>Nenhum jogo encontrado para ${fmtData(DATA_ATUAL)}</p></div>`;
       btn.disabled = false; btn.textContent = '⚡ Carregar'; return;
     }
-    setLoad(`${previsoes.length} previsões encontradas — buscando resultados...`);
 
-    // 2. Para cada previsão, buscar resultado real
-    const fixtureIds = previsoes.map(p => p.fixtureId);
+    const comPrevisao = previsoes.filter(p => !p._semPrevisao).length;
+    setLoad(`${previsoes.length} jogos · ${comPrevisao} com previsão — buscando resultados...`);
+
+    // PASSO 2 — resultados reais (fixtures-historico)
+    const fixtureIds = previsoes.map(p => p.fixtureId).filter(Boolean);
     const historico = await buscarHistorico(fixtureIds);
-    setLoad('Buscando stats do monitor...', `${Object.keys(historico).length} resultados encontrados`);
+    const nHist = Object.keys(historico).length;
+    setLoad(`${nHist} resultados encontrados — buscando stats monitor...`);
 
-    // 3. Buscar último snapshot do monitor-minutos para cada fixture
+    // PASSO 3 — stats do monitor (opcional, não bloqueia)
     const monitStats = await buscarMonitorStats(fixtureIds);
-    setLoad('Cruzando dados...');
 
-    // 4. Cruzar tudo
+    // PASSO 4 — cruzar tudo
+    // NÃO filtra por hist — mostra todos os jogos, marcando os sem resultado
     JOGOS_DATA = previsoes.map(p => {
       const fid = String(p.fixtureId);
-      const hist = historico[fid] || null;
-      const mon = monitStats[fid] || null;
-      return { ...p, hist, mon };
-    }).filter(j => j.hist); // só jogos com resultado real
+      return { ...p, hist: historico[fid] || null, mon: monitStats[fid] || null };
+    });
 
-    // 5. Render
+    // Diagnóstico no console para debug
+    console.log('[Relatório] jogos:', JOGOS_DATA.length,
+      '| com previsão:', JOGOS_DATA.filter(j=>!j._semPrevisao).length,
+      '| com hist:', JOGOS_DATA.filter(j=>j.hist).length,
+      '| com monitor:', JOGOS_DATA.filter(j=>j.mon).length);
+
+    if (!JOGOS_DATA.length) {
+      gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">📭</div><p>Nenhum dado para ${fmtData(DATA_ATUAL)}</p></div>`;
+      btn.disabled = false; btn.textContent = '⚡ Carregar'; return;
+    }
+
+    // PASSO 5 — render
     renderSummary();
     renderJogos();
     gc('sumbar').style.display = 'flex';
@@ -329,7 +340,8 @@ async function carregarRelatorio() {
     gc('btnIA').style.display = 'flex';
 
   } catch(e) {
-    gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">⚠️</div><p>Erro: ${e.message}</p></div>`;
+    console.error('[Relatório] Erro:', e);
+    gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">⚠️</div><p><strong>Erro:</strong> ${e.message}</p><p style="font-size:11px;color:var(--t3);margin-top:8px">Abra o console (F12) para detalhes.</p></div>`;
   }
   btn.disabled = false; btn.textContent = '⚡ Carregar';
 }
@@ -532,7 +544,10 @@ function renderJogos() {
   let jj = JOGOS_DATA;
   if (FILTRO !== 'todos') {
     const confMap = { alta:'alta', media:'media', baixa:'baixa', insuf:'insuficiente' };
-    jj = jj.filter(j => j.previsao?.confianca === confMap[FILTRO] || j.previsao?.confianca === FILTRO);
+    jj = jj.filter(j => {
+      const conf = j.previsao?.confianca;
+      return conf === confMap[FILTRO] || conf === FILTRO;
+    });
   }
 
   if (!jj.length) {
@@ -540,7 +555,44 @@ function renderJogos() {
     return;
   }
 
-  gc('mainContent').innerHTML = jj.map(renderCard).join('');
+  // Separar: com resultado real, sem resultado, sem previsão
+  const comHist  = jj.filter(j => j.hist);
+  const semHist  = jj.filter(j => !j.hist);
+
+  let html = '';
+  if (comHist.length) {
+    html += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--t3);margin-bottom:8px">
+      ✓ Com resultado real (${comHist.length})</div>`;
+    html += comHist.map(renderCard).join('');
+  }
+  if (semHist.length) {
+    html += `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--t3);margin:14px 0 8px">
+      ⏳ Sem resultado em fixtures-historico (${semHist.length}) — jogo ainda não coletado?</div>`;
+    html += semHist.map(renderCardSemHist).join('');
+  }
+
+  gc('mainContent').innerHTML = html;
+}
+
+function renderCardSemHist(j) {
+  const p = j.previsao;
+  const hora = j.dataJogo ? new Date(j.dataJogo).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '';
+  const semPrev = j._semPrevisao;
+  return `<div class="game-card" style="opacity:.6;border-left:3px solid var(--t3)">
+    <div class="gc-header">
+      <span class="gc-liga">${j.liga || '—'}</span>
+      <span style="font-size:12px;font-weight:600">${j.timeCasaNome||'?'} × ${j.timeForaNome||'?'}</span>
+      ${semPrev ? '<span class="badge b-gray">sem previsão salva</span>' : '<span class="badge b-acc">previsão salva</span>'}
+      <span style="font-size:10px;color:var(--t3);margin-left:auto">${hora} · fixture #${j.fixtureId}</span>
+    </div>
+    <div style="padding:10px 14px;font-size:11px;color:var(--t3)">
+      ${semPrev
+        ? 'Nenhuma previsão foi gerada para este jogo.'
+        : p ? `Previsão: ${p.veredito} | Gols: ${p.golsEstimado} | Conf: ${p.confianca}` : '—'
+      }
+      <br>Resultado real: não encontrado em fixtures-historico para fixtureId ${j.fixtureId}
+    </div>
+  </div>`;
 }
 
 function renderCard(j) {
