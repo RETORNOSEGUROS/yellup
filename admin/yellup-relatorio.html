@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yellup · Relatório de Previsões</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#07080d;--bg2:#0b0d15;--bg3:#0f1119;--bg4:#141728;
+  --bd1:#191c2c;--bd2:#212540;--bd3:#2a2e4a;
+  --t1:#eceef6;--t2:#858ba5;--t3:#41456a;
+  --acc:#f5a524;--adim:rgba(245,165,36,.10);
+  --grn:#27d49b;--gdim:rgba(39,212,155,.10);
+  --red:#ef5f5f;--rdim:rgba(239,95,95,.10);
+  --blu:#4f96f4;--bdim:rgba(79,150,244,.10);
+  --pur:#a78bfa;--pdim:rgba(167,139,250,.10);
+  --ora:#f97316;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{min-height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t1);}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-thumb{background:var(--bd3);}
+
+/* TOPBAR */
+.topbar{height:52px;background:var(--bg2);border-bottom:1px solid var(--bd1);
+  display:flex;align-items:center;padding:0 20px;gap:14px;position:sticky;top:0;z-index:100;}
+.logo{font-family:'Syne',sans-serif;font-size:14px;font-weight:800;color:var(--acc);}
+.logo small{font-size:9px;color:var(--t3);margin-left:4px;font-weight:400;}
+.topbar-right{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.pill{background:var(--bg3);border:1px solid var(--bd2);border-radius:20px;
+  font-family:'DM Mono',monospace;font-size:10px;color:var(--t3);padding:3px 10px;}
+.pill span{color:var(--acc);font-weight:600;}
+
+/* TOOLBAR */
+.toolbar{padding:12px 20px;background:var(--bg2);border-bottom:1px solid var(--bd1);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.date-nav{display:flex;align-items:center;gap:6px;}
+.dn-btn{width:30px;height:30px;background:var(--bg3);border:1px solid var(--bd2);
+  color:var(--t2);border-radius:7px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all .15s;}
+.dn-btn:hover{border-color:var(--acc);color:var(--acc);}
+.dn-display{background:var(--bg3);border:1px solid var(--bd2);padding:5px 14px;
+  border-radius:7px;font-size:12px;font-weight:600;min-width:120px;text-align:center;}
+.btn{padding:6px 14px;border-radius:7px;border:1px solid var(--bd2);background:none;
+  color:var(--t2);font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;
+  transition:all .15s;display:inline-flex;align-items:center;gap:5px;}
+.btn:hover{border-color:var(--acc);color:var(--acc);}
+.btn.primary{background:var(--adim);border-color:rgba(245,165,36,.4);color:var(--acc);}
+.btn.ai{background:var(--pdim);border-color:rgba(167,139,250,.4);color:var(--pur);}
+
+/* SUMMARY BAR */
+.sumbar{display:flex;gap:0;border-bottom:1px solid var(--bd1);background:var(--bg2);}
+.sb-item{flex:1;padding:10px 16px;border-right:1px solid var(--bd1);}
+.sb-item:last-child{border-right:none;}
+.sb-val{font-family:'DM Mono',monospace;font-size:22px;font-weight:600;}
+.sb-lbl{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-top:2px;}
+.sb-sub{font-size:10px;color:var(--t2);margin-top:2px;}
+
+/* CONTENT */
+.content{padding:16px 20px;max-width:1300px;margin:0 auto;}
+
+/* LOADING */
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:300px;gap:14px;color:var(--t2);}
+.spinner{width:32px;height:32px;border:3px solid var(--bd2);border-top-color:var(--acc);
+  border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-txt{font-size:12px;font-family:'DM Mono',monospace;}
+.load-prog{font-size:18px;font-weight:600;color:var(--acc);font-family:'DM Mono',monospace;}
+
+/* GAME CARD */
+.game-card{background:var(--bg2);border:1px solid var(--bd1);border-radius:14px;
+  margin-bottom:12px;overflow:hidden;transition:border-color .2s;}
+.game-card:hover{border-color:var(--bd3);}
+.game-card.acertou{border-left:3px solid var(--grn);}
+.game-card.errou{border-left:3px solid var(--red);}
+.game-card.empate-err{border-left:3px solid var(--ora);}
+
+.gc-header{padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--bd1);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.gc-liga{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--t3);}
+.gc-hora{font-size:10px;color:var(--t3);margin-left:auto;}
+
+.gc-body{padding:12px 14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+@media(max-width:700px){.gc-body{grid-template-columns:1fr;}}
+
+/* SCORES AREA */
+.scores-area{display:flex;align-items:center;gap:0;margin-bottom:8px;}
+.team-block{flex:1;}
+.team-name{font-size:13px;font-weight:600;}
+.team-ys{font-size:10px;color:var(--t2);margin-top:2px;}
+.score-center{min-width:90px;text-align:center;}
+.score-ft{font-family:'DM Mono',monospace;font-size:22px;font-weight:700;}
+.score-ht{font-size:10px;color:var(--t2);margin-top:3px;font-family:'DM Mono',monospace;}
+.team-block.away{text-align:right;}
+
+/* PREDICTION BLOCK */
+.pred-block{background:var(--bg3);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;}
+.pred-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--t3);margin-bottom:8px;}
+.res-bars{display:flex;flex-direction:column;gap:4px;}
+.res-bar-row{display:flex;align-items:center;gap:7px;}
+.res-bar-lbl{font-size:10px;color:var(--t2);min-width:70px;}
+.res-bar-bg{flex:1;height:5px;background:var(--bd1);border-radius:3px;overflow:hidden;}
+.res-bar-fill{height:100%;border-radius:3px;}
+.res-bar-pct{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;min-width:30px;text-align:right;}
+
+.placares-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;}
+.placar-chip{padding:3px 8px;border-radius:5px;font-family:'DM Mono',monospace;font-size:10px;
+  border:1px solid var(--bd2);background:var(--bg);position:relative;}
+.placar-chip .pp{font-size:8px;color:var(--t3);}
+.placar-chip.p1ht{border-color:rgba(245,165,36,.5);background:var(--adim);color:var(--acc);}
+.placar-chip.pft{border-color:rgba(39,212,155,.5);background:var(--gdim);color:var(--grn);}
+.placar-chip.p4ft{border-color:rgba(79,150,244,.5);background:var(--bdim);color:var(--blu);}
+
+/* STATS BLOCK */
+.stats-block{background:var(--bg3);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;}
+.dual-stat{display:flex;flex-direction:column;gap:3px;margin-bottom:6px;}
+.dual-stat-lbl{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;}
+.dual-bar-track{height:6px;background:var(--bd1);border-radius:3px;position:relative;overflow:visible;}
+.dual-bar-casa{position:absolute;left:0;top:0;height:100%;border-radius:3px;
+  transition:width .4s;background:var(--grn);}
+.dual-bar-fora{position:absolute;right:0;top:0;height:100%;border-radius:3px;
+  transition:width .4s;background:var(--red);}
+.dual-nums{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:9px;margin-top:2px;}
+
+/* GOLS BLOCK */
+.gols-block{background:var(--bg3);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;}
+.gols-compare{display:flex;align-items:center;gap:10px;}
+.gols-est{font-family:'DM Mono',monospace;font-size:28px;font-weight:600;color:var(--acc);}
+.gols-arrow{font-size:16px;color:var(--t3);}
+.gols-real{font-family:'DM Mono',monospace;font-size:28px;font-weight:600;}
+.gols-desvio{font-size:11px;margin-top:4px;}
+
+/* BADGES */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;
+  font-size:9px;font-weight:600;letter-spacing:.3px;}
+.b-grn{background:var(--gdim);color:var(--grn);border:1px solid rgba(39,212,155,.2);}
+.b-red{background:var(--rdim);color:var(--red);border:1px solid rgba(239,95,95,.2);}
+.b-acc{background:var(--adim);color:var(--acc);border:1px solid rgba(245,165,36,.2);}
+.b-blu{background:var(--bdim);color:var(--blu);border:1px solid rgba(79,150,244,.2);}
+.b-pur{background:var(--pdim);color:var(--pur);border:1px solid rgba(167,139,250,.2);}
+.b-gray{background:rgba(255,255,255,.05);color:var(--t2);border:1px solid var(--bd2);}
+.b-ora{background:rgba(249,115,22,.1);color:var(--ora);border:1px solid rgba(249,115,22,.25);}
+
+/* META ROW */
+.meta-row{display:flex;gap:5px;flex-wrap:wrap;padding-top:8px;margin-top:8px;
+  border-top:1px solid var(--bd1);}
+
+/* AI PANEL */
+.ai-panel{background:var(--bg2);border:1px solid rgba(167,139,250,.25);border-radius:12px;
+  padding:16px;margin-top:14px;}
+.ai-panel-title{font-size:11px;font-weight:700;color:var(--pur);
+  text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;
+  display:flex;align-items:center;gap:6px;}
+.ai-dot{width:6px;height:6px;border-radius:50%;background:var(--pur);}
+.ai-thinking .ai-dot{animation:blink .7s infinite alternate;}
+@keyframes blink{to{opacity:.2}}
+.ai-text{font-size:12px;line-height:1.7;color:var(--t2);white-space:pre-wrap;}
+.ai-text strong{color:var(--t1);font-weight:600;}
+
+/* EMPTY */
+.empty{text-align:center;padding:60px 20px;color:var(--t3);}
+.empty-ico{font-size:40px;margin-bottom:10px;}
+
+/* FILTERS ROW */
+.filters-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.fchip{padding:3px 9px;border-radius:20px;border:1px solid var(--bd2);background:none;
+  color:var(--t3);font-size:9px;font-weight:600;cursor:pointer;transition:all .1s;letter-spacing:.3px;}
+.fchip:hover{color:var(--t2);}
+.fchip.on{background:var(--adim);border-color:rgba(245,165,36,.4);color:var(--acc);}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">Yellup <small>Relatório de Previsões</small></div>
+  <div class="topbar-right">
+    <div class="pill">Jogos: <span id="tJogos">—</span></div>
+    <div class="pill">Acerto: <span id="tAcerto">—</span></div>
+    <div class="pill">Gols ±1: <span id="tGols">—</span></div>
+    <div class="pill">1º=HT: <span id="tHT">—</span></div>
+    <div class="pill">4º=FT: <span id="t4FT">—</span></div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="date-nav">
+    <button class="dn-btn" onclick="mudarData(-1)">‹</button>
+    <div class="dn-display" id="dnDisplay">—</div>
+    <button class="dn-btn" onclick="mudarData(1)">›</button>
+  </div>
+  <button class="btn primary" id="btnCarregar" onclick="carregarRelatorio()">⚡ Carregar</button>
+  <div class="filters-row" id="filtrosConf" style="display:none">
+    <button class="fchip on" onclick="setFiltro('todos',this)">Todos</button>
+    <button class="fchip" onclick="setFiltro('alta',this)">Alta conf.</button>
+    <button class="fchip" onclick="setFiltro('media',this)">Média</button>
+    <button class="fchip" onclick="setFiltro('baixa',this)">Baixa</button>
+    <button class="fchip" onclick="setFiltro('insuf',this)">Insuf.</button>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <button class="btn ai" id="btnIA" onclick="analisarIA()" style="display:none">✦ Analisar com IA</button>
+  </div>
+</div>
+
+<div id="sumbar" class="sumbar" style="display:none">
+  <div class="sb-item"><div class="sb-val" id="sbJogos" style="color:var(--acc)">0</div><div class="sb-lbl">Jogos</div></div>
+  <div class="sb-item"><div class="sb-val" id="sbAcerto" style="color:var(--grn)">0%</div><div class="sb-lbl">Resultado certo</div><div class="sb-sub" id="sbAcertoSub"></div></div>
+  <div class="sb-item"><div class="sb-val" id="sbGols" style="color:var(--acc)">—</div><div class="sb-lbl">Gols ±1</div><div class="sb-sub" id="sbGolsSub"></div></div>
+  <div class="sb-item"><div class="sb-val" id="sbDesvio" style="color:var(--t2)">—</div><div class="sb-lbl">Desvio médio gols</div></div>
+  <div class="sb-item"><div class="sb-val" id="sbHT" style="color:var(--acc)">—</div><div class="sb-lbl">1º previsto = HT</div><div class="sb-sub" id="sbHTsub"></div></div>
+  <div class="sb-item"><div class="sb-val" id="sb4FT" style="color:var(--blu)">—</div><div class="sb-lbl">4º previsto = FT</div><div class="sb-sub" id="sb4FTsub"></div></div>
+</div>
+
+<div class="content">
+  <div id="mainContent">
+    <div class="loading" id="initMsg">
+      <div style="font-size:32px">📊</div>
+      <div class="load-txt">Selecione uma data e clique em Carregar</div>
+    </div>
+  </div>
+  <div id="iaSection" style="display:none">
+    <div class="ai-panel" id="aiPanel">
+      <div class="ai-panel-title"><div class="ai-dot"></div> Análise IA</div>
+      <div class="ai-text" id="aiText">Aguardando análise...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain:"painel-yellup.firebaseapp.com",
+  projectId:"painel-yellup",
+  storageBucket:"painel-yellup.appspot.com",
+  messagingSenderId:"608347210297",
+  appId:"1:608347210297:web:75092713724e617c7203e8"
+});
+const auth = firebase.auth(), db = firebase.firestore();
+const gc = id => document.getElementById(id);
+
+let DATA_ATUAL = toBRT(new Date());
+let JOGOS_DATA = []; // dados cruzados completos
+let FILTRO = 'todos';
+
+function toBRT(d) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
+}
+function fmtData(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  const hoje = toBRT(new Date());
+  const ontem = toBRT(new Date(Date.now() - 86400000));
+  const ant = toBRT(new Date(Date.now() - 172800000));
+  const label = iso === hoje ? ' (Hoje)' : iso === ontem ? ' (Ontem)' : iso === ant ? ' (Anteontem)' : '';
+  return d.toLocaleDateString('pt-BR', {weekday:'short', day:'2-digit', month:'2-digit'}) + label;
+}
+
+auth.onAuthStateChanged(u => {
+  if (!u) { window.location.href = 'login.html'; return; }
+  gc('dnDisplay').textContent = fmtData(DATA_ATUAL);
+});
+
+function mudarData(d) {
+  const dt = new Date(DATA_ATUAL + 'T12:00:00');
+  dt.setDate(dt.getDate() + d);
+  DATA_ATUAL = toBRT(dt);
+  gc('dnDisplay').textContent = fmtData(DATA_ATUAL);
+}
+
+function setFiltro(v, el) {
+  FILTRO = v;
+  gc('filtrosConf').querySelectorAll('.fchip').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  renderJogos();
+}
+
+// ── CARREGAR ──────────────────────────────────────────────────────────────
+async function carregarRelatorio() {
+  const btn = gc('btnCarregar');
+  btn.disabled = true;
+  btn.textContent = '⏳ Carregando...';
+  gc('iaSection').style.display = 'none';
+  gc('btnIA').style.display = 'none';
+  gc('sumbar').style.display = 'none';
+  gc('filtrosConf').style.display = 'none';
+
+  gc('mainContent').innerHTML = `<div class="loading">
+    <div class="spinner"></div>
+    <div class="load-prog" id="ldProg">Buscando previsões...</div>
+    <div class="load-txt" id="ldSub">aguarde</div>
+  </div>`;
+
+  try {
+    setLoad('Buscando previsões...', DATA_ATUAL);
+
+    // 1. Buscar previsões do dia
+    const previsoes = await buscarPrevisoes(DATA_ATUAL);
+    if (!previsoes.length) {
+      gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">🔍</div><p>Nenhuma previsão encontrada para ${fmtData(DATA_ATUAL)}</p></div>`;
+      btn.disabled = false; btn.textContent = '⚡ Carregar'; return;
+    }
+    setLoad(`${previsoes.length} previsões encontradas — buscando resultados...`);
+
+    // 2. Para cada previsão, buscar resultado real
+    const fixtureIds = previsoes.map(p => p.fixtureId);
+    const historico = await buscarHistorico(fixtureIds);
+    setLoad('Buscando stats do monitor...', `${Object.keys(historico).length} resultados encontrados`);
+
+    // 3. Buscar último snapshot do monitor-minutos para cada fixture
+    const monitStats = await buscarMonitorStats(fixtureIds);
+    setLoad('Cruzando dados...');
+
+    // 4. Cruzar tudo
+    JOGOS_DATA = previsoes.map(p => {
+      const fid = String(p.fixtureId);
+      const hist = historico[fid] || null;
+      const mon = monitStats[fid] || null;
+      return { ...p, hist, mon };
+    }).filter(j => j.hist); // só jogos com resultado real
+
+    // 5. Render
+    renderSummary();
+    renderJogos();
+    gc('sumbar').style.display = 'flex';
+    gc('filtrosConf').style.display = 'flex';
+    gc('btnIA').style.display = 'flex';
+
+  } catch(e) {
+    gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">⚠️</div><p>Erro: ${e.message}</p></div>`;
+  }
+  btn.disabled = false; btn.textContent = '⚡ Carregar';
+}
+
+function setLoad(msg, sub='') {
+  const p = gc('ldProg'), s = gc('ldSub');
+  if(p) p.textContent = msg;
+  if(s) s.textContent = sub;
+}
+
+// ── BUSCAR PREVISÕES ──────────────────────────────────────────────────────
+async function buscarPrevisoes(data) {
+  // A previsão é salva com dataJogo como ISO — filtrar pelo dia BRT
+  const dataInicio = new Date(data + 'T00:00:00-03:00');
+  const dataFim    = new Date(data + 'T23:59:59-03:00');
+
+  const snap = await db.collection('previsoes')
+    .where('dataJogo', '>=', dataInicio.toISOString())
+    .where('dataJogo', '<=', dataFim.toISOString())
+    .limit(100).get();
+
+  // Fallback: buscar por campo dataJogoBRT se existir
+  let docs = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+
+  if (!docs.length) {
+    // Tenta com campo data string
+    const snap2 = await db.collection('previsoes')
+      .where('dataJogoBRT', '==', data)
+      .limit(100).get();
+    docs = snap2.docs.map(d => ({ _id: d.id, ...d.data() }));
+  }
+
+  if (!docs.length) {
+    // Último fallback: buscar por fixtureId nos jogos-admin do dia
+    const jogosSnap = await db.collection('jogos-admin')
+      .where('dataBRT', '==', data).limit(100).get();
+    const ids = jogosSnap.docs.map(d => d.data().apiFootballId || d.data().apiFixtureId).filter(Boolean);
+    if (ids.length) {
+      const prevSnaps = await Promise.all(
+        ids.slice(0,30).map(id => db.collection('previsoes')
+          .where('fixtureId', '==', Number(id)).orderBy('criadoEm', 'desc').limit(1).get()
+          .catch(() => ({ docs: [] })))
+      );
+      prevSnaps.forEach(s => s.docs.forEach(d => docs.push({ _id: d.id, ...d.data() })));
+    }
+  }
+
+  return docs;
+}
+
+// ── BUSCAR HISTÓRICO ──────────────────────────────────────────────────────
+async function buscarHistorico(ids) {
+  const result = {};
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 10) chunks.push(ids.slice(i, i+10));
+
+  for (const chunk of chunks) {
+    const nums = chunk.map(Number).filter(n => !isNaN(n));
+    if (!nums.length) continue;
+    try {
+      const snap = await db.collection('fixtures-historico')
+        .where('fixtureId', 'in', nums).get();
+      snap.docs.forEach(d => {
+        const data = d.data();
+        result[String(data.fixtureId)] = data;
+      });
+    } catch(e) { console.warn('buscarHistorico chunk:', e.message); }
+  }
+  return result;
+}
+
+// ── BUSCAR STATS MONITOR (último minuto de cada jogo) ────────────────────
+async function buscarMonitorStats(ids) {
+  const result = {};
+  for (const id of ids.slice(0, 20)) {
+    try {
+      const snap = await db.collection('monitor-minutos')
+        .where('fixtureId', '==', Number(id))
+        .orderBy('minuto', 'desc').limit(1).get();
+      if (!snap.empty) result[String(id)] = snap.docs[0].data();
+    } catch(e) {}
+  }
+  return result;
+}
+
+// ── RENDER SUMMARY ────────────────────────────────────────────────────────
+function renderSummary() {
+  const jj = JOGOS_DATA;
+  const n = jj.length;
+  if (!n) return;
+
+  const acertos = jj.filter(j => {
+    const v = j.previsao?.veredito;
+    const r = j.hist?.resultado;
+    return v === r;
+  }).length;
+
+  const comGols = jj.filter(j => j.previsao?.golsEstimado && j.hist?.totalGols != null);
+  const golsOk = comGols.filter(j => Math.abs(j.hist.totalGols - parseFloat(j.previsao.golsEstimado)) <= 1).length;
+  const desvioMed = comGols.length
+    ? (comGols.reduce((a,j) => a + (j.hist.totalGols - parseFloat(j.previsao.golsEstimado)), 0) / comGols.length).toFixed(2)
+    : null;
+
+  const comHT = jj.filter(j => j.hist?.htCasa != null && j.previsao?.top5Placares?.length);
+  const ht1 = comHT.filter(j => {
+    const ht = `${j.hist.htCasa}-${j.hist.htFora}`;
+    return j.previsao.top5Placares[0]?.l === ht;
+  }).length;
+
+  const ft4 = jj.filter(j => {
+    if (!j.hist || !j.previsao?.top5Placares?.length) return false;
+    const ft = `${j.hist.golsCasa}-${j.hist.golsFora}`;
+    return j.previsao.top5Placares[3]?.l === ft;
+  }).length;
+
+  const pct = v => n ? Math.round(v/n*100) + '%' : '—';
+
+  gc('sbJogos').textContent = n;
+  gc('sbAcerto').textContent = pct(acertos);
+  gc('sbAcerto').style.color = acertos/n >= 0.6 ? 'var(--grn)' : acertos/n >= 0.45 ? 'var(--acc)' : 'var(--red)';
+  gc('sbAcertoSub').textContent = `${acertos}/${n}`;
+  gc('sbGols').textContent = comGols.length ? pct(golsOk) : '—';
+  gc('sbGolsSub').textContent = `${golsOk}/${comGols.length} c/ est.`;
+  gc('sbDesvio').textContent = desvioMed ? (desvioMed > 0 ? '+' : '') + desvioMed : '—';
+  gc('sbDesvio').style.color = desvioMed == null ? 'var(--t2)'
+    : Math.abs(desvioMed) <= 0.3 ? 'var(--grn)' : parseFloat(desvioMed) > 0 ? 'var(--red)' : 'var(--blu)';
+  gc('sbHT').textContent = comHT.length ? `${Math.round(ht1/comHT.length*100)}%` : '—';
+  gc('sbHTsub').textContent = `${ht1}/${comHT.length} c/ HT`;
+  gc('sb4FT').textContent = pct(ft4);
+  gc('sb4FTsub').textContent = `${ft4}/${n}`;
+
+  // Topbar pills
+  gc('tJogos').textContent = n;
+  gc('tAcerto').textContent = pct(acertos);
+  gc('tGols').textContent = comGols.length ? pct(golsOk) : '—';
+  gc('tHT').textContent = comHT.length ? `${Math.round(ht1/comHT.length*100)}%` : '—';
+  gc('t4FT').textContent = pct(ft4);
+}
+
+// ── RENDER JOGOS ──────────────────────────────────────────────────────────
+function renderJogos() {
+  let jj = JOGOS_DATA;
+  if (FILTRO !== 'todos') {
+    const confMap = { alta:'alta', media:'media', baixa:'baixa', insuf:'insuficiente' };
+    jj = jj.filter(j => j.previsao?.confianca === confMap[FILTRO] || j.previsao?.confianca === FILTRO);
+  }
+
+  if (!jj.length) {
+    gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">🔍</div><p>Nenhum jogo neste filtro.</p></div>`;
+    return;
+  }
+
+  gc('mainContent').innerHTML = jj.map(renderCard).join('');
+}
+
+function renderCard(j) {
+  const p = j.previsao || {};
+  const h = j.hist || {};
+  const m = j.mon || null;
+
+  const ftCasa = h.golsCasa ?? '?';
+  const ftFora = h.golsFora ?? '?';
+  const htCasa = h.htCasa;
+  const htFora = h.htFora;
+  const ftGols = h.totalGols ?? ((ftCasa + ftFora) || 0);
+  const ftPlacar = `${ftCasa}-${ftFora}`;
+  const htPlacar = htCasa != null ? `${htCasa}-${htFora}` : null;
+
+  const ftRes = h.resultado || (ftCasa > ftFora ? 'casa' : ftCasa < ftFora ? 'fora' : 'empate');
+  const acertouRes = p.veredito === ftRes;
+
+  let cardClass = acertouRes ? 'acertou' : 'errou';
+
+  // Top 5 placares — highlight
+  const top5 = p.top5Placares || [];
+  const placares = top5.map((pl, i) => {
+    const isFT = pl.l === ftPlacar;
+    const isHT = i === 0 && htPlacar && pl.l === htPlacar;
+    const is4FT = i === 3 && isFT;
+    let cls = '';
+    if (isHT) cls = 'p1ht';
+    else if (is4FT) cls = 'p4ft';
+    else if (isFT) cls = 'pft';
+    const matchLabel = isHT ? ' 🔶HT' : isFT ? ' ✓FT' : '';
+    return `<span class="placar-chip ${cls}">${pl.l}<span class="pp"> ${pl.p}%</span>${matchLabel}</span>`;
+  }).join('');
+
+  // Gols
+  const golsEst = parseFloat(p.golsEstimado);
+  const desvio = !isNaN(golsEst) ? +(ftGols - golsEst).toFixed(1) : null;
+  const golsColor = desvio == null ? 'var(--t1)'
+    : Math.abs(desvio) <= 0.5 ? 'var(--grn)'
+    : Math.abs(desvio) <= 1 ? 'var(--acc)'
+    : desvio > 0 ? 'var(--red)' : 'var(--blu)';
+  const desvioStr = desvio == null ? '' : ` (${desvio > 0 ? '+' : ''}${desvio})`;
+
+  // Resultado bars
+  const rCasa = p.probCasa || 0;
+  const rEmp  = p.probEmpate || 0;
+  const rFora = p.probFora || 0;
+  const resBars = `
+    <div class="res-bars">
+      <div class="res-bar-row ${ftRes==='casa'?'':''}">
+        <div class="res-bar-lbl">${(j.timeCasaNome||'Casa').split(' ')[0]}</div>
+        <div class="res-bar-bg"><div class="res-bar-fill" style="width:${rCasa}%;background:var(--grn)"></div></div>
+        <div class="res-bar-pct" style="color:var(--grn)">${rCasa}%</div>
+      </div>
+      <div class="res-bar-row">
+        <div class="res-bar-lbl">Empate</div>
+        <div class="res-bar-bg"><div class="res-bar-fill" style="width:${rEmp}%;background:var(--blu)"></div></div>
+        <div class="res-bar-pct" style="color:var(--blu)">${rEmp}%</div>
+      </div>
+      <div class="res-bar-row">
+        <div class="res-bar-lbl">${(j.timeForaNome||'Fora').split(' ')[0]}</div>
+        <div class="res-bar-bg"><div class="res-bar-fill" style="width:${rFora}%;background:var(--red)"></div></div>
+        <div class="res-bar-pct" style="color:var(--red)">${rFora}%</div>
+      </div>
+    </div>`;
+
+  // Stats do monitor (último snapshot)
+  let statsBlock = '';
+  if (m) {
+    const posC = m.posseCasa || 0, posF = m.posseFora || 0, posT = posC + posF || 100;
+    const alvT = (m.alvoCasa || 0) + (m.alvoFora || 0);
+    const chtT = (m.chutesCasa || 0) + (m.chutesFora || 0);
+    const escT = (m.escCasa || 0) + (m.escFora || 0);
+    const xgCstr = m.xgCasa != null ? m.xgCasa.toFixed(2) : '—';
+    const xgFstr = m.xgFora != null ? m.xgFora.toFixed(2) : '—';
+    statsBlock = `
+    <div class="stats-block">
+      <div class="pred-title">📸 Stats reais (min ${m.minuto || '?'})</div>
+      ${dualStat('Posse', posC, posF, posT, '%')}
+      ${dualStat('Chutes alvo', m.alvoCasa||0, m.alvoFora||0, alvT||10, '')}
+      ${dualStat('Chutes totais', m.chutesCasa||0, m.chutesFora||0, chtT||20, '')}
+      ${dualStat('Escanteios', m.escCasa||0, m.escFora||0, escT||12, '')}
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--t2);margin-top:4px">
+        <span>xG: <strong style="color:var(--grn)">${xgCstr}</strong> Casa</span>
+        <span>xG: <strong style="color:var(--red)">${xgFstr}</strong> Fora</span>
+      </div>
+      ${m.iyoCasa != null ? `<div style="font-size:9px;color:var(--t3);margin-top:3px">IYO Casa: ${m.iyoCasa?.toFixed(3)||'—'} · Fora: ${m.iyoFora?.toFixed(3)||'—'}</div>` : ''}
+    </div>`;
+  }
+
+  // Badges
+  const confColor = p.confianca==='alta'?'b-grn':p.confianca==='media'?'b-acc':p.confianca==='baixa'?'b-acc':'b-gray';
+  const ht1Match = htPlacar && top5[0]?.l === htPlacar;
+  const ft4Match = top5[3]?.l === ftPlacar;
+  const ftAnyIdx = top5.findIndex(x => x.l === ftPlacar);
+
+  // YS info
+  const ysStr = p.ysC != null ? `YS ${p.ysC?.toFixed(1)} vs ${p.ysF?.toFixed(1)}` : '';
+  const forcaStr = p.forca5C != null
+    ? `Força ${p.forca5C}(Mom${p.mom5C >= 0 ? '+' : ''}${p.mom5C}) vs ${p.forca5F}(Mom${p.mom5F >= 0 ? '+' : ''}${p.mom5F})`
+    : '';
+
+  // Alertas
+  const alertasHtml = (p.alertas||[]).map(a =>
+    `<span class="badge ${a.nivel==='alto'?'b-red':a.nivel==='medio'?'b-ora':'b-gray'}">${a.tipo}</span>`
+  ).join('');
+
+  const hora = j.dataJogo ? new Date(j.dataJogo).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '';
+
+  return `<div class="game-card ${cardClass}">
+    <div class="gc-header">
+      <span class="gc-liga">${j.liga || h.ligaNome || '—'}</span>
+      <span style="font-size:12px;font-weight:600">${j.timeCasaNome || h.casaNome || '?'} × ${j.timeForaNome || h.foraNome || '?'}</span>
+      ${ysStr ? `<span style="font-size:10px;color:var(--t2)">${ysStr}</span>` : ''}
+      ${forcaStr ? `<span style="font-size:10px;color:var(--t3)">${forcaStr}</span>` : ''}
+      <span class="gc-hora">${hora}</span>
+    </div>
+    <div style="padding:10px 14px">
+      <div class="scores-area">
+        <div class="team-block">
+          <div class="team-name">${j.timeCasaNome || '?'}</div>
+        </div>
+        <div class="score-center">
+          <div class="score-ft" style="color:${acertouRes?'var(--grn)':'var(--red)'}">${ftCasa} – ${ftFora}</div>
+          ${htPlacar ? `<div class="score-ht">HT ${htPlacar}</div>` : ''}
+        </div>
+        <div class="team-block away">
+          <div class="team-name">${j.timeForaNome || '?'}</div>
+        </div>
+      </div>
+
+      <div class="gc-body">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="pred-block">
+            <div class="pred-title">📊 Resultado previsto</div>
+            ${resBars}
+            <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+              <span class="badge ${acertouRes?'b-grn':'b-red'}">${acertouRes?'✓':'✗'} ${p.veredito} → ${ftRes}</span>
+              <span class="badge ${confColor}">${p.confianca}</span>
+            </div>
+          </div>
+
+          <div class="gols-block">
+            <div class="pred-title">⚽ Gols estimados vs real</div>
+            <div class="gols-compare">
+              <div class="gols-est">${p.golsEstimado || '—'}</div>
+              <div class="gols-arrow">→</div>
+              <div class="gols-real" style="color:${golsColor}">${ftGols}</div>
+              <div style="flex:1;padding-left:10px">
+                <div class="gols-desvio" style="color:${golsColor}">${desvioStr}</div>
+                ${p.golsRange ? `<div style="font-size:9px;color:var(--t3)">Faixa: ${p.golsRange}</div>` : ''}
+                ${p.over25 != null ? `<div style="font-size:9px;color:var(--t2)">O2.5 previsto: ${p.over25}%</div>` : ''}
+              </div>
+            </div>
+          </div>
+
+          <div class="pred-block">
+            <div class="pred-title">🎯 Placares previstos → ${ftPlacar} real</div>
+            <div class="placares-row">${placares || '<span style="font-size:10px;color:var(--t3)">sem dados</span>'}</div>
+            <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+              ${ht1Match ? '<span class="badge b-acc">🔶 1º=HT ✓</span>' : ''}
+              ${ft4Match ? '<span class="badge b-blu">4º=FT ✓</span>' : ''}
+              ${ftAnyIdx >= 0 && !ft4Match ? `<span class="badge b-grn">${ftAnyIdx+1}º=FT ✓</span>` : ''}
+              ${ftAnyIdx < 0 && top5.length ? '<span class="badge b-red">FT fora do top5</span>' : ''}
+              ${p.probBTTS != null ? `<span class="badge b-gray">BTTS ${p.probBTTS}%</span>` : ''}
+              ${p.probGoleada != null ? `<span class="badge b-gray">Goleada ${p.probGoleada}%</span>` : ''}
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${statsBlock}
+          ${!statsBlock ? `<div class="stats-block" style="opacity:.5"><div class="pred-title">📸 Stats do monitor</div><div style="font-size:11px;color:var(--t3)">Sem dados de monitor para este jogo.</div></div>` : ''}
+          ${alertasHtml ? `<div style="display:flex;gap:5px;flex-wrap:wrap">${alertasHtml}</div>` : ''}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function dualStat(label, vC, vF, total, unit) {
+  const t = total || 1;
+  const pC = Math.round(vC/t*100), pF = Math.round(vF/t*100);
+  return `<div class="dual-stat">
+    <div class="dual-stat-lbl">${label}</div>
+    <div class="dual-bar-track">
+      <div class="dual-bar-casa" style="width:${pC}%"></div>
+      <div class="dual-bar-fora" style="width:${pF}%"></div>
+    </div>
+    <div class="dual-nums">
+      <span style="color:var(--grn)">${vC}${unit}</span>
+      <span style="color:var(--red)">${vF}${unit}</span>
+    </div>
+  </div>`;
+}
+
+// ── ANÁLISE IA ────────────────────────────────────────────────────────────
+async function analisarIA() {
+  const btn = gc('btnIA');
+  btn.disabled = true;
+  btn.textContent = '⏳ Analisando...';
+  gc('iaSection').style.display = 'block';
+  const panel = gc('aiPanel');
+  panel.querySelector('.ai-panel-title').innerHTML = '<div class="ai-dot" style="animation:blink .7s infinite alternate"></div> Analisando com IA...';
+  gc('aiText').textContent = 'Processando os dados...';
+
+  const jj = JOGOS_DATA;
+  const stats = calcStats(jj);
+
+  const linhas = jj.map(j => {
+    const p = j.previsao || {}, h = j.hist || {}, m = j.mon;
+    const ft = `${h.golsCasa}-${h.golsFora}`, ht = h.htCasa != null ? `${h.htCasa}-${h.htFora}` : '?';
+    const top5 = (p.top5Placares||[]).map((x,i) => `${i+1}:${x.l}(${x.p}%)`).join(' ');
+    const ht1 = (p.top5Placares||[])[0]?.l === ht;
+    const ft4 = (p.top5Placares||[])[3]?.l === ft;
+    const ftAny = (p.top5Placares||[]).findIndex(x => x.l === ft);
+    const monStr = m ? `posse:${m.posseCasa}%/${m.posseFora}% alvos:${m.alvoCasa||0}/${m.alvoFora||0} xg:${m.xgCasa?.toFixed(2)||'?'}/${m.xgFora?.toFixed(2)||'?'}` : 'sem_monitor';
+    return `${j.liga}|${j.timeCasaNome}×${j.timeForaNome}|HT:${ht}|FT:${ft}|GolsEst:${p.golsEstimado}→Real:${h.totalGols}|Veredito:${p.veredito}→${h.resultado}(${p.veredito===h.resultado?'✓':'✗'})|Conf:${p.confianca}|YS:${p.ysC?.toFixed(1)}vs${p.ysF?.toFixed(1)}|Força:${p.forca5C}(mom${p.mom5C})vs${p.forca5F}(mom${p.mom5F})|Placares:[${top5}]|1ºHT:${ht1}|4ºFT:${ft4}|FTpos:${ftAny+1||'fora'}|${monStr}`;
+  }).join('\n');
+
+  const prompt = `Você é especialista em calibração de algoritmos de previsão esportiva. Analise as previsões do dia ${DATA_ATUAL}:
+
+RESUMO:
+- ${stats.n} jogos com resultado real
+- Acerto resultado: ${stats.acertos}/${stats.n} (${Math.round(stats.acertos/stats.n*100)}%)
+- Gols ±1: ${stats.golsOk}/${stats.comGols} (${stats.comGols?Math.round(stats.golsOk/stats.comGols*100)+'%':'—'})
+- Desvio médio gols: ${stats.desvioMed}
+- 1º placar previsto = HT real: ${stats.ht1}/${stats.comHT}
+- 4º placar previsto = FT real: ${stats.ft4}/${stats.n}
+- Algum dos 5 = FT real: ${stats.ftAny}/${stats.n}
+
+DADOS INDIVIDUAIS:
+${linhas}
+
+ANÁLISE PEDIDA:
+1. PADRÃO 1º=HT: confirme ou refute com os dados acima. O 1º placar previsto (Poisson mais provável) coincide com o placar do 1T? Em quantos casos? Explique o mecanismo matemático.
+
+2. PADRÃO 4º=FT: o 4º placar mais provável coincide com o FT real? Com que frequência? Por quê matematicamente isso ocorreria?
+
+3. GOLS: quais contextos estão gerando erros maiores (superestimação/subestimação)? Correlacione com YS, momentum, xG real vs estimado.
+
+4. STATS DO MONITOR vs PREVISÃO: onde as stats reais do jogo divergem mais do esperado? Isso explica algum erro?
+
+5. CALIBRAÇÃO: sugira 3 ajustes concretos e numéricos para melhorar. Seja específico (ex: "quando xG real no HT < 0.5 e estimativa > 2.5, reduzir expected em 30%").
+
+Responda em português, com base estritamente nos dados fornecidos.`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514', max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await resp.json();
+    const txt = data.content?.map(b => b.text||'').join('') || 'Sem resposta';
+    panel.querySelector('.ai-panel-title').innerHTML = '<div class="ai-dot"></div> Análise IA — ' + DATA_ATUAL;
+    gc('aiText').innerHTML = formatText(txt);
+  } catch(e) {
+    gc('aiText').textContent = 'Erro: ' + e.message;
+  }
+  btn.disabled = false; btn.textContent = '✦ Analisar com IA';
+}
+
+function calcStats(jj) {
+  const n = jj.length;
+  const acertos = jj.filter(j => j.previsao?.veredito === j.hist?.resultado).length;
+  const comGols = jj.filter(j => j.previsao?.golsEstimado && j.hist?.totalGols != null);
+  const golsOk = comGols.filter(j => Math.abs(j.hist.totalGols - parseFloat(j.previsao.golsEstimado)) <= 1).length;
+  const desvioMed = comGols.length
+    ? (comGols.reduce((a,j) => a + (j.hist.totalGols - parseFloat(j.previsao.golsEstimado)), 0) / comGols.length).toFixed(2)
+    : null;
+  const comHT = jj.filter(j => j.hist?.htCasa != null && j.previsao?.top5Placares?.length);
+  const ht1 = comHT.filter(j => j.previsao.top5Placares[0]?.l === `${j.hist.htCasa}-${j.hist.htFora}`).length;
+  const ft4 = jj.filter(j => j.hist && j.previsao?.top5Placares?.length >= 4 && j.previsao.top5Placares[3]?.l === `${j.hist.golsCasa}-${j.hist.golsFora}`).length;
+  const ftAny = jj.filter(j => j.hist && (j.previsao?.top5Placares||[]).some(x => x.l === `${j.hist.golsCasa}-${j.hist.golsFora}`)).length;
+  return { n, acertos, comGols: comGols.length, golsOk, desvioMed, comHT: comHT.length, ht1, ft4, ftAny };
+}
+
+function formatText(txt) {
+  return txt
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+}
+</script>
+</body>
+</html>
