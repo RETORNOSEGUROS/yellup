@@ -656,6 +656,11 @@ function renderTabela() {
     ${th('CartC','sep')} ${th('CartF')}
     ${th('xGCasa','sep')} ${th('xGFora')}
     ${th('IYOCasa','sep')} ${th('IYOFora')}
+    ${th('AP/min C','sep')} ${th('AP/min F')}
+    ${th('Pas/min C','sep')} ${th('Pas/min F')}
+    ${th('PasPrec C','sep')} ${th('PasPrec F')}
+    ${th('Prec%C','sep')} ${th('Prec%F')}
+    ${th('AP/PasP C','sep')} ${th('AP/PasP F')}
   </tr>`;
 
   if (!pagina.length) {
@@ -698,6 +703,44 @@ function renderTabela() {
     // AP estimado
     const apSuf = r.apEstimado ? '~' : '';
 
+    // Métricas por minuto (usar minuto real do registro)
+    const min = r.minuto || 1;
+
+    // AP por minuto
+    const apMinC = r.apCasa != null ? (r.apCasa / min).toFixed(3) : '—';
+    const apMinF = r.apFora != null ? (r.apFora / min).toFixed(3) : '—';
+
+    // Passes por minuto
+    const pasMinC = r.passesCasa != null ? (r.passesCasa / min).toFixed(2) : '—';
+    const pasMinF = r.passesFora != null ? (r.passesFora / min).toFixed(2) : '—';
+
+    // Passes precisos por minuto
+    // passosErradosCasa = passes - acertos, então acertos = passes - errados
+    const pasAcertC = r.passesCasa != null && r.passosErradosCasa != null
+      ? r.passesCasa - r.passosErradosCasa : null;
+    const pasAcertF = r.passesFora != null && r.passosErradosFora != null
+      ? r.passesFora - r.passosErradosFora : null;
+    const pasPrecMinC = pasAcertC != null ? (pasAcertC / min).toFixed(2) : '—';
+    const pasPrecMinF = pasAcertF != null ? (pasAcertF / min).toFixed(2) : '—';
+
+    // Percentual de precisão de passes
+    const precPctC = r.passesCasa > 0 && pasAcertC != null
+      ? ((pasAcertC / r.passesCasa) * 100).toFixed(1) + '%' : '—';
+    const precPctF = r.passesFora > 0 && pasAcertF != null
+      ? ((pasAcertF / r.passesFora) * 100).toFixed(1) + '%' : '—';
+
+    // AP/min ÷ PassesPrecisos/min = índice de pressão qualificada
+    // Quando > 0.9 indica tendência de gol
+    const apPasC = pasAcertC != null && pasAcertC > 0 && r.apCasa != null
+      ? r.apCasa / pasAcertC : null;
+    const apPasF = pasAcertF != null && pasAcertF > 0 && r.apFora != null
+      ? r.apFora / pasAcertF : null;
+    const apPasCstr = apPasC != null ? apPasC.toFixed(3) : '—';
+    const apPasFstr = apPasF != null ? apPasF.toFixed(3) : '—';
+    // Destacar quando acima de 0.09 (mesma lógica do IYO mas threshold diferente)
+    const apPasCcls = apPasC != null && apPasC >= 0.09 ? 'iyo-hot' : 'home';
+    const apPasFcls = apPasF != null && apPasF >= 0.09 ? 'iyo-hot' : 'away';
+
     return `<tr class="${isNewGame ? 'new-game' : ''}">
       <td class="left bold">${r.minutoLabel||r.minuto}'</td>
       <td class="left" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;color:var(--t1)">${casa} × ${fora}</td>
@@ -724,6 +767,16 @@ function renderTabela() {
       <td class="away">${fp(r.xgFora)}</td>
       <td class="sep ${iyoCls(r.iyoCasa)}" style="text-align:right">${fp(r.iyoCasa,3)}</td>
       <td class="${iyoCls(r.iyoFora)}">${fp(r.iyoFora,3)}</td>
+      <td class="home sep">${apMinC}</td>
+      <td class="away">${apMinF}</td>
+      <td class="home sep">${pasMinC}</td>
+      <td class="away">${pasMinF}</td>
+      <td class="home sep">${pasPrecMinC}</td>
+      <td class="away">${pasPrecMinF}</td>
+      <td class="home sep">${precPctC}</td>
+      <td class="away">${precPctF}</td>
+      <td class="sep ${apPasCcls}">${apPasCstr}</td>
+      <td class="${apPasFcls}">${apPasFstr}</td>
     </tr>`;
   }).join('');
 
