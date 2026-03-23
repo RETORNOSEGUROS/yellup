@@ -341,40 +341,88 @@ function setLoad(msg, sub='') {
 }
 
 // ── BUSCAR PREVISÕES ──────────────────────────────────────────────────────
+// Estratégia: jogos-admin (allow read: true) como pivot para obter fixtureIds do dia,
+// depois busca previsoes por fixtureId individual (evita range query + índice composto)
 async function buscarPrevisoes(data) {
-  // A previsão é salva com dataJogo como ISO — filtrar pelo dia BRT
-  const dataInicio = new Date(data + 'T00:00:00-03:00');
-  const dataFim    = new Date(data + 'T23:59:59-03:00');
+  // PASSO 1 — pegar fixtureIds do dia via jogos-admin (sem permissão especial)
+  const camposDatas = ['dataBRT', 'data', 'dataJogo'];
+  let fixtureIds = [];
 
-  const snap = await db.collection('previsoes')
-    .where('dataJogo', '>=', dataInicio.toISOString())
-    .where('dataJogo', '<=', dataFim.toISOString())
-    .limit(100).get();
-
-  // Fallback: buscar por campo dataJogoBRT se existir
-  let docs = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
-
-  if (!docs.length) {
-    // Tenta com campo data string
-    const snap2 = await db.collection('previsoes')
-      .where('dataJogoBRT', '==', data)
-      .limit(100).get();
-    docs = snap2.docs.map(d => ({ _id: d.id, ...d.data() }));
+  for (const campo of camposDatas) {
+    try {
+      const snap = await db.collection('jogos-admin')
+        .where(campo, '==', data).limit(100).get();
+      if (!snap.empty) {
+        fixtureIds = snap.docs
+          .map(d => d.data().apiFootballId || d.data().apiFixtureId || d.data().fixtureId)
+          .filter(Boolean).map(Number);
+        setLoad(`${fixtureIds.length} jogos encontrados no dia (campo: ${campo})...`);
+        break;
+      }
+    } catch(e) { /* tenta próximo campo */ }
   }
 
-  if (!docs.length) {
-    // Último fallback: buscar por fixtureId nos jogos-admin do dia
-    const jogosSnap = await db.collection('jogos-admin')
-      .where('dataBRT', '==', data).limit(100).get();
-    const ids = jogosSnap.docs.map(d => d.data().apiFootballId || d.data().apiFixtureId).filter(Boolean);
-    if (ids.length) {
-      const prevSnaps = await Promise.all(
-        ids.slice(0,30).map(id => db.collection('previsoes')
-          .where('fixtureId', '==', Number(id)).orderBy('criadoEm', 'desc').limit(1).get()
-          .catch(() => ({ docs: [] })))
-      );
-      prevSnaps.forEach(s => s.docs.forEach(d => docs.push({ _id: d.id, ...d.data() })));
+  // PASSO 2 — se não achou por data, tentar busca por status encerrado + data ISO range
+  if (!fixtureIds.length) {
+    try {
+      const ini = new Date(data + 'T03:00:00Z'); // midnight BRT = 03:00 UTC
+      const fim = new Date(data + 'T26:59:59Z'); // ~midnight próximo dia BRT
+      const snap = await db.collection('jogos-admin')
+        .where('status', '==', 'encerrado')
+        .where('dataInicio', '>=', ini)
+        .where('dataInicio', '<=', fim)
+        .limit(100).get();
+      fixtureIds = snap.docs
+        .map(d => d.data().apiFootballId || d.data().apiFixtureId)
+        .filter(Boolean).map(Number);
+    } catch(e) { /* sem índice */ }
+  }
+
+  if (!fixtureIds.length) {
+    throw new Error(`Nenhum jogo encontrado em jogos-admin para ${data}. Verifique se o campo data está como "dataBRT".`);
+  }
+
+  // PASSO 3 — buscar previsão de cada fixtureId individualmente (leitura direta, sem range)
+  // REQUER que previsoes/{docId} tenha allow read: if isAdmin() nas Firestore Rules
+  const docs = [];
+  const unique = [...new Set(fixtureIds)];
+
+  // Tenta primeiro busca em lote com 'in' (máx 10 por vez)
+  let usouIn = false;
+  for (let i = 0; i < unique.length; i += 10) {
+    const chunk = unique.slice(i, i + 10);
+    try {
+      const snap = await db.collection('previsoes')
+        .where('fixtureId', 'in', chunk).get();
+      // Se múltiplas previsões por fixture (re-análises), pegar a mais recente
+      const porFixture = {};
+      snap.docs.forEach(d => {
+        const fd = d.data();
+        const fid = String(fd.fixtureId);
+        if (!porFixture[fid] || (fd.criadoEm > (porFixture[fid].criadoEm || ''))) {
+          porFixture[fid] = { _id: d.id, ...fd };
+        }
+      });
+      Object.values(porFixture).forEach(d => docs.push(d));
+      usouIn = true;
+    } catch(e) {
+      // 'in' falhou (sem permissão ou índice) — tenta um por um
+      usouIn = false;
+      break;
     }
+  }
+
+  // Fallback: buscar um por um se 'in' falhou
+  if (!usouIn) {
+    const snaps = await Promise.all(
+      unique.slice(0, 40).map(id =>
+        db.collection('previsoes').doc(String(id)).get()
+          .catch(() => null)
+      )
+    );
+    snaps.forEach(s => {
+      if (s && s.exists) docs.push({ _id: s.id, ...s.data() });
+    });
   }
 
   return docs;
