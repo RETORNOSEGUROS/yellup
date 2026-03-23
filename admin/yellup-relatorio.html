@@ -293,46 +293,148 @@ async function carregarRelatorio() {
     <div class="load-txt" id="ldSub">aguarde</div>
   </div>`;
 
+  // Cada etapa é independente — falha individual não bloqueia as demais
   try {
-    // PASSO 1 — jogos + previsões
-    setLoad('Buscando jogos e previsões...', DATA_ATUAL);
-    const previsoes = await buscarPrevisoes(DATA_ATUAL);
-    if (!previsoes.length) {
-      gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">🔍</div><p>Nenhum jogo encontrado para ${fmtData(DATA_ATUAL)}</p></div>`;
+
+    // ── ETAPA 1: jogos do dia via jogos-admin (Timestamp range, igual apostas.html) ──
+    setLoad('Buscando jogos do dia...', DATA_ATUAL);
+    const dtAlvo   = new Date(DATA_ATUAL + 'T12:00:00');
+    const dtIni    = new Date(dtAlvo); dtIni.setDate(dtIni.getDate() - 1);
+    const dtFim    = new Date(dtAlvo); dtFim.setDate(dtFim.getDate() + 1);
+
+    let jogosAdmin = [];
+    try {
+      const snap = await db.collection('jogos-admin')
+        .orderBy('dataInicio', 'asc')
+        .startAt(firebase.firestore.Timestamp.fromDate(dtIni))
+        .endAt(firebase.firestore.Timestamp.fromDate(dtFim))
+        .limit(300).get();
+
+      jogosAdmin = snap.docs.map(d => ({ _docId: d.id, ...d.data() })).filter(j => {
+        if (!j.dataInicio) return false;
+        const dt = j.dataInicio.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio);
+        return toBRT(dt) === DATA_ATUAL;
+      });
+      console.log('[1] jogos-admin:', jogosAdmin.length, 'para', DATA_ATUAL);
+    } catch(e1) {
+      console.error('[1] jogos-admin falhou:', e1.message, e1.code);
+    }
+
+    if (!jogosAdmin.length) {
+      gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">📅</div>
+        <p>Nenhum jogo em jogos-admin para ${fmtData(DATA_ATUAL)}</p>
+        <p style="font-size:11px;color:var(--t3);margin-top:8px">Verifique o console (F12) para detalhes do erro.</p></div>`;
       btn.disabled = false; btn.textContent = '⚡ Carregar'; return;
     }
 
-    const comPrevisao = previsoes.filter(p => !p._semPrevisao).length;
-    setLoad(`${previsoes.length} jogos · ${comPrevisao} com previsão — buscando resultados...`);
+    // ── ETAPA 2: fixtureIds e mapa de dados ──
+    const fixtureIds = [...new Set(
+      jogosAdmin.map(j => j.apiFootballId || j.apiFixtureId || j.fixtureId).filter(Boolean).map(Number)
+    )];
+    const jogoMap = {};
+    jogosAdmin.forEach(j => {
+      const fid = j.apiFootballId || j.apiFixtureId || j.fixtureId;
+      if (fid) jogoMap[String(fid)] = j;
+    });
+    console.log('[2] fixtureIds:', fixtureIds.length, fixtureIds.slice(0,5));
 
-    // PASSO 2 — resultados reais (fixtures-historico)
-    const fixtureIds = previsoes.map(p => p.fixtureId).filter(Boolean);
-    const historico = await buscarHistorico(fixtureIds);
-    const nHist = Object.keys(historico).length;
-    setLoad(`${nHist} resultados encontrados — buscando stats monitor...`);
+    // ── ETAPA 3: previsões (pode falhar se regra não adicionada) ──
+    setLoad(`${jogosAdmin.length} jogos encontrados — buscando previsões...`);
+    const previsaoMap = {};
+    if (fixtureIds.length) {
+      for (let i = 0; i < fixtureIds.length; i += 10) {
+        const chunk = fixtureIds.slice(i, i + 10);
+        if (!chunk.length) continue;
+        try {
+          const snap = await db.collection('previsoes')
+            .where('fixtureId', 'in', chunk).get();
+          snap.docs.forEach(d => {
+            const fd = d.data();
+            const fid = String(fd.fixtureId);
+            const ts = fd.criadoEm?.seconds || 0;
+            if (!previsaoMap[fid] || ts > (previsaoMap[fid]._ts || 0)) {
+              previsaoMap[fid] = { _id: d.id, _ts: ts, ...fd };
+            }
+          });
+        } catch(e3) {
+          console.warn('[3] previsoes chunk falhou:', e3.message, '| código:', e3.code);
+          // Se for 403/permission, avisar no console
+          if (e3.code === 'permission-denied' || e3.message?.includes('permission') || e3.message?.includes('Missing')) {
+            console.error('[3] AÇÃO NECESSÁRIA: adicione nas Firestore Rules:
+match /previsoes/{docId} {
+  allow read: if isAdmin();
+  allow write: if isAdmin();
+}');
+          }
+          break; // não tentar mais chunks se falhou
+        }
+      }
+    }
+    console.log('[3] previsões encontradas:', Object.keys(previsaoMap).length);
 
-    // PASSO 3 — stats do monitor (opcional, não bloqueia)
-    const monitStats = await buscarMonitorStats(fixtureIds);
+    // ── ETAPA 4: resultados reais (fixtures-historico) ──
+    setLoad('Buscando resultados reais...');
+    const historicoMap = {};
+    for (let i = 0; i < fixtureIds.length; i += 10) {
+      const chunk = fixtureIds.slice(i, i + 10).filter(n => !isNaN(n));
+      if (!chunk.length) continue;
+      try {
+        const snap = await db.collection('fixtures-historico')
+          .where('fixtureId', 'in', chunk).get();
+        snap.docs.forEach(d => {
+          const fd = d.data();
+          historicoMap[String(fd.fixtureId)] = fd;
+        });
+      } catch(e4) {
+        console.warn('[4] fixtures-historico chunk falhou:', e4.message);
+        break;
+      }
+    }
+    console.log('[4] fixtures-historico encontrados:', Object.keys(historicoMap).length);
 
-    // PASSO 4 — cruzar tudo
-    // NÃO filtra por hist — mostra todos os jogos, marcando os sem resultado
-    JOGOS_DATA = previsoes.map(p => {
-      const fid = String(p.fixtureId);
-      return { ...p, hist: historico[fid] || null, mon: monitStats[fid] || null };
+    // ── ETAPA 5: stats monitor ──
+    setLoad('Buscando stats monitor...');
+    const monitorMap = {};
+    for (const fid of fixtureIds.slice(0, 30)) {
+      try {
+        const snap = await db.collection('monitor-minutos')
+          .where('fixtureId', '==', fid)
+          .orderBy('minuto', 'desc').limit(1).get();
+        if (!snap.empty) monitorMap[String(fid)] = snap.docs[0].data();
+      } catch(e5) { /* silencioso */ }
+    }
+    console.log('[5] monitor stats:', Object.keys(monitorMap).length);
+
+    // ── ETAPA 6: montar JOGOS_DATA com todos os jogos do dia ──
+    JOGOS_DATA = fixtureIds.map(fid => {
+      const fidStr = String(fid);
+      const jogo   = jogoMap[fidStr] || {};
+      const prev   = previsaoMap[fidStr] || null;
+      const hist   = historicoMap[fidStr] || null;
+      const mon    = monitorMap[fidStr] || null;
+      return {
+        fixtureId:    fid,
+        _semPrevisao: !prev,
+        timeCasaNome: jogo.timeCasa?.nome || jogo.casaNome || prev?.timeCasaNome || '?',
+        timeForaNome: jogo.timeFora?.nome || jogo.foraNome || prev?.timeForaNome || '?',
+        liga:         jogo.liga?.nome || jogo.ligaNome || prev?.liga || '',
+        dataJogo:     jogo.dataInicio?.toDate ? jogo.dataInicio.toDate().toISOString() : prev?.dataJogo || null,
+        previsao:     prev ? (prev.previsao || prev) : null,
+        hist, mon,
+      };
     });
 
-    // Diagnóstico no console para debug
-    console.log('[Relatório] jogos:', JOGOS_DATA.length,
-      '| com previsão:', JOGOS_DATA.filter(j=>!j._semPrevisao).length,
-      '| com hist:', JOGOS_DATA.filter(j=>j.hist).length,
-      '| com monitor:', JOGOS_DATA.filter(j=>j.mon).length);
+    console.log('[6] JOGOS_DATA:', JOGOS_DATA.length,
+      '| c/previsão:', JOGOS_DATA.filter(j=>!j._semPrevisao).length,
+      '| c/hist:', JOGOS_DATA.filter(j=>j.hist).length,
+      '| c/monitor:', JOGOS_DATA.filter(j=>j.mon).length);
 
     if (!JOGOS_DATA.length) {
-      gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">📭</div><p>Nenhum dado para ${fmtData(DATA_ATUAL)}</p></div>`;
+      gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">📭</div><p>Nenhum dado processado.</p></div>`;
       btn.disabled = false; btn.textContent = '⚡ Carregar'; return;
     }
 
-    // PASSO 5 — render
+    // ── ETAPA 7: render ──
     renderSummary();
     renderJogos();
     gc('sumbar').style.display = 'flex';
@@ -340,8 +442,10 @@ async function carregarRelatorio() {
     gc('btnIA').style.display = 'flex';
 
   } catch(e) {
-    console.error('[Relatório] Erro:', e);
-    gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">⚠️</div><p><strong>Erro:</strong> ${e.message}</p><p style="font-size:11px;color:var(--t3);margin-top:8px">Abra o console (F12) para detalhes.</p></div>`;
+    console.error('[Relatório] Erro geral:', e);
+    gc('mainContent').innerHTML = `<div class="empty"><div class="empty-ico">⚠️</div>
+      <p><strong>Erro:</strong> ${e.message}</p>
+      <p style="font-size:11px;color:var(--t3);margin-top:8px">Abra o console (F12) para ver detalhes completos.</p></div>`;
   }
   btn.disabled = false; btn.textContent = '⚡ Carregar';
 }
