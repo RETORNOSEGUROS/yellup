@@ -923,6 +923,14 @@ async function buscarPerfilTime(apiId) {
   }
 }
 
+// Wrapper com timeout — garante que nenhuma fonte trava a análise
+function comTimeout(promise, ms, fallback = null) {
+  return Promise.race([
+    promise.catch(() => fallback),
+    new Promise(res => setTimeout(() => res(fallback), ms))
+  ]);
+}
+
 async function analisarJogo(j) {
   const casaId = j.timeCasa?.apiId || j.timeCasa?.id;
   const foraId = j.timeFora?.apiId || j.timeFora?.id;
@@ -930,17 +938,18 @@ async function analisarJogo(j) {
     return { resultado: base5050(), gols: golsDefault(), confianca: 'insuficiente', explicacoes: ['IDs de time não encontrados'], fontes: [] };
   }
 
-  // v2: buscar também odds pré-jogo (Bet365) em paralelo
   const fixtureId = j.apiFootballId || j.apiFixtureId || j.id;
+
+  // Tudo em paralelo com timeout individual — análise nunca trava
   const [histCasa, histFora, ctxCasa, ctxFora, ctxGlobal, perfilCasaRes, perfilForaRes, oddsRes] = await Promise.allSettled([
-    fns.httpsCallable('buscarHistoricoTime')({ teamId: casaId, limit: 30 }).then(r => r.data),
-    fns.httpsCallable('buscarHistoricoTime')({ teamId: foraId, limit: 30 }).then(r => r.data),
-    fns.httpsCallable('buscarContextoGol')({ timeId: String(casaId), situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'casa', forcaAdversario: 'medio' }).then(r => r.data).catch(() => null),
-    fns.httpsCallable('buscarContextoGol')({ timeId: String(foraId), situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'fora', forcaAdversario: 'medio' }).then(r => r.data).catch(() => null),
-    fns.httpsCallable('buscarContextoGlobal')({ situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'casa', forcaAdversario: 'medio' }).then(r => r.data).catch(() => null),
-    buscarPerfilTime(casaId),
-    buscarPerfilTime(foraId),
-    buscarOddsPreJogo(fixtureId), // v2: odds Bet365
+    comTimeout(fns.httpsCallable('buscarHistoricoTime')({ teamId: casaId, limit: 30 }).then(r => r.data), 6000),
+    comTimeout(fns.httpsCallable('buscarHistoricoTime')({ teamId: foraId, limit: 30 }).then(r => r.data), 6000),
+    comTimeout(fns.httpsCallable('buscarContextoGol')({ timeId: String(casaId), situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'casa', forcaAdversario: 'medio' }).then(r => r.data), 5000),
+    comTimeout(fns.httpsCallable('buscarContextoGol')({ timeId: String(foraId), situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'fora', forcaAdversario: 'medio' }).then(r => r.data), 5000),
+    comTimeout(fns.httpsCallable('buscarContextoGlobal')({ situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'casa', forcaAdversario: 'medio' }).then(r => r.data), 5000),
+    comTimeout(buscarPerfilTime(casaId), 4000),
+    comTimeout(buscarPerfilTime(foraId), 4000),
+    comTimeout(buscarOddsPreJogo(fixtureId), 4000),
   ]);
 
   const hC = histCasa.status === 'fulfilled' ? histCasa.value : null;
