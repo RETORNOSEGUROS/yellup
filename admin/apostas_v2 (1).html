@@ -1,0 +1,2889 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yellup · Previsões</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0B0D15;--bg2:#131622;--bg3:#1A1D2E;--brd:#252840;
+  --acc:#F5A524;--grn:#27D49B;--blu:#4F96F4;--red:#EF5F5F;--pur:#A78BFA;
+  --t1:#F0F2FF;--t2:#858BA5;--t3:#4A4F6A;
+}
+body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-serif;min-height:100vh}
+
+/* ── HEADER ── */
+.header{background:var(--bg2);border-bottom:1px solid var(--brd);padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:100}
+.header-logo{font-size:20px;font-weight:800;color:var(--acc);letter-spacing:-0.5px}
+.header-title{font-size:14px;color:var(--t2)}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.btn-back{background:var(--bg3);border:1px solid var(--brd);color:var(--t2);padding:6px 14px;border-radius:8px;font-size:12px;cursor:pointer;text-decoration:none;display:flex;align-items:center;gap:6px}
+.btn-back:hover{color:var(--t1);border-color:var(--acc)}
+
+/* ── TOOLBAR ── */
+.toolbar{padding:16px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--brd)}
+.date-nav{display:flex;align-items:center;gap:8px}
+.date-btn{background:var(--bg3);border:1px solid var(--brd);color:var(--t2);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.date-btn:hover{border-color:var(--acc);color:var(--acc)}
+.date-display{background:var(--bg3);border:1px solid var(--brd);padding:6px 16px;border-radius:8px;font-size:13px;font-weight:600;color:var(--t1);min-width:130px;text-align:center}
+.btn-analisar{background:var(--acc);color:#000;border:none;padding:8px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px}
+.btn-analisar:hover{opacity:.9}
+.btn-analisar:disabled{opacity:.5;cursor:not-allowed}
+.filtro-liga{background:var(--bg3);border:1px solid var(--brd);color:var(--t1);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer}
+.status-bar{margin-left:auto;font-size:12px;color:var(--t2);display:flex;align-items:center;gap:8px}
+.dot-spin{width:8px;height:8px;border-radius:50%;background:var(--acc);animation:spin .8s linear infinite}
+@keyframes spin{0%{opacity:1}50%{opacity:.2}100%{opacity:1}}
+
+/* ── RESUMO TOPO ── */
+.resumo-bar{padding:12px 24px;display:flex;gap:24px;border-bottom:1px solid var(--brd);background:var(--bg2)}
+.resumo-item{text-align:center}
+.resumo-num{font-size:20px;font-weight:700}
+.resumo-label{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px}
+
+/* ── GRID DE JOGOS ── */
+.jogos-grid{padding:20px 24px;display:flex;flex-direction:column;gap:12px;max-width:1100px;margin:0 auto}
+
+/* ── CARD DE JOGO ── */
+.jogo-card{background:var(--bg2);border:1px solid var(--brd);border-radius:14px;overflow:hidden;transition:border-color .2s}
+.jogo-card:hover{border-color:var(--acc)}
+.jogo-card.loading{opacity:.7}
+.jogo-card.analisado{border-color:var(--brd)}
+
+.card-header{padding:12px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--brd)}
+.card-liga{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px}
+.card-hora{font-size:12px;color:var(--t3);margin-left:auto}
+.card-status-badge{font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600}
+.badge-agendado{background:rgba(79,150,244,.15);color:var(--blu)}
+.badge-ao_vivo{background:rgba(239,95,95,.2);color:var(--red);animation:pulse 1.5s infinite}
+.badge-encerrado{background:rgba(133,139,165,.1);color:var(--t2)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+.card-body{padding:16px}
+.times-row{display:flex;align-items:center;gap:12px}
+.time-info{flex:1;display:flex;flex-direction:column;gap:4px}
+.time-info.fora{align-items:flex-end}
+.time-escudo{width:36px;height:36px;object-fit:contain}
+.time-nome{font-size:14px;font-weight:600}
+.time-forma{display:flex;gap:3px}
+.forma-dot{width:14px;height:14px;border-radius:50%;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.forma-V{background:rgba(39,212,155,.2);color:var(--grn)}
+.forma-E{background:rgba(79,150,244,.2);color:var(--blu)}
+.forma-D{background:rgba(239,95,95,.2);color:var(--red)}
+
+.vs-area{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px}
+.vs-placar{font-size:22px;font-weight:800;letter-spacing:2px}
+.vs-label{font-size:10px;color:var(--t3)}
+
+/* ── PREVISÃO ── */
+.previsao-area{margin-top:14px;padding-top:14px;border-top:1px solid var(--brd);display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.prev-bloco{background:var(--bg3);border-radius:10px;padding:12px 14px}
+.prev-titulo{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+
+/* Resultado */
+.resultado-bars{display:flex;flex-direction:column;gap:6px}
+.res-item{display:flex;align-items:center;gap:8px}
+.res-label{font-size:11px;color:var(--t2);width:80px}
+.res-bar-wrap{flex:1;height:6px;background:var(--brd);border-radius:3px;overflow:hidden}
+.res-bar-fill{height:100%;border-radius:3px;transition:width 1s cubic-bezier(.4,0,.2,1)}
+.res-pct{font-size:12px;font-weight:700;min-width:36px;text-align:right}
+.res-item.destaque .res-label{color:var(--t1);font-weight:600}
+.res-item.destaque .res-pct{color:var(--acc)}
+
+/* Gols */
+.gols-display{display:flex;align-items:center;gap:12px}
+.gols-num{font-size:32px;font-weight:800;color:var(--acc)}
+.gols-info{display:flex;flex-direction:column;gap:2px}
+.gols-range{font-size:11px;color:var(--t2)}
+.gols-tendencia{font-size:11px;font-weight:600}
+.tend-alto{color:var(--red)}
+.tend-medio{color:var(--acc)}
+.tend-baixo{color:var(--grn)}
+
+/* Previsão veredito */
+.veredito{margin-top:10px;padding:8px 12px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:8px}
+.veredito-home{background:rgba(39,212,155,.1);border-left:3px solid var(--grn)}
+.veredito-draw{background:rgba(79,150,244,.1);border-left:3px solid var(--blu)}
+.veredito-away{background:rgba(239,95,95,.1);border-left:3px solid var(--red)}
+.veredito-icon{font-size:16px}
+.veredito-text{color:var(--t1);font-weight:600}
+.veredito-conf{margin-left:auto;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600}
+.conf-alta{background:rgba(39,212,155,.2);color:var(--grn)}
+.conf-media{background:rgba(245,165,36,.2);color:var(--acc)}
+.conf-baixa{background:rgba(133,139,165,.2);color:var(--t2)}
+.conf-insuficiente{background:rgba(133,139,165,.1);color:var(--t3)}
+
+/* Explicação */
+.explicacao{margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.exp-item{font-size:11px;color:var(--t2);display:flex;align-items:flex-start;gap:6px;line-height:1.4}
+.exp-item::before{content:"•";color:var(--acc);flex-shrink:0;margin-top:1px}
+
+/* Fontes mini */
+.fontes-mini{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.fonte-tag{font-size:9px;padding:2px 6px;border-radius:4px;background:var(--bg);color:var(--t3);border:1px solid var(--brd)}
+.fonte-tag.ativa{color:var(--grn);border-color:rgba(39,212,155,.3)}
+
+/* Loading state */
+.prev-loading{display:flex;align-items:center;gap:8px;color:var(--t2);font-size:12px;padding:8px 0}
+.prev-loading::before{content:"";width:12px;height:12px;border:2px solid var(--brd);border-top-color:var(--acc);border-radius:50%;animation:rotate .8s linear infinite;flex-shrink:0}
+@keyframes rotate{to{transform:rotate(360deg)}}
+
+/* Sem dados */
+.sem-dados{color:var(--t3);font-size:12px;padding:8px 0;display:flex;align-items:center;gap:6px}
+
+/* Empty state */
+.empty-state{text-align:center;padding:60px 20px;color:var(--t2)}
+.empty-state .icon{font-size:48px;margin-bottom:12px}
+.empty-state p{font-size:14px}
+
+/* Acurácia rodapé */
+.acuracia-footer{margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between}
+.ac-label{font-size:10px;color:var(--t3)}
+.ac-valor{font-size:12px;font-weight:700}
+
+@media(max-width:640px){
+  .previsao-area{grid-template-columns:1fr}
+  .toolbar{gap:8px}
+}
+
+/* ── SIMULADOR ── */
+.sim-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.sim-card{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:16px}
+.sim-title{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.sim-table{width:100%;border-collapse:collapse;font-size:12px}
+.sim-table th{color:var(--t2);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--brd);text-align:left}
+.sim-table td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04)}
+.sim-table tr:last-child td{border-bottom:none}
+.sim-table tr:hover td{background:rgba(255,255,255,.03)}
+.sim-best{background:rgba(99,195,34,.08)!important;font-weight:600}
+.sim-pct{font-weight:700}
+.sim-roi-pos{color:var(--grn);font-weight:700}
+.sim-roi-neg{color:var(--red);font-weight:700}
+.desvio-bar{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px}
+.desvio-bar-fill{height:7px;border-radius:4px;min-width:2px}
+.filtro-sim{background:var(--bg2);border:1px solid var(--brd);border-radius:8px;padding:6px 10px;color:var(--t1);font-size:12px}
+@media(max-width:700px){.sim-grid{grid-template-columns:1fr}}
+/* ── APRENDIZADO ── */
+.apr-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
+.apr-card{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:16px}
+.apr-card-title{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.apr-big{font-size:32px;font-weight:800}
+.apr-sub{font-size:11px;color:var(--t2);margin-top:2px}
+.liga-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd)}
+.liga-row:last-child{border-bottom:none}
+.liga-nome{font-size:13px;font-weight:600;min-width:160px}
+.liga-bar-wrap{flex:1;height:6px;background:var(--brd);border-radius:3px;overflow:hidden}
+.liga-bar-fill{height:100%;border-radius:3px;background:var(--grn)}
+.liga-pct{font-size:12px;font-weight:700;min-width:40px;text-align:right}
+.fator-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--brd)}
+.fator-item:last-child{border-bottom:none}
+.fator-nome{font-size:12px;color:var(--t1);flex:1}
+.fator-count{font-size:11px;background:rgba(239,95,95,.15);color:var(--red);padding:2px 8px;border-radius:20px}
+.prev-hist-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--brd);font-size:12px}
+.prev-hist-row:last-child{border-bottom:none}
+.prev-hist-times{flex:1;color:var(--t1)}
+.prev-hist-result{font-weight:700}
+.acertou{color:var(--grn)}
+.errou{color:var(--red)}
+@media(max-width:700px){.apr-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">⚽ Yellup</div>
+  <div class="header-title">Previsões do Dia</div>
+  <div class="header-right">
+    <button class="btn-back" id="btnTabPrevisoes" onclick="setTab('previsoes')" style="color:var(--acc);border-color:var(--acc)">📊 Previsões</button>
+    <button class="btn-back" id="btnTabAprendizado" onclick="setTab('aprendizado')">🧠 O que aprendemos</button>
+    <button class="btn-back" id="btnTabSimulador" onclick="setTab('simulador')">🎰 Simulador</button>
+    <a href="jogos-admin.html" class="btn-back">← Admin</a>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="date-nav">
+    <button class="date-btn" onclick="mudarData(-1)">‹</button>
+    <div class="date-display" id="dateDisplay">—</div>
+    <button class="date-btn" onclick="mudarData(1)">›</button>
+  </div>
+  <button class="btn-analisar" id="btnAnalisar" onclick="analisarTodos()">
+    🔍 Analisar Todos
+  </button>
+  <button class="btn-analisar" style="background:var(--bg3);color:var(--t2);border:1px solid var(--brd)" id="btnReanalisar" onclick="reanalisarTodos()" title="Força re-análise limpando cache antigo">
+    🔄 Forçar Re-análise
+  </button>
+  <select class="filtro-liga" id="filtroLiga" onchange="renderCards()">
+    <option value="">Todas as ligas</option>
+  </select>
+  <div class="status-bar" id="statusBar"></div>
+</div>
+
+<div class="resumo-bar" id="resumoBar" style="display:none">
+  <div class="resumo-item"><div class="resumo-num" id="rTotal" style="color:var(--acc)">0</div><div class="resumo-label">Jogos</div></div>
+  <div class="resumo-item"><div class="resumo-num" id="rAnalisados" style="color:var(--grn)">0</div><div class="resumo-label">Analisados</div></div>
+  <div class="resumo-item"><div class="resumo-num" id="rAlta" style="color:var(--grn)">0</div><div class="resumo-label">Alta Conf.</div></div>
+  <div class="resumo-item"><div class="resumo-num" id="rMedia" style="color:var(--acc)">0</div><div class="resumo-label">Média Conf.</div></div>
+  <div class="resumo-item"><div class="resumo-num" id="rBaixa" style="color:var(--t2)">0</div><div class="resumo-label">Baixa/Insuf.</div></div>
+</div>
+
+<div id="painelSimulador" style="display:none;max-width:1100px;margin:0 auto;padding:20px 24px"><div id="simuladorContent"><div style="color:var(--t2);text-align:center;padding:40px">Configure os filtros e clique em Simular.</div></div></div>
+<div id="painelAprendizado" style="display:none;max-width:1100px;margin:0 auto;padding:20px 24px">
+  <div id="aprendizadoContent"><div style="color:var(--t2);text-align:center;padding:40px">Carregando dados de aprendizado...</div></div>
+</div>
+<div class="jogos-grid" id="jogosGrid">
+  <div class="empty-state"><div class="icon">📅</div><p>Selecione uma data e clique em Analisar Todos</p></div>
+</div>
+
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain:"painel-yellup.firebaseapp.com",
+  projectId:"painel-yellup",
+  storageBucket:"painel-yellup.appspot.com",
+  messagingSenderId:"608347210297",
+  appId:"1:608347210297:web:75092713724e617c7203e8"
+});
+const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions();
+
+// ── ESTADO ────────────────────────────────────────────────────────────────
+let JOGOS = [];        // jogos do dia carregados
+let PREVISOES = {};    // { fixtureId: { resultado, gols, confianca, ... } }
+// Helper timezone Brasília
+// ── IMPREVISIBILIDADE POR LIGA ───────────────────────────────────────────
+const LIGA_IMPREV = {
+  'Brasileirão Série A': 0.85, 'Brasileirão Série B': 0.80,
+  'Brasileirão Série C': 0.75, 'Copa do Brasil': 0.80,
+  'Paulista A1': 0.80, 'Carioca': 0.80, 'Gaúcho': 0.80,
+  'Mineiro': 0.80, 'Baiano': 0.82, 'Paranaense': 0.80,
+  'Premier League': 0.55, 'La Liga': 0.48, 'Bundesliga': 0.45,
+  'Serie A': 0.52, 'Ligue 1': 0.50, 'Primeira Liga': 0.55,
+  'Eredivisie': 0.50, 'Champions League': 0.40,
+  'Europa League': 0.48, 'Copa Libertadores': 0.65,
+  'Copa Sudamericana': 0.68, 'World Cup': 0.52,
+  'DEFAULT': 0.65,
+};
+
+// ══════════════════════════════════════════════════════════════
+// 🧠 CAMADA 1 — BASE ESTATÍSTICA REAL (10.000 jogos · 16/03/2026)
+// Calibrado com: Premier, La Liga, Bundesliga, Serie A, Ligue 1,
+// Champions, Europa, Brasileirão A/B, Primeira Liga, Libertadores,
+// Copa do Brasil, Eliminatórias, World Cup, UEFA Euro
+// ══════════════════════════════════════════════════════════════
+
+const BASE_GOLS_LIGA = {
+  // EUROPA
+  'Premier League':    { T1:2.97, T2:2.92, T3:2.87, T4:3.13, over25:{ T1:57.4, T2:54.6, T3:58.6, T4:63.5 } },
+  'La Liga':           { T1:2.73, T2:2.61, T3:2.60, T4:2.60, over25:{ T1:51.5, T2:46.5, T3:46.5, T4:47.7 } },
+  'Bundesliga':        { T1:3.30, T2:3.05, T3:3.10, T4:3.30, over25:{ T1:64.0, T2:59.0, T3:60.0, T4:63.5 } },
+  'Serie A':           { T1:2.60, T2:2.50, T3:2.50, T4:2.65, over25:{ T1:50.0, T2:47.0, T3:47.0, T4:50.5 } },
+  'Ligue 1':           { T1:2.90, T2:2.75, T3:2.75, T4:2.90, over25:{ T1:55.0, T2:51.5, T3:51.5, T4:55.0 } },
+  'Primeira Liga':     { T1:2.80, T2:2.65, T3:2.65, T4:2.80, over25:{ T1:55.0, T2:51.5, T3:51.5, T4:55.0 } },
+  'Champions League':  { T1:3.05, T2:2.95, T3:2.95, T4:3.15, over25:{ T1:58.5, T2:55.5, T3:55.5, T4:59.0 } },
+  'Europa League':     { T1:2.95, T2:2.85, T3:2.85, T4:3.05, over25:{ T1:57.5, T2:54.5, T3:54.5, T4:58.5 } },
+  // BRASIL
+  'Brasileirão Série A': { T1:2.57, T2:2.16, T3:2.50, T4:2.59, over25:{ T1:46.0, T2:41.0, T3:44.6, T4:50.0 } },
+  'Brasileirão A':       { T1:2.57, T2:2.16, T3:2.50, T4:2.59, over25:{ T1:46.0, T2:41.0, T3:44.6, T4:50.0 } },
+  'Série A':             { T1:2.57, T2:2.16, T3:2.50, T4:2.59, over25:{ T1:46.0, T2:41.0, T3:44.6, T4:50.0 } },
+  'Brasileirão Série B': { T1:2.25, T2:2.10, T3:2.15, T4:2.20, over25:{ T1:39.0, T2:36.5, T3:37.5, T4:39.5 } },
+  'Brasileirão B':       { T1:2.25, T2:2.10, T3:2.15, T4:2.20, over25:{ T1:39.0, T2:36.5, T3:37.5, T4:39.5 } },
+  'Copa do Brasil':      { T1:2.42, T2:2.37, T3:2.03, T4:1.83, over25:{ T1:40.1, T2:37.0, T3:30.3, T4:35.0 } },
+  // SUL-AMERICA
+  'Copa Libertadores':   { T1:2.30, T2:2.60, T3:1.86, T4:2.57, over25:{ T1:40.8, T2:48.1, T3:29.7, T4:55.0 } },
+  'Copa Sudamericana':   { T1:2.35, T2:2.45, T3:2.20, T4:2.40, over25:{ T1:41.0, T2:44.0, T3:38.0, T4:43.0 } },
+  'Eliminat. Sul-Am':    { T1:2.47, T2:2.37, T3:2.25, T4:2.54, over25:{ T1:40.8, T2:40.8, T3:38.0, T4:44.9 } },
+  // SELEÇÕES
+  'World Cup':           { T1:2.69, T2:2.69, T3:2.69, T4:2.69, over25:{ T1:46.9, T2:46.9, T3:46.9, T4:46.9 } },
+  'UEFA Euro':           { T1:2.29, T2:2.29, T3:2.29, T4:2.29, over25:{ T1:44.0, T2:44.0, T3:44.0, T4:44.0 } },
+  'DEFAULT':             { T1:2.55, T2:2.45, T3:2.40, T4:2.60, over25:{ T1:46.0, T2:43.0, T3:41.0, T4:48.0 } },
+};
+
+// Probabilidade de resultado por liga — base real 10.000 jogos
+const BASE_RESULT_LIGA = {
+  'Premier League':      { casa:42.9, emp:24.2, fora:32.9 },
+  'La Liga':             { casa:45.1, emp:26.6, fora:28.3 },
+  'Bundesliga':          { casa:42.1, emp:25.5, fora:32.4 },
+  'Serie A':             { casa:40.5, emp:28.3, fora:31.2 },
+  'Ligue 1':             { casa:44.3, emp:23.3, fora:32.4 },
+  'Primeira Liga':       { casa:42.8, emp:25.5, fora:31.7 },
+  'Champions League':    { casa:48.0, emp:19.6, fora:32.5 },
+  'Europa League':       { casa:49.9, emp:22.4, fora:27.7 },
+  'Brasileirão Série A': { casa:47.8, emp:26.2, fora:26.0 },
+  'Brasileirão A':       { casa:47.8, emp:26.2, fora:26.0 },
+  'Série A':             { casa:47.8, emp:26.2, fora:26.0 },
+  'Brasileirão Série B': { casa:48.1, emp:28.3, fora:23.6 },
+  'Brasileirão B':       { casa:48.1, emp:28.3, fora:23.6 },
+  'Copa do Brasil':      { casa:42.6, emp:27.7, fora:29.7 },
+  'Copa Libertadores':   { casa:51.4, emp:24.9, fora:23.7 },
+  'Copa Sudamericana':   { casa:50.0, emp:25.0, fora:25.0 },
+  'Eliminat. Sul-Am':    { casa:43.5, emp:24.6, fora:31.9 },
+  'World Cup':           { casa:45.3, emp:23.4, fora:31.2 },
+  'UEFA Euro':           { casa:37.3, emp:33.3, fora:29.4 },
+  'DEFAULT':             { casa:45.0, emp:25.5, fora:29.5 },
+};
+
+// HT como preditor de FT (10.000 jogos · 16/03/2026)
+const BASE_HT_PREDICTOR = {
+  0: { mediaFT:1.40, over25:15.7, over15:43.8 },  // 1005 jogos com HT 0-0
+  1: { mediaFT:2.39, over25:41.4, over15:75.2 },  // 1231 jogos com 1 gol HT
+  2: { mediaFT:3.41, over25:74.7, over15:95.0 },  // 633 jogos com 2 gols HT
+  3: { mediaFT:4.48, over25:100,  over15:100  },  // 263 jogos com 3 gols HT
+  4: { mediaFT:5.75, over25:100,  over15:100  },  // 79 jogos com 4+ gols HT
+};
+
+// Ajuste sazonal por mês (base global 3.230 jogos)
+const BASE_AJUSTE_MES = {
+  1:+0.27, 2:+0.03, 3:-0.12, 4:0, 5:-0.07,
+  6:-0.14, 7:-0.26, 8:-0.16, 9:-0.12,
+  10:+0.06, 11:+0.09, 12:+0.32
+};
+
+// Helper: retorna base da liga para gols e resultado
+// Mapa de ligaApiId → nome canônico (evita "Serie A" italiana vs Brasileirão)
+const LIGA_API_ID_MAP = {
+  39: 'Premier League', 140: 'La Liga', 135: 'Serie A', 78: 'Bundesliga',
+  61: 'Ligue 1', 94: 'Primeira Liga', 2: 'Champions League', 3: 'Europa League',
+  848: 'Conference League', 71: 'Brasileirão A', 72: 'Brasileirão B',
+  73: 'Copa do Brasil', 13: 'Copa Libertadores', 11: 'Copa Sudamericana',
+  29: 'Eliminat. Sul-Am', 1: 'World Cup', 4: 'UEFA Euro',
+};
+
+function getBaseLiga(ligaNome, ligaApiId) {
+  // Prioridade 1: API ID (inequívoco — "Serie A" vira o certo)
+  if (ligaApiId && LIGA_API_ID_MAP[ligaApiId]) {
+    const nome = LIGA_API_ID_MAP[ligaApiId];
+    return { gols: BASE_GOLS_LIGA[nome] || BASE_GOLS_LIGA['DEFAULT'],
+             result: BASE_RESULT_LIGA[nome] || BASE_RESULT_LIGA['DEFAULT'] };
+  }
+  if (!ligaNome) return { gols: BASE_GOLS_LIGA['DEFAULT'], result: BASE_RESULT_LIGA['DEFAULT'] };
+  // Prioridade 2: Match exato
+  if (BASE_GOLS_LIGA[ligaNome]) return { gols: BASE_GOLS_LIGA[ligaNome], result: BASE_RESULT_LIGA[ligaNome] || BASE_RESULT_LIGA['DEFAULT'] };
+  // Prioridade 3: Match parcial (evitar Serie A italiana matchando Brasileirão)
+  const chaves = Object.keys(BASE_GOLS_LIGA).filter(k => k !== 'DEFAULT');
+  for (const k of chaves) {
+    if (k !== 'Serie A' && (ligaNome.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(ligaNome.toLowerCase()))) {
+      return { gols: BASE_GOLS_LIGA[k], result: BASE_RESULT_LIGA[k] || BASE_RESULT_LIGA['DEFAULT'] };
+    }
+  }
+  return { gols: BASE_GOLS_LIGA['DEFAULT'], result: BASE_RESULT_LIGA['DEFAULT'] };
+}
+
+// Helper: retorna trimestre (1-4) de uma data ISO
+function getTrimestre(dataISO) {
+  if (!dataISO) return null;
+  try { const m = new Date(dataISO).getMonth() + 1; return Math.ceil(m / 3); }
+  catch(e) { return null; }
+}
+
+// Helper: retorna mês de uma data ISO
+function getMesData(dataISO) {
+  if (!dataISO) return null;
+  try { return new Date(dataISO).getMonth() + 1; }
+  catch(e) { return null; }
+}
+
+function getFatorImprev(ligaNome) {
+  if (!ligaNome) return 0.65;
+  if (LIGA_IMPREV[ligaNome] !== undefined) return LIGA_IMPREV[ligaNome];
+  for (const [k, v] of Object.entries(LIGA_IMPREV)) {
+    if (k !== 'DEFAULT' && ligaNome.toLowerCase().includes(k.toLowerCase())) return v;
+  }
+  return 0.65;
+}
+
+function toBRTDate(d) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
+}
+
+let DATA_ATUAL = toBRTDate(new Date());
+
+// ── CONFIG v2 ────────────────────────────────────────────────────────────
+// Chave API-Football (mesma usada nas Cloud Functions)
+// Cole sua chave aqui ou deixe vazia para busca manual de odds
+const API_FOOTBALL_KEY = '35647fb22d9fa6e5ab4397cb1a0d27a3';
+const ODDS_CACHE = {}; // {fixtureId: {oddCasa, oddEmp, oddFora, bookmaker}}
+let ANALISANDO = false;
+
+// ── AUTH ──────────────────────────────────────────────────────────────────
+auth.onAuthStateChanged(u => {
+  if (!u || u.email !== 'admin@yellup.com') { window.location.href = 'login.html'; return; }
+  init();
+});
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+async function init() {
+  gc('dateDisplay').textContent = formatarData(DATA_ATUAL);
+  await carregarJogos();
+}
+
+function gc(id) { return document.getElementById(id); }
+
+function formatarData(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  const hoje  = toBRTDate(new Date());
+  const amanha = toBRTDate(new Date(Date.now() + 86400000));
+  const ontem  = toBRTDate(new Date(Date.now() - 86400000));
+  const label = iso === hoje ? ' (Hoje)' : iso === amanha ? ' (Amanhã)' : iso === ontem ? ' (Ontem)' : '';
+  return d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'2-digit'}) + label;
+}
+
+function mudarData(d) {
+  const dt = new Date(DATA_ATUAL + 'T12:00:00');
+  dt.setDate(dt.getDate() + d);
+  DATA_ATUAL = toBRTDate(dt);
+  gc('dateDisplay').textContent = formatarData(DATA_ATUAL);
+  JOGOS = []; PREVISOES = {};
+  carregarJogos();
+}
+
+// ── CARREGAR JOGOS DO DIA ─────────────────────────────────────────────────
+let _livePollingInterval = null;
+let _snapshotUnsub = null;
+
+async function carregarJogos() {
+  setStatus('Carregando jogos...');
+
+  // Cancelar snapshot anterior se existir
+  if (_snapshotUnsub) { _snapshotUnsub(); _snapshotUnsub = null; }
+  if (_livePollingInterval) { clearInterval(_livePollingInterval); _livePollingInterval = null; }
+
+  try {
+    // Buscar só no intervalo ±3 dias da data selecionada
+    // Evita que limit(300) corte jogos futuros quando há muitos históricos
+    const dtAlvo   = new Date(DATA_ATUAL + 'T12:00:00');
+    const dtInicio = new Date(dtAlvo); dtInicio.setDate(dtInicio.getDate() - 3);
+    const dtFim    = new Date(dtAlvo); dtFim.setDate(dtFim.getDate() + 3);
+
+    const snap = await db.collection('jogos-admin')
+      .orderBy('dataInicio', 'asc')
+      .startAt(firebase.firestore.Timestamp.fromDate(dtInicio))
+      .endAt(firebase.firestore.Timestamp.fromDate(dtFim))
+      .limit(200)
+      .get();
+
+    const todos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    JOGOS = todos.filter(j => {
+      if (!j.dataInicio) return false;
+      const dt = j.dataInicio.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio);
+      // Sempre usar horário de Brasília — sem fallbacks
+      return toBRTDate(dt) === DATA_ATUAL;
+    });
+
+    // Popular filtro de ligas
+    const ligas = [...new Set(JOGOS.map(j => j.liga?.nome).filter(Boolean))].sort();
+    const sel = gc('filtroLiga');
+    sel.innerHTML = '<option value="">Todas as ligas (' + JOGOS.length + ')</option>';
+    ligas.forEach(l => sel.innerHTML += `<option value="${l}">${l}</option>`);
+
+    setStatus('');
+    gc('resumoBar').style.display = JOGOS.length ? 'flex' : 'none';
+    const restored = restaurarPrevisoes();
+    renderCards();
+    if (restored > 0) setStatus(`✓ ${restored} previsões restauradas`, false);
+
+    if (JOGOS.length === 0) {
+      gc('jogosGrid').innerHTML = '<div class="empty-state"><div class="icon">📅</div><p>Nenhum jogo encontrado para esta data</p></div>';
+    }
+
+    // Iniciar polling de placar para jogos ao vivo ou de hoje
+    _iniciarLivePolling();
+
+  } catch(e) {
+    setStatus('Erro: ' + e.message, true);
+  }
+}
+
+function _iniciarLivePolling() {
+  // Polling a cada 45 segundos — atualiza só placar/minuto/status dos cards
+  _livePollingInterval = setInterval(async () => {
+    const temAoVivo = JOGOS.some(j => j.status === 'ao_vivo');
+    const temHoje   = DATA_ATUAL === toBRTDate(new Date());
+    if (!temAoVivo && !temHoje) return; // nada ao vivo e não é hoje — parar
+
+    try {
+      const ids = JOGOS.map(j => j.id);
+      if (!ids.length) return;
+
+      // Buscar em lotes de 10 (limite do Firestore)
+      const lotes = [];
+      for (let i = 0; i < ids.length; i += 10) lotes.push(ids.slice(i, i+10));
+
+      let atualizado = false;
+      for (const lote of lotes) {
+        const snap = await db.collection('jogos-admin')
+          .where(firebase.firestore.FieldPath.documentId(), 'in', lote)
+          .get();
+
+        snap.docs.forEach(d => {
+          const novo = d.data();
+          const idx = JOGOS.findIndex(j => j.id === d.id);
+          if (idx === -1) return;
+          const atual = JOGOS[idx];
+
+          // Só atualizar se mudou algo relevante
+          const mudou = novo.placarCasa !== atual.placarCasa
+            || novo.placarFora !== atual.placarFora
+            || novo.minuto !== atual.minuto
+            || novo.status !== atual.status;
+
+          if (mudou) {
+            JOGOS[idx] = { ...atual, ...novo };
+            atualizado = true;
+
+            // Re-render só o card deste jogo preservando a previsão
+            const cardEl = document.getElementById('card-' + d.id);
+            if (cardEl) cardEl.outerHTML = renderCard(JOGOS[idx], PREVISOES[d.id]);
+          }
+        });
+      }
+
+      if (atualizado) atualizarResumo();
+
+    } catch(e) {
+      console.warn('Live polling erro:', e.message);
+    }
+  }, 30000); // 30 segundos (era 45, reduzido para jogos ao vivo)
+}
+
+// ── RESTAURAR PREVISÕES DO SESSION STORAGE ───────────────────────────────
+function restaurarPrevisoes() {
+  let restaurados = 0;
+  JOGOS.forEach(j => {
+    if (PREVISOES[j.id]) return; // já tem
+    try {
+      const cached = sessionStorage.getItem('prev_' + j.id);
+      if (cached) {
+        PREVISOES[j.id] = JSON.parse(cached);
+        restaurados++;
+      }
+    } catch(e) {}
+  });
+  if (restaurados > 0) {
+    console.log(`✓ ${restaurados} previsões restauradas do cache`);
+    atualizarResumo();
+  }
+  return restaurados;
+}
+
+// ── RENDER CARDS ──────────────────────────────────────────────────────────
+function renderCards() {
+  const filtroLiga = gc('filtroLiga').value;
+  const jogos = filtroLiga ? JOGOS.filter(j => j.liga?.nome === filtroLiga) : JOGOS;
+
+  if (!jogos.length) {
+    gc('jogosGrid').innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>Nenhum jogo para este filtro</p></div>';
+    return;
+  }
+
+  // Agrupar por liga
+  const grupos = {};
+  jogos.forEach(j => {
+    const liga = j.liga?.nome || 'Sem liga';
+    if (!grupos[liga]) grupos[liga] = [];
+    grupos[liga].push(j);
+  });
+
+  let html = '';
+  Object.entries(grupos).forEach(([liga, gs]) => {
+    gs.forEach(j => {
+      const prev = PREVISOES[j.id] || null;
+      html += renderCard(j, prev);
+    });
+  });
+
+  gc('jogosGrid').innerHTML = html;
+  atualizarResumo();
+}
+
+function renderCard(j, prev) {
+  const dt = j.dataInicio?.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio || 0);
+  const hora = dt.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo'});
+  const dataBRT = toBRTDate(dt);
+  const statusLabel = j.status === 'ao_vivo' ? 'AO VIVO' : j.status === 'encerrado' ? `FT · ${dataBRT}` : hora;
+  const statusBadge = j.status === 'ao_vivo' ? 'ao_vivo' : j.status === 'encerrado' ? 'encerrado' : 'agendado';
+
+  const formaC = renderForma(prev?.formaC || j.formaCasa || j.timeCasa?.forma);
+  const formaF = renderForma(prev?.formaF || j.formaFora  || j.timeFora?.forma);
+  const escC = j.timeCasa?.escudo || '';
+  const escF = j.timeFora?.escudo || '';
+
+  let placar = 'vs';
+  if (j.placarCasa !== null && j.placarCasa !== undefined &&
+      j.placarFora !== null && j.placarFora !== undefined) {
+    placar = j.placarCasa + ' - ' + j.placarFora;
+  }
+
+  return `<div class="jogo-card ${prev ? 'analisado' : ''}" id="card-${j.id}">
+    <div class="card-header">
+      <span style="font-size:14px">${j.liga?.escudo || '🏆'}</span>
+      <span class="card-liga">${j.liga?.nome || 'Liga'}</span>
+      <span class="card-status-badge badge-${statusBadge}">${statusLabel}</span>
+      <span class="card-hora">${j.rodada || ''}</span>
+    </div>
+    <div class="card-body">
+      <div class="times-row">
+        <div class="time-info">
+          <img src="${escC}" class="time-escudo" onerror="this.style.display='none'">
+          <div class="time-nome">${j.timeCasa?.nome || '—'}</div>
+          <div class="time-forma">${formaC}</div>
+        </div>
+        <div class="vs-area">
+          <div class="vs-placar">${placar}</div>
+          <div class="vs-label">${j.status === 'ao_vivo' 
+            ? `<span style="color:#ef4444">${j.minuto || ''}' 🔴</span>` 
+            : ''}</div>
+        </div>
+        <div class="time-info fora">
+          <img src="${escF}" class="time-escudo" onerror="this.style.display='none'">
+          <div class="time-nome">${j.timeFora?.nome || '—'}</div>
+          <div class="time-forma">${formaF}</div>
+        </div>
+      </div>
+      ${renderPrevisaoArea(j, prev)}
+    </div>
+  </div>`;
+}
+
+function renderForma(forma) {
+  if (!forma || !Array.isArray(forma)) return '';
+  return forma.slice(-5).map(r => `<div class="forma-dot forma-${r}">${r}</div>`).join('');
+}
+
+function renderPrevisaoArea(j, prev) {
+  if (!prev) {
+    return `<div class="previsao-area">
+      <div class="prev-bloco" style="grid-column:1/-1;display:flex;align-items:center;justify-content:space-between">
+        <div class="sem-dados">⚪ Aguardando análise</div>
+        <button onclick="analisarUm('${j.id}')" style="background:var(--acc);color:#000;border:none;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Analisar</button>
+      </div>
+    </div>`;
+  }
+
+  if (prev.loading) {
+    return `<div class="previsao-area">
+      <div class="prev-bloco" style="grid-column:1/-1">
+        <div class="prev-loading">Analisando ${prev.step || ''}...</div>
+      </div>
+    </div>`;
+  }
+
+  const { resultado, gols, confianca, explicacoes, fontes, alertas } = prev;
+
+  // Resultado
+  const r = resultado || { casa: 33, empate: 34, fora: 33, veredito: 'empate' };
+  const max = Math.max(r.casa, r.empate, r.fora);
+  const veredito = r.veredito || (r.casa === max ? 'casa' : r.empate === max ? 'empate' : 'fora');
+  const verdLabel = veredito === 'casa' ? j.timeCasa?.nome : veredito === 'fora' ? j.timeFora?.nome : 'Empate';
+  const verdClass = veredito === 'casa' ? 'veredito-home' : veredito === 'fora' ? 'veredito-away' : 'veredito-draw';
+  const verdIcon = veredito === 'casa' ? '🏠' : veredito === 'fora' ? '✈️' : '🤝';
+  const confClass = confianca === 'alta' ? 'conf-alta' : confianca === 'media' ? 'conf-media' : confianca === 'baixa' ? 'conf-baixa' : 'conf-insuficiente';
+  const confLabel = confianca === 'alta' ? 'Alta' : confianca === 'media' ? 'Média' : confianca === 'baixa' ? 'Baixa' : 'Insuf.';
+
+  // Gols
+  const golsEst = gols?.estimado ?? '?';
+  const golsRange = gols?.range || '—';
+  const golsTend = gols?.tendencia || 'medio';
+  const tendClass = golsTend === 'alto' ? 'tend-alto' : golsTend === 'baixo' ? 'tend-baixo' : 'tend-medio';
+  const tendLabel = golsTend === 'alto' ? '🔥 Jogo aberto' : golsTend === 'baixo' ? '🔒 Jogo fechado' : '⚖️ Equilibrado';
+  const over25 = gols?.over25 ?? null;
+  const periodoGols = gols?.periodo || null;
+  const camadaGols = gols?.camada || 1;
+
+  const exps = (explicacoes || []).slice(0, 3).map(e => `<div class="exp-item">${e}</div>`).join('');
+  const fontesTags = (fontes || []).map(f => `<span class="fonte-tag ${f.ativa ? 'ativa' : ''}">${f.nome} ${f.amostras ? '('+f.amostras+')' : ''}</span>`).join('');
+  const camadaBadge = camadaGols >= 2 ? '<span style="font-size:9px;color:var(--grn);font-weight:700">⚡ Banco</span>' : '<span style="font-size:9px;color:var(--acc);font-weight:700">📊 Base Liga</span>';
+
+  return `<div class="previsao-area">
+    <div class="prev-bloco">
+      <div class="prev-titulo">📊 Resultado Provável</div>
+      <div class="resultado-bars">
+        <div class="res-item ${veredito === 'casa' ? 'destaque' : ''}">
+          <div class="res-label">${j.timeCasa?.nome?.split(' ')[0] || 'Casa'}</div>
+          <div class="res-bar-wrap"><div class="res-bar-fill" style="width:${r.casa}%;background:var(--grn)"></div></div>
+          <div class="res-pct" style="color:var(--grn)">${r.casa}%</div>
+        </div>
+        <div class="res-item ${veredito === 'empate' ? 'destaque' : ''}">
+          <div class="res-label">Empate</div>
+          <div class="res-bar-wrap"><div class="res-bar-fill" style="width:${r.empate}%;background:var(--blu)"></div></div>
+          <div class="res-pct" style="color:var(--blu)">${r.empate}%</div>
+        </div>
+        <div class="res-item ${veredito === 'fora' ? 'destaque' : ''}">
+          <div class="res-label">${j.timeFora?.nome?.split(' ')[0] || 'Fora'}</div>
+          <div class="res-bar-wrap"><div class="res-bar-fill" style="width:${r.fora}%;background:var(--red)"></div></div>
+          <div class="res-pct" style="color:var(--red)">${r.fora}%</div>
+        </div>
+      </div>
+      <div class="veredito ${verdClass}">
+        <span class="veredito-icon">${verdIcon}</span>
+        <span class="veredito-text">${verdLabel}</span>
+        ${prev.ysC != null ? `<span style="font-size:10px;color:var(--t3);margin-left:4px">YS ${prev.ysC.toFixed(1)} vs ${prev.ysF.toFixed(1)}</span>` : ''}
+        <span class="veredito-conf ${confClass}">${confLabel}</span>
+      </div>
+      ${prev.forca5C != null ? `
+      <div style="margin-top:6px;padding:5px 8px;background:rgba(255,255,255,.03);border-radius:6px;font-size:10px;color:var(--t3);display:flex;gap:12px;flex-wrap:wrap">
+        <span>📸 Força no momento da análise:</span>
+        <span style="color:var(--acc)">${j.timeCasa?.nome?.split(' ')[0]} <b>${prev.forca5C}</b> (Mom ${prev.mom5C >= 0 ? '+' : ''}${prev.mom5C})</span>
+        <span style="color:var(--blu)">${j.timeFora?.nome?.split(' ')[0]} <b>${prev.forca5F}</b> (Mom ${prev.mom5F >= 0 ? '+' : ''}${prev.mom5F})</span>
+      </div>` : ''}
+    </div>
+    ${j.status === 'ao_vivo' && j.placarCasa != null ? (() => {
+      const htTotal = (j.placarCasa||0) + (j.placarFora||0);
+      const htKey = Math.min(htTotal, 4);
+      const htData = BASE_HT_PREDICTOR[htKey] || BASE_HT_PREDICTOR[0];
+      return `<div class="prev-bloco" style="grid-column:1/-1;background:rgba(239,95,95,.05);border:1px solid rgba(239,95,95,.2)">
+        <div class="prev-titulo" style="color:var(--red)">🔴 AO VIVO — Preditor HT (${(j.placarCasa||0)}-${(j.placarFora||0)})</div>
+        <div style="display:flex;gap:16px;align-items:center">
+          <div><div style="font-size:22px;font-weight:800;color:var(--acc)">${htData.mediaFT.toFixed(1)}</div><div style="font-size:9px;color:var(--t3)">gols esperados FT</div></div>
+          <div><div style="font-size:18px;font-weight:700;color:${htData.over25>=60?'var(--red)':htData.over25<=30?'var(--grn)':'var(--acc)'}">${htData.over25}%</div><div style="font-size:9px;color:var(--t3)">Over 2.5</div></div>
+          <div style="font-size:10px;color:var(--t2);flex:1">Base: ${htKey === 0 ? '1.005 jogos com HT 0-0' : htKey === 1 ? '1.231 jogos com 1 gol HT' : htKey === 2 ? '633 jogos com 2 gols HT' : '263+ jogos com 3+ gols HT'}</div>
+        </div>
+      </div>`;
+    })() : ''}
+    <div class="prev-bloco">
+      <div class="prev-titulo">⚽ Gols Estimados</div>
+      <div class="gols-display">
+        <div class="gols-num">${golsEst}</div>
+        <div class="gols-info">
+          <div class="gols-range">Faixa: ${golsRange}</div>
+          ${over25 != null ? `<div style="font-size:10px;color:var(--acc);font-weight:700;margin-top:2px">Over 2.5: ${over25}%</div>` : ''}
+          ${periodoGols ? `<div style="font-size:9px;color:var(--t3);margin-top:1px">${periodoGols}</div>` : ''}
+          <div style="margin-top:4px">${camadaBadge}</div>
+          ${parseFloat(golsEst) <= 2.0 && prev?.forca5C != null ? `<span style="background:rgba(34,212,155,.15);color:var(--grn);font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;margin-top:4px;display:inline-block">🔒 UNDER 2.5 ✓</span>` : ''}
+          ${prev?._odds ? `<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
+            <span style="font-size:9px;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:.4px">Bet365:</span>
+            <span style="font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--grn)">🏠 ${prev._odds.oddCasa}</span>
+            <span style="font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--blu)">🤝 ${prev._odds.oddEmp}</span>
+            <span style="font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--red)">✈️ ${prev._odds.oddFora}</span>
+            ${prev._oddsDerivadas?.jogoTatico ? '<span style="background:rgba(79,142,244,.15);color:var(--blu);font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px">⚠ tático</span>' : ''}
+          </div>` : ''}
+          <div class="gols-tendencia ${tendClass}">${tendLabel}</div>
+          ${gols?.periodo ? `<div class="gols-range" style="margin-top:2px">⏱ ${gols.periodo}</div>` : ''}
+        </div>
+      </div>
+      <div class="explicacao">${exps}</div>
+      ${(() => {
+        // Placar exato por Poisson
+        if (!gols?._lambdaCasa || !gols?._lambdaFora) return '';
+        const poi = calcularPlacarPoisson(gols._lambdaCasa, gols._lambdaFora);
+        const nomeCasa = j.timeCasa?.nome?.split(' ')[0] || 'Casa';
+        const nomeFora = j.timeFora?.nome?.split(' ')[0] || 'Fora';
+        const apostaCasa = poi.top5[0]?.casa ?? '?';
+        const apostaFora = poi.top5[0]?.fora ?? '?';
+        const apostaPct  = poi.top5[0]?.pct  ?? 0;
+        return `
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--brd)">
+            <div style="font-size:10px;color:var(--t3);margin-bottom:6px;font-weight:600">🎯 APOSTA YELLUP — Placares Prováveis</div>
+            <div style="background:rgba(0,229,160,.07);border:1px solid rgba(0,229,160,.2);border-radius:8px;padding:7px 10px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
+              <div style="font-size:22px;font-weight:800;color:var(--acc);font-family:'DM Mono',monospace;letter-spacing:2px">${apostaCasa}–${apostaFora}</div>
+              <div>
+                <div style="font-size:10px;color:var(--acc);font-weight:700">Mais provável · ${apostaPct}%</div>
+                <div style="font-size:9px;color:var(--t3)">${nomeCasa} ${apostaCasa} · ${nomeFora} ${apostaFora}</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+              ${poi.top5.slice(1).map(p => `
+                <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:6px;padding:4px 8px;text-align:center;min-width:44px">
+                  <div style="font-size:13px;font-weight:700;color:var(--t1);font-family:'DM Mono',monospace">${p.label}</div>
+                  <div style="font-size:9px;color:var(--t3)">${p.pct}%</div>
+                </div>`).join('')}
+            </div>
+            <div style="display:flex;gap:6px;font-size:10px;flex-wrap:wrap">
+              <span style="background:var(--bg2);border-radius:5px;padding:2px 7px;color:${poi.goleada>=20?'var(--red)':'var(--t3)'}">💥 Goleada (4+): ${poi.goleada}%</span>
+              <span style="background:var(--bg2);border-radius:5px;padding:2px 7px;color:var(--t3)">🔒 Under 1.5: ${poi.under15}%</span>
+              <span style="background:var(--bg2);border-radius:5px;padding:2px 7px;color:var(--t3)">⚽⚽ BTTS: ${poi.btts}%</span>
+            </div>
+          </div>`;
+      })()}
+      ${(() => {
+        const als = alertas || [];
+        if (!als.length) return '';
+        const corNivel = { alto: 'var(--red)', medio: 'var(--yel)', baixo: 'var(--t3)' };
+        return `<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
+          ${als.map(a => `<div style="font-size:10px;color:${corNivel[a.nivel]||'var(--t3)'};
+            background:rgba(255,255,255,.03);border-radius:6px;padding:5px 8px;
+            border-left:2px solid ${corNivel[a.nivel]||'var(--t3)'}">${a.txt}</div>`).join('')}
+        </div>`;
+      })()}
+      <div class="fontes-mini">${fontesTags}</div>
+    </div>
+  </div>`;
+}
+
+
+// ── ANALISAR UM JOGO ──────────────────────────────────────────────────────
+// ── CACHE LOCAL de perfis (evita re-buscar o mesmo time) ─────────────────
+const _perfilCache = {};
+
+// Busca perfil real do time no fixtures-historico
+// Retorna: { elo, eloNota, mom5, mom10, s5, s10, s70, porForca, statsCasa, statsFora }
+async function buscarPerfilTime(apiId) {
+  if (!apiId) return null;
+  if (_perfilCache[apiId]) return _perfilCache[apiId];
+
+  try {
+    console.log('[PerfilTime] buscando apiId:', apiId, '(type:', typeof apiId, ')');
+    // Busca todos os jogos do time (casa ou fora)
+    // Tenta com number (como está salvo no fixtures-historico)
+    // Se não achar, tenta com string (compatibilidade)
+    const idNum = Number(apiId);
+    const [snapCasa, snapFora] = await Promise.all([
+      db.collection('fixtures-historico')
+        .where('casaId', '==', idNum).limit(80).get(),
+      db.collection('fixtures-historico')
+        .where('foraId', '==', idNum).limit(80).get(),
+    ]);
+    // Fallback string se vazio
+    let jogosCasaRaw = snapCasa.docs;
+    let jogosForaRaw = snapFora.docs;
+    if (!jogosCasaRaw.length && !jogosForaRaw.length) {
+      const [s2, s3] = await Promise.all([
+        db.collection('fixtures-historico').where('casaId','==',String(apiId)).limit(80).get(),
+        db.collection('fixtures-historico').where('foraId','==',String(apiId)).limit(80).get(),
+      ]);
+      jogosCasaRaw = s2.docs;
+      jogosForaRaw = s3.docs;
+    }
+
+    const jogosCasa = jogosCasaRaw.map(d => ({ ...d.data(), _local: 'casa' }));
+    const jogosFora = jogosForaRaw.map(d => ({ ...d.data(), _local: 'fora' }));
+
+    // Mesclar e ordenar por data desc
+    const todos = [...jogosCasa, ...jogosFora]
+      .sort((a, b) => (b.data||'').localeCompare(a.data||''));
+
+    if (!todos.length) return null;
+
+    // Calcular métricas por janela
+    const calcStats = (jogos) => {
+      const n = jogos.length;
+      if (!n) return null;
+      const vit = jogos.filter(j => j.resultado === (j._local==='casa'?'casa':'fora')).length;
+      const emp = jogos.filter(j => j.resultado === 'empate').length;
+      const gf  = jogos.reduce((a,j) => a + (j._local==='casa' ? (j.golsCasa||0) : (j.golsFora||0)), 0) / n;
+      const gs  = jogos.reduce((a,j) => a + (j._local==='casa' ? (j.golsFora||0) : (j.golsCasa||0)), 0) / n;
+      const tot = jogos.reduce((a,j) => a + (j.totalGols||0), 0) / n;
+      const pts = (vit*3 + emp) / n;
+      return { n, gf:+gf.toFixed(2), gs:+gs.toFixed(2), tot:+tot.toFixed(2),
+               pts:+pts.toFixed(2), vit, emp, der:n-vit-emp };
+    };
+
+    const s5  = calcStats(todos.slice(0, 5));
+    const s10 = calcStats(todos.slice(0, 10));
+    const s20 = calcStats(todos.slice(0, 20));
+    const s70 = calcStats(todos);
+
+    // Força simples (0-10) por janela
+    const forca = (s) => {
+      if (!s) return 0;
+      return Math.round(Math.min(10, (s.pts/3)*5 + Math.min(s.gf/2,2) + Math.max(0,1.5-s.gs/2)) * 10) / 10;
+    };
+    const forca5  = forca(s5);
+    const forca10 = forca(s10);
+    const mom5    = s5 && s10 ? +(forca5 - forca10).toFixed(1) : 0;
+    const mom10   = s10 && forca(s20) ? +(forca10 - forca(s20)).toFixed(1) : 0;
+
+    // Stats separados: casa e fora
+    const jCasa = todos.filter(j => j._local === 'casa').slice(0, 20);
+    const jFora = todos.filter(j => j._local === 'fora').slice(0, 20);
+    const statsCasa = calcStats(jCasa);
+    const statsFora = calcStats(jFora);
+
+    // Padrão por força do adversário
+    // (usa forca5 do adversário como proxy — simplificado)
+    const porForca = { fraco:null, medio:null, similar:null, forte:null };
+
+    const perfil = {
+      apiId, n: todos.length,
+      s5, s10, s20, s70,
+      forca5, forca10, mom5, mom10,
+      statsCasa, statsFora,
+      tendencia: mom5 >= 0.8 ? 'subindo' : mom5 <= -0.8 ? 'caindo' : 'estavel',
+      tendGolsTag: s5?.tot >= 3 ? 'alta' : s5?.tot <= 1.8 ? 'baixa' : 'media',
+      // Para calcularGols
+      ataqueCasa: statsCasa?.gf ?? s5?.gf ?? 1.3,
+      defesaCasa: statsCasa?.gs ?? s5?.gs ?? 1.3,
+      ataqueFora: statsFora?.gf ?? s5?.gf ?? 1.3,
+      defesaFora: statsFora?.gs ?? s5?.gs ?? 1.3,
+      mediaGols5: s5?.tot ?? 2.5,
+      nCasa: jCasa.length,
+      nFora: jFora.length,
+    };
+
+    _perfilCache[apiId] = perfil;
+    console.log('[PerfilTime] OK:', apiId, '→', perfil.n, 'jogos, forca5:', perfil.forca5, 'mom5:', perfil.mom5);
+    return perfil;
+  } catch(e) {
+    console.warn('[PerfilTime] ERRO apiId:', apiId, e.message);
+    return null;
+  }
+}
+
+async function analisarJogo(j) {
+  const casaId = j.timeCasa?.apiId || j.timeCasa?.id;
+  const foraId = j.timeFora?.apiId || j.timeFora?.id;
+  if (!casaId || !foraId) {
+    return { resultado: base5050(), gols: golsDefault(), confianca: 'insuficiente', explicacoes: ['IDs de time não encontrados'], fontes: [] };
+  }
+
+  // v2: buscar também odds pré-jogo (Bet365) em paralelo
+  const fixtureId = j.apiFootballId || j.apiFixtureId || j.id;
+  const [histCasa, histFora, ctxCasa, ctxFora, ctxGlobal, perfilCasaRes, perfilForaRes, oddsRes] = await Promise.allSettled([
+    fns.httpsCallable('buscarHistoricoTime')({ teamId: casaId, limit: 30 }).then(r => r.data),
+    fns.httpsCallable('buscarHistoricoTime')({ teamId: foraId, limit: 30 }).then(r => r.data),
+    fns.httpsCallable('buscarContextoGol')({ timeId: String(casaId), situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'casa', forcaAdversario: 'medio' }).then(r => r.data).catch(() => null),
+    fns.httpsCallable('buscarContextoGol')({ timeId: String(foraId), situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'fora', forcaAdversario: 'medio' }).then(r => r.data).catch(() => null),
+    fns.httpsCallable('buscarContextoGlobal')({ situacaoPlacar: '0-0', faseJogo: 'inicio', localJogo: 'casa', forcaAdversario: 'medio' }).then(r => r.data).catch(() => null),
+    buscarPerfilTime(casaId),
+    buscarPerfilTime(foraId),
+    buscarOddsPreJogo(fixtureId), // v2: odds Bet365
+  ]);
+
+  const hC = histCasa.status === 'fulfilled' ? histCasa.value : null;
+  const hF = histFora.status === 'fulfilled'  ? histFora.value  : null;
+  const cC = ctxCasa.status === 'fulfilled'   ? ctxCasa.value   : null;
+  const cF = ctxFora.status === 'fulfilled'   ? ctxFora.value   : null;
+  const cG = ctxGlobal.status === 'fulfilled' ? ctxGlobal.value : null;
+  const perfilCasa = perfilCasaRes.status === 'fulfilled' ? perfilCasaRes.value : null;
+  const perfilFora = perfilForaRes.status === 'fulfilled' ? perfilForaRes.value : null;
+  const oddsData   = oddsRes.status === 'fulfilled' ? oddsRes.value : null;
+  // Calcular variáveis derivadas das odds (sinal tático)
+  const oddsDerivadas = oddsData ? calcOddsDerivadas(oddsData.oddCasa, oddsData.oddEmp, oddsData.oddFora) : null;
+
+  const prev = calcularPrevisao(j, hC, hF, cC, cF, cG, perfilCasa, perfilFora);
+  // v2: injetar dados de odds no resultado para uso no card e no salvarPrevisao
+  if (oddsData)   prev._odds = oddsData;
+  if (oddsDerivadas) prev._oddsDerivadas = oddsDerivadas;
+  return prev;
+}
+
+// ── BUSCAR ODDS PRÉ-JOGO (API-Football bookmaker 8 = Bet365) ─────────────
+async function buscarOddsPreJogo(fixtureId) {
+  if (!fixtureId) return null;
+  const fid = String(fixtureId);
+  if (ODDS_CACHE[fid]) return ODDS_CACHE[fid];
+
+  // 1. Tentar via Cloud Function (não expõe a chave no frontend)
+  try {
+    const r = await fns.httpsCallable('buscarOddsFixture')({ fixtureId: Number(fid) }).catch(() => null);
+    if (r?.data?.oddCasa) {
+      ODDS_CACHE[fid] = r.data;
+      return r.data;
+    }
+  } catch(e) { /* Cloud Function não existe ainda, cai no fetch direto */ }
+
+  // 2. Fallback: fetch direto (só funciona se API_FOOTBALL_KEY estiver preenchida)
+  if (!API_FOOTBALL_KEY) return null;
+  try {
+    const res = await fetch(`https://v3.football.api-sports.io/odds?fixture=${fid}&bookmaker=8`, {
+      headers: { 'x-apisports-key': API_FOOTBALL_KEY }
+    });
+    const data = await res.json();
+    const bets = data?.response?.[0]?.bookmakers?.[0]?.bets;
+    if (!bets?.length) return null;
+    const h2h = bets.find(b => b.name === 'Match Winner');
+    if (!h2h?.values?.length) return null;
+    const home = h2h.values.find(v => v.value === 'Home')?.odd;
+    const draw = h2h.values.find(v => v.value === 'Draw')?.odd;
+    const away = h2h.values.find(v => v.value === 'Away')?.odd;
+    if (!home || !draw || !away) return null;
+    const result = {
+      oddCasa: parseFloat(home),
+      oddEmp:  parseFloat(draw),
+      oddFora: parseFloat(away),
+      bookmaker: 'Bet365',
+      fixtureId: Number(fid),
+      fonte: 'api-football',
+    };
+    ODDS_CACHE[fid] = result;
+    return result;
+  } catch(e) {
+    console.warn('[Odds] fetch falhou:', e.message);
+    return null;
+  }
+}
+
+// Calcular variáveis derivadas das odds (mesmo padrão do odds-gols.html)
+function calcOddsDerivadas(oc, oe, of) {
+  if (!oc || !oe || !of) return null;
+  const pC=1/oc, pE=1/oe, pF=1/of, tot=pC+pE+pF;
+  const iPC = +((pC/tot)*100).toFixed(1);
+  const iPE = +((pE/tot)*100).toFixed(1);
+  const iPF = +((pF/tot)*100).toFixed(1);
+  const diff = Math.abs(oc-of);
+  const avg  = (oc+of)/2;
+  const empateRelativo = +(oe/avg).toFixed(2);
+  // Sinal tático: empate alto relativo ao favorito = jogo fechado esperado
+  const jogoTatico = empateRelativo > 1.25; // empate mais caro que a média c/f
+  const fatorOdds  = jogoTatico ? 0.80 : 1.0; // ajuste de gols se tático
+  return { iPC, iPE, iPF, empateRelativo, jogoTatico, fatorOdds, oc, oe, of };
+}
+
+// ── YELLUP SCORE (mesma lógica do algoritmo.html) ─────────────────────────
+function calcYS(jogos) {
+  if (!jogos?.length) return null;
+  const js = jogos.slice(0, 20), n = js.length || 1;
+  const avg = k => js.map(jj => parseFloat(jj.stats?.time?.[k]) || 0).reduce((a,b)=>a+b,0)/n;
+  const wins  = js.filter(jj => jj.resultado === 'V').length;
+  const draws = js.filter(jj => jj.resultado === 'E').length;
+  const aproveit = (wins*3 + draws) / (n*3);
+  const golsM = js.reduce((a,jj) => a+(jj.gols||0),0) / n;
+  const golsS = js.reduce((a,jj) => a+(jj.golsSofridos||0),0) / n;
+  const xg    = avg('expected_goals') || golsM*0.8;
+  const shots = avg('Shots on Goal') || 0;
+  const poss  = avg('Ball Possession') || 50;
+  const passAcc = avg('Passes %') || 75;
+  let ys = 0;
+  // Aproveitamento é o preditor mais forte — mantido
+  ys += aproveit * 3.5;
+  // Ataque: gols marcados + xG com leve boost
+  ys += Math.min(1, golsM/2.5) * 1.8;
+  // Defesa: aumentado — dados mostraram que não sofrer gols é mais preditivo que marcar
+  ys += Math.max(0, 1 - golsS/2.0) * 1.8;
+  // xG: mantido mas com threshold menor (mais sensitivo)
+  ys += Math.min(1, xg/1.5) * 1.2;
+  // Chutes: leve redução
+  ys += Math.min(1, shots/7) * 0.6;
+  // Posse: reduzida significativamente — dados mostraram posse ≠ resultado
+  ys += Math.min(1, (poss-30)/40) * 0.15;
+  // Passes: leve redução
+  ys += Math.min(1, (passAcc-60)/35) * 0.15;
+  // Reescalar para manter range ~0-10
+  return Math.min(10, Math.max(0, ys * 1.05));
+}
+
+// Classificar força pelo YS (substitui classForça por odds)
+function classForçaYS(ys) {
+  if (ys === null) return 'medio';
+  if (ys >= 7.5) return 'top';
+  if (ys >= 5.5) return 'forte';
+  if (ys >= 3.5) return 'equilibrado';
+  return 'fraco';
+}
+
+// Sequência atual (quantas vitórias/derrotas consecutivas)
+function calcSequencia(jogos) {
+  if (!jogos?.length) return { tipo: null, count: 0 };
+  const primResult = jogos[0].resultado;
+  let count = 0;
+  for (const jj of jogos) {
+    if (jj.resultado === primResult) count++;
+    else break;
+  }
+  return { tipo: primResult, count };
+}
+
+// Gols por período (1T vs 2T)
+function calcGolsPorTempo(jogos) {
+  if (!jogos?.length) return { primeiro: 0, segundo: 0 };
+  let g1 = 0, g2 = 0, n = 0;
+  for (const jj of jogos) {
+    if (!jj.golsMinuto?.length) continue;
+    g1 += jj.golsMinuto.filter(m => m <= 45).length;
+    g2 += jj.golsMinuto.filter(m => m > 45).length;
+    n++;
+  }
+  if (!n) return { primeiro: 0, segundo: 0 };
+  return { primeiro: +(g1/n).toFixed(2), segundo: +(g2/n).toFixed(2) };
+}
+
+// ── CALCULAR PREVISÃO ─────────────────────────────────────────────────────
+function calcularPrevisao(j, hC, hF, cC, cF, cG, perfilCasaDB, perfilForaDB) {
+  const explicacoes = [];
+  const fontes = [];
+  let wTotal = 0;
+  let probCasa = 0, probEmpate = 0;
+
+  const jogosC = hC?.jogos || [];
+  const jogosF = hF?.jogos || [];
+  const nC = jogosC.length, nF = jogosF.length;
+
+  // ── YELLUP SCORE de cada time ─────────────────────────────────────────
+  const ysC = calcYS(jogosC);
+  const ysF = calcYS(jogosF);
+  const forcaC = classForçaYS(ysC);
+  const forcaF = classForçaYS(ysF);
+
+  // Sequência atual
+  const seqC = calcSequencia(jogosC);
+  const seqF = calcSequencia(jogosF);
+
+  // Gols por período
+  const periodoC = calcGolsPorTempo(jogosC);
+  const periodoF = calcGolsPorTempo(jogosF);
+
+  // ── FONTE 0: BASE ESTATÍSTICA REAL — Camada 1 ───────────────────────
+  // Âncora: probabilidades históricas reais da liga (10.000 jogos)
+  const ligaNomeP = j.liga?.nome || '';
+  const ligaApiIdP = j.liga?.apiId || j.liga?.id || null;
+  const dataJogoP = j.dataInicio?.toDate ? j.dataInicio.toDate().toISOString() : (j.dataInicio || '');
+  const baseP = getBaseLiga(ligaNomeP, ligaApiIdP);
+  const baseResultP = baseP.result;
+  const wBase = 0.15; // reduzido para dar mais espaço às camadas com dados do time
+  probCasa   += baseResultP.casa   * wBase;
+  probEmpate += baseResultP.emp    * wBase;
+  wTotal += wBase;
+  fontes.push({ nome: `Base ${LIGA_API_ID_MAP[ligaApiIdP]||ligaNomeP||'Global'}`, amostras: 10000, ativa: true });
+
+  // ── FONTE 0b: ELO + MOMENTUM do perfil real (fixtures-historico) ──────
+  // Camada mais nova e mais direta: usa força real calculada do nosso banco
+  if (perfilCasaDB && perfilForaDB && perfilCasaDB.forca5 != null && perfilForaDB.forca5 != null) {
+    const eloCasa  = perfilCasaDB.forca5 + 0.15; // vantagem casa calibrada v2 (era +0.5)
+    const eloFora  = perfilForaDB.forca5;
+    const eloTotal = (eloCasa + eloFora) || 10;
+    let probElo = (eloCasa / eloTotal) * 100;
+
+    // Ajuste por momentum: time subindo vale mais, caindo vale menos
+    if (perfilCasaDB.tendencia === 'subindo')  probElo += 3;
+    if (perfilCasaDB.tendencia === 'caindo')   probElo -= 4;
+    if (perfilForaDB.tendencia === 'subindo')  probElo -= 3;
+    if (perfilForaDB.tendencia === 'caindo')   probElo += 4;
+
+    // Empate mais provável quando forças são próximas
+    const diffForca = Math.abs(perfilCasaDB.forca5 - perfilForaDB.forca5);
+    const empElo = diffForca < 1.0 ? 32 : diffForca < 2.0 ? 28 : 24;
+
+    const wElo = perfilCasaDB.n >= 15 && perfilForaDB.n >= 15 ? 0.22 : 0.14;
+    probCasa   += Math.min(75, Math.max(10, probElo)) * wElo;
+    probEmpate += empElo * wElo;
+    wTotal += wElo;
+
+    const momC = perfilCasaDB.mom5 != null ? (perfilCasaDB.mom5 > 0 ? '+' : '') + perfilCasaDB.mom5 : '?';
+    const momF = perfilForaDB.mom5 != null ? (perfilForaDB.mom5 > 0 ? '+' : '') + perfilForaDB.mom5 : '?';
+    fontes.push({ nome: `Elo ${perfilCasaDB.forca5}(${momC}) vs ${perfilForaDB.forca5}(${momF})`, amostras: perfilCasaDB.n + perfilForaDB.n, ativa: true });
+
+    // Explicações baseadas no perfil real
+    if (perfilCasaDB.tendencia === 'caindo')
+      explicacoes.push('📉 ' + j.timeCasa?.nome + ' em queda — força ' + perfilCasaDB.forca5 + ' (Mom5 ' + momC + ')');
+    if (perfilForaDB.tendencia === 'subindo')
+      explicacoes.push('📈 ' + j.timeFora?.nome + ' em ascensão — força ' + perfilForaDB.forca5 + ' (Mom5 ' + momF + ')');
+    if (perfilForaDB.tendencia === 'caindo')
+      explicacoes.push('📉 ' + j.timeFora?.nome + ' em queda — força ' + perfilForaDB.forca5 + ' (Mom5 ' + momF + ')');
+    if (perfilCasaDB.tendencia === 'subindo')
+      explicacoes.push('📈 ' + j.timeCasa?.nome + ' em ascensão — força ' + perfilCasaDB.forca5 + ' (Mom5 ' + momC + ')');
+  }
+
+  // ── FONTE 1: Yellup Score relativo ───────────────────────────────────
+  if (ysC !== null && ysF !== null) {
+    const ysTotal = (ysC + ysF) || 10;
+    const diffAbs = Math.abs(ysC - ysF);
+    let probYS = (ysC / ysTotal) * 100 + 5; // +5 vantagem casa
+
+    // Quando times são equilibrados (YS diff < 1.5) puxar para base 50/25/25
+    // Dados mostraram que YS sozinho não quebra empates próximos
+    if (diffAbs < 1.5) {
+      probYS = probYS * 0.6 + 50 * 0.4; // regredir à média
+    }
+
+    // Empate mais provável quando times equilibrados
+    const empYS = 24 + Math.max(0, 12 - diffAbs) * 0.9;
+
+    // Peso do YS baseado em 1707 jogos reais:
+    // diff < 2.0 → fraco preditor mas ainda melhor que fallback genérico
+    // diff 2-3   → neutro (45%) → peso mínimo
+    // diff 3-4   → 63% acerto → peso real
+    // diff 4+    → predição forte → peso máximo
+    const w = diffAbs >= 4.0 ? 0.35
+            : diffAbs >= 3.0 ? 0.28
+            : diffAbs >= 2.0 ? 0.10
+            : diffAbs >= 1.0 ? 0.08  // contribui pouco — equilibrado
+            : 0.06;                  // mínimo — não zerar para evitar fallback genérico
+
+    probCasa   += probYS * w;
+    probEmpate += empYS * w;
+    wTotal += w;
+    fontes.push({ nome: `YS ${ysC?.toFixed(1)} vs ${ysF?.toFixed(1)}`, amostras: nC + nF, ativa: true });
+    const diff = ysC - ysF;
+    if (diff >= 2.5)       explicacoes.push(`${j.timeCasa?.nome} muito superior em forma — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)}`);
+    else if (diff <= -2.5) explicacoes.push(`${j.timeFora?.nome} chega em melhor momento — YS ${ysF.toFixed(1)} vs ${ysC.toFixed(1)}`);
+    else if (diffAbs < 1.0) explicacoes.push(`Times praticamente iguais em forma — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)} (imprevisível)`);
+    else                   explicacoes.push(`${diff > 0 ? j.timeCasa?.nome : j.timeFora?.nome} ligeiramente melhor — YS ${ysC.toFixed(1)} vs ${ysF.toFixed(1)}`);
+  }
+
+  // ── FONTE 2: Histórico em casa ────────────────────────────────────────
+  if (nC >= 3) {
+    const emCasa = jogosC.filter(jj => jj.casa === true);
+    const ref = emCasa.length >= 3 ? emCasa : jogosC;
+    const n = ref.length;
+    const vit = ref.filter(jj => jj.resultado === 'V').length / n * 100;
+    const emp = ref.filter(jj => jj.resultado === 'E').length / n * 100;
+    const w = n >= 15 ? 0.20 : n >= 7 ? 0.13 : 0.07;
+    probCasa   += vit * w;
+    probEmpate += emp * w;
+    wTotal += w;
+    fontes.push({ nome: 'Hist.Casa', amostras: n, ativa: true });
+    // Forma recente
+    const vit5 = jogosC.slice(0, 5).filter(jj => jj.resultado === 'V').length;
+    if (vit5 >= 4) explicacoes.push(`${j.timeCasa?.nome} em excelente forma — ${vit5}V nos últimos 5`);
+    else if (vit5 <= 1) explicacoes.push(`${j.timeCasa?.nome} em má fase — só ${vit5}V nos últimos 5`);
+  } else {
+    fontes.push({ nome: 'Hist.Casa', amostras: nC, ativa: false });
+  }
+
+  // ── FONTE 3: Histórico visitante ──────────────────────────────────────
+  if (nF >= 3) {
+    const emFora = jogosF.filter(jj => jj.casa === false);
+    const ref = emFora.length >= 3 ? emFora : jogosF;
+    const n = ref.length;
+    const vitF = ref.filter(jj => jj.resultado === 'V').length / n * 100;
+    const empF = ref.filter(jj => jj.resultado === 'E').length / n * 100;
+    const w = n >= 15 ? 0.18 : n >= 7 ? 0.11 : 0.05;
+    probCasa   += (100 - vitF - empF) * w;
+    probEmpate += empF * w;
+    wTotal += w;
+    fontes.push({ nome: 'Hist.Fora', amostras: n, ativa: true });
+    const vit5F = jogosF.slice(0, 5).filter(jj => jj.resultado === 'V').length;
+    if (vit5F >= 4) explicacoes.push(`${j.timeFora?.nome} em grande fase fora — ${vit5F}V nos últimos 5`);
+  } else {
+    fontes.push({ nome: 'Hist.Fora', amostras: nF, ativa: false });
+  }
+
+  // ── FONTE 4: H2H ──────────────────────────────────────────────────────
+  const h2h = hC?.h2h || [];
+  if (h2h.length >= 3) {
+    const foraId = j.timeFora?.apiId || j.timeFora?.id;
+    const h2hFilt = h2h.filter(g =>
+      String(g.timeForaId) === String(foraId) || String(g.timeCasaId) === String(foraId)
+    );
+    if (h2hFilt.length >= 3) {
+      const casaId2 = j.timeCasa?.apiId || j.timeCasa?.id;
+      const vitH2H = h2hFilt.filter(g => {
+        const isCasa = String(g.timeCasaId) === String(casaId2);
+        return (isCasa && g.resultado === '1') || (!isCasa && g.resultado === '2');
+      }).length / h2hFilt.length * 100;
+      const empH2H = h2hFilt.filter(g => g.resultado === 'X').length / h2hFilt.length * 100;
+      const w = h2hFilt.length >= 8 ? 0.18 : 0.10;
+      probCasa   += vitH2H * w;
+      probEmpate += empH2H * w;
+      wTotal += w;
+      fontes.push({ nome: 'H2H', amostras: h2hFilt.length, ativa: true });
+      if (vitH2H >= 65) explicacoes.push(`${j.timeCasa?.nome} domina o histórico direto — ${Math.round(vitH2H)}% de vitórias em ${h2hFilt.length} jogos`);
+      else if (vitH2H <= 25) explicacoes.push(`${j.timeFora?.nome} vence mais os confrontos diretos — ${Math.round(100-vitH2H-empH2H)}% de vitórias`);
+    }
+  }
+
+  // ── FONTE 5: Banco de contexto (com força dinâmica) ───────────────────
+  if (cC?.totalAmostras >= 5) {
+    const vitC = cC.resultados?.pctVitoria || 0;
+    const empC = cC.resultados?.pctEmpate  || 25;
+    const w = cC.totalAmostras >= 30 ? 0.22 : cC.totalAmostras >= 10 ? 0.14 : 0.07;
+    probCasa   += vitC * w;
+    probEmpate += empC * w;
+    wTotal += w;
+    fontes.push({ nome: 'Banco', amostras: cC.totalAmostras, ativa: true });
+    if (vitC >= 70) explicacoes.push(`Banco próprio: ${j.timeCasa?.nome} vence ${Math.round(vitC)}% vs adversários ${forcaF}`);
+  } else {
+    fontes.push({ nome: 'Banco', amostras: cC?.totalAmostras || 0, ativa: false });
+  }
+
+  // ── FONTE 6: Banco Global ─────────────────────────────────────────────
+  if (cG?.totalAmostras >= 30) {
+    const vitG = cG.resultados?.pctVitoria || 46;
+    const empG = cG.resultados?.pctEmpate  || 26;
+    const w = cG.totalAmostras >= 100 ? 0.12 : 0.08;
+    probCasa   += vitG * w;
+    probEmpate += empG * w;
+    wTotal += w;
+    fontes.push({ nome: 'Global', amostras: cG.totalAmostras, ativa: true });
+  }
+
+  // ── SEQUÊNCIA — ajuste fino ───────────────────────────────────────────
+  if (seqC.tipo === 'V' && seqC.count >= 3) {
+    probCasa += 3;
+    explicacoes.push(`${j.timeCasa?.nome} em série de ${seqC.count} vitórias consecutivas`);
+  } else if (seqC.tipo === 'D' && seqC.count >= 3) {
+    probCasa -= 3;
+    explicacoes.push(`${j.timeCasa?.nome} vem de ${seqC.count} derrotas seguidas`);
+  }
+  if (seqF.tipo === 'V' && seqF.count >= 3) {
+    probCasa -= 3;
+    explicacoes.push(`${j.timeFora?.nome} em série de ${seqF.count} vitórias`);
+  }
+
+  // ── NORMALIZAR ────────────────────────────────────────────────────────
+  if (wTotal < 0.1) {
+    // wTotal muito baixo — usar base da liga como âncora mínima
+    const ligaNomeFb = j.liga?.nome || '';
+    const ligaApiFb  = j.liga?.apiId || j.liga?.id || null;
+    const baseFb = getBaseLiga(ligaNomeFb, ligaApiFb).result;
+    if (ysC !== null && ysF !== null) {
+      const ysTotal = (ysC + ysF) || 10;
+      // Combinar YS com base da liga (50/50)
+      probCasa   = ((ysC/ysTotal)*100 + 3) * 0.5 + baseFb.casa * 0.5;
+      probEmpate = 26 * 0.5 + baseFb.emp * 0.5;
+      explicacoes.push('Poucos dados históricos — usando YS + base da liga');
+    } else {
+      probCasa = baseFb.casa; probEmpate = baseFb.emp;
+      explicacoes.push('Sem histórico do time — usando base estatística da liga');
+    }
+  } else {
+    probCasa   = probCasa   / wTotal;
+    probEmpate = probEmpate / wTotal;
+  }
+
+  // Deflação de probabilidades extremas
+  function deflacionar(prob) {
+    if (prob >= 75) return 0.72 * prob + 8;
+    if (prob >= 65) return 0.82 * prob + 5;
+    if (prob >= 55) return 0.90 * prob + 3;
+    return prob;
+  }
+  probCasa   = deflacionar(probCasa);
+  probEmpate = deflacionar(probEmpate);
+
+  // ── CORREÇÃO DE VIÉS DE EMPATE ────────────────────────────────────────
+  // Análise de 41 jogos: quando a diferença entre casa e fora é < 12pp,
+  // o sistema subestima empates. Corrigir puxando para a realidade.
+  const diffCasaFora = Math.abs(probCasa - (100 - probCasa - probEmpate));
+  if (diffCasaFora < 12) {
+    // Times muito próximos → aumentar empate para ~30-35%
+    const boostEmp = Math.max(0, 30 - probEmpate);
+    probEmpate = Math.min(42, probEmpate + boostEmp * 0.5);
+    probCasa = Math.max(25, probCasa - boostEmp * 0.3);
+  }
+
+  probCasa   = Math.min(80, Math.max(8,  Math.round(probCasa)));
+  probEmpate = Math.min(42, Math.max(8,  Math.round(probEmpate)));
+  let probFora = Math.max(4, 100 - probCasa - probEmpate);
+  const tot = probCasa + probEmpate + probFora;
+  probCasa   = Math.round(probCasa   / tot * 100);
+  probEmpate = Math.round(probEmpate / tot * 100);
+  probFora   = 100 - probCasa - probEmpate;
+
+  const max = Math.max(probCasa, probEmpate, probFora);
+  // Veredito: resultado com maior probabilidade
+  // Nota: empates na zona 40-50% casa / 28-38% emp são praticamente aleatórios
+  // Não há regra confiável para diferenciar — manter max() como critério
+  const veredito = probCasa === max ? 'casa' : probEmpate === max ? 'empate' : 'fora';
+
+  // Flag de alta incerteza — quando as 3 opções estão próximas
+  const segundoMax = [probCasa, probEmpate, probFora].sort((a,b)=>b-a)[1];
+  const altaIncerteza = (max - segundoMax) < 8; // menos de 8pp de margem
+
+  // ── CONFIANÇA v3 — baseada em 251 jogos reais ───────────────────────────
+  // Aprendizado: YS alto ≠ acerto. Média confiança (39.7%) pior que aleatório.
+  // Nova lógica: sinais INDEPENDENTES precisam convergir. Sem convergência = insuficiente.
+  // Alta só quando múltiplos sinais fortes apontam na mesma direção.
+  const diffYS = ysC !== null && ysF !== null ? Math.abs(ysC - ysF) : 0;
+
+  // ── SINAL 1: Volume de dados (qualidade da amostra) ──────────────────
+  const volBom = nC >= 15 && nF >= 15;   // ambos com histórico decente
+  const volOtimo = nC >= 25 && nF >= 25; // ambos com histórico sólido
+
+  // ── SINAL 2: Domínio claro pelo YS (não só diferença, mas nível absoluto) ──
+  // YS alto do favorito + YS baixo do adversário = dominância real
+  const ysMax = Math.max(ysC || 0, ysF || 0);
+  const ysMin = Math.min(ysC || 99, ysF || 99);
+  const dominanciaClara = diffYS >= 4.0 && ysMax >= 7.0; // favorito forte E adversário fraco
+  const dominanciaMedia = diffYS >= 2.5 && ysMax >= 5.5;
+
+  // ── SINAL 3: Probabilidade com margem real ────────────────────────────
+  // Max > 62% = modelo tem convicção. Max < 48% = equilíbrio real.
+  const probForte   = max >= 62 && !altaIncerteza;
+  const probModerada = max >= 54 && !altaIncerteza;
+
+  // ── SINAL 4: Consistência de forma recente ────────────────────────────
+  // Time favorecido pelo YS também está em boa forma? Sinais independentes convergem?
+  const favoritoYS = (ysC || 0) > (ysF || 0) ? 'casa' : 'fora';
+  const jogosDoFavorito = favoritoYS === 'casa' ? jogosC : jogosF;
+  const formaFavorito = jogosDoFavorito.slice(0, 5);
+  const vitoriasFavorito = formaFavorito.filter(jj => jj.resultado === 'V').length;
+  const formaConverge = vitoriasFavorito >= 3; // ≥3V nos últimos 5
+
+  // ── SINAL 5: H2H consistente ──────────────────────────────────────────
+  const h2hBom = h2h.length >= 4;
+
+  // ── CONVERGÊNCIA dos sinais → nível de confiança ────────────────────
+  // Alta: 4+ sinais fortes convergindo — esperamos >62% de acerto
+  const sinaisAlta = [
+    volOtimo,
+    dominanciaClara,
+    probForte,
+    formaConverge,
+    h2hBom,
+  ].filter(Boolean).length;
+
+  const sinaisMedia = [
+    volBom,
+    dominanciaMedia,
+    probModerada,
+    formaConverge,
+  ].filter(Boolean).length;
+
+  // Confiança baseada em sinais universais — independente da liga
+  const penalizar = (altaIncerteza && max < 48) || max < 40;
+
+  const confianca = penalizar
+    ? 'insuficiente'
+    : sinaisAlta >= 3
+      ? 'alta'
+      : sinaisMedia >= 2
+        ? 'baixa'
+        : 'insuficiente';
+
+  // Força comparativa (gols)
+  if (nC >= 5 && nF >= 5) {
+    const mgC = jogosC.reduce((a,jj)=>a+(jj.gols||0),0)/nC;
+    const mgF = jogosF.reduce((a,jj)=>a+(jj.gols||0),0)/nF;
+    if (mgC > mgF + 0.6) explicacoes.push(`${j.timeCasa?.nome} mais eficiente — ${mgC.toFixed(1)} gols/jogo vs ${mgF.toFixed(1)}`);
+    else if (mgF > mgC + 0.6) explicacoes.push(`${j.timeFora?.nome} marca mais — ${mgF.toFixed(1)} gols/jogo fora`);
+  }
+
+  // Forma
+  const formaC = jogosC.slice(0,5).map(jj => jj.resultado==='V'?'V':jj.resultado==='E'?'E':'D');
+  const formaF = jogosF.slice(0,5).map(jj => jj.resultado==='V'?'V':jj.resultado==='E'?'E':'D');
+
+  // altaIncerteza já está tratada dentro do scoreConf v3 (penalização direta)
+  // Manter confiancaFinal como alias para compatibilidade
+  const confiancaFinal = confianca;
+
+  if (altaIncerteza && !explicacoes.find(e => e.includes('imprevisível'))) {
+    explicacoes.push('Jogo imprevisível — margem pequena entre os resultados');
+  }
+
+  // ── ALERTAS DE RISCO — situações que historicamente causam erro ──────────
+  const alertas = [];
+
+  // Calcular estimativa de gols antecipadamente para usar nos alertas
+  const _golsEstAntecipado = (() => {
+    const ligaNome2 = j.liga?.nome || '';
+    const ligaApiId2 = j.liga?.apiId || j.liga?.id || null;
+    const tri2 = getTrimestre(j.dataInicio?.toDate ? j.dataInicio.toDate().toISOString() : '') || 2;
+    const base2 = getBaseLiga(ligaNome2, ligaApiId2);
+    return base2.gols[`T${tri2}`] || base2.gols['T2'] || 2.5;
+  })();
+
+  // 1. Mata-mata/Eliminatória → prorrogação possível, gols extras
+  const ligaStr = (j.liga?.nome || '').toLowerCase();
+  const ehMataMata = ligaStr.includes('champions') || ligaStr.includes('europa') ||
+    ligaStr.includes('conference') || ligaStr.includes('copa') ||
+    ligaStr.includes('eliminat') || ligaStr.includes('knockout') ||
+    ligaStr.includes('round of') || ligaStr.includes('quarter') ||
+    ligaStr.includes('semi') || ligaStr.includes('final');
+  if (ehMataMata) {
+    alertas.push({ tipo: 'mata_mata', nivel: 'medio',
+      txt: '⚠️ Mata-mata: prorrogação possível — gols extras não computados na previsão' });
+  }
+
+  // 2. Posse favorito ≠ resultado favorito (armadilha clássica)
+  if (perfilCasaDB && perfilForaDB) {
+    const posseCasa = perfilCasaDB.statsCasa?.posseMedia || perfilCasaDB.s5?.posse || null;
+    const posseFora = perfilForaDB.statsFora?.posseMedia || perfilForaDB.s5?.posse || null;
+    if (posseCasa && posseFora) {
+      // Casa tem mais posse mas está perdendo em forma
+      if (posseCasa > posseFora + 10 && perfilCasaDB.tendencia === 'caindo' && probCasa < 45) {
+        alertas.push({ tipo: 'posse_sem_resultado', nivel: 'medio',
+          txt: `⚠️ ${j.timeCasa?.nome} tem mais posse mas está em queda — posse não está convertendo` });
+      }
+    }
+  }
+
+  // 3. Fadiga — muitos jogos recentes
+  const fadCasa = perfilCasaDB?.fadiga15d || 0;
+  const fadFora = perfilForaDB?.fadiga15d || 0;
+  if (fadCasa >= 4 && fadFora >= 4) {
+    alertas.push({ tipo: 'fadiga_dupla', nivel: 'baixo',
+      txt: `⚠️ Ambos os times com alta carga (${fadCasa} e ${fadFora} jogos/15d) — risco de queda de ritmo` });
+  } else if (fadCasa >= 5 || fadFora >= 5) {
+    const timeFad = fadCasa >= 5 ? j.timeCasa?.nome : j.timeFora?.nome;
+    const n = Math.max(fadCasa, fadFora);
+    alertas.push({ tipo: 'fadiga', nivel: 'baixo',
+      txt: `⚠️ ${timeFad} com alta carga (${n} jogos/15d) — possível queda de rendimento` });
+  }
+
+  // 4. Visitante em melhor forma que o favorito casa
+  if (veredito === 'casa' && probCasa < 50) {
+    const momF = perfilForaDB?.mom5 || 0;
+    const momC = perfilCasaDB?.mom5 || 0;
+    if (momF > momC + 1.5) {
+      alertas.push({ tipo: 'visitante_momentum', nivel: 'alto',
+        txt: `🚨 ${j.timeFora?.nome} em momentum superior (Mom5 +${momF}) apesar de jogar fora — risco real de surpresa` });
+    }
+  }
+
+  // 5. Ambos atacam muito → jogo pode ser mais aberto que o previsto
+  const golsTotC = perfilCasaDB?.s5?.tot || 0;
+  const golsTotF = perfilForaDB?.s5?.tot || 0;
+  const golsEst  = _golsEstAntecipado;
+  if (golsTotC >= 3.5 && golsTotF >= 3.5 && golsEst < 3.0) {
+    alertas.push({ tipo: 'subestimacao_gols', nivel: 'medio',
+      txt: `⚠️ Ambos os times fazem 3.5+ gols/jogo nos últimos 5 — previsão de ${golsEst} pode estar subestimada` });
+  }
+
+  // 6. Confiança baixa mas gols estimados altos
+  if (confiancaFinal === 'baixa' || confiancaFinal === 'insuficiente') {
+    if (golsEst >= 3.0) {
+      alertas.push({ tipo: 'alta_incerteza_gols', nivel: 'baixo',
+        txt: `ℹ️ Confiança ${confiancaFinal} — previsão de ${golsEst} gols baseada principalmente na média da liga` });
+    }
+  }
+
+  // v2: calcular gols e extrair metadados
+  const _golsResult = calcularGols(j, jogosC, jogosF, hC?.h2h, periodoC, periodoF, perfilCasaDB, perfilForaDB, probCasa, probFora, null);
+
+  return {
+    resultado: { casa: probCasa, empate: probEmpate, fora: probFora, veredito },
+    gols: _golsResult,
+    _fatorZona: _golsResult._fatorZona,
+    _geDisxon: _golsResult._geDisxon,
+    confianca: confiancaFinal,
+    altaIncerteza,
+    alertas,
+    explicacoes: explicacoes.slice(0, 4),
+    fontes,
+    formaC, formaF,
+    ysC, ysF, forcaC, forcaF,
+    // Snapshot de força no momento da análise — para consulta futura
+    forca5C: perfilCasaDB?.forca5 ?? null,
+    forca5F: perfilForaDB?.forca5 ?? null,
+    eloC:    perfilCasaDB?.elo    ?? null,
+    eloF:    perfilForaDB?.elo    ?? null,
+    mom5C:   perfilCasaDB?.mom5   ?? null,
+    mom5F:   perfilForaDB?.mom5   ?? null,
+  };
+}
+
+// ── CALCULAR GOLS ─────────────────────────────────────────────────────────
+function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, perfilForaDB, probCasa=45, probFora=29, oddsDerivadas=null) {
+  // ══════════════════════════════════════════════════════════════
+  // CAMADA 1 — Base estatística real por liga + trimestre
+  // Anchor: média histórica da liga no período do ano
+  // ══════════════════════════════════════════════════════════════
+  const ligaNome = j.liga?.nome || '';
+  const ligaApiId = j.liga?.apiId || j.liga?.id || null;
+  const dataJogo = j.dataInicio?.toDate ? j.dataInicio.toDate().toISOString() : (j.dataInicio || '');
+  const tri = getTrimestre(dataJogo) || 2;
+  const mes = getMesData(dataJogo);
+  const triKey = `T${tri}`;
+
+  const base = getBaseLiga(ligaNome, ligaApiId);
+  const baseGols = base.gols[triKey] || base.gols['T2'] || 2.5;
+  const ajusteMes = mes ? (BASE_AJUSTE_MES[mes] || 0) : 0;
+
+  // ── v2: Dixon-Coles direto via gf_media/gs_media do banco ────────────
+  // perfilCasaDB.s5.gf_media / gs_media já existe em fixtures-historico
+  // Fórmula: λC = gf_casa × (gs_fora/media_liga), λF = gf_fora × (gs_casa/media_liga)
+  let _geDisxon = null;
+  const _gfC = perfilCasaDB?.s5?.gf_media ?? perfilCasaDB?.s5?.gf;
+  const _gsC = perfilCasaDB?.s5?.gs_media ?? perfilCasaDB?.s5?.gs;
+  const _gfF = perfilForaDB?.s5?.gf_media  ?? perfilForaDB?.s5?.gf;
+  const _gsF = perfilForaDB?.s5?.gs_media  ?? perfilForaDB?.s5?.gs;
+  if (_gfC != null && _gsC != null && _gfF != null && _gsF != null) {
+    const _mediaRef = (baseGols + ajusteMes) / 2; // λ médio por time
+    const _lambdaC  = _gfC * (_gsF / Math.max(_mediaRef, 0.5));
+    const _lambdaF  = _gfF * (_gsC / Math.max(_mediaRef, 0.5));
+    _geDisxon = Math.round((_lambdaC + _lambdaF) * 2) / 2;
+    // Limitar a range razoável [0.5, 6.0]
+    _geDisxon = Math.max(0.5, Math.min(6.0, _geDisxon));
+  }
+
+  // Se temos Dixon-Coles do banco real, ele entra como peso adicional na Camada 1
+  // Ajuste: blendamos base da liga (60%) com Dixon-Coles (40%) quando disponível
+  const estimativaBaseRaw = baseGols + ajusteMes;
+  const estimativaBase2   = _geDisxon != null
+    ? estimativaBaseRaw * 0.55 + _geDisxon * 0.45
+    : estimativaBaseRaw;
+
+  const estimativaBase = estimativaBase2;
+  // Base Camada 1 = média da liga no trimestre + ajuste mensal fino
+  // Peso alto: 50% — é o âncora mais confiável que temos (3.230 jogos reais)
+  let estimativaBase2b = estimativaBase2b + ajusteMes * 0.3 - ajusteMes; // ajuste mensal suavizado (usa estimativaBase2b acima)
+  const fontesCamada1 = [`Liga:${baseGols.toFixed(2)}`, `Tri:T${tri}`];
+
+  // ══════════════════════════════════════════════════════════════
+  // CAMADA 2 — Perfil real dos times do banco fixtures-historico
+  // Prioridade: perfilCasaDB/perfilForaDB (dados reais nossos)
+  // Fallback: histórico do buscarHistoricoTime (API)
+  // ══════════════════════════════════════════════════════════════
+  let ajusteCamada2 = 0;
+  let temCamada2 = false;
+  let fonteCamada2 = '';
+
+  const refAtaque = estimativaBase2b / 2;
+
+  // PRIORIDADE 1: Perfil do nosso banco (fixtures-historico) — dados reais
+  // Usa stats separados por casa/fora para maior precisão
+  const casaTemPerfil = (perfilCasaDB?.nCasa ?? 0) >= 3;
+  const foraTemPerfil = (perfilForaDB?.nFora ?? 0) >= 3;
+  const casaTemGeral  = (perfilCasaDB?.n ?? 0) >= 5;
+  const foraTemGeral  = (perfilForaDB?.n ?? 0) >= 5;
+
+  if (casaTemPerfil && foraTemPerfil) {
+    // Dixon-Coles com dados separados casa/fora — mais preciso
+    const atqC = perfilCasaDB.ataqueCasa ?? refAtaque;
+    const defF = perfilForaDB.defesaFora  ?? refAtaque;
+    const atqF = perfilForaDB.ataqueFora  ?? refAtaque;
+    const defC = perfilCasaDB.defesaCasa  ?? refAtaque;
+    const xGC = refAtaque * (atqC/refAtaque) * (defF/refAtaque);
+    const xGF = refAtaque * (atqF/refAtaque) * (defC/refAtaque);
+    ajusteCamada2 = Math.max(-1.5, Math.min(1.5, (xGC+xGF) - estimativaBase2b));
+    temCamada2 = true;
+    fonteCamada2 = 'banco_casa_fora';
+
+  } else if (casaTemGeral && foraTemGeral) {
+    // Tem dados gerais (sem separação casa/fora) — usar médias gerais
+    const atqC = perfilCasaDB.s5?.gf ?? refAtaque;
+    const defF = perfilForaDB.s5?.gs ?? refAtaque;
+    const atqF = perfilForaDB.s5?.gf ?? refAtaque;
+    const defC = perfilCasaDB.s5?.gs ?? refAtaque;
+    const xGC = refAtaque * (atqC/refAtaque) * (defF/refAtaque);
+    const xGF = refAtaque * (atqF/refAtaque) * (defC/refAtaque);
+    ajusteCamada2 = Math.max(-0.8, Math.min(0.8, (xGC+xGF) - estimativaBase2b));
+    temCamada2 = true;
+    fonteCamada2 = 'banco_geral';
+
+  } else if (casaTemPerfil || foraTemPerfil || casaTemGeral || foraTemGeral) {
+    const perfil = casaTemPerfil ? perfilCasaDB : (foraTemPerfil ? perfilForaDB : (casaTemGeral ? perfilCasaDB : perfilForaDB));
+    const mediaGolsTime = perfil?.mediaGols5 ?? perfil?.s5?.tot ?? refAtaque * 2;
+    ajusteCamada2 = (mediaGolsTime - estimativaBase2b) * 0.4;
+    ajusteCamada2 = Math.max(-0.5, Math.min(0.5, ajusteCamada2));
+    temCamada2 = true;
+    fonteCamada2 = 'banco_parcial';
+
+  } else {
+    // FALLBACK: usar histórico da API (buscarHistoricoTime)
+    const n = Math.min(jogosC.length, 15), m = Math.min(jogosF.length, 15);
+    if (n >= 5 && m >= 5) {
+      const atqC = jogosC.slice(0,n).reduce((a,jj)=>a+(jj.gols||0),0)/n;
+      const defC = jogosC.slice(0,n).reduce((a,jj)=>a+(jj.golsSofridos||0),0)/n;
+      const atqF = jogosF.slice(0,m).reduce((a,jj)=>a+(jj.gols||0),0)/m;
+      const defF = jogosF.slice(0,m).reduce((a,jj)=>a+(jj.golsSofridos||0),0)/m;
+      const xGC = refAtaque * (atqC/refAtaque) * (defF/refAtaque);
+      const xGF = refAtaque * (atqF/refAtaque) * (defC/refAtaque);
+      ajusteCamada2 = Math.max(-1.2, Math.min(1.2, (xGC+xGF) - estimativaBase2b));
+      temCamada2 = true;
+      fonteCamada2 = 'api_historico';
+    } else if (n >= 3 || m >= 3) {
+      const ref = n >= 3
+        ? jogosC.slice(0,n).reduce((a,jj)=>a+(jj.gols||0)+(jj.golsSofridos||0),0)/n
+        : jogosF.slice(0,m).reduce((a,jj)=>a+(jj.gols||0)+(jj.golsSofridos||0),0)/m;
+      ajusteCamada2 = (ref - estimativaBase2b) * 0.2;
+      fonteCamada2 = 'api_parcial';
+    }
+  }
+
+  // Ajuste de tendência recente — se time está subindo/caindo em gols
+  const tendC = perfilCasaDB?.tendencia;
+  const tendF = perfilForaDB?.tendencia;
+  if (tendC === 'subindo' && tendF === 'subindo') ajusteCamada2 += 0.15;
+  else if (tendC === 'caindo' && tendF === 'caindo') ajusteCamada2 -= 0.15;
+
+  // H2H como ajuste fino (quando disponível)
+  let ajusteH2H = 0;
+  if (h2h?.length >= 4) {
+    const mgH2H = h2h.slice(0,8).reduce((a,g)=>a+(g.golsCasa||0)+(g.golsFora||0),0)/Math.min(h2h.length,8);
+    ajusteH2H = (mgH2H - estimativaBase2b) * 0.15; // peso baixo, é complementar
+    ajusteH2H = Math.max(-0.5, Math.min(0.5, ajusteH2H));
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // COMBINAÇÃO FINAL com pesos calibrados
+  // Camada 1 (base liga): 55% | Camada 2 (times): 35% | H2H: 10%
+  // ══════════════════════════════════════════════════════════════
+  // ── PESOS ADAPTATIVOS ────────────────────────────────────────────────
+  // Quando temos dados reais do time (banco), eles valem mais que a base da liga
+  // Quando os dados mostram times fracos (mg baixa), reduzir peso da base da liga
+  const temBanco = fonteCamada2.startsWith('banco');
+
+  // Média real de gols dos times (se disponível)
+  const mgC5real = perfilCasaDB?.s5?.tot ?? perfilCasaDB?.mediaGols5 ?? null;
+  const mgF5real = perfilForaDB?.s5?.tot  ?? perfilForaDB?.mediaGols5 ?? null;
+  const mgPre    = (mgC5real != null && mgF5real != null) ? (mgC5real + mgF5real) / 2 : null;
+
+  // Quando a média real dos times está muito abaixo da base da liga,
+  // dar muito mais peso aos dados reais
+  const desvioAbaixo = mgPre != null ? Math.max(0, estimativaBase2b - mgPre) : 0;
+  const pesoBaseReducao = Math.min(0.35, desvioAbaixo * 0.15); // cada -1 gol real reduz 15% do peso base
+
+  const pesoCamada1 = temBanco
+    ? Math.max(0.20, 0.50 - pesoBaseReducao)
+    : (temCamada2 ? 0.58 : (h2h?.length >= 4 ? 0.75 : 1.0));
+  const pesoCamada2 = temBanco
+    ? Math.min(0.70, 0.40 + pesoBaseReducao)
+    : (temCamada2 ? 0.30 : 0);
+  const pesoH2H = h2h?.length >= 4 ? (temBanco ? 0.10 : 0.12) : 0;
+
+  // Ampliar limite do ajuste quando dados reais mostram time muito fraco
+  const limAjuste = desvioAbaixo > 1.0 ? 1.5 : 1.0;
+  const ajusteCamada2Amp = Math.max(-limAjuste, Math.min(limAjuste, ajusteCamada2));
+
+  const estimativaFinal = (
+    estimativaBase2b * pesoCamada1 +
+    (estimativaBase2b + ajusteCamada2Amp) * pesoCamada2 +
+    (estimativaBase2b + ajusteH2H) * pesoH2H
+  );
+
+  // ── CALIBRAÇÃO v2: fatorForca por zona ────────────────────────────────
+  // Derivado de análise de 83 jogos reais (20-22/03/2026)
+  // Objetivo: corrigir superestimação quando time fecha atrás
+  let _fatorZona = 1.0;
+  if (perfilCasaDB?.forca5 != null && perfilForaDB?.forca5 != null) {
+    const _fc   = perfilCasaDB.forca5;
+    const _ff   = perfilForaDB.forca5;
+    const _avg  = (_fc + _ff) / 2;
+    const _diff = Math.abs(_fc - _ff);
+    const _min  = Math.min(_fc, _ff);
+    if (_avg > 5.0 && _diff < 2.0) {
+      _fatorZona = 0.70; // dois times fortes equilibrados → tático (100% acerto na amostra)
+    } else if (_avg < 3.5 && _diff < 2.0) {
+      _fatorZona = 0.80; // dois medianos fechados → menos gols
+    } else if (_min < 2.0 && _diff > 2.0) {
+      _fatorZona = 0.75; // time muito fraco + desequilíbrio → fecha atrás
+    } else if (_diff > 3.0) {
+      _fatorZona = 0.80; // grande desequilíbrio → fraco fecha
+    } else {
+      _fatorZona = 1.05; // zona normal → leve boost (dados mostraram subestimação leve)
+    }
+  }
+  // Se odds indicam jogo tático (empate relativo alto), desconto adicional
+  const _fatorOdds = oddsDerivadas?.jogoTatico ? oddsDerivadas.fatorOdds : 1.0;
+  const estimativaFinalCal = estimativaFinal * _fatorZona * _fatorOdds;
+
+  // Correção de subestimativa: +0.3 só quando média pré-jogo está ACIMA de 2.0
+  const correcaoSub = mgPre != null
+    ? (mgPre >= 2.5 ? 0.3 : mgPre >= 2.0 ? 0.15 : mgPre >= 1.5 ? 0 : -0.2)
+    : 0.15;
+  const estimativaCorrigida = estimativaFinalCal + correcaoSub;
+  // Piso real: 0.5 (jogo pode terminar 0x0), sem forçar mínimo de 2.5
+  const est = Math.round(Math.max(0.5, estimativaCorrigida) * 2) / 2;
+
+  // Over 2.5 baseado na base da liga + ajuste
+  const baseOver25 = base.gols.over25?.[triKey] || 44;
+
+  // Range baseado em desvio histórico (±0.8 gols é o intervalo de confiança real)
+  const baixo = Math.max(0, Math.round((est - 1.0) * 2) / 2);
+  const alto   = Math.round((est + 1.0) * 2) / 2;
+
+  // Tendência baseada no over 2.5 calibrado
+  const over25Ajustado = baseOver25 + (ajusteCamada2 * 8); // cada +0.1 gol ≈ +0.8pp over25
+  const tendencia = over25Ajustado >= 52 ? 'alto' : over25Ajustado <= 38 ? 'baixo' : 'medio';
+
+  // Distribuição HT/ST — nossa base mostra HT=44.8% dos gols
+  const gHT = Math.round(est * 0.448 * 2) / 2;
+  const gST = Math.round((est - gHT) * 2) / 2;
+  const periodo = `~${gHT.toFixed(1)} 1T · ~${gST.toFixed(1)} 2T`;
+
+  // Fonte label para o card
+  let fonteLabel = LIGA_API_ID_MAP[ligaApiId] || ligaNome || 'Global';
+  if (fonteCamada2 === 'banco_casa_fora') fonteLabel = '⚡ Banco C/F';
+  else if (fonteCamada2 === 'banco_geral') fonteLabel = '📊 Banco Geral';
+  else if (fonteCamada2 === 'banco_parcial') fonteLabel = '📊 Banco Parcial';
+  else if (fonteCamada2 === 'api_historico') fonteLabel = '🔗 API Hist.';
+
+  return {
+    estimado: est.toFixed(1),
+    range: `${baixo}–${alto}`,
+    tendencia,
+    periodo,
+    over25: Math.round(over25Ajustado),
+    fontes: [fonteLabel],
+    camada: fonteCamada2.startsWith('banco') ? 2 : 1,
+    fonteCamada2,
+    _lambdaCasa: Math.max(0.1, +(est * (probCasa / Math.max(1, probCasa + probFora))).toFixed(3)),
+    _lambdaFora: Math.max(0.1, +(est * (probFora  / Math.max(1, probCasa + probFora))).toFixed(3)),
+    // v2: metadados de calibração
+    _fatorZona,
+    _geDisxon,
+    _usouDisxon: _geDisxon != null,
+  };
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────
+function base5050() { return { casa: 45, empate: 26, fora: 29, veredito: 'casa' }; }
+function golsDefault() { return { estimado: '2.5', range: '1.5–3.5', tendencia: 'medio' }; }
+
+// ── DISTRIBUIÇÃO DE POISSON ───────────────────────────────────────────────
+function poisson(lambda, k) {
+  if (lambda <= 0 || k < 0) return 0;
+  let logP = -lambda + k * Math.log(lambda);
+  for (let i = 1; i <= k; i++) logP -= Math.log(i);
+  return Math.exp(logP);
+}
+
+function calcularPlacarPoisson(lambdaCasa, lambdaFora) {
+  const MAX = 7;
+  const placares = [];
+  for (let i = 0; i <= MAX; i++) {
+    for (let j = 0; j <= MAX; j++) {
+      const prob = poisson(lambdaCasa, i) * poisson(lambdaFora, j);
+      if (prob > 0.001) placares.push({ casa: i, fora: j, prob });
+    }
+  }
+  placares.sort((a, b) => b.prob - a.prob);
+  let goleada = 0, under15 = 0, btts = 0, over25 = 0;
+  for (const p of placares) {
+    const tot = p.casa + p.fora;
+    if (tot >= 4) goleada += p.prob;
+    if (tot <= 1) under15 += p.prob;
+    if (p.casa >= 1 && p.fora >= 1) btts += p.prob;
+    if (tot > 2.5) over25 += p.prob;
+  }
+  return {
+    top5: placares.slice(0, 5).map(p => ({
+      ...p, pct: Math.round(p.prob * 100), label: `${p.casa}-${p.fora}`,
+    })),
+    goleada: Math.round(goleada * 100),
+    under15: Math.round(under15 * 100),
+    btts:    Math.round(btts * 100),
+    over25Poisson: Math.round(over25 * 100),
+  };
+}
+
+function atualizarResumo() {
+  const filtroLiga = gc('filtroLiga').value;
+  const jogos = filtroLiga ? JOGOS.filter(j => j.liga?.nome === filtroLiga) : JOGOS;
+  const prevs = jogos.map(j => PREVISOES[j.id]).filter(Boolean).filter(p => !p.loading);
+  gc('rTotal').textContent = jogos.length;
+  gc('rAnalisados').textContent = prevs.length;
+  gc('rAlta').textContent  = prevs.filter(p => p.confianca === 'alta').length;
+  gc('rMedia').textContent = prevs.filter(p => p.confianca === 'media').length;
+  gc('rBaixa').textContent = prevs.filter(p => p.confianca === 'baixa' || p.confianca === 'insuficiente').length;
+  gc('resumoBar').style.display = jogos.length ? 'flex' : 'none';
+}
+
+function setStatus(msg, err) {
+  const el = gc('statusBar');
+  if (!msg) { el.innerHTML = ''; return; }
+  el.innerHTML = msg.startsWith('✓') ? `<span style="color:var(--grn)">${msg}</span>`
+    : err ? `<span style="color:var(--red)">${msg}</span>`
+    : `<div class="dot-spin"></div><span>${msg}</span>`;
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────
+function setTab(tab) {
+  const isPrevisoes   = tab === 'previsoes';
+  const isAprendizado = tab === 'aprendizado';
+  const isSimulador   = tab === 'simulador';
+  gc('jogosGrid').style.display           = isPrevisoes ? 'flex' : 'none';
+  gc('resumoBar').style.display           = isPrevisoes && JOGOS.length ? 'flex' : 'none';
+  gc('painelAprendizado').style.display   = isAprendizado ? 'block' : 'none';
+  gc('painelSimulador').style.display     = isSimulador   ? 'block' : 'none';
+
+  const tabs = ['btnTabPrevisoes','btnTabAprendizado','btnTabSimulador'];
+  const ativo = isPrevisoes ? 0 : isAprendizado ? 1 : 2;
+  tabs.forEach((id, i) => {
+    const el = gc(id);
+    if (!el) return;
+    el.style.color       = i === ativo ? 'var(--acc)' : '';
+    el.style.borderColor = i === ativo ? 'var(--acc)' : '';
+  });
+
+  if (isAprendizado) carregarAprendizado();
+  if (isSimulador)   iniciarSimulador();
+}
+
+// ── SALVAR PREVISÃO PRÉ-JOGO ──────────────────────────────────────────────
+async function salvarPrevisao(j, prev) {
+  try {
+    const dt = j.dataInicio?.toDate ? j.dataInicio.toDate() : new Date(j.dataInicio||0);
+    const poi = (prev.gols?._lambdaCasa && prev.gols?._lambdaFora)
+      ? calcularPlacarPoisson(prev.gols._lambdaCasa, prev.gols._lambdaFora)
+      : null;
+    await fns.httpsCallable('salvarPrevisao')({
+      fixtureId:     j.apiFootballId || j.apiFixtureId || j.id,
+      timeCasaId:    j.timeCasa?.apiId || j.timeCasa?.id,
+      timeForaId:    j.timeFora?.apiId || j.timeFora?.id,
+      timeCasaNome:  j.timeCasa?.nome,
+      timeForaNome:  j.timeFora?.nome,
+      liga:          j.liga?.nome,
+      dataJogo:      dt.toISOString(),
+      previsao: {
+        probCasa:     prev.resultado.casa,
+        probEmpate:   prev.resultado.empate,
+        probFora:     prev.resultado.fora,
+        veredito:     prev.resultado.veredito,
+        golsEstimado: prev.gols?.estimado,
+        golsRange:    prev.gols?.range,
+        confianca:    prev.confianca,
+        ysC:          prev.ysC,
+        ysF:          prev.ysF,
+        forcaC:       prev.forcaC,
+        forcaF:       prev.forcaF,
+        // Snapshot de força no momento da análise
+        forca5C:      prev.forca5C,
+        forca5F:      prev.forca5F,
+        eloC:         prev.eloC,
+        eloF:         prev.eloF,
+        mom5C:        prev.mom5C,
+        mom5F:        prev.mom5F,
+        fontes:       (prev.fontes||[]).map(f => f.nome),
+        apostaPlacar: poi ? `${poi.top5[0]?.casa}-${poi.top5[0]?.fora}` : null,
+        apostaPct:    poi?.top5[0]?.pct || null,
+        top5Placares: poi?.top5?.map(p => ({ l: p.label, p: p.pct })) || [],
+        probGoleada:  poi?.goleada || null,
+        probBTTS:     poi?.btts || null,
+        probUnder15:  poi?.under15 || null,
+        alertas:      (prev.alertas||[]).map(a => ({ tipo: a.tipo, nivel: a.nivel })),
+        // v2: odds Bet365 e metadados de calibração
+        oddCasa:      prev._odds?.oddCasa    || null,
+        oddEmp:       prev._odds?.oddEmp     || null,
+        oddFora:      prev._odds?.oddFora    || null,
+        jogoTatico:   prev._oddsDerivadas?.jogoTatico || false,
+        empateRelativo: prev._oddsDerivadas?.empateRelativo || null,
+        fatorZona:    prev._fatorZona        || null,
+        geDisxon:     prev._geDisxon         || null,
+        versao:       'v2',
+      }
+    });
+  } catch(e) {
+    console.warn('Erro ao salvar previsão:', e.message);
+  }
+}
+
+// Sobrescrever analisarTodos para salvar previsões
+async function reanalisarTodos() {
+  // Limpa TODO o sessionStorage de previsões e re-analisa
+  JOGOS.forEach(j => {
+    try { sessionStorage.removeItem('prev_' + j.id); } catch(e) {}
+  });
+  PREVISOES = {};
+  _perfilCache && Object.keys(_perfilCache).forEach(k => delete _perfilCache[k]);
+  renderCards();
+  await analisarTodos();
+}
+
+async function analisarUm(jogoId) {
+  const j = JOGOS.find(x => x.id === jogoId);
+  if (!j) return;
+  // Limpar cache deste jogo
+  try { sessionStorage.removeItem('prev_' + jogoId); } catch(e) {}
+  delete PREVISOES[jogoId];
+  // Mostrar loading
+  PREVISOES[jogoId] = { loading: true, step: 'buscando perfis...' };
+  renderCards();
+  try {
+    const prev = await analisarJogo(j);
+    PREVISOES[jogoId] = prev;
+    try { sessionStorage.setItem('prev_' + jogoId, JSON.stringify(prev)); } catch(e) {}
+  } catch(e) {
+    PREVISOES[jogoId] = { resultado: base5050(), gols: golsDefault(), confianca: 'insuficiente', explicacoes: ['Erro: ' + e.message], fontes: [] };
+  }
+  renderCards();
+  atualizarResumo();
+}
+
+async function analisarTodos() {
+  if (ANALISANDO) return;
+  // Limpar cache antigo — força re-análise com algoritmo atual
+  JOGOS.forEach(j => {
+    try { sessionStorage.removeItem('prev_' + j.id); } catch(e) {}
+  });
+  PREVISOES = {};
+  const filtroLiga = gc('filtroLiga').value;
+  const jogos = filtroLiga ? JOGOS.filter(j => j.liga?.nome === filtroLiga) : JOGOS;
+  if (!jogos.length) return;
+
+  ANALISANDO = true;
+  const btn = gc('btnAnalisar');
+  btn.disabled = true;
+  btn.textContent = '⏳ Analisando...';
+
+  jogos.forEach(j => { PREVISOES[j.id] = { loading: true, step: 'buscando dados' }; });
+  renderCards();
+
+  let analisados = 0;
+  for (const j of jogos) {
+    try {
+      PREVISOES[j.id] = { loading: true, step: j.timeCasa?.nome };
+      const cardEl = document.getElementById('card-' + j.id);
+      if (cardEl) cardEl.outerHTML = renderCard(j, PREVISOES[j.id]);
+
+      const prev = await analisarJogo(j);
+      PREVISOES[j.id] = prev;
+      analisados++;
+      setStatus(`${analisados}/${jogos.length} analisados`);
+
+      const cardEl2 = document.getElementById('card-' + j.id);
+      if (cardEl2) cardEl2.outerHTML = renderCard(j, prev);
+
+      // Salvar previsão no banco (só jogos não encerrados)
+      if (j.apiFootballId) { // v2: salva sempre, incluindo jogos encerrados
+        salvarPrevisao(j, prev); // assíncrono, não bloqueia
+      }
+      // Cache local no sessionStorage
+      try { sessionStorage.setItem('prev_' + j.id, JSON.stringify(prev)); } catch(e) {}
+    } catch(e) {
+      PREVISOES[j.id] = { resultado: null, gols: null, confianca: 'insuficiente', explicacoes: ['Erro: ' + e.message], fontes: [] };
+    }
+  }
+
+  atualizarResumo();
+  ANALISANDO = false;
+  btn.disabled = false;
+  btn.textContent = '🔄 Reanalisar';
+  setStatus('✓ Análise completa — previsões salvas');
+  // Atualizar cache
+  JOGOS.forEach(j => {
+    if (PREVISOES[j.id] && !PREVISOES[j.id].loading) {
+      try { sessionStorage.setItem('prev_' + j.id, JSON.stringify(PREVISOES[j.id])); } catch(e) {}
+    }
+  });
+}
+
+// ── CARREGAR APRENDIZADO ──────────────────────────────────────────────────
+async function carregarAprendizado() {
+  const el = gc('aprendizadoContent');
+  el.innerHTML = '<div style="color:var(--t2);text-align:center;padding:40px">Carregando...</div>';
+  try {
+    const r = await fns.httpsCallable('buscarAprendizado')({});
+    const { ligas, ultimas, fatorGlobal } = r.data;
+    renderAprendizado(ligas, ultimas, fatorGlobal);
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);padding:20px">Erro: ${e.message}</div>`;
+  }
+}
+
+function renderAprendizado(ligas, ultimas, fatorGlobal) {
+  const el = gc('aprendizadoContent');
+
+  // Totais globais
+  const totalJogos  = ligas.reduce((a,l) => a + (l.totalJogos||0), 0);
+  const totalAcertos = ligas.reduce((a,l) => a + (l.acertosResultado||0), 0);
+  const totalGols   = ligas.reduce((a,l) => a + (l.acertosGols||0), 0);
+  const pctResultado = totalJogos ? Math.round(totalAcertos/totalJogos*100) : 0;
+  const pctGols      = totalJogos ? Math.round(totalGols/totalJogos*100) : 0;
+  const desvioMedio  = totalJogos ? ligas.reduce((a,l) => a + (l.desvioGolsAcum||0), 0) / totalJogos : 0;
+
+  // Fator labels
+  const fatorLabel = {
+    yellup_score:        'YS favorecia mas perdeu',
+    xg_contra_resultado: 'Venceu com xG inferior',
+    gols_acima:          'Mais gols que o previsto',
+    gols_abaixo:         'Menos gols que o previsto',
+    posse_sem_eficiencia:'Posse sem eficiência',
+    baixa_confianca_correta: 'Resultado de baixa probabilidade',
+  };
+
+  const fatoresOrdenados = Object.entries(fatorGlobal)
+    .sort((a,b) => b[1]-a[1]).slice(0, 6);
+  const maxFator = fatoresOrdenados[0]?.[1] || 1;
+
+  // Ligas ordenadas por acurácia
+  const ligasOrdenadas = ligas
+    .filter(l => l.totalJogos >= 2)
+    .sort((a,b) => (b.acertosResultado/b.totalJogos) - (a.acertosResultado/a.totalJogos));
+
+  // Por confiança (global)
+  const confGlobal = { alta:{total:0,acertos:0}, media:{total:0,acertos:0}, baixa:{total:0,acertos:0}, insuficiente:{total:0,acertos:0} };
+  ligas.forEach(l => {
+    Object.entries(l.porConfianca||{}).forEach(([k,v]) => {
+      if (!confGlobal[k]) confGlobal[k] = {total:0,acertos:0};
+      confGlobal[k].total   += v.total||0;
+      confGlobal[k].acertos += v.acertos||0;
+    });
+  });
+
+  el.innerHTML = `
+  <div style="margin-bottom:16px">
+    <div style="font-size:18px;font-weight:700;margin-bottom:4px">🧠 O que a Yellup aprendeu</div>
+    <div style="font-size:12px;color:var(--t2)">${totalJogos} jogos analisados até agora</div>
+  </div>
+
+  ${totalJogos === 0 ? `<div style="text-align:center;padding:40px;color:var(--t2)">
+    <div style="font-size:32px;margin-bottom:12px">📊</div>
+    <div style="font-size:14px">Nenhum jogo analisado ainda.</div>
+    <div style="font-size:12px;margin-top:8px">Use o painel abaixo para importar o histórico de jogos já encerrados.</div>
+  </div>` : `
+
+  <div class="apr-grid">
+    <div class="apr-card">
+      <div class="apr-card-title">🎯 Acurácia de resultado</div>
+      <div class="apr-big" style="color:${pctResultado>=60?'var(--grn)':pctResultado>=45?'var(--acc)':'var(--red)'}">${pctResultado}%</div>
+      <div class="apr-sub">${totalAcertos} de ${totalJogos} acertos</div>
+    </div>
+    <div class="apr-card">
+      <div class="apr-card-title">⚽ Acurácia de gols (±1)</div>
+      <div class="apr-big" style="color:${pctGols>=60?'var(--grn)':pctGols>=45?'var(--acc)':'var(--red)'}">${pctGols}%</div>
+      <div class="apr-sub">Dentro de 1 gol da estimativa</div>
+    </div>
+    <div class="apr-card">
+      <div class="apr-card-title">📐 Desvio médio de gols</div>
+      <div class="apr-big" style="color:var(--acc)">${desvioMedio >= 0 ? '+' : ''}${desvioMedio.toFixed(1)}</div>
+      <div class="apr-sub">${desvioMedio > 0 ? 'Subestimamos gols' : desvioMedio < 0 ? 'Superestimamos gols' : 'Calibrado'}</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+    <div class="apr-card">
+      <div class="apr-card-title">⚠️ Principais causas de erro</div>
+      ${fatoresOrdenados.length === 0 ? '<div style="color:var(--t3);font-size:12px">Sem dados suficientes ainda</div>' :
+        fatoresOrdenados.map(([tipo, count]) => `
+        <div class="fator-item">
+          <div class="fator-nome">${fatorLabel[tipo] || tipo}</div>
+          <div style="flex:1;height:4px;background:var(--brd);border-radius:2px;overflow:hidden;margin:0 8px">
+            <div style="height:100%;width:${Math.round(count/maxFator*100)}%;background:var(--red);border-radius:2px"></div>
+          </div>
+          <div class="fator-count">${count}×</div>
+        </div>`).join('')}
+    </div>
+
+    <div class="apr-card">
+      <div class="apr-card-title">🎖️ Acurácia por confiança</div>
+      ${['alta','media','baixa','insuficiente'].map(k => {
+        const d = confGlobal[k];
+        if (!d || !d.total) return '';
+        const pct = Math.round(d.acertos/d.total*100);
+        const cor = pct>=65?'var(--grn)':pct>=45?'var(--acc)':'var(--red)';
+        const label = k === 'alta' ? 'Alta' : k === 'media' ? 'Média' : k === 'baixa' ? 'Baixa' : 'Insuficiente';
+        return `<div class="liga-row">
+          <div class="liga-nome">${label} confiança</div>
+          <div class="liga-bar-wrap"><div class="liga-bar-fill" style="width:${pct}%;background:${cor}"></div></div>
+          <div class="liga-pct" style="color:${cor}">${pct}%</div>
+          <div style="font-size:10px;color:var(--t3);min-width:50px;text-align:right">${d.total} jogos</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+
+  ${ligasOrdenadas.length > 0 ? `<div class="apr-card" style="margin-bottom:16px">
+    <div class="apr-card-title">🏆 Acurácia por liga</div>
+    ${ligasOrdenadas.slice(0,10).map(l => {
+      const pct = Math.round(l.acertosResultado/l.totalJogos*100);
+      const cor = pct>=65?'var(--grn)':pct>=45?'var(--acc)':'var(--red)';
+      return `<div class="liga-row">
+        <div class="liga-nome">${l.liga}</div>
+        <div class="liga-bar-wrap"><div class="liga-bar-fill" style="width:${pct}%;background:${cor}"></div></div>
+        <div class="liga-pct" style="color:${cor}">${pct}%</div>
+        <div style="font-size:10px;color:var(--t3);min-width:50px;text-align:right">${l.totalJogos} jogos</div>
+      </div>`;
+    }).join('')}
+  </div>` : ''}
+
+  ${ultimas.length > 0 ? `<div class="apr-card">
+    <div class="apr-card-title">🕐 Últimas análises</div>
+    ${ultimas.slice(0,15).map(p => {
+      const acertouR = p.acertouResultado;
+      const acertouG = p.acertouGols;
+      const ver = p.veredito === 'casa' ? p.timeCasaNome : p.veredito === 'fora' ? p.timeForaNome : 'Empate';
+      const real = p.resultadoReal === 'casa' ? p.timeCasaNome : p.resultadoReal === 'fora' ? p.timeForaNome : 'Empate';
+      const placarReal  = (p.golsCasaReal != null && p.golsForaReal != null) ? `${p.golsCasaReal}-${p.golsForaReal}` : null;
+      const apostaPlacar = p.apostaPlacar || null;
+      const acertouP = apostaPlacar && placarReal && apostaPlacar === placarReal;
+      return `<div class="prev-hist-row" style="flex-wrap:wrap;gap:6px">
+        <div class="prev-hist-times" style="flex:1;min-width:160px">${p.timeCasaNome} × ${p.timeForaNome}</div>
+        <div style="font-size:10px;color:var(--t2)">${p.liga||''}</div>
+        <div class="prev-hist-result ${acertouR?'acertou':'errou'}">
+          ${acertouR?'✓':'✗'} ${real} (${p.golsCasaReal ?? '?'}-${p.golsForaReal ?? '?'})
+        </div>
+        <div style="font-size:10px;color:var(--t3)">Prev: ${ver}</div>
+        <div style="font-size:10px;color:${acertouG?'var(--grn)':'var(--red)'}">⚽${acertouG?'✓':'✗'} est.${p.golsEstimado}</div>
+        ${apostaPlacar ? `<div style="font-size:10px;color:${acertouP?'var(--grn)':'var(--t3)'}">
+          🎯${acertouP?'✓':'✗'} ${apostaPlacar}${p.top5Placares?.length>1?' (2°:'+p.top5Placares[1]?.l+')':''}</div>` : ''}
+        ${(p.alertas||[]).length ? `<div style="font-size:9px;color:var(--yel)">${p.alertas.map(a=>a.tipo).join(', ')}</div>` : ''}
+      </div>`;
+    }).join('')}
+    ${(() => {
+      const comPlacar = ultimas.filter(p => p.apostaPlacar && p.golsCasaReal != null);
+      if (!comPlacar.length) return '';
+      const acertou = comPlacar.filter(p => p.apostaPlacar === `${p.golsCasaReal}-${p.golsForaReal}`).length;
+      const pct = Math.round(acertou/comPlacar.length*100);
+      return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--brd);display:flex;gap:16px;align-items:center">
+        <div>
+          <div style="font-size:18px;font-weight:800;color:${pct>=12?'var(--grn)':pct>=7?'var(--acc)':'var(--t2)'}">${pct}%</div>
+          <div style="font-size:9px;color:var(--t3)">acurácia placar exato</div>
+        </div>
+        <div style="font-size:11px;color:var(--t2)">${acertou} de ${comPlacar.length} placares corretos · referência: ~10% esperado por probabilidade</div>
+      </div>`;
+    })()}
+  </div>` : ''}
+  `}
+
+  <div class="apr-card" style="margin-top:16px;border-color:rgba(245,165,36,.3)">
+    <div class="apr-card-title" style="color:var(--acc)">⚡ Importar histórico de jogos encerrados</div>
+    <div style="font-size:12px;color:var(--t2);margin-bottom:12px">
+      Reconstrói previsões para jogos já finalizados usando dados disponíveis antes de cada jogo e analisa os desvios. Quanto mais jogos importados, mais o sistema aprende.
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <select id="backfillLiga" class="filtro-liga" style="flex:1;min-width:160px">
+        <option value="">Todas as ligas</option>
+        ${ligas.map(l => `<option value="${l.liga}">${l.liga}</option>`).join('')}
+      </select>
+      <select id="backfillLote" class="filtro-liga">
+        <option value="10">10 jogos/lote</option>
+        <option value="20" selected>20 jogos/lote</option>
+        <option value="30">30 jogos/lote (lento)</option>
+      </select>
+      <button class="btn-analisar" id="btnBackfill" onclick="iniciarBackfill()">🔄 Iniciar importação</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t2);cursor:pointer">
+        <input type="checkbox" id="chkForcar" style="cursor:pointer">
+        Forçar reprocessamento (v3)
+      </label>
+      <button class="btn-back" onclick="rodarDiagnostico()" title="Ver estrutura do banco">🔍 Diagnóstico</button>
+      <button class="btn-back" onclick="listarLigasBanco()" title="Ver ligas no banco">🏆 Ver ligas</button>
+      <button class="btn-back" onclick="corrigirJogosPresos()" title="Corrigir jogos presos como ao_vivo" style="border-color:#f59e0b;color:#f59e0b">⚠️ Corrigir ao vivo presos</button>
+      <button class="btn-back" onclick="resetarAprendizado()" title="Limpar dados duplicados e resetar para reprocessamento" style="border-color:#ef4444;color:#ef4444">🗑️ Resetar aprendizado</button>
+    </div>
+    <div id="backfillStatus" style="margin-top:10px;font-size:12px;color:var(--t2)"></div>
+
+  <!-- BACKFILL HISTÓRICO MASSIVO -->
+  <div style="margin-top:20px;padding:16px;background:var(--bg2);border:1px solid var(--brd);border-radius:12px">
+    <div style="font-size:12px;font-weight:700;color:var(--pur);margin-bottom:4px">📚 Importação Histórica Massiva</div>
+    <div style="font-size:11px;color:var(--t2);margin-bottom:12px">Busca jogos de temporadas passadas direto da API e reconstrói previsões retroativas — sem precisar ter importado os jogos antes. Quanto mais temporadas, mais o sistema aprende.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+      <div>
+        <div style="font-size:10px;color:var(--t2);margin-bottom:3px">Liga</div>
+        <select id="massLiga" class="filtro-sim" style="min-width:200px">
+          <option value="71">🇧🇷 Brasileirão Série A</option>
+          <option value="72">🇧🇷 Brasileirão Série B</option>
+          <option value="39">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League</option>
+          <option value="140">🇪🇸 La Liga</option>
+          <option value="135">🇮🇹 Serie A</option>
+          <option value="78">🇩🇪 Bundesliga</option>
+          <option value="61">🇫🇷 Ligue 1</option>
+          <option value="94">🇵🇹 Primeira Liga</option>
+          <option value="13">🌎 Copa Libertadores</option>
+          <option value="2">🏆 Champions League</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--t2);margin-bottom:3px">Temporada</div>
+        <select id="massSeason" class="filtro-sim">
+          <option value="2026">2026 (em andamento)</option>
+          <option value="2025">2025</option>
+          <option value="2024" selected>2024</option>
+          <option value="2023">2023</option>
+          <option value="2022">2022</option>
+          <option value="2021">2021</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--t2);margin-bottom:3px">Jogos/lote</div>
+        <select id="massLote" class="filtro-sim">
+          <option value="5">5 (lento/seguro)</option>
+          <option value="10" selected>10</option>
+          <option value="15">15</option>
+        </select>
+      </div>
+      <button class="btn-analisar" id="btnMassivo" onclick="iniciarBackfillMassivo()" style="background:var(--pur)">📚 Importar histórico</button>
+      <button class="btn-back" onclick="pararBackfillMassivo()" id="btnPararMassivo" style="display:none;border-color:var(--red);color:var(--red)">⏹ Parar</button>
+    </div>
+    <div id="massivoStatus" style="font-size:11px;color:var(--t2)"></div>
+    <div id="massivoProgress" style="margin-top:8px;display:none">
+      <div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">
+        <div id="massivoBar" style="height:100%;background:var(--pur);transition:width .3s;width:0%"></div>
+      </div>
+      <div id="massivoLabel" style="font-size:10px;color:var(--t3);margin-top:4px"></div>
+    </div>
+  </div>
+    <div id="backfillProgress" style="margin-top:8px;display:none">
+      <div style="height:4px;background:var(--brd);border-radius:2px;overflow:hidden">
+        <div id="backfillBar" style="height:100%;background:var(--acc);border-radius:2px;width:0%;transition:width .5s"></div>
+      </div>
+      <div id="backfillStats" style="font-size:11px;color:var(--t2);margin-top:4px"></div>
+    </div>
+  </div>`;
+}
+
+// ── BACKFILL ──────────────────────────────────────────────────────────────
+let backfillRodando = false;
+
+async function resetarAprendizado() {
+  if (!confirm('Isso vai apagar todos os dados de aprendizado e resetar as previsões para reprocessamento. Confirma?')) return;
+  const el = gc('backfillStatus');
+  el.textContent = 'Resetando...';
+  try {
+    const r = await fns.httpsCallable('resetarAprendizado')({});
+    const d = r.data;
+    el.innerHTML = `<span style="color:var(--grn)">✓ Reset concluído — ${d.aprendizadoDeletado} ligas apagadas · ${d.previsoresResetados} previsões resetadas<br>
+      Agora desmarque "Forçar reprocessamento" e clique Iniciar importação</span>`;
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">Erro: ${e.message}</span>`;
+  }
+}
+
+async function corrigirJogosPresos() {
+  const el = gc('backfillStatus');
+  el.textContent = 'Verificando jogos presos... (pode demorar ~1min)';
+  try {
+    const r = await fns.httpsCallable('corrigirJogosPresos')({});
+    const d = r.data;
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:8px;padding:12px;font-size:11px;line-height:1.9">
+        <b style="color:var(--grn)">✓ ${d.corrigidos} jogos corrigidos de ${d.total} ao_vivo</b><br>
+        ${(d.detalhes || []).join('<br>')}
+      </div>`;
+    // Recarregar jogos se algo foi corrigido
+    if (d.corrigidos > 0) setTimeout(() => carregarJogos(), 1500);
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">Erro: ${e.message}</span>`;
+  }
+}
+
+async function listarLigasBanco() {
+  const el = gc('backfillStatus');
+  el.textContent = 'Buscando ligas...';
+  try {
+    const r = await fns.httpsCallable('listarLigasBackfill')({});
+    const d = r.data;
+    const ligasOrdenadas = Object.entries(d.ligasNoBackfill)
+      .sort((a,b) => b[1]-a[1]);
+    const aprendidas = new Set(d.ligasNoAprendizado);
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:8px;padding:12px;font-size:11px;line-height:1.9">
+        <b>Total jogos encerrados encontrados: ${d.totalEncerrados}</b><br>
+        <b>Ligas (jogos encerrados → já no aprendizado?):</b><br>
+        ${ligasOrdenadas.map(([liga, n]) =>
+          `<span style="color:${aprendidas.has(liga)?'var(--grn)':'var(--acc)'}">
+            ${aprendidas.has(liga)?'✓':'○'} ${liga}: ${n} jogos
+          </span>`
+        ).join('<br>')}
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">Erro: ${e.message}</span>`;
+  }
+}
+
+async function rodarDiagnostico() {
+  const el = gc('backfillStatus');
+  el.textContent = 'Rodando diagnóstico...';
+  try {
+    const r = await fns.httpsCallable('diagnosticarBackfill')({});
+    const d = r.data;
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:8px;padding:12px;font-size:11px;font-family:monospace;line-height:1.8">
+        <b>Total docs em jogos-admin:</b> ${d.totalDocs}<br>
+        <b>Campos do doc:</b> ${d.campos.join(', ')}<br>
+        <b>timeCasa campos:</b> ${d.timeCasaCampos.join(', ')}<br>
+        <b>Encerrados (status=='encerrado'):</b> ${d.encerradosPorStatus}<br>
+        <b>Encerrados (statusCode=='FT'):</b> ${d.encerradosPorStatusCode}<br>
+        <hr style="border-color:var(--brd);margin:6px 0">
+        <b>Exemplo doc encerrado:</b><br>
+        status: ${d.exemploDoc.status} | statusCode: ${d.exemploDoc.statusCode}<br>
+        apiFootballId: ${d.exemploDoc.apiFootballId} | apiFixtureId: ${d.exemploDoc.apiFixtureId}<br>
+        placar: ${d.exemploDoc.placarCasa}-${d.exemploDoc.placarFora}<br>
+        timeCasa.apiId: ${d.exemploDoc.timeCasaApiId} | timeFora.apiId: ${d.exemploDoc.timeForaApiId}
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">Erro diagnóstico: ${e.message}</span>`;
+  }
+}
+
+
+// ── SIMULADOR DE ESTRATÉGIAS ──────────────────────────────────────────────
+let _simDados = null;
+
+function iniciarSimulador() {
+  const el = gc('simuladorContent');
+  if (!el) return;
+  el.innerHTML = _buildSimuladorUI();
+  setTimeout(_carregarLigasSimulador, 300);
+  setTimeout(_carregarAnaliseConfianca, 600);
+}
+
+function _buildSimuladorUI() {
+  return `
+  <div style="margin-bottom:20px">
+    <div style="font-size:18px;font-weight:700;margin-bottom:4px">🎰 Simulador de Estratégias</div>
+    <div style="font-size:12px;color:var(--t2)">Testa quanto cada estratégia teria rendido nos dados históricos reais</div>
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:4px">Liga</div>
+      <select id="simLiga" class="filtro-sim" style="min-width:180px">
+        <option value="">Todas as ligas</option>
+      </select>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:4px">Confiança</div>
+      <select id="simConf" class="filtro-sim">
+        <option value="">Todas</option>
+        <option value="alta">Alta</option>
+        <option value="media">Média</option>
+        <option value="baixa">Baixa</option>
+        <option value="insuficiente">Insuficiente</option>
+      </select>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:4px">Odd média simulada</div>
+      <input id="simOdd" type="number" class="filtro-sim" value="1.90" min="1.1" max="3.0" step="0.05" style="width:80px">
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--t2);margin-bottom:4px">Stake por aposta (R$)</div>
+      <input id="simStake" type="number" class="filtro-sim" value="10" min="1" step="1" style="width:80px">
+    </div>
+    <button class="btn-analisar" onclick="rodarSimulacao()">▶ Simular</button>
+    <button class="btn-back" onclick="minerarPadroes()" style="border-color:var(--pur);color:var(--pur)">🔬 Minerar padrões</button>
+  </div>
+  <div id="simResultado"></div>
+  <div id="padroesResultado" style="margin-top:16px"></div>
+  <div id="simConfiancaRapida" style="margin-top:16px"></div>`;
+}
+
+// Carrega análise rápida de confiança ao abrir a aba
+async function _carregarAnaliseConfianca() {
+  const el = gc('simConfiancaRapida');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--t2);font-size:12px">Carregando análise de confiança...</div>';
+  try {
+    const r = await fns.httpsCallable('simularEstrategias')({ liga: null, confianca: null });
+    const d = r.data;
+    if (!d.sucesso) { el.innerHTML = ''; return; }
+
+    const confs = [
+      { key: 'alta',         label: 'Alta',         cor: '#27d49b' },
+      { key: 'media',        label: 'Média',        cor: '#f5a524' },
+      { key: 'baixa',        label: 'Baixa',        cor: '#ef5f5f' },
+      { key: 'insuficiente', label: 'Insuficiente', cor: '#858ba5' },
+    ].filter(c => d.porConf[c.key]);
+
+    const melhorConf = confs.reduce((best, c) =>
+      (d.porConf[c.key]?.pct || 0) > (d.porConf[best.key]?.pct || 0) ? c : best
+    , confs[0]);
+
+    el.innerHTML = `
+    <div class="sim-card" style="margin-bottom:16px">
+      <div class="sim-title">🔬 Análise de confiança — ${d.total} jogos históricos</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+        ${confs.map(cf => {
+          const m = d.porConf[cf.key];
+          const isEdge = m.pct >= 55;
+          const isBad  = m.pct < 45;
+          return `<div style="background:var(--bg3);border:1px solid ${isBad?'rgba(239,95,95,.3)':isEdge?'rgba(39,212,155,.3)':'var(--brd)'};border-radius:10px;padding:12px;text-align:center">
+            <div style="font-size:10px;color:var(--t2);margin-bottom:4px">${cf.label}</div>
+            <div style="font-size:24px;font-weight:800;color:${isBad?'var(--red)':isEdge?'var(--grn)':'var(--acc)'}">${m.pct}%</div>
+            <div style="font-size:10px;color:var(--t3)">${m.total} jogos</div>
+            <div style="font-size:10px;margin-top:4px;color:${m.golsDesvioMedio>0?'var(--red)':'var(--grn)'}">
+              gols: ${m.golsDesvioMedio > 0 ? '+' : ''}${m.golsDesvioMedio}
+            </div>
+            ${isBad ? '<div style="font-size:9px;color:var(--red);margin-top:3px">⚠️ Pior que aleatório</div>' : ''}
+            ${isEdge ? '<div style="font-size:9px;color:var(--grn);margin-top:3px">✓ Edge positivo</div>' : ''}
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div style="background:rgba(245,165,36,.06);border:1px solid rgba(245,165,36,.2);border-radius:8px;padding:12px;font-size:12px;line-height:1.7">
+        <b style="color:var(--acc)">💡 O que os dados estão dizendo:</b><br>
+        ${(() => {
+          const alta  = d.porConf['alta'];
+          const media = d.porConf['media'];
+          const baixa = d.porConf['baixa'];
+          const insuf = d.porConf['insuficiente'];
+          const msgs = [];
+
+          if (media && media.pct < 45)
+            msgs.push(`<b>Média confiança (${media.pct}%)</b> está abaixo do aleatório — evitar apostar nesses jogos.`);
+
+          if (insuf && baixa && insuf.pct > (media?.pct || 0))
+            msgs.push(`<b>Inversão detectada:</b> "Insuficiente" (${insuf.pct}%) acerta mais que "Média" (${media?.pct || 0}%) — os limiares de confiança precisam de recalibração.`);
+
+          if (alta && alta.total < 10)
+            msgs.push(`<b>Alta confiança</b> tem apenas ${alta.total} amostras — estatisticamente frágil ainda.`);
+          else if (alta && alta.pct >= 60)
+            msgs.push(`<b>Alta confiança (${alta.pct}%)</b> está com edge real — apostar apenas nesses jogos seria mais rentável.`);
+
+          // Gols
+          const devMedio = d.desvioMedio;
+          if (devMedio > 0.05)
+            msgs.push(`<b>Gols:</b> sistema subestima consistentemente (+${devMedio} de desvio) — apostar Under(est.+0) tem vantagem histórica.`);
+          else if (devMedio < -0.05)
+            msgs.push(`<b>Gols:</b> sistema superestima (-${Math.abs(devMedio)} de desvio) — apostar Under tem vantagem histórica.`);
+
+          const melhorOver = d.estrategiasGols?.reduce((best, e) => e.over.pct > best.over.pct ? e : best, d.estrategiasGols[0]);
+          if (melhorOver && melhorOver.over.pct > 58)
+            msgs.push(`<b>Melhor estratégia de gols:</b> Over ${melhorOver.margem >= 0 ? 'Est.+'+melhorOver.margem : 'Est.'+melhorOver.margem} acerta ${melhorOver.over.pct}% historicamente.`);
+
+          return msgs.length ? msgs.map(m => '• ' + m).join('<br>') : 'Dados insuficientes para conclusões sólidas ainda.';
+        })()}
+      </div>
+    </div>`;
+  } catch(e) {
+    if (gc('simConfiancaRapida')) gc('simConfiancaRapida').innerHTML = '';
+  }
+}
+
+async function minerarPadroes() {
+  const el = gc('padroesResultado');
+  el.innerHTML = '<div style="color:var(--t2);padding:20px">🔬 Minerando padrões em todos os jogos históricos...</div>';
+  try {
+    const r = await fns.httpsCallable('minerarPadroesUniversais')({});
+    const d = r.data;
+    if (!d.sucesso) { el.innerHTML = `<div style="color:var(--red)">${d.msg}</div>`; return; }
+
+    el.innerHTML = `
+    <div class="sim-card" style="margin-bottom:16px">
+      <div class="sim-title">🔬 Padrões universais — ${d.totalJogos} jogos · qualquer liga</div>
+
+      <div class="sim-grid" style="margin-bottom:16px">
+        <!-- Calibração de gols -->
+        <div>
+          <div style="font-size:11px;color:var(--acc);font-weight:600;margin-bottom:8px">⚽ Gols estimados vs reais</div>
+          <table class="sim-table">
+            <tr><th>Estimado</th><th>Média real</th><th>Desvio</th><th>Jogos</th></tr>
+            ${(d.calibracaoGols||[]).map(g => `<tr>
+              <td>${g.estimado}</td>
+              <td style="font-weight:600">${g.mediaReal}</td>
+              <td style="color:${g.desvio>0.1?'var(--red)':g.desvio<-0.1?'var(--blu)':'var(--grn)'}">${g.desvio>0?'+':''}${g.desvio}</td>
+              <td style="color:var(--t3)">${g.total}×</td>
+            </tr>`).join('')}
+          </table>
+          <div style="font-size:10px;color:var(--t3);margin-top:6px">Desvio + = subestimamos · Desvio - = superestimamos</div>
+        </div>
+
+        <!-- Calibração de probabilidade -->
+        <div>
+          <div style="font-size:11px;color:var(--acc);font-weight:600;margin-bottom:8px">🎯 Probabilidade estimada vs acerto real</div>
+          <table class="sim-table">
+            <tr><th>Faixa prob.</th><th>Jogos</th><th>Acerto real</th><th>Viés</th></tr>
+            ${(d.calibracaoProb||[]).map(p => `<tr>
+              <td>${p.faixa}</td>
+              <td style="color:var(--t3)">${p.total}</td>
+              <td style="font-weight:600;color:${p.pct>=60?'var(--grn)':p.pct>=50?'var(--t1)':'var(--red)'}">${p.pct}%</td>
+              <td style="color:${Math.abs(p.vies||0)<5?'var(--grn)':'var(--red)'}">${(p.vies||0)>0?'+':''}${p.vies||0}pp</td>
+            </tr>`).join('')}
+          </table>
+          <div style="font-size:10px;color:var(--t3);margin-top:6px">Viés ideal = 0 · Positivo = subestimamos confiança · Negativo = superestimamos</div>
+        </div>
+      </div>
+
+      <div class="sim-grid">
+        <!-- YS vs resultado -->
+        <div>
+          <div style="font-size:11px;color:var(--acc);font-weight:600;margin-bottom:8px">📊 Diferença de YS vs taxa de vitória do favorito</div>
+          <table class="sim-table">
+            <tr><th>Diff YS</th><th>Jogos</th><th>Favorito vence</th><th>Empate</th><th>Azarão</th></tr>
+            ${(d.calibracaoYS||[]).map(y => `<tr>
+              <td>${y.faixa}</td>
+              <td style="color:var(--t3)">${y.total}</td>
+              <td style="font-weight:600;color:${y.pctFavorito>=55?'var(--grn)':y.pctFavorito>=40?'var(--t1)':'var(--red)'}">${y.pctFavorito}%</td>
+              <td style="color:var(--t3)">${y.total>0?Math.round(y.empates/y.total*100):0}%</td>
+              <td style="color:var(--t3)">${y.total>0?Math.round(y.azaraoVenceu/y.total*100):0}%</td>
+            </tr>`).join('')}
+          </table>
+          <div style="font-size:10px;color:var(--t3);margin-top:6px">Qual diferença de YS realmente prediz vitória?</div>
+        </div>
+
+        <!-- Gols por YS combinado -->
+        <div>
+          <div style="font-size:11px;color:var(--acc);font-weight:600;margin-bottom:8px">⚽ Média de gols por força dos times</div>
+          <table class="sim-table">
+            <tr><th>Força</th><th>Jogos</th><th>Média gols</th><th>Over 2.5</th><th>Over 3.5</th></tr>
+            ${(d.golsPorYS||[]).map(g => `<tr>
+              <td>${g.faixa}</td>
+              <td style="color:var(--t3)">${g.total}</td>
+              <td style="font-weight:600">${g.mediaGols}</td>
+              <td style="color:${g.pctOver2_5>=55?'var(--grn)':'var(--t1)'}">${g.pctOver2_5}%</td>
+              <td style="color:${g.pctOver3_5>=40?'var(--grn)':'var(--t1)'}">${g.pctOver3_5}%</td>
+            </tr>`).join('')}
+          </table>
+          <div style="font-size:10px;color:var(--t3);margin-top:6px">Times mais fortes = mais gols ou menos?</div>
+        </div>
+      </div>
+    </div>`;
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red)">Erro: ${e.message}</div>`;
+  }
+}
+
+async function rodarSimulacao() {
+  const el = gc('simResultado');
+  const liga   = gc('simLiga')?.value || null;
+  const conf   = gc('simConf')?.value || null;
+  const odd    = parseFloat(gc('simOdd')?.value || '1.90');
+  const stake  = parseFloat(gc('simStake')?.value || '10');
+
+  el.innerHTML = '<div style="color:var(--t2);padding:20px">Calculando...</div>';
+
+  try {
+    const r = await fns.httpsCallable('simularEstrategias')({
+      liga: liga || null, confianca: conf || null
+    });
+    const d = r.data;
+    if (!d.sucesso) { el.innerHTML = `<div style="color:var(--red)">${d.msg}</div>`; return; }
+
+    // Recalcular ROI com odd/stake da UI
+    const n = d.total;
+    const simFin = d.estrategiasGols.map(e => {
+      const ganhoOver  = e.over.acertos  * (stake * odd) - n * stake;
+      const ganhoUnder = e.under.acertos * (stake * odd) - n * stake;
+      return {
+        label:      e.label,
+        margem:     e.margem,
+        overPct:    e.over.pct,
+        underPct:   e.under.pct,
+        roiOver:    +((ganhoOver  / (n * stake)) * 100).toFixed(1),
+        roiUnder:   +((ganhoUnder / (n * stake)) * 100).toFixed(1),
+        lucroOver:  +ganhoOver.toFixed(2),
+        lucroUnder: +ganhoUnder.toFixed(2),
+      };
+    });
+
+    const melhorOverIdx  = simFin.reduce((bi, e, i) => e.roiOver  > simFin[bi].roiOver  ? i : bi, 0);
+    const melhorUnderIdx = simFin.reduce((bi, e, i) => e.roiUnder > simFin[bi].roiUnder ? i : bi, 0);
+
+    // Distribuição de desvios
+    const buckets = Object.entries(d.histDesvios).sort((a,b) => parseFloat(a[0])-parseFloat(b[0]));
+    const maxBucket = Math.max(...buckets.map(([,v]) => v));
+
+    el.innerHTML = `
+    <div class="sim-grid">
+
+      <!-- Card: Distribuição de erros -->
+      <div class="sim-card">
+        <div class="sim-title">📐 Distribuição dos desvios de gols</div>
+        <div style="font-size:12px;color:var(--t2);margin-bottom:12px">
+          Desvio médio: <b style="color:${d.desvioMedio>=0?'var(--grn)':'var(--red)'}">${d.desvioMedio>=0?'+':''}${d.desvioMedio}</b> &nbsp;·&nbsp;
+          Subestimou: <b>${d.desviosPositivos}</b> &nbsp;·&nbsp;
+          Superestimou: <b>${d.desviosNegativos}</b> &nbsp;·&nbsp;
+          Exato: <b>${d.desviosExatos}</b>
+        </div>
+        ${buckets.map(([k, v]) => {
+          const pctBar = Math.round(v / maxBucket * 100);
+          const cor = k.startsWith('+') ? '#ef4444' : k === '0' ? 'var(--grn)' : '#378ADD';
+          return `<div class="desvio-bar">
+            <div style="min-width:28px;text-align:right;color:var(--t2)">${k}</div>
+            <div class="desvio-bar-fill" style="width:${pctBar}%;background:${cor}"></div>
+            <div style="color:var(--t2)">${v}×</div>
+            <div style="color:var(--t3);font-size:10px">(${(v/n*100).toFixed(0)}%)</div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Card: Resultado por margem de probabilidade -->
+      <div class="sim-card">
+        <div class="sim-title">🎯 Acurácia de resultado por confiança do modelo</div>
+        <table class="sim-table">
+          <tr><th>Faixa de prob.</th><th>Jogos</th><th>Acertos</th><th>%</th></tr>
+          ${d.porMargem.filter(m => m.total > 0).map(m => {
+            const cor = m.pct>=60?'var(--grn)':m.pct>=48?'var(--acc)':'var(--red)';
+            return `<tr>
+              <td>${m.label}</td>
+              <td style="color:var(--t2)">${m.total}</td>
+              <td>${m.acertos}</td>
+              <td class="sim-pct" style="color:${cor}">${m.pct}%</td>
+            </tr>`;
+          }).join('')}
+        </table>
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--brd)">
+          <div class="sim-title">Por nível de confiança</div>
+          <table class="sim-table">
+            <tr><th>Confiança</th><th>Jogos</th><th>%</th><th>Desvio gols</th></tr>
+            ${['alta','media','baixa','insuficiente'].filter(k => d.porConf[k]).map(k => {
+              const m = d.porConf[k];
+              const cor = m.pct>=60?'var(--grn)':m.pct>=48?'var(--acc)':'var(--red)';
+              const label = k==='alta'?'Alta':k==='media'?'Média':k==='baixa'?'Baixa':'Insuf.';
+              return `<tr>
+                <td>${label}</td>
+                <td style="color:var(--t2)">${m.total}</td>
+                <td class="sim-pct" style="color:${cor}">${m.pct}%</td>
+                <td style="color:${m.golsDesvioMedio>=0?'var(--red)':'var(--grn)'}">${m.golsDesvioMedio>=0?'+':''}${m.golsDesvioMedio}</td>
+              </tr>`;
+            }).join('')}
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabela principal: estratégias de gols -->
+    <div class="sim-card" style="margin-bottom:16px">
+      <div class="sim-title">⚽ Estratégias de gols — ${n} jogos · odd ${odd} · R$${stake}/aposta</div>
+      <table class="sim-table">
+        <tr>
+          <th>Estratégia</th>
+          <th>Over %</th><th>ROI Over</th><th>Lucro Over</th>
+          <th>Under %</th><th>ROI Under</th><th>Lucro Under</th>
+        </tr>
+        ${simFin.map((e, i) => {
+          const bestO = i === melhorOverIdx;
+          const bestU = i === melhorUnderIdx;
+          return `<tr class="${bestO||bestU ? 'sim-best' : ''}">
+            <td style="font-weight:${bestO||bestU?'700':'400'}">${e.label} ${bestO&&bestU?'🏆 ★':bestO?'🏆':bestU?'★':''}</td>
+            <td class="sim-pct" style="color:${e.overPct>=55?'var(--grn)':e.overPct>=45?'var(--t1)':'var(--red)'}">${e.overPct}%</td>
+            <td class="${e.roiOver>=0?'sim-roi-pos':'sim-roi-neg'}">${e.roiOver>=0?'+':''}${e.roiOver}%</td>
+            <td style="color:${e.lucroOver>=0?'var(--grn)':'var(--red)'}">R$${e.lucroOver>=0?'+':''}${e.lucroOver}</td>
+            <td class="sim-pct" style="color:${e.underPct>=55?'var(--grn)':e.underPct>=45?'var(--t1)':'var(--red)'}">${e.underPct}%</td>
+            <td class="${e.roiUnder>=0?'sim-roi-pos':'sim-roi-neg'}">${e.roiUnder>=0?'+':''}${e.roiUnder}%</td>
+            <td style="color:${e.lucroUnder>=0?'var(--grn)':'var(--red)'}">R$${e.lucroUnder>=0?'+':''}${e.lucroUnder}</td>
+          </tr>`;
+        }).join('')}
+      </table>
+      <div style="font-size:11px;color:var(--t3);margin-top:10px">
+        🏆 = melhor ROI Over &nbsp;·&nbsp; ★ = melhor ROI Under &nbsp;·&nbsp;
+        Over: aposta que o jogo terá MAIS gols que o threshold &nbsp;·&nbsp;
+        Under: aposta que o jogo terá MENOS gols que o threshold
+      </div>
+    </div>
+
+    <div style="background:rgba(99,195,34,.06);border:1px solid rgba(99,195,34,.2);border-radius:10px;padding:14px;font-size:12px">
+      <b style="color:var(--grn)">💡 Melhor estratégia encontrada:</b><br>
+      <b>Over:</b> Apostando Over nos jogos onde estimamos ${simFin[melhorOverIdx].margem >= 0 ? 'mais de ' + (simFin[melhorOverIdx].margem > 0 ? 'est.+'+simFin[melhorOverIdx].margem : 'exato estimado') : 'est.'+simFin[melhorOverIdx].margem} gols →
+        acerto de <b>${simFin[melhorOverIdx].overPct}%</b>, ROI <b>${simFin[melhorOverIdx].roiOver >= 0 ? '+' : ''}${simFin[melhorOverIdx].roiOver}%</b>
+        (R$${simFin[melhorOverIdx].lucroOver >= 0 ? '+' : ''}${simFin[melhorOverIdx].lucroOver} em ${n} apostas)<br>
+      <b>Under:</b> Apostando Under no threshold <b>${simFin[melhorUnderIdx].label}</b> →
+        acerto de <b>${simFin[melhorUnderIdx].underPct}%</b>, ROI <b>${simFin[melhorUnderIdx].roiUnder >= 0 ? '+' : ''}${simFin[melhorUnderIdx].roiUnder}%</b>
+        (R$${simFin[melhorUnderIdx].lucroUnder >= 0 ? '+' : ''}${simFin[melhorUnderIdx].lucroUnder} em ${n} apostas)
+    </div>`;
+
+    // Popular select de ligas com dados reais
+    if (d.ligasDisponiveis) {
+      const sel = gc('simLiga');
+      if (sel) {
+        const current = sel.value;
+        sel.innerHTML = '<option value="">Todas as ligas</option>';
+        d.ligasDisponiveis.forEach(l => sel.innerHTML += `<option value="${l}" ${l===current?'selected':''}>${l}</option>`);
+      }
+    }
+
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red)">Erro: ${e.message}</div>`;
+  }
+}
+
+// Popular select de ligas do simulador quando aba é aberta
+async function _carregarLigasSimulador() {
+  try {
+    const snap = await db.collection('yellup-aprendizado').get();
+    const sel = gc('simLiga');
+    if (!sel) return;
+    const ligas = snap.docs.map(d => d.data().liga).filter(Boolean).sort();
+    sel.innerHTML = '<option value="">Todas as ligas</option>';
+    ligas.forEach(l => sel.innerHTML += `<option value="${l}">${l}</option>`);
+  } catch(e) {}
+}
+
+
+
+// ── BACKFILL HISTÓRICO MASSIVO ────────────────────────────────────────────
+let _massivoRodando = false;
+let _massivoParar   = false;
+
+async function iniciarBackfillMassivo() {
+  if (_massivoRodando) return;
+  _massivoRodando = true;
+  _massivoParar   = false;
+
+  const ligaId = gc('massLiga').value;
+  const season = gc('massSeason').value;
+  const lote   = parseInt(gc('massLote').value || '10');
+  const ligaNome = gc('massLiga').options[gc('massLiga').selectedIndex].text;
+
+  gc('btnMassivo').disabled = true;
+  gc('btnPararMassivo').style.display = 'inline-flex';
+  gc('massivoProgress').style.display = 'block';
+  gc('massivoStatus').textContent = `Iniciando importação de ${ligaNome} ${season}...`;
+
+  let pagina = 1;
+  let totalProcessados = 0;
+  let totalPaginas = null;
+  let totalJogos = null;
+
+  while (true) {
+    if (_massivoParar) {
+      gc('massivoStatus').innerHTML = `<span style="color:var(--acc)">⏹ Parado em ${totalProcessados} jogos processados</span>`;
+      break;
+    }
+
+    try {
+      gc('massivoStatus').textContent = `Processando página ${pagina}/${totalPaginas || '?'}...`;
+
+      const r = await fns.httpsCallable('backfillHistoricoMassivo')({
+        ligaId: parseInt(ligaId),
+        season: parseInt(season),
+        lote,
+        pagina,
+      });
+      const d = r.data;
+
+      if (!d.sucesso) {
+        gc('massivoStatus').innerHTML = `<span style="color:var(--red)">Erro: ${d.msg}</span>`;
+        break;
+      }
+
+      totalProcessados += d.processados || 0;
+      if (totalPaginas === null) totalPaginas = d.paginas || 1;
+      if (totalJogos === null)   totalJogos   = d.total || 0;
+
+      // Progresso
+      const pct = Math.round((pagina / totalPaginas) * 100);
+      gc('massivoBar').style.width = pct + '%';
+      gc('massivoLabel').textContent = `Página ${pagina}/${totalPaginas} · ${totalProcessados} novos · ${d.pulados || 0} pulados · acurácia ${d.acuracia !== null ? d.acuracia+'%' : '—'}`;
+
+      if (pagina >= totalPaginas || d.processados + (d.pulados||0) === 0) {
+        gc('massivoStatus').innerHTML = `<span style="color:var(--grn)">✓ Concluído — ${totalProcessados} jogos importados de ${ligaNome} ${season}</span>`;
+        break;
+      }
+
+      pagina++;
+      // Aguardar entre páginas para não estourar rate limit da API
+      await new Promise(res => setTimeout(res, 2000));
+
+    } catch(e) {
+      gc('massivoStatus').innerHTML = `<span style="color:var(--red)">Erro na página ${pagina}: ${e.message}</span>`;
+      break;
+    }
+  }
+
+  _massivoRodando = false;
+  gc('btnMassivo').disabled = false;
+  gc('btnPararMassivo').style.display = 'none';
+}
+
+function pararBackfillMassivo() {
+  _massivoParar = true;
+}
+
+async function iniciarBackfill() {
+  if (backfillRodando) return;
+  const btn = gc('btnBackfill');
+  const liga = gc('backfillLiga')?.value || null;
+  const lote = parseInt(gc('backfillLote')?.value || '20');
+
+  backfillRodando = true;
+  btn.disabled = true;
+  btn.textContent = '⏳ Importando...';
+  gc('backfillProgress').style.display = 'block';
+  gc('backfillStatus').textContent = 'Iniciando importação...';
+
+  let offset = 0, totalProcessados = 0, totalErros = 0, total = null;
+
+  try {
+    while (true) {
+      gc('backfillStatus').textContent = `Processando lote a partir do jogo ${offset+1}...`;
+
+      const forcar = gc('chkForcar')?.checked || false;
+      const r = await fns.httpsCallable('backfillPrevisoes')({
+        lote, offset, liga: liga || null, forcar
+      });
+      const d = r.data;
+
+      totalProcessados += d.processados || 0;
+      totalErros       += d.erros || 0;
+      if (total === null) total = d.total || 0;
+
+      // Atualizar barra
+      const pct = total > 0 ? Math.min(100, Math.round((offset + lote) / total * 100)) : 0;
+      gc('backfillBar').style.width = pct + '%';
+      gc('backfillStats').textContent =
+        `${totalProcessados} processados · ${totalErros} erros · ${d.totalRestante || 0} restantes`;
+
+      // Sem mais para processar
+      if (!d.processados || d.totalRestante <= 0) {
+        gc('backfillStatus').innerHTML =
+          `<span style="color:var(--grn)">✓ Importação concluída — ${totalProcessados} jogos analisados</span>`;
+        gc('backfillBar').style.width = '100%';
+        break;
+      }
+
+      offset = d.proximoOffset;
+
+      // Pausa entre lotes para não sobrecarregar
+      await new Promise(res => setTimeout(res, 2000));
+    }
+  } catch(e) {
+    gc('backfillStatus').innerHTML =
+      `<span style="color:var(--red)">Erro: ${e.message}</span>`;
+  }
+
+  backfillRodando = false;
+  btn.disabled = false;
+  btn.textContent = '🔄 Continuar importação';
+
+  // Recarregar dados de aprendizado
+  setTimeout(() => carregarAprendizado(), 1000);
+}
+</script>
+</body>
+</html>
