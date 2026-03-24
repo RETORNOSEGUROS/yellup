@@ -961,49 +961,77 @@ async function analisarJogo(j) {
   return prev;
 }
 
-// ── BUSCAR ODDS PRÉ-JOGO (API-Football bookmaker 8 = Bet365) ─────────────
+// ── BUSCAR ODDS PRÉ-JOGO (API-Football) ──────────────────────────────────
+// Endpoint correto: GET /odds?fixture={id}  (sem filtro de bookmaker)
+// Retorna todas as casas — prioriza Bet365 (id=8), fallback para qualquer uma
 async function buscarOddsPreJogo(fixtureId) {
-  if (!fixtureId) return null;
-  const fid = String(fixtureId);
+  if (!fixtureId || !API_FOOTBALL_KEY) return null;
+  const fid = Number(fixtureId);
+  if (!fid) return null;
   if (ODDS_CACHE[fid]) return ODDS_CACHE[fid];
 
-  // 1. Tentar via Cloud Function (não expõe a chave no frontend)
   try {
-    const r = await fns.httpsCallable('buscarOddsFixture')({ fixtureId: Number(fid) }).catch(() => null);
-    if (r?.data?.oddCasa) {
-      ODDS_CACHE[fid] = r.data;
-      return r.data;
-    }
-  } catch(e) { /* Cloud Function não existe ainda, cai no fetch direto */ }
+    // Sem &bookmaker= para maximizar cobertura de ligas
+    const res = await fetch(`https://v3.football.api-sports.io/odds?fixture=${fid}`, {
+      headers: { 'x-apisports-key': API_FOOTBALL_KEY }
+    });
+    if (!res.ok) { console.warn('[Odds] HTTP', res.status, 'fixture', fid); return null; }
+    const data = await res.json();
 
-  // 2. Fallback: fetch direto (só funciona se API_FOOTBALL_KEY estiver preenchida)
-  if (!API_FOOTBALL_KEY) return null;
+    if (!data?.response?.length) {
+      console.log('[Odds] Sem odds fixture', fid, '— encerrado ou fora do mapeamento');
+      return null;
+    }
+
+    const bookmakers = data.response[0]?.bookmakers || [];
+    if (!bookmakers.length) return null;
+
+    // Preferência: Bet365=8, Unibet=6, Bwin=4, 1xBet=3, Primeira disponível
+    const BK_PREF = [8, 6, 4, 3];
+    const bk = BK_PREF.reduce((found, id) => found || bookmakers.find(b => b.id === id), null)
+             || bookmakers[0];
+
+    const bets = bk?.bets || [];
+    // Nomes possíveis do mercado 1x2
+    const h2h = bets.find(b =>
+      b.name === 'Match Winner' || b.name === '3Way Result' ||
+      b.name === 'Home/Draw/Away' || b.name === '1X2'
+    );
+    if (!h2h?.values?.length) return null;
+
+    const home = parseFloat(h2h.values.find(v => v.value === 'Home')?.odd);
+    const draw = parseFloat(h2h.values.find(v => v.value === 'Draw')?.odd);
+    const away = parseFloat(h2h.values.find(v => v.value === 'Away')?.odd);
+    if (!home || !draw || !away || home < 1 || draw < 1 || away < 1) return null;
+
+    const result = { oddCasa: home, oddEmp: draw, oddFora: away,
+      bookmaker: bk.name, bookmakerId: bk.id, fixtureId: fid, fonte: 'api-football' };
+    ODDS_CACHE[fid] = result;
+    console.log('[Odds] OK fixture', fid, bk.name, '→', home, draw, away);
+    return result;
+
+  } catch(e) {
+    console.warn('[Odds] Erro fixture', fid, ':', e.message);
+    return null;
+  }
+}
+
+// Pré-carregar quais fixtures do dia têm odds (usa odds/mapping)
+// Chamar antes de analisar todos para evitar requisições desnecessárias
+async function preCarregarOddsMapping() {
+  if (!API_FOOTBALL_KEY) return new Set();
   try {
-    const res = await fetch(`https://v3.football.api-sports.io/odds?fixture=${fid}&bookmaker=8`, {
+    const res = await fetch('https://v3.football.api-sports.io/odds/mapping', {
       headers: { 'x-apisports-key': API_FOOTBALL_KEY }
     });
     const data = await res.json();
-    const bets = data?.response?.[0]?.bookmakers?.[0]?.bets;
-    if (!bets?.length) return null;
-    const h2h = bets.find(b => b.name === 'Match Winner');
-    if (!h2h?.values?.length) return null;
-    const home = h2h.values.find(v => v.value === 'Home')?.odd;
-    const draw = h2h.values.find(v => v.value === 'Draw')?.odd;
-    const away = h2h.values.find(v => v.value === 'Away')?.odd;
-    if (!home || !draw || !away) return null;
-    const result = {
-      oddCasa: parseFloat(home),
-      oddEmp:  parseFloat(draw),
-      oddFora: parseFloat(away),
-      bookmaker: 'Bet365',
-      fixtureId: Number(fid),
-      fonte: 'api-football',
-    };
-    ODDS_CACHE[fid] = result;
-    return result;
+    // Percorre todas as páginas retornadas (pode ter até 30 páginas de 100)
+    const ids = new Set((data?.response || []).map(r => r.fixture?.id).filter(Boolean));
+    console.log('[Odds/Mapping] Fixtures com odds disponíveis:', ids.size);
+    return ids;
   } catch(e) {
-    console.warn('[Odds] fetch falhou:', e.message);
-    return null;
+    console.warn('[Odds/Mapping] Erro:', e.message);
+    return new Set();
   }
 }
 
