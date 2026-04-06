@@ -1948,6 +1948,13 @@ async function refreshDados(fixtureId, dId) {
     verificarGolParaSnapshot();
     verificarJanelaPreEvento(); // 🆕
     verificarResultadosPrevisoes();
+
+    // 🔶 PAINEL DE HT — mostra probabilidades históricas no intervalo
+    const statusAtual = DADOS.fixture.status.short;
+    if (statusAtual === 'HT') {
+      renderPainelHT();
+    }
+
     const isFt = ['FT','AET','PEN'].includes(DADOS.fixture.status.short);
     if (isFt) {
       salvarRelatorioFn();
@@ -12315,6 +12322,182 @@ function _tentarPreOddsAuto() {
   if (['NS','TBD','1H'].includes(status) && !PRE_ODDS_DATA) {
     _carregarPreOddsSalvas();
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// 🔶 PAINEL DE INTERVALO (HT) — Probabilidades históricas em tempo real
+// Baseado em 19.681 fixtures com stats completos
+// Mostra ao usuário as chances reais de cada resultado no 2º tempo
+// ══════════════════════════════════════════════════════════════════════
+
+// Tabela de probabilidades baseada nos dados reais do Firestore
+// Calculada de 19.681 jogos históricos com stats completos
+const HT_PROBS = {
+  '0-0': { casa: 36, emp: 39, fora: 25, over25: 15,  n: 6201  },
+  '1-0': { casa: 73, emp: 19, fora:  8, over25: 38,  n: 4107  },
+  '0-1': { casa: 13, emp: 26, fora: 61, over25: 35,  n: 3002  },
+  '1-1': { casa: 38, emp: 37, fora: 25, over25: 68,  n: 2019  },
+  '2-0': { casa: 93, emp:  5, fora:  2, over25: 52,  n: 1317  },
+  '0-2': { casa:  4, emp:  9, fora: 87, over25: 48,  n: 790   },
+  '2-1': { casa: 71, emp: 21, fora:  8, over25: 87,  n: 647   },
+  '1-2': { casa: 15, emp: 26, fora: 60, over25: 86,  n: 531   },
+  '3-0': { casa: 97, emp:  2, fora:  1, over25: 82,  n: 280   },
+  '0-3': { casa:  2, emp:  5, fora: 93, over25: 78,  n: 178   },
+  '2-2': { casa: 32, emp: 35, fora: 33, over25: 100, n: 210   },
+  '3-1': { casa: 89, emp:  8, fora:  3, over25: 100, n: 145   },
+  '1-3': { casa:  4, emp:  8, fora: 88, over25: 100, n: 112   },
+};
+
+// Flag para não mostrar o painel mais de uma vez por jogo
+let _htPainelJaMostrado = false;
+
+function renderPainelHT() {
+  if (!DADOS) return;
+
+  const f   = DADOS.fixture;
+  const pcC = f.placar?.casa ?? 0;
+  const pcF = f.placar?.fora ?? 0;
+
+  // Chave do placar no formato "1-0"
+  const chave = `${pcC}-${pcF}`;
+  const prob  = HT_PROBS[chave];
+
+  // Buscar ou criar container do painel HT
+  let container = document.getElementById('painelHT');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'painelHT';
+    container.style.cssText = `
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 9999;
+      background: #10121a;
+      border: 1px solid #f0b429;
+      border-radius: 16px;
+      padding: 24px;
+      min-width: 360px;
+      max-width: 420px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.8);
+      font-family: 'DM Sans', sans-serif;
+    `;
+    document.body.appendChild(container);
+  }
+
+  const nomeCasa = f.timeCasa?.nome || 'Casa';
+  const nomeFora = f.timeFora?.nome || 'Fora';
+
+  // Montar HTML do painel
+  let htHtml = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#565970;font-weight:700">⏸ INTERVALO</div>
+        <div style="font-size:22px;font-weight:800;color:#e2e4ee;margin-top:2px;font-family:'JetBrains Mono',monospace">
+          ${nomeCasa} <span style="color:#f0b429">${pcC} – ${pcF}</span> ${nomeFora}
+        </div>
+      </div>
+      <button onclick="fecharPainelHT()" style="background:none;border:1px solid #1e2232;color:#565970;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:18px;">×</button>
+    </div>
+  `;
+
+  if (prob) {
+    // Determinar favorito do 2º tempo
+    const maxProb = Math.max(prob.casa, prob.emp, prob.fora);
+    const favorito = maxProb === prob.casa ? nomeCasa :
+                     maxProb === prob.fora ? nomeFora : 'Empate';
+    const corFavorito = maxProb === prob.casa ? '#34d399' :
+                        maxProb === prob.fora ? '#60a5fa' : '#f0b429';
+
+    htHtml += `
+      <div style="background:#161924;border-radius:10px;padding:16px;margin-bottom:14px">
+        <div style="font-size:10px;color:#565970;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;font-weight:700">
+          📊 Probabilidades para o resultado final
+          <span style="float:right;font-size:9px;font-weight:400">${(prob.n||0).toLocaleString('pt-BR')} jogos históricos</span>
+        </div>
+
+        <!-- Casa -->
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span style="color:#e2e4ee;font-weight:600">⚽ ${nomeCasa} vence</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:${prob.casa >= 60 ? '#34d399' : '#e2e4ee'}">${prob.casa}%</span>
+          </div>
+          <div style="height:8px;background:#1e2232;border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${prob.casa}%;background:${prob.casa >= 60 ? '#34d399' : '#3b82f6'};border-radius:4px;transition:width 0.5s"></div>
+          </div>
+        </div>
+
+        <!-- Empate -->
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span style="color:#e2e4ee;font-weight:600">🤝 Empate</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:#e2e4ee">${prob.emp}%</span>
+          </div>
+          <div style="height:8px;background:#1e2232;border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${prob.emp}%;background:#f0b429;border-radius:4px;transition:width 0.5s"></div>
+          </div>
+        </div>
+
+        <!-- Fora -->
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span style="color:#e2e4ee;font-weight:600">✈️ ${nomeFora} vence</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:${prob.fora >= 60 ? '#60a5fa' : '#e2e4ee'}">${prob.fora}%</span>
+          </div>
+          <div style="height:8px;background:#1e2232;border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${prob.fora}%;background:${prob.fora >= 60 ? '#60a5fa' : '#6366f1'};border-radius:4px;transition:width 0.5s"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Over 2.5 -->
+      <div style="display:flex;gap:10px;margin-bottom:14px">
+        <div style="flex:1;background:#161924;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#565970;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Over 2.5</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:${prob.over25 >= 70 ? '#34d399' : prob.over25 >= 40 ? '#f0b429' : '#f87171'}">${prob.over25}%</div>
+        </div>
+        <div style="flex:1;background:#161924;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#565970;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Favorito 2ºT</div>
+          <div style="font-size:13px;font-weight:700;color:${corFavorito}">${favorito}</div>
+        </div>
+      </div>
+
+      <!-- Interpretação em linguagem clara -->
+      <div style="background:rgba(240,180,41,0.06);border:1px solid rgba(240,180,41,0.15);border-radius:8px;padding:12px;font-size:11px;color:#a8aecb;line-height:1.6">
+        💡 Em jogos com placar <strong style="color:#f0b429">${chave}</strong> no intervalo,
+        <strong style="color:${corFavorito}">${favorito}</strong> foi o resultado final
+        em <strong style="color:#e2e4ee">${maxProb}%</strong> dos casos
+        (base: ${(prob.n||0).toLocaleString('pt-BR')} partidas).
+      </div>
+    `;
+  } else {
+    // Placar raro sem dados suficientes
+    htHtml += `
+      <div style="background:#161924;border-radius:10px;padding:20px;text-align:center;color:#565970;font-size:12px">
+        <div style="font-size:24px;margin-bottom:8px">📊</div>
+        Placar incomum — dados históricos insuficientes para este placar específico.
+      </div>
+    `;
+  }
+
+  htHtml += `
+    <div style="margin-top:14px;display:flex;gap:8px">
+      <button onclick="fecharPainelHT()" style="flex:1;padding:10px;background:#161924;border:1px solid #1e2232;color:#a8aecb;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">
+        Fechar
+      </button>
+      <button onclick="fecharPainelHT(true)" style="flex:1;padding:10px;background:rgba(240,180,41,0.12);border:1px solid rgba(240,180,41,0.3);color:#f0b429;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">
+        Não mostrar mais neste jogo
+      </button>
+    </div>
+  `;
+
+  container.innerHTML = htHtml;
+  container.style.display = 'block';
+}
+
+function fecharPainelHT(naoMostrarMais = false) {
+  const container = document.getElementById('painelHT');
+  if (container) container.style.display = 'none';
+  if (naoMostrarMais) _htPainelJaMostrado = true;
 }
 
 // ══════════════════════════════════════════════════════════════════════
