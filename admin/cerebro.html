@@ -191,6 +191,14 @@ body{background:var(--bg);color:var(--t1);font-family:'Inter',sans-serif;min-hei
     </button>
   </div>
 
+  <!-- Botão validar cenários retroativamente -->
+  <div style="margin-bottom:16px;">
+    <button class="btn-reprocess" onclick="validarCenariosRetroativo()" id="btnValidarCenarios"
+      style="background:rgba(167,139,250,0.12);border-color:rgba(167,139,250,0.4);color:#a78bfa;">
+      🔁 Validar cenários retroativamente
+    </button>
+  </div>
+
   <div class="sec-title">🎯 acerto por tipo de previsão</div>
   <div class="card grid-1" id="cardTipos">
     <div class="loading-wrap"><div class="ld"></div> carregando...</div>
@@ -486,6 +494,67 @@ async function reprocessarManual(){
   }catch(e){
     if(btn){ btn.textContent='❌ '+e.message; btn.style.background='var(--red)'; btn.disabled=false; }
     console.error('reprocessarManual:',e);
+  }
+}
+
+async function validarCenariosRetroativo() {
+  const btn = gc('btnValidarCenarios');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ Validando cenários... (pode levar ~30s)';
+  btn.style.background = 'rgba(167,139,250,0.2)';
+
+  try {
+    const r = await fns.httpsCallable('validarCenariosRetroativo')({});
+    const d = r.data;
+
+    if (d.sucesso) {
+      btn.textContent = `✅ ${d.processados} cenários validados`;
+      btn.style.background = 'rgba(52,211,153,0.15)';
+      btn.style.borderColor = 'rgba(52,211,153,0.4)';
+      btn.style.color = '#34d399';
+
+      // Mostrar resultado resumido no console e na tela
+      if (d.stats && Object.keys(d.stats).length > 0) {
+        const linhas = Object.entries(d.stats).map(([id, s]) => {
+          const pct = s.total > 0 ? Math.round(s.acertos / s.total * 100) : 0;
+          return `${id}: ${pct}% (${s.acertos}/${s.total})`;
+        }).join(' | ');
+        console.log('📐 Resultados por cenário:', linhas);
+
+        // Mostrar resumo abaixo do botão
+        let resumoEl = gc('cenariosResumo');
+        if (!resumoEl) {
+          resumoEl = document.createElement('div');
+          resumoEl.id = 'cenariosResumo';
+          resumoEl.style.cssText = 'margin-top:10px;padding:12px;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.15);border-radius:8px;font-size:11px;color:#a8aecb;line-height:1.8;font-family:monospace';
+          btn.parentNode.appendChild(resumoEl);
+        }
+        resumoEl.innerHTML = '<strong style="color:#a78bfa;display:block;margin-bottom:6px">📐 Taxa de acerto por cenário:</strong>' +
+          Object.entries(d.stats).map(([id, s]) => {
+            const pct = s.total > 0 ? Math.round(s.acertos / s.total * 100) : 0;
+            const cor = pct >= 20 ? '#34d399' : pct >= 15 ? '#f0b429' : '#f87171';
+            return `<span style="color:${cor}">${pct}%</span> <span style="color:#565970">${id}</span> (${s.acertos}/${s.total})`;
+          }).join('<br>');
+      }
+
+      // Se ainda há pendentes, permitir rodar novamente
+      if (d.totalPendentes > d.processados) {
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = `🔁 Validar mais (${d.totalPendentes - d.processados} restantes)`;
+        }, 2000);
+      }
+    } else {
+      btn.textContent = '❌ Erro na validação';
+      btn.style.background = 'rgba(248,113,113,0.12)';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    btn.textContent = '❌ ' + e.message;
+    btn.style.background = 'rgba(248,113,113,0.12)';
+    btn.disabled = false;
+    console.error('validarCenariosRetroativo:', e);
   }
 }
 
