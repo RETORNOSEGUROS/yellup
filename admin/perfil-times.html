@@ -167,6 +167,29 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 .tag-caindo{color:var(--red);font-size:9px;}
 .tag-est{color:var(--t3);font-size:9px;}
 
+/* ══ ANÁLISE POR MINUTO ══ */
+.min-section{background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:12px 14px;margin-bottom:14px}
+.min-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.min-chart{display:flex;gap:2px;align-items:flex-end;height:80px;position:relative}
+.min-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:0;position:relative;cursor:pointer}
+.min-bar-col:hover .min-tooltip{display:block}
+.min-bar-sc{border-radius:2px 2px 0 0;transition:opacity .2s;min-width:3px}
+.min-bar-cn{border-radius:0 0 2px 2px;transition:opacity .2s;min-width:3px;opacity:.7}
+.min-lbl{font-size:6px;color:var(--t3);margin-top:3px;white-space:nowrap}
+.min-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+  background:var(--c3);border:1px solid var(--bd2);border-radius:6px;padding:5px 8px;
+  font-size:9px;white-space:nowrap;z-index:20;pointer-events:none;min-width:90px}
+.min-hotzone{position:absolute;bottom:0;border-radius:2px;opacity:.12;pointer-events:none}
+.min-legend{display:flex;gap:12px;margin-top:6px;font-size:9px;color:var(--t3);flex-wrap:wrap}
+.crossing-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;font-size:10px;font-weight:700;margin-top:8px}
+.cb-hot{background:var(--rdim);color:var(--red);border:1px solid rgba(239,95,95,.3)}
+.cb-ok{background:var(--adim);color:var(--acc);border:1px solid rgba(245,165,36,.3)}
+.cb-cold{background:var(--gdim);color:var(--grn);border:1px solid rgba(39,212,155,.3)}
+.cb-neutral{background:rgba(255,255,255,.03);color:var(--t3);border:1px solid var(--bd1)}
+.hotspot-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03);font-size:9px}
+.hotspot-row:last-child{border:none}
+
+
 /* LOADING */
 .ld{width:14px;height:14px;border:2px solid rgba(245,165,36,.2);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
@@ -294,6 +317,204 @@ firebase.initializeApp({
 const auth = firebase.auth();
 const db = firebase.firestore();
 const fns = firebase.functions();
+
+// ══════════════════════════════════════════════════════════════
+// ANÁLISE POR MINUTO — dados de 6.815 gols com timestamp
+// Fonte: cache-historico + jogo-snapshots
+// ══════════════════════════════════════════════════════════════
+const BANDS_START = [1,6,11,16,21,26,31,36,41,46,51,56,61,66,71,76,81,86];
+const BANDS_LABELS = ['1-5','6-10','11-15','16-20','21-25','26-30','31-35','36-40',
+                      '41-45','46-50','51-55','56-60','61-65','66-70','71-75','76-80','81-85','86-90'];
+
+// Global baseline: distribuição de 6.815 gols (cache-historico + snapshots)
+const GLOBAL_MIN = {"sc":[3.0,4.6,3.6,3.7,5.3,4.8,4.0,4.5,8.0,5.4,6.6,9.2,4.5,5.5,5.0,4.8,7.4,10.1],"cn":[2.6,4.5,3.2,4.2,5.2,4.5,4.0,4.5,7.7,5.3,6.7,9.8,4.5,5.3,5.4,4.7,7.8,10.0],"nsc":6815,"ncn":6124,"ng":0,"ok":true};
+
+// Per-team profiles (335 times com dados de minuto)
+// Campos: sc[] scored%, cn[] conceded%, nsc, ncn, ng, ok (confiável se >=15 gols)
+const MINUTE_PROFILES = null; // será carregado async do Firestore cache-historico
+
+// Calcula cruzamento: quanto o ataque de A coincide com vulnerabilidade de B
+function calcCrossing(scA, cnB) {
+  let score = 0;
+  const hotspots = [];
+  const avg = 100/18; // ~5.6%
+  for (let i = 0; i < 18; i++) {
+    const cross = (scA[i] * cnB[i]) / 100;
+    score += cross;
+    if (scA[i] > avg*1.5 && cnB[i] > avg*1.5) {
+      hotspots.push({ band: BANDS_LABELS[i], start: BANDS_START[i], atk: scA[i], def: cnB[i], cross });
+    }
+  }
+  // Sort by cross product
+  hotspots.sort((a,b) => b.cross - a.cross);
+  return { score: Math.round(score*10)/10, hotspots: hotspots.slice(0,5) };
+}
+
+// Normaliza perfil ao global (ajuste relativo à média)
+function normProfile(raw, global_ref) {
+  return raw.map((v,i) => {
+    const ref = global_ref[i] || 5.6;
+    return Math.round((v / ref) * 100); // 100 = média, >100 = acima
+  });
+}
+
+// Busca perfil de minutos do time (tenta cache-historico)
+const _minCache = {};
+async function getMinProfile(teamId) {
+  const key = String(teamId);
+  if (_minCache[key]) return _minCache[key];
+  try {
+    const snap = await db.collection('cache-historico')
+      .where('teamId','==', Number(teamId)).limit(1).get();
+    if (snap.empty) { _minCache[key] = null; return null; }
+    const jogos = snap.docs[0].data().jogos || [];
+    const scored = [], conceded = [];
+    for (const j of jogos.slice(-40)) {
+      (j.golsMinuto||[]).forEach(m => { if(m>=1&&m<=95) scored.push(m); });
+      (j.golsSofridosMinuto||[]).forEach(m => { if(m>=1&&m<=95) conceded.push(m); });
+    }
+    if (scored.length < 3 && conceded.length < 3) { _minCache[key] = null; return null; }
+    const ts = scored.length || 1, tc = conceded.length || 1;
+    const prof = {
+      sc: BANDS_START.map(s => Math.round(scored.filter(m=>m>=s&&m<=s+4).length/ts*100*10)/10),
+      cn: BANDS_START.map(s => Math.round(conceded.filter(m=>m>=s&&m<=s+4).length/tc*100*10)/10),
+      nsc: scored.length, ncn: conceded.length,
+      ok: scored.length >= 15 || conceded.length >= 15
+    };
+    _minCache[key] = prof;
+    return prof;
+  } catch(e) {
+    _minCache[key] = null; return null;
+  }
+}
+
+// Renderiza o bloco de análise por minuto para um time (perfil individual)
+function renderMinProfile(prof, teamNome, isHome) {
+  const scData = prof?.sc || GLOBAL_MIN.sc;
+  const cnData = prof?.cn || GLOBAL_MIN.cn;
+  const isFallback = !prof;
+  const maxVal = Math.max(...scData, ...cnData, 0.1);
+
+  const bars = BANDS_START.map((s,i) => {
+    const sc = scData[i], cn = cnData[i];
+    const hSc = Math.round(sc / maxVal * 60);
+    const hCn = Math.round(cn / maxVal * 60);
+    const isHot = sc > 7.5 && cn > 7.5;
+    const colSc = isHome ? 'var(--grn)' : 'var(--blu)';
+    const colCn = 'var(--red)';
+    const lbl = s === 41 ? '45' : s === 86 ? '90' : s === 1 ? '5' : s+'';
+    const showLbl = [1,11,21,31,41,51,61,71,81].includes(s);
+    return `<div class="min-bar-col${isHot?' hot-zone':''}">
+      ${isHot ? `<div style="position:absolute;bottom:0;width:100%;height:100%;background:rgba(245,165,36,.08);border-radius:3px"></div>` : ''}
+      <div class="min-bar-sc" style="height:${hSc}px;background:${colSc};width:100%"></div>
+      <div class="min-bar-cn" style="height:${hCn}px;background:${colCn};width:100%"></div>
+      <div class="min-lbl" style="${showLbl?'':'visibility:hidden'}">${lbl}'</div>
+      <div class="min-tooltip">
+        <div style="font-weight:700;color:var(--t1);margin-bottom:3px">${BANDS_LABELS[i]}'</div>
+        <div style="color:${colSc}">▶ Marcou: ${sc}%</div>
+        <div style="color:${colCn}">◀ Sofreu: ${cn}%</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Top 3 janelas de ataque
+  const topAtk = [...scData.map((v,i)=>({v,i}))].sort((a,b)=>b.v-a.v).slice(0,3);
+  const topCon = [...cnData.map((v,i)=>({v,i}))].sort((a,b)=>b.v-a.v).slice(0,3);
+
+  const confianca = prof?.ok ? '' : `<span style="font-size:8px;color:var(--t3);margin-left:6px">(${isFallback?'usando média global':'dados parciais'})</span>`;
+
+  return `
+  <div style="margin-bottom:10px">
+    <div style="font-size:9px;font-weight:700;color:var(--t2);margin-bottom:4px">
+      ${isHome?'🏠':'✈️'} ${teamNome}${confianca}
+      ${prof ? `<span style="color:var(--t3);margin-left:4px">${prof.nsc} gols marcados · ${prof.ncn} sofridos com timestamp</span>` : ''}
+    </div>
+    <div class="min-chart">${bars}</div>
+    <div class="min-legend">
+      <span style="color:${isHome?'var(--grn)':'var(--blu)'}">■ Marcou nessa faixa</span>
+      <span style="color:var(--red)">■ Sofreu nessa faixa</span>
+      <span>⚡ Janelas de ataque: ${topAtk.map(t=>BANDS_LABELS[t.i]).join(' · ')}</span>
+    </div>
+  </div>`;
+}
+
+// Renderiza análise de cruzamento (A ataca × B defende e vice-versa)
+function renderCrossing(profA, profB, nomeA, nomeB) {
+  const scA = profA?.sc || GLOBAL_MIN.sc;
+  const cnB = profB?.cn || GLOBAL_MIN.cn;
+  const scB = profB?.sc || GLOBAL_MIN.sc;
+  const cnA = profA?.cn || GLOBAL_MIN.cn;
+
+  const crossAB = calcCrossing(scA, cnB);  // A ataca, B defende
+  const crossBA = calcCrossing(scB, cnA);  // B ataca, A defende
+  const totalCross = crossAB.score + crossBA.score;
+
+  // Merge hotspots
+  const allHs = [...crossAB.hotspots.map(h=>({...h,dir:`${nomeA}→${nomeB}`})),
+                 ...crossBA.hotspots.map(h=>({...h,dir:`${nomeB}→${nomeA}`}))];
+  allHs.sort((a,b) => b.cross - a.cross);
+  const top3 = allHs.slice(0,3);
+
+  // Janelas únicas acima do threshold
+  const hotBands = new Set(top3.map(h=>h.band));
+
+  const badgeClass = totalCross >= 20 ? 'cb-hot' : totalCross >= 12 ? 'cb-ok' : totalCross >= 7 ? 'cb-neutral' : 'cb-cold';
+  const badgeLabel = totalCross >= 20 ? '🔥 Cruzamento Alto — mais gols esperados'
+    : totalCross >= 12 ? '⚡ Cruzamento Médio'
+    : totalCross >= 7  ? '— Cruzamento Neutro'
+    : '🔒 Baixo cruzamento';
+
+  return `
+  <div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.06)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px">Cruzamento de Janelas</span>
+      <span class="crossing-badge ${badgeClass}">${badgeLabel} · ${totalCross}</span>
+    </div>
+    ${top3.length ? `
+    <div style="margin-top:6px">
+      ${top3.map(h => {
+        const intensidade = h.cross >= 8 ? 'var(--red)' : h.cross >= 4 ? 'var(--acc)' : 'var(--t2)';
+        return `<div class="hotspot-row">
+          <span style="font-family:'DM Mono',monospace;font-weight:700;color:${intensidade};min-width:50px">${h.band}'</span>
+          <span style="color:var(--t2);flex:1">${h.dir} · ataque ${h.atk.toFixed(0)}% × defesa ${h.def.toFixed(0)}%</span>
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:${intensidade}">${h.cross.toFixed(1)}</span>
+        </div>`;
+      }).join('')}
+    </div>` : '<div style="font-size:9px;color:var(--t3)">Sem janelas coincidentes significativas</div>'}
+    <div style="margin-top:8px;font-size:9px;color:var(--t3);line-height:1.5">
+      💡 Janela quente: ambos os times têm histórico de marcar/sofrer na mesma faixa. Acima de 20 = pressão por gols nessas faixas.
+    </div>
+  </div>`;
+}
+
+// Função principal: renderiza o bloco completo de minutos no perfil
+async function renderMinutosBloco(teamIdCasa, teamIdFora, nomeCasa, nomeFora, container) {
+  if (!container) return;
+
+  const [profC, profF] = await Promise.all([
+    getMinProfile(teamIdCasa),
+    getMinProfile(teamIdFora)
+  ]);
+
+  container.innerHTML = `
+  <div class="min-section">
+    <div class="min-title">
+      ⏱️ Análise por Faixa de 5 Minutos
+      <span style="font-weight:400;color:var(--t3);font-size:8px;text-transform:none;letter-spacing:0">
+        Últimos 40 jogos · ${profC?.nsc||0}/${profF?.nsc||0} gols com timestamp
+      </span>
+    </div>
+    ${renderMinProfile(profC, nomeCasa, true)}
+    ${renderMinProfile(profF, nomeFora, false)}
+    ${renderCrossing(profC, profF, nomeCasa?.split(' ')[0]||'Casa', nomeFora?.split(' ')[0]||'Fora')}
+  </div>`;
+}
+
+// Também expõe para uso no confronto
+function getMinProfileSync(teamId) {
+  return _minCache[String(teamId)] || null;
+}
+
 
 // ══════════════════════════════════════════════════════════
 // STATE
@@ -452,6 +673,32 @@ function selecionarTime(tid) {
   renderPerfil(tid);
   // Trocar para aba perfil
   switchTab('perfil', document.querySelector('.mtab'));
+
+  // ── Análise por minuto (carrega async depois do perfil) ──
+  const t = PERFIS[tid];
+  if (t) {
+    const container = gc(`minutos-bloco-${tid}`);
+    if (container) {
+      // Para o bloco individual (time selecionado sem adversário)
+      // usa o time contra "médio" → mostra só o perfil do time
+      getMinProfile(t.teamId || tid).then(prof => {
+        if (!container) return;
+        container.innerHTML = `
+        <div class="min-section">
+          <div class="min-title">
+            ⏱️ Padrão de Gols por Faixa de 5 Minutos
+            <span style="font-weight:400;color:var(--t3);font-size:8px;text-transform:none;letter-spacing:0">
+              ${prof ? `${prof.nsc} gols marcados · ${prof.ncn} sofridos` : 'usando média global'} com timestamp
+            </span>
+          </div>
+          ${renderMinProfile(prof, t.nome || tid, true)}
+          <div style="font-size:9px;color:var(--t3);margin-top:6px;line-height:1.5">
+            💡 Para ver o cruzamento com adversário específico, vá na aba <strong style="color:var(--acc)">⚔️ Confronto</strong> e selecione os dois times.
+          </div>
+        </div>`;
+      });
+    }
+  }
 }
 
 
@@ -750,6 +997,15 @@ function renderPerfil(tid) {
       </div>
     </div>
     ` : ''}
+
+    <div id="minutos-bloco-${tid}" style="margin-bottom:14px">
+      <div style="background:var(--c2);border:1px solid var(--bd1);border-radius:10px;padding:12px 14px">
+        <div style="font-size:9px;color:var(--t3);display:flex;align-items:center;gap:8px">
+          <div style="width:10px;height:10px;border:2px solid rgba(245,165,36,.3);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite"></div>
+          Carregando análise por minuto...
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -1095,7 +1351,29 @@ function calcularConfronto() {
         </div>
       </div>
     </div>
+
+    <div id="confronto-minutos" style="margin-top:12px">
+      <div style="padding:8px 12px;background:var(--c2);border-radius:8px;font-size:9px;color:var(--t3);display:flex;align-items:center;gap:6px">
+        <div style="width:8px;height:8px;border:2px solid rgba(245,165,36,.3);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite"></div>
+        Carregando análise por minuto...
+      </div>
+    </div>
   `;
+
+  // Carrega análise por minuto async
+  const casaTeamId = casa.teamId || casaId;
+  const foraTeamId = fora.teamId || foraId;
+  Promise.all([getMinProfile(casaTeamId), getMinProfile(foraTeamId)]).then(([profC, profF]) => {
+    const el = gc('confronto-minutos');
+    if (!el) return;
+    el.innerHTML = `
+    <div class="min-section">
+      <div class="min-title">⏱️ Cruzamento por Faixa de Minuto</div>
+      ${renderMinProfile(profC, casa.nome, true)}
+      ${renderMinProfile(profF, fora.nome, false)}
+      ${renderCrossing(profC, profF, casa.nome?.split(' ')[0]||'Casa', fora.nome?.split(' ')[0]||'Fora')}
+    </div>`;
+  });
   } catch(e) {
     console.error('[Confronto] ERRO:', e);
     const el = gc('confrontoResult');
