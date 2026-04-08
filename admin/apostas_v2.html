@@ -432,27 +432,55 @@ const FATOR_LIGA_V3 = {
 };
 
 function calcOver25RateFromPerfil(perfil) {
-  if (!perfil?.porForca) return null;
-  let totalN = 0, totalO25 = 0;
-  for (const f of ['fraco','medio','bom','forte']) {
-    const g = perfil.porForca[f]?.geral;
-    if (g?.n) { totalN += g.n; totalO25 += (g.over25 / 100) * g.n; }
+  if (!perfil) return null;
+
+  // Prioridade 1: porForca (preenchido pela Cloud Function no perfis-times)
+  if (perfil.porForca) {
+    let totalN = 0, totalO25 = 0;
+    for (const f of ['fraco','medio','bom','forte']) {
+      const g = perfil.porForca[f]?.geral;
+      if (g?.n) { totalN += g.n; totalO25 += (g.over25 / 100) * g.n; }
+    }
+    if (totalN >= 3) return totalO25 / totalN;
   }
-  return totalN >= 3 ? totalO25 / totalN : null;
+
+  // Prioridade 2: over25 direto nas stats (calculado pelo calcStats local)
+  if (perfil.s10?.over25 != null) return perfil.s10.over25;
+  if (perfil.s5?.over25  != null) return perfil.s5.over25;
+
+  // Prioridade 3: calcular a partir da média de gols (estimativa)
+  const tot = perfil.s10?.tot ?? perfil.s5?.tot ?? perfil.s10?.tot_media ?? 2.5;
+  // Aproximação: over25 ≈ Poisson(λ>2.5) com λ=tot
+  // Simplificado: se tot>=3.0 → ~60%, se tot>=2.5 → ~48%, se tot>=2.0 → ~35%, etc.
+  if (tot >= 3.5) return 0.65;
+  if (tot >= 3.0) return 0.55;
+  if (tot >= 2.5) return 0.46;
+  if (tot >= 2.0) return 0.35;
+  return 0.25;
 }
 
 function calcularGolsV3(perfilCasa, perfilFora, liga, estAtual = 2.5, ysC = 5, ysF = 5) {
   if (!perfilCasa || !perfilFora) return null;
   const REF = 1.35;
-  // Stats contextuais: casa em casa, fora em fora
-  const gf_c  = perfilCasa?.statsCasa?.gf_media ?? perfilCasa?.s5?.gf_media ?? REF;
-  const gs_c  = perfilCasa?.statsCasa?.gs_media ?? perfilCasa?.s5?.gs_media ?? REF;
-  const tot_c = perfilCasa?.statsCasa?.tot_media ?? perfilCasa?.s5?.tot_media ?? 2.5;
-  const gf_f  = perfilFora?.statsFora?.gf_media  ?? perfilFora?.s5?.gf_media  ?? REF;
-  const gs_f  = perfilFora?.statsFora?.gs_media  ?? perfilFora?.s5?.gs_media  ?? REF;
-  const tot_f = perfilFora?.statsFora?.tot_media  ?? perfilFora?.s5?.tot_media  ?? 2.5;
 
-  // Over25 rate histórico
+  // Helper: aceita tanto .gf_media (perfis-times) quanto .gf (buscarPerfilTime local)
+  const getGf  = (s) => s?.gf_media ?? s?.gf  ?? null;
+  const getGs  = (s) => s?.gs_media ?? s?.gs  ?? null;
+  const getTot = (s) => s?.tot_media ?? s?.tot ?? null;
+
+  // Stats contextuais: casa em casa, fora em fora
+  const gf_c  = getGf(perfilCasa?.statsCasa)  ?? getGf(perfilCasa?.s5)  ?? REF;
+  const gs_c  = getGs(perfilCasa?.statsCasa)  ?? getGs(perfilCasa?.s5)  ?? REF;
+  const tot_c = getTot(perfilCasa?.statsCasa) ?? getTot(perfilCasa?.s5) ?? 2.5;
+  const gf_f  = getGf(perfilFora?.statsFora)  ?? getGf(perfilFora?.s5)  ?? REF;
+  const gs_f  = getGs(perfilFora?.statsFora)  ?? getGs(perfilFora?.s5)  ?? REF;
+  const tot_f = getTot(perfilFora?.statsFora) ?? getTot(perfilFora?.s5) ?? 2.5;
+
+  // Validar: se ainda são todos REF, os dados são insuficientes mas continua com estimativa
+  const temDadosCasa = gf_c !== REF || gs_c !== REF;
+  const temDadosFora = gf_f !== REF || gs_f !== REF;
+
+  // Over25 rate histórico (com múltiplos fallbacks)
   const o25_c = calcOver25RateFromPerfil(perfilCasa) ?? 0.48;
   const o25_f = calcOver25RateFromPerfil(perfilFora)  ?? 0.48;
 
@@ -464,6 +492,9 @@ function calcularGolsV3(perfilCasa, perfilFora, liga, estAtual = 2.5, ysC = 5, y
   const fl = FATOR_LIGA_V3[liga] ?? 1.0;
   const V3 = base * fl;
   const ys_sum = ysC + ysF;
+
+  // Debug log
+  console.log(`[V3] ${liga} gf_c=${gf_c} gs_c=${gs_c} gf_f=${gf_f} gs_f=${gs_f} tot=${TOT.toFixed(2)} o25=${O25.toFixed(2)} DC=${DC.toFixed(2)} V3=${V3.toFixed(2)}`);
 
   // Over Score — 7 sinais
   const sig_over = [
@@ -505,13 +536,20 @@ function calcularGolsV3(perfilCasa, perfilFora, liga, estAtual = 2.5, ysC = 5, y
   } else if (V3 <= 1.5 && US >= 5) {
     veredito='under'; cor='var(--grn)'; prec=54;
     label='🔒 UNDER 1.5';
+  } else if (V3 >= 2.5 && OS >= 3) {
+    // Sinal leve — mostrar em laranja ao invés de indefinido
+    veredito='over_fraco'; cor='#f59e0b'; prec=null;
+    label='⚠️ Leve tendência Over 2.5';
+  } else if (V3 <= 2.0 && US >= 3) {
+    veredito='under_fraco'; cor='#10b981'; prec=null;
+    label='⚠️ Leve tendência Under 2.5';
   } else {
     veredito='neutro'; cor='var(--t3)'; prec=null;
-    label='⚪ Indefinido';
+    label='⚪ Sem sinal claro — V3 ' + V3.toFixed(2);
   }
 
   const isOver  = veredito.startsWith('over');
-  const isUnder = veredito === 'under';
+  const isUnder = veredito.startsWith('under');
   const o25_prob = V3 >= 5.0 ? 87 : V3 >= 4.0 ? 77 : V3 >= 3.5 ? 65
     : V3 >= 3.0 ? 54 : V3 >= 2.5 ? 46 : 44;
 
@@ -522,6 +560,7 @@ function calcularGolsV3(perfilCasa, perfilFora, liga, estAtual = 2.5, ysC = 5, y
     sig_over, sig_under, o25_prob,
     estimativa: Math.round(V3*2)/2,
     gf_c, gs_c, gf_f, gs_f, tot_c, tot_f,
+    temDados: temDadosCasa && temDadosFora,
   };
 }
 
@@ -1090,21 +1129,25 @@ function renderPrevisaoArea(j, prev) {
 // ── RENDER V3 SEMÁFORO PRÉ-JOGO ──────────────────────────────────────────
 function renderV3Semaforo(v3, jId) {
   if (!v3) return '';
+  const isNeutro = v3.veredito === 'neutro';
+  // Não mostrar se realmente sem dados (todos fallback)
+  if (isNeutro && !v3.temDados) return '';
+
   const cls  = v3.isOver ? 'over' : v3.isUnder ? 'under' : 'neutro';
   const dotCls = cls;
-  const precTxt = v3.prec ? `${v3.prec}% histórico` : '';
+  const precTxt = v3.prec ? `${v3.prec}% histórico` : (v3.temDados ? `V3 ${v3.V3}` : '');
   const sigLabels = [
     'DC ≥ 3.0','Ataque duplo','Defesa fraca','Over25 hist ≥ 55%','Tot ≥ 2.8','YS ≥ 12','Est ≥ 3.0'
   ];
   const sigLabelsU = [
     'DC ≤ 1.8','Ataque fraco','Defesas sólidas','Over25 ≤ 40%','Tot ≤ 1.8','Est ≤ 2.0'
   ];
-  const useSigs = v3.isUnder ? v3.sig_under : v3.sig_over;
+  const useSigs   = v3.isUnder ? v3.sig_under : v3.sig_over;
   const useLabels = v3.isUnder ? sigLabelsU : sigLabels;
-  const scoreStr = v3.isOver ? `OS ${v3.OS}/7` : v3.isUnder ? `US ${v3.US}/6` : `OS ${v3.OS} · US ${v3.US}`;
+  const scoreStr  = v3.isOver ? `OS ${v3.OS}/7` : v3.isUnder ? `US ${v3.US}/6` : `OS ${v3.OS} · US ${v3.US}`;
 
   return `
-  <div class="v3-semaforo" id="v3sem-${jId}">
+  <div class="v3-semaforo" id="v3sem-${jId}" style="margin-top:10px">
     <div class="v3-header ${cls}" onclick="toggleV3Detail('${jId}')">
       <div class="v3-dot ${dotCls}"></div>
       <span class="v3-label">${v3.label}</span>
@@ -1144,6 +1187,7 @@ function renderV3Semaforo(v3, jId) {
       </div>
       <div style="margin-top:8px;font-size:9px;color:var(--t3);padding-top:6px;border-top:1px solid var(--brd)">
         Casa em casa: GF ${v3.gf_c} · GS ${v3.gs_c} &nbsp;|&nbsp; Fora em fora: GF ${v3.gf_f} · GS ${v3.gs_f}
+        · O25 ${Math.round(v3.O25*100)}%
       </div>
     </div>
   </div>`;
@@ -1260,8 +1304,11 @@ async function buscarPerfilTime(apiId) {
       const gs  = jogos.reduce((a,j) => a + (j._local==='casa' ? (j.golsFora||0) : (j.golsCasa||0)), 0) / n;
       const tot = jogos.reduce((a,j) => a + (j.totalGols||0), 0) / n;
       const pts = (vit*3 + emp) / n;
+      const over25Rate = jogos.filter(j => (j.totalGols||0) > 2.5).length / n;
       return { n, gf:+gf.toFixed(2), gs:+gs.toFixed(2), tot:+tot.toFixed(2),
-               pts:+pts.toFixed(2), vit, emp, der:n-vit-emp };
+               gf_media:+gf.toFixed(2), gs_media:+gs.toFixed(2), tot_media:+tot.toFixed(2),
+               pts:+pts.toFixed(2), vit, emp, der:n-vit-emp,
+               over25: +over25Rate.toFixed(3) };
     };
 
     const s5  = calcStats(todos.slice(0, 5));
