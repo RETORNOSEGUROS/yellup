@@ -647,48 +647,46 @@ function calcularGolsV3(perfilCasa, perfilFora, liga, estAtual = 2.5, ysC = 5, y
 }
 
 // ── SINAL AO VIVO — calcula projeção de gols com dados do jogo ────────────
-// j = jogo com placarCasa, placarFora, minuto
-// statsVivo = { xgCasa, xgFora, chutesAlvoCasa, chutesAlvoFora } do monitor-minutos
 function calcSinalVivo(j, statsVivo, v3Pre) {
   const min = parseInt(j.minuto) || 1;
   const golsAtuais = (j.placarCasa || 0) + (j.placarFora || 0);
   const minRestante = Math.max(0, 90 - min);
 
-  // Ritmo atual: gols/minuto
+  // Ritmo atual
   const ritmoAtual = golsAtuais / Math.max(min, 1);
-  // Projeção linear: gols atuais + ritmo × minutos restantes
   const projecaoLinear = golsAtuais + ritmoAtual * minRestante;
 
-  // xG se disponível — mais preciso
+  // xG se disponível
   const xgC = statsVivo?.xgCasa ?? 0;
   const xgF = statsVivo?.xgFora ?? 0;
   const xgTotal = xgC + xgF;
   let projecaoXg = null;
   if (xgTotal > 0) {
-    // xG por minuto → projetar até 90'
     const xgPorMin = xgTotal / Math.max(min, 1);
     projecaoXg = xgTotal + xgPorMin * minRestante;
-    // Blend conservador: 50% xG projetado + 50% gols reais projetados
-    // (xG superestima frequentemente no 2T)
     projecaoXg = projecaoXg * 0.50 + projecaoLinear * 0.50;
   }
 
-  // Projeção final
   const projecaoFinal = projecaoXg ?? projecaoLinear;
-
-  // HT predictor (já existe no código original)
   const htData = BASE_HT_PREDICTOR[Math.min(golsAtuais, 4)] || BASE_HT_PREDICTOR[0];
-
-  // Blende: 60% HT predictor (mais calibrado) + 40% projeção por ritmo
   const projecaoBlend = htData.mediaFT * 0.60 + projecaoFinal * 0.40;
 
-  // Sinal de intensidade do jogo
   const alvosTotal = (statsVivo?.chutesAlvoCasa || 0) + (statsVivo?.chutesAlvoFora || 0);
-  const alvosEsperados = min * (4.5 / 90); // ~4.5 alvos por jogo
+  const alvosEsperados = min * (4.5 / 90);
   const intensidade = alvosTotal > alvosEsperados * 1.4 ? 'alta'
     : alvosTotal < alvosEsperados * 0.6 ? 'baixa' : 'normal';
 
-  // Veredito ao vivo
+  // ── JANELA QUENTE por minuto (usa GLOBAL_MIN) ──────────────────────────
+  const bandIdx = Math.floor((min - 1) / 5);
+  const currentBand = BANDS_LABELS_VIVO[Math.min(bandIdx, 17)];
+  const nextBandIdx = Math.min(bandIdx + 1, 17);
+  const nextBand = BANDS_LABELS_VIVO[nextBandIdx];
+  const globalSc = GLOBAL_MIN_VIVO.sc[bandIdx] || 5.6;
+  const globalScNext = GLOBAL_MIN_VIVO.sc[nextBandIdx] || 5.6;
+  const avgBand = 100/18;
+  const isHotNow  = globalSc > avgBand * 1.3;
+  const isHotNext = globalScNext > avgBand * 1.3;
+
   let vivoLabel, vivoCor, vivoClasse;
   if (projecaoBlend >= 3.0) {
     vivoLabel = `Ritmo projeta ${projecaoBlend.toFixed(1)} gols — OVER 2.5`;
@@ -701,7 +699,6 @@ function calcSinalVivo(j, statsVivo, v3Pre) {
     vivoCor = 'var(--acc)'; vivoClasse = 'medio';
   }
 
-  // Pace bar: % do ritmo esperado (referência = 2.6 gols/90 → 0.029/min)
   const ritmoPct = Math.min(100, (ritmoAtual / 0.029) * 100);
 
   return {
@@ -709,12 +706,17 @@ function calcSinalVivo(j, statsVivo, v3Pre) {
     projecaoFinal: Math.round(projecaoFinal*10)/10,
     projecaoBlend: Math.round(projecaoBlend*10)/10,
     xgTotal: Math.round(xgTotal*100)/100,
-    htOver25: htData.over25,
-    htMediaFT: htData.mediaFT,
-    intensidade, vivoLabel, vivoCor, vivoClasse, ritmoPct,
-    alvosTotal,
+    htOver25: htData.over25, htMediaFT: htData.mediaFT,
+    intensidade, vivoLabel, vivoCor, vivoClasse, ritmoPct, alvosTotal,
+    currentBand, nextBand, isHotNow, isHotNext,
+    globalSc: Math.round(globalSc*10)/10, globalScNext: Math.round(globalScNext*10)/10,
   };
 }
+
+// Constantes de minuto para uso no ao vivo (inline, sem import)
+const BANDS_LABELS_VIVO = ['1-5','6-10','11-15','16-20','21-25','26-30','31-35','36-40',
+  '41-45','46-50','51-55','56-60','61-65','66-70','71-75','76-80','81-85','86-90'];
+const GLOBAL_MIN_VIVO = {"sc":[3.0,4.6,3.6,3.7,5.3,4.8,4.0,4.5,8.0,5.4,6.6,9.2,4.5,5.5,5.0,4.8,7.4,10.1],"cn":[2.6,4.5,3.2,4.2,5.2,4.5,4.0,4.5,7.7,5.3,6.7,9.8,4.5,5.3,5.4,4.7,7.8,10.0]};
 
 const _vivoStatsCache = {}; // { fixtureId: statsVivo }
 
@@ -1499,6 +1501,14 @@ function renderSinalVivo(j, prev) {
         <span style="color:${ritmoCor}">${(sinal.ritmoAtual*90).toFixed(1)} gols/90min</span>
         ${sinal.intensidade !== 'normal' ? `<span style="background:${sinal.intensidade==='alta'?'rgba(239,95,95,.15)':'rgba(39,212,155,.1)'};color:${sinal.intensidade==='alta'?'var(--red)':'var(--grn)'};padding:1px 6px;border-radius:3px;font-weight:700">${sinal.intensidade==='alta'?'Intenso':'Lento'}</span>` : ''}
       </div>
+      ${sinal.isHotNow || sinal.isHotNext ? `
+      <div style="margin-top:8px;padding:6px 10px;border-radius:6px;background:rgba(245,165,36,.08);border:1px solid rgba(245,165,36,.25);font-size:10px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px">⏰</span>
+        <div>
+          ${sinal.isHotNow ? `<div style="color:var(--acc);font-weight:700">AGORA ${sinal.currentBand}' — faixa histórica de ${sinal.globalSc}% dos gols (média 5.6%)</div>` : ''}
+          ${sinal.isHotNext && !sinal.isHotNow ? `<div style="color:var(--t2)">Próxima faixa ${sinal.nextBand}' — zona quente se aproximando (${sinal.globalScNext}%)</div>` : ''}
+        </div>
+      </div>` : ''}
     </div>
   </div>`;
 }
