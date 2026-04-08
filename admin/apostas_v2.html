@@ -424,11 +424,27 @@ const BASE_AJUSTE_MES = {
 // V3 = 0.40×DC_ctx + 0.35×tot_media + 0.25×o25_hist×4.5 × fator_liga
 // ══════════════════════════════════════════════════════════════
 const FATOR_LIGA_V3 = {
-  'Serie A':1.005,'CONMEBOL Libertadores':0.912,'Brasileirão A':1.005,
-  'Brasileirão Série A':1.005,'La Liga':0.965,'UEFA Champions League':1.008,
-  'Champions League':1.008,'Premier League':0.909,'Copa Do Brasil':0.866,
-  'Copa do Brasil':0.866,'Major League Soccer':1.128,'MLS':1.128,
-  'Liga Profesional Argentina':1.051,'Serie B':1.136,'Brasileirão Série B':1.136,
+  // Europa
+  'Serie A':1.005,'La Liga':0.965,'UEFA Champions League':1.008,
+  'Champions League':1.008,'Premier League':0.909,'Bundesliga':1.02,
+  'Ligue 1':0.98,'Europa League':1.0,'Conference League':1.02,
+  // Brasil
+  'Brasileirão A':1.005,'Brasileirão Série A':1.005,
+  'Copa Do Brasil':0.866,'Copa do Brasil':0.866,
+  'Brasileirão Série B':1.136,'Serie B':1.136,
+  // América do Sul — copas regionais têm mais gols por falta de organização defensiva
+  'CONMEBOL Libertadores':0.912,
+  'Copa Libertadores':0.912,
+  'Copa Sudamericana':0.95,
+  'Liga Profesional Argentina':1.051,
+  'Major League Soccer':1.128,'MLS':1.128,
+  // Copas regionais — imprevisíveis, times menos organizados = mais gols
+  'Copa Argentina':1.15,
+  'Copa Centro-Oeste':1.10,
+  'Copa Verde':1.10,
+  'Gaúcho':1.05,'Paulista':1.00,'Carioca':1.02,
+  'Paranaense':1.05,'Mineiro':1.05,'Baiano':1.08,
+  'Copa de la Liga':1.05,
 };
 
 function calcOver25RateFromPerfil(perfil) {
@@ -1062,6 +1078,7 @@ function renderPrevisaoArea(j, prev) {
           ${over25 != null ? `<div style="font-size:10px;color:var(--acc);font-weight:700;margin-top:2px">Over 2.5: ${over25}%</div>` : ''}
           ${periodoGols ? `<div style="font-size:9px;color:var(--t3);margin-top:1px">${periodoGols}</div>` : ''}
           <div style="margin-top:4px">${camadaBadge}</div>
+          ${gols?._zonaNome && gols._zonaNome !== 'normal' ? `<div style="font-size:9px;font-weight:700;margin-top:3px;padding:1px 6px;border-radius:3px;display:inline-block;background:rgba(255,255,255,.05);color:${gols._fatorZona>1.1?'var(--red)':gols._fatorZona<0.9?'var(--grn)':'var(--t3)'}">⚖️ ${gols._zonaNome} ×${gols._fatorZona?.toFixed(2)}</div>` : ''}
           ${parseFloat(golsEst) <= 2.0 && prev?.forca5C != null ? `<span style="background:rgba(34,212,155,.15);color:var(--grn);font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;margin-top:4px;display:inline-block">🔒 UNDER 2.5 ✓</span>` : ''}
           ${prev?._odds ? `<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
             <span style="font-size:9px;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:.4px">Bet365:</span>
@@ -2212,50 +2229,95 @@ function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, 
     (estimativaBase2b + ajusteH2H) * pesoH2H
   );
 
-  // ── CALIBRAÇÃO v2: fatorForca por zona ────────────────────────────────
-  // Derivado de análise de 83 jogos reais (20-22/03/2026)
-  // Objetivo: corrigir superestimação quando time fecha atrás
+  // ── CALIBRAÇÃO v3: fatorForca por zona ────────────────────────────────
+  // Lógica corrigida com 6+ jogos reais (abr/2026)
+  // Problema anterior: diff > 2.5 sempre reduzia gols — INVERTIDO para jogos desequilibrados
+  // Regra central: time forte vs fraco → strong team ATTACKS MORE → gols SOBEM
   let _fatorZona = 1.0;
-  if (perfilCasaDB?.forca5 != null && perfilForaDB?.forca5 != null) {
+  let _zonaNome  = 'normal';
+  let _temDadosAmbos = perfilCasaDB?.forca5 != null && perfilForaDB?.forca5 != null;
+
+  if (_temDadosAmbos) {
     const _fc   = perfilCasaDB.forca5;
     const _ff   = perfilForaDB.forca5;
     const _avg  = (_fc + _ff) / 2;
     const _diff = Math.abs(_fc - _ff);
+    const _max  = Math.max(_fc, _ff);
     const _min  = Math.min(_fc, _ff);
-    if (_avg > 5.0 && _diff < 2.0) {
-      _fatorZona = 0.70; // dois times fortes equilibrados → tático (100% acerto na amostra)
-    } else if (_avg < 3.5 && _diff < 2.0) {
-      _fatorZona = 0.80; // dois medianos fechados → menos gols
-    } else if (_min < 2.0 && _diff > 2.0) {
-      _fatorZona = 0.75; // time muito fraco + desequilíbrio → fecha atrás
-    } else if (_diff > 3.0) {
-      _fatorZona = 0.80; // grande desequilíbrio → fraco fecha
+
+    if (_avg > 5.5 && _diff < 2.0) {
+      // Dois times fortes equilibrados → jogo tático, ambos respeitam defensivamente
+      // Ex: Sporting 5.1 x Arsenal 6.4 → 1-0 ✓   Real 4.8 x Bayern 6.7 → 3 gols (base alta)
+      _fatorZona = 0.72; _zonaNome = 'fortes-equilibrados';
+    } else if (_avg > 4.5 && _diff < 1.5) {
+      // Médio-alto equilibrado → jogo relativamente aberto
+      _fatorZona = 0.90; _zonaNome = 'medios-altos-equilibrados';
+    } else if (_avg < 3.8 && _diff < 1.5) {
+      // Dois times fracos/mediocres equilibrados → pouca qualidade ofensiva
+      // Ex: Atletico 3.4 x Cuiaba 3.3 → 1-0 ✓   Estudiantes 2.1 x San Martin → 0-0 ✓
+      _fatorZona = 0.78; _zonaNome = 'fracos-equilibrados';
+    } else if (_max >= 6.5 && _diff > 2.5) {
+      // Time dominante (elite) vs fraco → ATACA ABERTO, fraco não tem disciplina defensiva
+      // Ex: Southampton 7.5 x Wrexham 4.9 → 6 gols ❌ (era 0.80, devia ser alto)
+      _fatorZona = 1.28; _zonaNome = 'elite-domina';
+    } else if (_max >= 5.5 && _diff > 2.0) {
+      // Time forte claro vs fraco → domina, fraco exposto
+      // Ex: Velez 5.6 x Deportivo fraco → 5 gols ❌ (era 0.80, devia ser alto)
+      _fatorZona = 1.18; _zonaNome = 'forte-domina';
+    } else if (_max >= 5.0 && _diff > 1.5) {
+      // Ligeiro favorito forte → ataca, abre espaço
+      _fatorZona = 1.08; _zonaNome = 'favorito-moderado';
     } else {
-      _fatorZona = 1.05; // zona normal → leve boost (dados mostraram subestimação leve)
+      _fatorZona = 1.05; _zonaNome = 'normal';
+    }
+  } else if (perfilCasaDB?.forca5 != null || perfilForaDB?.forca5 != null) {
+    // Só um dos times tem dados → incerteza alta, um time desconhecido = mais variância = mais gols esperados
+    const _ysConhecido = perfilCasaDB?.forca5 ?? perfilForaDB?.forca5 ?? 5;
+    if (_ysConhecido >= 5.5) {
+      // Time forte com dados vs adversário desconhecido → boost (desconhecido pode ser fraco)
+      _fatorZona = 1.20; _zonaNome = 'forte-sem-dados-adv';
+    } else if (_ysConhecido >= 4.0) {
+      _fatorZona = 1.10; _zonaNome = 'medio-sem-dados-adv';
+    } else {
+      _fatorZona = 0.90; _zonaNome = 'fraco-sem-dados-adv';
     }
   }
-  // Se odds indicam jogo tático (empate relativo alto), desconto adicional
-  const _fatorOdds = oddsDerivadas?.jogoTatico ? oddsDerivadas.fatorOdds : 1.0;
+
+  // Log para debug
+  console.log(`[fatorZona] ${_zonaNome} → ×${_fatorZona}`);
+
+  // Se odds indicam jogo tático (empate relativo alto), desconto adicional apenas em zona normal
+  const _fatorOdds = (oddsDerivadas?.jogoTatico && _fatorZona <= 1.05) ? oddsDerivadas.fatorOdds : 1.0;
   const estimativaFinalCal = estimativaFinal * _fatorZona * _fatorOdds;
 
-  // Correção de subestimativa: +0.3 só quando média pré-jogo está ACIMA de 2.0
-  const correcaoSub = mgPre != null
-    ? (mgPre >= 2.5 ? 0.3 : mgPre >= 2.0 ? 0.15 : mgPre >= 1.5 ? 0 : -0.2)
-    : 0.15;
+  // Correção de subestimativa adaptada à zona
+  // Em zonas de domínio (fz > 1.1), não aplicar correção conservadora
+  const correcaoSub = _fatorZona > 1.10
+    ? (_fatorZona > 1.20 ? 0.4 : 0.2)  // dominância → boost extra
+    : mgPre != null
+      ? (mgPre >= 2.5 ? 0.3 : mgPre >= 2.0 ? 0.15 : mgPre >= 1.5 ? 0 : -0.2)
+      : 0.15;
+
   const estimativaCorrigida = estimativaFinalCal + correcaoSub;
-  // Piso real: 0.5 (jogo pode terminar 0x0), sem forçar mínimo de 2.5
   const est = Math.round(Math.max(0.5, estimativaCorrigida) * 2) / 2;
 
-  // Over 2.5 baseado na base da liga + ajuste
+  // ── OVER 2.5 via Poisson (mais preciso que base da liga) ──────────────
+  // Calcula lambdas e usa distribuição para over25 real
+  const _lcPoi = Math.max(0.1, est * (probCasa / Math.max(1, probCasa + probFora)));
+  const _lfPoi = Math.max(0.1, est * (probFora  / Math.max(1, probCasa + probFora)));
+  let over25Poisson = 0;
+  for (let i = 0; i <= 8; i++) for (let j2 = 0; j2 <= 8; j2++) {
+    if (i + j2 > 2.5) over25Poisson += poisson(_lcPoi, i) * poisson(_lfPoi, j2);
+  }
+  // Blend: 60% Poisson (preciso mas sensível) + 40% base liga (estável)
   const baseOver25 = base.gols.over25?.[triKey] || 44;
+  const over25Final = Math.round(over25Poisson * 60 + baseOver25 * 0.40);
 
-  // Range baseado em desvio histórico (±0.8 gols é o intervalo de confiança real)
+  const tendencia = over25Final >= 55 ? 'alto' : over25Final <= 38 ? 'baixo' : 'medio';
+
+  // Range baseado em desvio histórico (±0.8 gols)
   const baixo = Math.max(0, Math.round((est - 1.0) * 2) / 2);
-  const alto   = Math.round((est + 1.0) * 2) / 2;
-
-  // Tendência baseada no over 2.5 calibrado
-  const over25Ajustado = baseOver25 + (ajusteCamada2 * 8); // cada +0.1 gol ≈ +0.8pp over25
-  const tendencia = over25Ajustado >= 52 ? 'alto' : over25Ajustado <= 38 ? 'baixo' : 'medio';
+  const alto  = Math.round((est + 1.0) * 2) / 2;
 
   // Distribuição HT/ST — nossa base mostra HT=44.8% dos gols
   const gHT = Math.round(est * 0.448 * 2) / 2;
@@ -2274,14 +2336,13 @@ function calcularGols(j, jogosC, jogosF, h2h, periodoC, periodoF, perfilCasaDB, 
     range: `${baixo}–${alto}`,
     tendencia,
     periodo,
-    over25: Math.round(over25Ajustado),
+    over25: over25Final,
     fontes: [fonteLabel],
     camada: fonteCamada2.startsWith('banco') ? 2 : 1,
     fonteCamada2,
-    _lambdaCasa: Math.max(0.1, +(est * (probCasa / Math.max(1, probCasa + probFora))).toFixed(3)),
-    _lambdaFora: Math.max(0.1, +(est * (probFora  / Math.max(1, probCasa + probFora))).toFixed(3)),
-    // v2: metadados de calibração
-    _fatorZona,
+    _lambdaCasa: Math.max(0.1, +(_lcPoi).toFixed(3)),
+    _lambdaFora: Math.max(0.1, +(_lfPoi).toFixed(3)),
+    _fatorZona, _zonaNome,
     _geDisxon,
     _usouDisxon: _geDisxon != null,
   };
