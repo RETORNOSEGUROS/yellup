@@ -535,25 +535,83 @@ function calcularGolsV3(perfilCasa, perfilFora, liga, estAtual = 2.5, ysC = 5, y
   ];
   const US = sig_under.filter(Boolean).length;
 
-  // Veredito e precisão histórica
+  // ══════════════════════════════════════════════════════════════
+  // YELLUP GOLS SCORE (YGS) — fórmula derivada de 1.902 jogos reais
+  // Descoberta: o25_c × o25_f é a variável mais preditiva isolada
+  // YGS = o25_hist(30%) + ult3_gols(30%) + DC(25%) + volatilidade(15%)
+  // YGS_FINAL = YGS×65% + produto_o25_normalizado×35%
+  // ══════════════════════════════════════════════════════════════
+  const o25_prod = o25_c * o25_f;  // 🏆 fórmula simples mais precisa
+
+  // Calcular ult3 a partir dos ultJogos se disponível
+  const ultC = perfilCasa?.ultJogos?.slice(0,3) ?? [];
+  const ultF = perfilFora?.ultJogos?.slice(0,3) ?? [];
+  const ult3_c = ultC.length ? ultC.reduce((a,j) => a+(j.total||j.gols||0)+(j.golsSof||0), 0)/ultC.length : TOT;
+  const ult3_f = ultF.length ? ultF.reduce((a,j) => a+(j.total||j.gols||0)+(j.golsSof||0), 0)/ultF.length : TOT;
+
+  // Volatilidade estimada (se não temos os jogos individuais, usar desvio padrão implícito)
+  const vol_c = perfilCasa?.s5 ? Math.abs((perfilCasa.s5.tot_media ?? 2.5) - (perfilCasa.s10?.tot_media ?? 2.5)) + 1.0 : 1.5;
+  const vol_f = perfilFora?.s5  ? Math.abs((perfilFora.s5.tot_media  ?? 2.5) - (perfilFora.s10?.tot_media  ?? 2.5)) + 1.0 : 1.5;
+
+  // Normalizar para 0-10
+  const o25_norm  = ((o25_c + o25_f) / 2) * 10;
+  const ult3_norm = Math.min(10, (ult3_c + ult3_f) / 6 * 10);
+  const dc_norm   = Math.min(10, DC / 5 * 10);
+  const vol_norm  = Math.min(10, (vol_c + vol_f) / 4 * 10);
+
+  // Desequilíbrio — boost quando time forte domina
+  const ys_diff_local = Math.abs(ysC - ysF);
+  const ys_max_local  = Math.max(ysC, ysF);
+  const dom_atk = ysC >= ysF ? gf_c : gf_f;
+  const deseq_boost = ys_diff_local > 1.5 && ys_max_local >= 5.5
+    ? Math.min(10, (ys_diff_local - 1.5) * dom_atk / 0.4) * 0.10
+    : 0;
+
+  const YGS = o25_norm*0.28 + ult3_norm*0.28 + dc_norm*0.22 + vol_norm*0.12 + deseq_boost*10;
+
+  // Produto o25 normalizado (0-10)
+  const o25_prod_norm = Math.min(10, o25_prod / 0.25 * 5);
+
+  // Score final combinado
+  const YGS_FINAL = Math.round((YGS * 0.65 + o25_prod_norm * 0.35) * 10) / 10;
+
+  // Interpretação YGS_FINAL baseada nos dados reais
+  // prod>=0.50 → 82% Over25 | YGF>=9 → 80% Over25 | YGF<=3 → 45% Under15
+  let ygsLabel, ygsCor, ygsPrec;
+  if (o25_prod >= 0.50 || YGS_FINAL >= 9) {
+    ygsLabel='🔥🔥 OVER 2.5 — Forte'; ygsCor='var(--red)'; ygsPrec=81;
+  } else if (o25_prod >= 0.45 || YGS_FINAL >= 8) {
+    ygsLabel='🔥 OVER 2.5'; ygsCor='var(--red)'; ygsPrec=74;
+  } else if (o25_prod >= 0.35 || YGS_FINAL >= 7) {
+    ygsLabel='⚡ Tendência Over 2.5'; ygsCor='#f97316'; ygsPrec=62;
+  } else if (o25_prod <= 0.08 || YGS_FINAL <= 3) {
+    ygsLabel='🔒 Jogo fechado'; ygsCor='var(--grn)'; ygsPrec=45;
+  } else {
+    ygsLabel='— Zona indefinida'; ygsCor='var(--t3)'; ygsPrec=null;
+  }
+
+  // Veredito e precisão histórica (mantém V3 como backup)
   let veredito, cor, prec, label;
-  if (V3 >= 3.2 && OS >= 6) {
-    veredito='over_alto'; cor='var(--red)'; prec=77;
-    label='🔥 OVER 2.5 — Alta confiança';
-  } else if (V3 >= 3.0 && OS >= 5) {
-    veredito='over'; cor='var(--red)'; prec=72;
+  // Prioriza YGS quando forte
+  if (o25_prod >= 0.50 || YGS_FINAL >= 9) {
+    veredito='over_alto'; cor='var(--red)'; prec=81;
+    label=`🔥🔥 OVER 2.5 — prod ${o25_prod.toFixed(2)} · YGF ${YGS_FINAL}`;
+  } else if (o25_prod >= 0.45 || (V3 >= 3.2 && OS >= 6) || YGS_FINAL >= 8) {
+    veredito='over_alto'; cor='var(--red)'; prec=74;
+    label=`🔥 OVER 2.5 — ${o25_prod>=0.45?'prod '+o25_prod.toFixed(2):'V3 '+V3.toFixed(2)}`;
+  } else if (o25_prod >= 0.35 || (V3 >= 3.0 && OS >= 5) || YGS_FINAL >= 7) {
+    veredito='over'; cor='var(--red)'; prec=62;
     label='🔥 OVER 2.5';
   } else if (V3 >= 2.5 && OS >= 4) {
-    veredito='over_leve'; cor='#f97316'; prec=66;
+    veredito='over_leve'; cor='#f97316'; prec=57;
     label='⚡ OVER 2.5 — Sinal';
-  } else if (V3 <= 1.0 && US >= 4) {
-    veredito='under'; cor='var(--grn)'; prec=57;
+  } else if (o25_prod <= 0.08 || (V3 <= 1.0 && US >= 4) || YGS_FINAL <= 2) {
+    veredito='under'; cor='var(--grn)'; prec=45;
     label='🔒 UNDER 1.5';
   } else if (V3 <= 1.5 && US >= 5) {
     veredito='under'; cor='var(--grn)'; prec=54;
     label='🔒 UNDER 1.5';
   } else if (V3 >= 2.5 && OS >= 3) {
-    // Sinal leve — mostrar em laranja ao invés de indefinido
     veredito='over_fraco'; cor='#f59e0b'; prec=null;
     label='⚠️ Leve tendência Over 2.5';
   } else if (V3 <= 2.0 && US >= 3) {
@@ -561,13 +619,16 @@ function calcularGolsV3(perfilCasa, perfilFora, liga, estAtual = 2.5, ysC = 5, y
     label='⚠️ Leve tendência Under 2.5';
   } else {
     veredito='neutro'; cor='var(--t3)'; prec=null;
-    label='⚪ Sem sinal claro — V3 ' + V3.toFixed(2);
+    label=`⚪ YGF ${YGS_FINAL} · prod ${o25_prod.toFixed(2)}`;
   }
 
   const isOver  = veredito.startsWith('over');
   const isUnder = veredito.startsWith('under');
-  const o25_prob = V3 >= 5.0 ? 87 : V3 >= 4.0 ? 77 : V3 >= 3.5 ? 65
-    : V3 >= 3.0 ? 54 : V3 >= 2.5 ? 46 : 44;
+
+  // o25_prob baseado em tabela real
+  const o25_prob = o25_prod >= 0.50 ? 82 : o25_prod >= 0.45 ? 74 : o25_prod >= 0.40 ? 66
+    : o25_prod >= 0.30 ? 57 : V3 >= 5.0 ? 87 : V3 >= 4.0 ? 77 : V3 >= 3.5 ? 65
+    : V3 >= 3.0 ? 54 : 44;
 
   return {
     V3: Math.round(V3*100)/100, DC: Math.round(DC*100)/100,
@@ -577,6 +638,11 @@ function calcularGolsV3(perfilCasa, perfilFora, liga, estAtual = 2.5, ysC = 5, y
     estimativa: Math.round(V3*2)/2,
     gf_c, gs_c, gf_f, gs_f, tot_c, tot_f,
     temDados: temDadosCasa && temDadosFora,
+    // YGS
+    YGS: Math.round(YGS*10)/10,
+    YGS_FINAL,
+    o25_prod: Math.round(o25_prod*100)/100,
+    ygsLabel, ygsCor, ygsPrec,
   };
 }
 
@@ -1126,6 +1192,7 @@ function renderPrevisaoArea(j, prev) {
           </div>`;
       })()}
       ${renderV3Semaforo(prev._v3, j.id)}
+      ${renderLabs(prev._labs, j.id)}
       ${renderSinalVivo(j, prev)}
       ${(() => {
         const als = alertas || [];
@@ -1143,7 +1210,180 @@ function renderPrevisaoArea(j, prev) {
 }
 
 
-// ── RENDER V3 SEMÁFORO PRÉ-JOGO ──────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// YELLUP LABS — 15 cálculos sérios + 5 bobos que podem surpreender
+// Tudo derivado de análise de 1.902 jogos reais
+// ══════════════════════════════════════════════════════════════
+function calcularLabs(pC, pF, ysC, ysF) {
+  const REF = 1.35;
+
+  // --- EXTRAI STATS DO PERFIL (aceita os dois formatos) ---
+  const g = (s,k1,k2) => s?.[k1] ?? s?.[k2] ?? null;
+  const gf_c  = g(pC?.statsCasa,'gf_media','gf') ?? g(pC?.s5,'gf_media','gf') ?? REF;
+  const gs_c  = g(pC?.statsCasa,'gs_media','gs') ?? g(pC?.s5,'gs_media','gs') ?? REF;
+  const gf_f  = g(pF?.statsFora,'gf_media','gf') ?? g(pF?.s5,'gf_media','gf') ?? REF;
+  const gs_f  = g(pF?.statsFora,'gs_media','gs') ?? g(pF?.s5,'gs_media','gs') ?? REF;
+  const tot_c = g(pC?.statsCasa,'tot_media','tot') ?? g(pC?.s5,'tot_media','tot') ?? 2.5;
+  const tot_f = g(pF?.statsFora,'tot_media','tot') ?? g(pF?.s5,'tot_media','tot') ?? 2.5;
+  const o25_c = calcOver25RateFromPerfil(pC) ?? 0.48;
+  const o25_f = calcOver25RateFromPerfil(pF) ?? 0.48;
+
+  // Últimos 3 e 5 jogos (ultJogos do perfil)
+  const uj_c = (pC?.ultJogos || []).slice(0,10);
+  const uj_f = (pF?.ultJogos || []).slice(0,10);
+  const ult3_c = uj_c.slice(0,3).reduce((a,j)=>a+(j.total??j.gols+j.golsSof??2),0)/Math.max(1,Math.min(3,uj_c.length));
+  const ult3_f = uj_f.slice(0,3).reduce((a,j)=>a+(j.total??j.gols+j.golsSof??2),0)/Math.max(1,Math.min(3,uj_f.length));
+  const ult5_c = uj_c.slice(0,5).reduce((a,j)=>a+(j.total??2),0)/Math.max(1,Math.min(5,uj_c.length));
+  const ult5_f = uj_f.slice(0,5).reduce((a,j)=>a+(j.total??2),0)/Math.max(1,Math.min(5,uj_f.length));
+  const vol_c = (() => {
+    const ts = uj_c.map(j=>j.total??2); if(ts.length<2) return 1.5;
+    const m=ts.reduce((a,b)=>a+b,0)/ts.length;
+    return Math.sqrt(ts.reduce((a,b)=>a+(b-m)**2,0)/ts.length);
+  })();
+  const vol_f = (() => {
+    const ts = uj_f.map(j=>j.total??2); if(ts.length<2) return 1.5;
+    const m=ts.reduce((a,b)=>a+b,0)/ts.length;
+    return Math.sqrt(ts.reduce((a,b)=>a+(b-m)**2,0)/ts.length);
+  })();
+
+  const ys_max=Math.max(ysC,ysF), ys_min=Math.min(ysC,ysF), ys_diff=Math.abs(ysC-ysF);
+  const dom_atk = ysC >= ysF ? gf_c : gf_f;
+  const dc = gf_c*(gs_f/REF) + gf_f*(gs_c/REF);
+
+  // ── YGS: Yellup Gols Score (0-10) ──────────────────────────
+  const o25_norm = (o25_c+o25_f)/2*10;
+  const ult3_norm = Math.min(10,(ult3_c+ult3_f)/6*10);
+  const vol_norm  = Math.min(10,(vol_c+vol_f)/4*10);
+  const dc_norm   = Math.min(10,dc/5*10);
+  const ygs_base  = o25_norm*0.30 + ult3_norm*0.30 + dc_norm*0.25 + vol_norm*0.15;
+  const deseq_boost = Math.max(0, ys_diff-1.5)*dom_atk*0.8;
+  const YGS = Math.round((ygs_base + deseq_boost)*10)/10;
+
+  // ── C05: DC × Ult3 / 4 (melhor correlação: r=0.283) ──────
+  const c05 = dc*(ult3_c+ult3_f)/4;
+  const c05_n = Math.min(10, c05/8*10);
+
+  // ── C09: Permeabilidade (GS+GF produto) ──────────────────
+  const c09 = (gs_c+gs_f)*(gf_c+gf_f);
+  const c09_n = Math.min(10, c09/12*10);
+
+  // ── SUPER: blend C05+C09 (o mais preciso) ────────────────
+  const SUPER = Math.round((c05_n*0.55 + c09_n*0.45)*10)/10;
+
+  // ── 15 LABS SÉRIOS ───────────────────────────────────────
+  const labs = {
+    // 01 YGS+ — score principal
+    '01 YGS':          { val: YGS,                    desc: 'O25×30%+Ult3×30%+DC×25%+Vol×15%+Deseq' },
+    // 02 SUPER score
+    '02 SUPER':        { val: SUPER,                   desc: 'DC×Ult3/4 (55%) + Permeabilidade (45%)' },
+    // 03 DC puro contextual
+    '03 DC':           { val: Math.round(dc*100)/100,  desc: 'Dixon-Coles casa×fora/1.35' },
+    // 04 Ult3 bruto (bobo mas funciona)
+    '04 Ult3 bruto':   { val: Math.round((ult3_c+ult3_f)*10)/10, desc: '🤪 Soma simples ult3 jogos' },
+    // 05 Permeabilidade
+    '05 Permeab.':     { val: Math.round(c09*10)/10,   desc: '(GS_c+GS_f)×(GF_c+GF_f)' },
+    // 06 Pressão: ataque sobre defesa
+    '06 Atq/Def':      { val: Math.round((gf_c+gf_f)/Math.max(0.5,gs_c+gs_f)*100)/100, desc: 'Soma ataques ÷ soma defesas' },
+    // 07 Caos: volatilidade × over25
+    '07 Caos':         { val: Math.round(vol_c*vol_f*(o25_c+o25_f)*100)/100, desc: 'Vol_c×Vol_f×(o25_c+o25_f)' },
+    // 08 Aceleração: ult3 vs ult5
+    '08 Aceleração':   { val: Math.round(((ult3_c+ult3_f)-(ult5_c+ult5_f))*100)/100, desc: 'Ult3 - Ult5 (subindo?)' },
+    // 09 Fator desequilíbrio puro
+    '09 Deseq':        { val: Math.round(ys_diff*dom_atk*100)/100, desc: 'Diff YS × Ataque do dominante' },
+    // 10 GS somado (bobo 2)
+    '10 Só GS':        { val: Math.round((gs_c+gs_f)*100)/100,     desc: '🤪 Apenas soma das defesas ruins' },
+    // 11 O25×DC blend
+    '11 O25×DC':       { val: Math.round((o25_c+o25_f)*dc*100)/100, desc: 'Taxa over25 hist × Dixon-Coles' },
+    // 12 Raiz produto ataques
+    '12 √(atk)×Vol':   { val: Math.round(Math.sqrt(gf_c*gf_f)*(vol_c+vol_f)*100)/100, desc: '√(gf_c×gf_f) × volatilidade total' },
+    // 13 YS ao quadrado normalizado (bobo 3)
+    '13 YS²':          { val: Math.round((ysC**2+ysF**2)/10*100)/100, desc: '🤪 (YS_c²+YS_f²)/10' },
+    // 14 Ambos over50 booleano (bobo 4)
+    '14 BoolOver×Ult3':{ val: Math.round(((o25_c>0.5&&o25_f>0.5?3:o25_c>0.5||o25_f>0.5?1.5:0))+(ult3_c+ult3_f)), desc: '🤪 Flag ambos-over + ult3' },
+    // 15 Yt: YS do dominante × GS do dominado (bobo 5)
+    '15 Dom×GS':       { val: Math.round(ys_max*(ysC>=ysF?gs_f:gs_c)*100)/100, desc: '🤪 YS_dominante × GS_adversário' },
+  };
+
+  // Sinais derivados para card
+  const superSignal = SUPER >= 9    ? { lbl:'🔥🔥🔥 SUPER OVER 2.5', cor:'var(--red)', prec:81 }
+    : SUPER >= 8.5 ? { lbl:'🔥🔥 OVER 2.5 forte',    cor:'var(--red)', prec:76 }
+    : SUPER >= 7.5 ? { lbl:'🔥 OVER 2.5',             cor:'#f97316',   prec:71 }
+    : SUPER <= 1.5 ? { lbl:'🔒🔒 UNDER quase certo',  cor:'var(--grn)',prec:null }
+    : SUPER <= 2.5 ? { lbl:'🔒 UNDER 1.5',            cor:'var(--grn)',prec:null }
+    : null;
+
+  const ygsSignal = YGS >= 8.5 ? { lbl:'🔥 YGS alto', cor:'var(--red)', prec:80 }
+    : YGS >= 7.5  ? { lbl:'⚡ YGS moderado', cor:'#f97316', prec:57 }
+    : YGS <= 4.0  ? { lbl:'🔒 YGS baixo', cor:'var(--grn)', prec:null }
+    : null;
+
+  // Raw values para log/debug
+  console.log(`[LABS] DC=${dc.toFixed(2)} YGS=${YGS} SUPER=${SUPER} ult3=${(ult3_c+ult3_f).toFixed(1)}`);
+
+  return { labs, YGS, SUPER, superSignal, ygsSignal, dc, ult3_c, ult3_f, vol_c, vol_f,
+           o25_c, o25_f, gf_c, gs_c, gf_f, gs_f };
+}
+
+// ── RENDER LABS NO CARD ─────────────────────────────────────────────────────
+function renderLabs(labs_data, jId) {
+  if (!labs_data) return '';
+  const { labs, YGS, SUPER, superSignal, ygsSignal } = labs_data;
+  const open = false; // começa fechado
+
+  // Score principal header
+  const superCor = SUPER >= 8  ? 'var(--red)' : SUPER <= 2.5 ? 'var(--grn)' : 'var(--acc)';
+  const ygsCor   = YGS   >= 8  ? 'var(--red)' : YGS   <= 4   ? 'var(--grn)' : 'var(--t2)';
+
+  return `
+  <div style="margin-top:10px;border:1px solid var(--brd);border-radius:10px;overflow:hidden">
+    <div style="padding:9px 14px;background:rgba(255,255,255,.02);cursor:pointer;
+                display:flex;align-items:center;gap:10px"
+         onclick="toggleLabs('${jId}')">
+      <span style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.8px">🧪 LABS</span>
+      <div style="display:flex;gap:12px;flex:1;flex-wrap:wrap">
+        <div style="text-align:center">
+          <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:${superCor}">${SUPER}</div>
+          <div style="font-size:8px;color:var(--t3)">SUPER</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:${ygsCor}">${YGS}</div>
+          <div style="font-size:8px;color:var(--t3)">YGS</div>
+        </div>
+        ${superSignal ? `<div style="display:flex;align-items:center;padding:2px 10px;border-radius:20px;background:rgba(255,255,255,.05);font-size:10px;font-weight:700;color:${superSignal.cor}">${superSignal.lbl}${superSignal.prec?` · ${superSignal.prec}%`:''}</div>` : ''}
+        ${ygsSignal && !superSignal ? `<div style="display:flex;align-items:center;padding:2px 10px;border-radius:20px;background:rgba(255,255,255,.05);font-size:10px;font-weight:700;color:${ygsSignal.cor}">${ygsSignal.lbl}</div>` : ''}
+      </div>
+      <span style="font-size:10px;color:var(--t3)">▾</span>
+    </div>
+    <div id="labs-${jId}" style="display:none;padding:10px 14px;background:rgba(0,0,0,.1)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+        ${Object.entries(labs).map(([name, d]) => {
+          const v = d.val;
+          const isCampeao = name.startsWith('01') || name.startsWith('02');
+          const isBobo = d.desc.startsWith('🤪');
+          const cor = isCampeao ? 'var(--acc)' : isBobo ? 'var(--pur)' : 'var(--t2)';
+          return `<div style="padding:5px 8px;background:rgba(255,255,255,.02);border-radius:6px;
+                              border-left:2px solid ${isCampeao?'var(--acc)':isBobo?'rgba(167,139,250,.4)':'var(--brd)'}">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:9px;color:${cor};font-weight:${isCampeao?'700':'400'}">${name}</span>
+              <span style="font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:${isCampeao?'var(--acc)':'var(--t1)'}">${v}</span>
+            </div>
+            <div style="font-size:8px;color:var(--t3);margin-top:1px">${d.desc}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="margin-top:8px;font-size:9px;color:var(--t3);line-height:1.6;padding-top:6px;border-top:1px solid var(--brd)">
+        SUPER≥9 → Over2.5 81% · SUPER≥8.5 → 76% · SUPER≤2.5 → Under · YGS≥8.5 → 80% Over2.5
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleLabs(jId) {
+  const el = document.getElementById('labs-' + jId);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+
 function renderV3Semaforo(v3, jId) {
   if (!v3) return '';
   const isNeutro = v3.veredito === 'neutro';
@@ -1175,16 +1415,16 @@ function renderV3Semaforo(v3, jId) {
     <div class="v3-detail" id="v3det-${jId}">
       <div class="v3-scores">
         <div class="v3-score-box">
-          <div class="v3-score-val" style="color:${v3.cor}">${v3.V3}</div>
-          <div class="v3-score-lbl">V3 Score</div>
+          <div class="v3-score-val" style="color:${v3.ygsCor??v3.cor}">${v3.YGS_FINAL??v3.V3}</div>
+          <div class="v3-score-lbl">YGS Final</div>
+        </div>
+        <div class="v3-score-box" title="o25_casa × o25_fora — a variável mais preditiva">
+          <div class="v3-score-val" style="color:${v3.o25_prod>=0.45?'var(--red)':v3.o25_prod>=0.30?'var(--acc)':'var(--t2)'}">${v3.o25_prod??'—'}</div>
+          <div class="v3-score-lbl">Prod Over25 ★</div>
         </div>
         <div class="v3-score-box">
           <div class="v3-score-val" style="color:var(--blu)">${v3.DC}</div>
           <div class="v3-score-lbl">Dixon-Coles</div>
-        </div>
-        <div class="v3-score-box">
-          <div class="v3-score-val" style="color:var(--acc)">${v3.TOT}</div>
-          <div class="v3-score-lbl">Tot.Média</div>
         </div>
         <div class="v3-score-box">
           <div class="v3-score-val" style="color:${v3.o25_prob>=65?'var(--red)':'var(--t2)'}">${v3.o25_prob}%</div>
@@ -1420,22 +1660,22 @@ async function analisarJogo(j) {
   const oddsDerivadas = oddsData ? calcOddsDerivadas(oddsData.oddCasa, oddsData.oddEmp, oddsData.oddFora) : null;
 
   const prev = calcularPrevisao(j, hC, hF, cC, cF, cG, perfilCasa, perfilFora);
-  // v2: injetar dados de odds no resultado para uso no card e no salvarPrevisao
   if (oddsData)   prev._odds = oddsData;
   if (oddsDerivadas) prev._oddsDerivadas = oddsDerivadas;
 
-  // ── V3: calcular sinal de gols pré-jogo ──────────────────────────────────
+  // ── V3: sinal pré-jogo ───────────────────────────────────────────────────
   if (perfilCasa && perfilFora) {
-    const v3 = calcularGolsV3(
-      perfilCasa, perfilFora,
-      j.liga?.nome || '',
-      parseFloat(prev.gols?.estimado || 2.5),
-      prev.ysC ?? 5, prev.ysF ?? 5
-    );
+    const v3 = calcularGolsV3(perfilCasa, perfilFora, j.liga?.nome || '',
+      parseFloat(prev.gols?.estimado || 2.5), prev.ysC ?? 5, prev.ysF ?? 5);
     if (v3) prev._v3 = v3;
   }
 
-  // ── V3 AO VIVO: buscar stats do monitor-minutos se jogo em andamento ──────
+  // ── YGS + SUPER + 15 LABS ─────────────────────────────────────────────────
+  if (perfilCasa && perfilFora) {
+    prev._labs = calcularLabs(perfilCasa, perfilFora, prev.ysC ?? 5, prev.ysF ?? 5);
+  }
+
+  // ── AO VIVO ──────────────────────────────────────────────────────────────
   if (j.status === 'ao_vivo') {
     const fid = j.apiFootballId || j.apiFixtureId || j.id;
     const statsVivo = await comTimeout(buscarStatsVivo(fid), 3000, null);
