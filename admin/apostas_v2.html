@@ -1161,14 +1161,44 @@ function renderPrevisaoArea(j, prev) {
       </div>
       <div class="explicacao">${exps}</div>
       ${(() => {
-        // Placar exato por Poisson
+        // Placar exato por Poisson + Sinal de Divergência
         if (!gols?._lambdaCasa || !gols?._lambdaFora) return '';
         const poi = calcularPlacarPoisson(gols._lambdaCasa, gols._lambdaFora);
+        const div = calcDivergencia(gols.estimado, poi);
         const nomeCasa = j.timeCasa?.nome?.split(' ')[0] || 'Casa';
         const nomeFora = j.timeFora?.nome?.split(' ')[0] || 'Fora';
         const apostaCasa = poi.top5[0]?.casa ?? '?';
         const apostaFora = poi.top5[0]?.fora ?? '?';
         const apostaPct  = poi.top5[0]?.pct  ?? 0;
+
+        const divHtml = div ? (() => {
+          const bgCol  = div.sinal==='superestimou' ? 'var(--gdim)' : div.sinal==='subestimou' ? 'var(--rdim)' : 'rgba(255,255,255,.03)';
+          const brdCol = div.sinal==='superestimou' ? 'rgba(39,212,155,.25)' : div.sinal==='subestimou' ? 'rgba(239,95,95,.25)' : 'var(--brd)';
+          const diffAbs = Math.abs(div.diff);
+          const barW = Math.min(48, diffAbs / 2.5 * 48);
+          const sinalTxt = div.sinal==='superestimou' ? '→ considere UNDER' : div.sinal==='subestimou' ? '→ considere OVER' : '✓ consistente';
+          return `<div style="margin-top:8px;padding:7px 10px;border-radius:7px;background:${bgCol};border:1px solid ${brdCol}">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:12px">${div.icon}</span>
+              <div style="flex:1">
+                <div style="font-size:10px;font-weight:700;color:${div.cor}">${div.label} <span style="font-weight:400;color:var(--t3)">(est ${div.est})</span></div>
+                <div style="font-size:9px;color:var(--t3);margin-top:1px">${sinalTxt}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:${div.cor}">${div.diff>0?'+':''}${div.diff}</div>
+                <div style="font-size:8px;color:var(--t3)">divergência</div>
+              </div>
+            </div>
+            <div style="margin-top:5px;height:3px;background:var(--brd);border-radius:2px;position:relative;overflow:hidden">
+              <div style="position:absolute;left:50%;top:0;width:1px;height:100%;background:var(--t3);opacity:.4"></div>
+              <div style="position:absolute;${div.diff>0?'right:50%':'left:50%'};width:${barW}%;height:100%;background:${div.cor};border-radius:2px"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--t3);margin-top:2px">
+              <span>OVER ←</span><span>→ UNDER</span>
+            </div>
+          </div>`;
+        })() : '';
+
         return `
           <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--brd)">
             <div style="font-size:10px;color:var(--t3);margin-bottom:6px;font-weight:600">🎯 APOSTA YELLUP — Placares Prováveis</div>
@@ -1191,10 +1221,11 @@ function renderPrevisaoArea(j, prev) {
               <span style="background:var(--bg2);border-radius:5px;padding:2px 7px;color:var(--t3)">🔒 Under 1.5: ${poi.under15}%</span>
               <span style="background:var(--bg2);border-radius:5px;padding:2px 7px;color:var(--t3)">⚽⚽ BTTS: ${poi.btts}%</span>
             </div>
+            ${divHtml}
           </div>`;
       })()}
       ${renderV3Semaforo(prev._v3, j.id)}
-      ${renderLabs(prev._labs, j.id)}
+      ${renderLabs(prev._labs, j.id, gols)}
       ${renderSinalVivo(j, prev)}
       ${(() => {
         const als = alertas || [];
@@ -1327,14 +1358,21 @@ function calcularLabs(pC, pF, ysC, ysF) {
 }
 
 // ── RENDER LABS NO CARD ─────────────────────────────────────────────────────
-function renderLabs(labs_data, jId) {
+function renderLabs(labs_data, jId, gols) {
   if (!labs_data) return '';
   const { labs, YGS, SUPER, superSignal, ygsSignal } = labs_data;
-  const open = false; // começa fechado
 
-  // Score principal header
+  // Prod: top-5 ponderado (se disponível via calcularGols)
+  let prodVal = null, prodDiv = null;
+  if (gols?._lambdaCasa && gols?._lambdaFora) {
+    const poi = calcularPlacarPoisson(gols._lambdaCasa, gols._lambdaFora);
+    const div = calcDivergencia(gols.estimado, poi);
+    if (div) { prodVal = div.t5p; prodDiv = div; }
+  }
+
   const superCor = SUPER >= 8  ? 'var(--red)' : SUPER <= 2.5 ? 'var(--grn)' : 'var(--acc)';
   const ygsCor   = YGS   >= 8  ? 'var(--red)' : YGS   <= 4   ? 'var(--grn)' : 'var(--t2)';
+  const prodCor  = prodDiv ? (prodDiv.sinal==='superestimou'?'var(--grn)':prodDiv.sinal==='subestimou'?'var(--red)':'var(--t3)') : 'var(--t3)';
 
   return `
   <div style="margin-top:10px;border:1px solid var(--brd);border-radius:10px;overflow:hidden">
@@ -1351,9 +1389,12 @@ function renderLabs(labs_data, jId) {
           <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:${ygsCor}">${YGS}</div>
           <div style="font-size:8px;color:var(--t3)">YGS</div>
         </div>
+        ${prodVal !== null ? `<div style="text-align:center">
+          <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:${prodCor}">${prodVal}</div>
+          <div style="font-size:8px;color:var(--t3)">prod</div>
+        </div>` : ''}
         ${superSignal ? `<div style="display:flex;align-items:center;padding:2px 10px;border-radius:20px;background:rgba(255,255,255,.05);font-size:10px;font-weight:700;color:${superSignal.cor}">${superSignal.lbl}${superSignal.prec?` · ${superSignal.prec}%`:''}</div>` : ''}
         ${ygsSignal && !superSignal ? `<div style="display:flex;align-items:center;padding:2px 10px;border-radius:20px;background:rgba(255,255,255,.05);font-size:10px;font-weight:700;color:${ygsSignal.cor}">${ygsSignal.lbl}</div>` : ''}
-      </div>
       <span style="font-size:10px;color:var(--t3)">▾</span>
     </div>
     <div id="labs-${jId}" style="display:none;padding:10px 14px;background:rgba(0,0,0,.1)">
@@ -2628,15 +2669,66 @@ function calcularPlacarPoisson(lambdaCasa, lambdaFora) {
     if (p.casa >= 1 && p.fora >= 1) btts += p.prob;
     if (tot > 2.5) over25 += p.prob;
   }
+
+  // ── SINAL DE DIVERGÊNCIA (descoberta do usuário) ────────────────────────
+  // Média ponderada dos top-5 placares = detector de superestimação
+  // Quando estimado >> top5_pond → sistema superestimou → sinal de under
+  // Quando estimado ≈ top5_pond  → estimativa consistente
+  // Quando estimado << top5_pond → sistema subestimou → sinal de over
+  const calcTopNPond = (n) => {
+    const top = placares.slice(0, n);
+    const somaProb = top.reduce((a, p) => a + p.prob, 0);
+    if (!somaProb) return 0;
+    return top.reduce((a, p) => a + p.prob * (p.casa + p.fora), 0) / somaProb;
+  };
+  const top5_pond  = Math.round(calcTopNPond(5)  * 100) / 100;
+  const top10_pond = Math.round(calcTopNPond(10) * 100) / 100;
+  const top5_simples = placares.slice(0,5).reduce((a,p)=>a+(p.casa+p.fora),0) / 5;
+  const lambdaTotal  = lambdaCasa + lambdaFora; // VE real
+
   return {
     top5: placares.slice(0, 5).map(p => ({
       ...p, pct: Math.round(p.prob * 100), label: `${p.casa}-${p.fora}`,
     })),
-    goleada: Math.round(goleada * 100),
-    under15: Math.round(under15 * 100),
-    btts:    Math.round(btts * 100),
+    goleada:       Math.round(goleada * 100),
+    under15:       Math.round(under15 * 100),
+    btts:          Math.round(btts * 100),
     over25Poisson: Math.round(over25 * 100),
+    // Divergência
+    top5_pond,
+    top10_pond,
+    top5_simples:  Math.round(top5_simples * 100) / 100,
+    lambdaTotal:   Math.round(lambdaTotal * 100) / 100,
   };
+}
+
+// Calcula e interpreta o sinal de divergência
+// estimado = número da estimativa do sistema (ex: 3.0)
+// poi = resultado de calcularPlacarPoisson
+function calcDivergencia(estimado, poi) {
+  if (!poi?.top5_pond) return null;
+  const est = parseFloat(estimado);
+  const t5p = poi.top5_pond;
+  const diff = est - t5p;  // positivo = sistema superestimou
+  const diffPct = Math.abs(diff / Math.max(t5p, 0.5) * 100);
+
+  // Classificação
+  let sinal, label, cor, icon;
+  if (diff > 0.8) {
+    sinal = 'superestimou'; icon = '⬇️';
+    cor = 'var(--grn)';
+    label = `prod ${t5p.toFixed(2)} — sistema pode ter superestimado`;
+  } else if (diff < -0.6) {
+    sinal = 'subestimou'; icon = '⬆️';
+    cor = 'var(--red)';
+    label = `prod ${t5p.toFixed(2)} — sistema pode ter subestimado`;
+  } else {
+    sinal = 'consistente'; icon = '✓';
+    cor = 'var(--t3)';
+    label = `prod ${t5p.toFixed(2)}`;
+  }
+
+  return { diff: Math.round(diff*100)/100, diffPct: Math.round(diffPct), sinal, label, cor, icon, t5p, est };
 }
 
 function atualizarResumo() {
