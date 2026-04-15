@@ -252,6 +252,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Space 
       <button class="sf" onclick="setLiga('Premier League',this)">PL</button>
       <button class="sf" onclick="setLiga('La Liga',this)">ESP</button>
       <button class="sf" onclick="setLiga('Copa Libertadores',this)">LIB</button>
+      <button class="sf" onclick="setLiga('_nacionals',this)">🌍 Seleções</button>
+      <button class="sf" onclick="setLiga('_clubes',this)">Clubes</button>
     </div>
     <div class="sb-list" id="sbList"><div class="loading-center"><div class="ld"></div>Carregando...</div></div>
   </div>
@@ -313,21 +315,38 @@ firebase.initializeApp({
 });
 const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions();
 
+// ── LIGA TIER — peso da qualidade da liga ────────────────────────────────────
+function getLigaTier(liga) {
+  var l = (liga || '').toLowerCase();
+  if (/eliminat|nations league|friendlies|amistoso|world cup|qualification|copa do mundo|qual\.|euro 20|sul-am|fifa/.test(l)) return 'nacional';
+  if (/premier league|la liga|bundesliga|serie a.*ital|ligue 1|champions league|europa league|conference league/.test(l)) return 1.00;
+  if (/brasileir|libertadores|eredivisie|liga portugal|primeira liga|süper lig|scottish prem|serie b.*bra/.test(l)) return 0.93;
+  if (/j1 league|j-league|mls|liga i.*rom|liga mx|a-league|allsvenskan|eliteserien|ekstraklasa|super league.*gre|championship/.test(l)) return 0.82;
+  if (/serie c|segunda division|nacional.*col|liga pro|primera b|segunda liga|national league/.test(l)) return 0.68;
+  if (/gibraltar|san marino|andorra|faroe|liechtenstein|premier division.*gib/.test(l)) return 0.45;
+  return 0.78;
+}
+function isNacional(t) {
+  return getLigaTier(t.liga) === 'nacional' || t.m.nacional === true;
+}
+
 // ── SCORE ENGINE — calculado no frontend, nunca do Firestore ────────────────
-// Usa: pts_jogo (0-3), gf_media, gs_media, clean_sheet_pct, xgd
-// Resultado: 0-10 com penalidade por poucos jogos
-function calcScore(s) {
+// Score Final = base × ligaTier × volumeBonus
+// base: Desempenho(5) + Ataque(2) + Defesa(2) + Solidez(1) + xG(±0.5)
+function calcScore(s, liga, totalJogos) {
   if (!s || s.n < 3) return null;
-  var des = (s.pts_jogo / 3) * 5;                          // peso 5 — resultado
-  var atk = Math.min(s.gf_media, 2.5) / 2.5 * 2;          // peso 2 — ataque
-  var def = Math.max(0, 1 - s.gs_media / 2.5) * 2;        // peso 2 — defesa
-  var sol = ((s.clean_sheet_pct||0) / 100) * 1;            // peso 1 — solidez
-  var xgb = s.xgd != null
-    ? Math.min(Math.max(s.xgd * 0.3, -0.5), 0.5) : 0;    // bônus xG ±0.5
+  var des = (s.pts_jogo / 3) * 5;
+  var atk = Math.min(s.gf_media, 2.5) / 2.5 * 2;
+  var def = Math.max(0, 1 - s.gs_media / 2.5) * 2;
+  var sol = ((s.clean_sheet_pct||0) / 100) * 1;
+  var xgb = s.xgd != null ? Math.min(Math.max(s.xgd * 0.3, -0.5), 0.5) : 0;
   var raw  = des + atk + def + sol + xgb;
-  // Penalidade só para amostras muito pequenas (< 8 jogos)
   var conf = s.n >= 8 ? 1.0 : s.n >= 5 ? 0.85 : 0.6;
-  return Math.round(Math.min(10, Math.max(0, raw)) * conf * 10) / 10;
+  var base = Math.min(10, Math.max(0, raw)) * conf;
+  var tier = getLigaTier(liga);
+  if (tier === 'nacional') tier = 0.80;
+  var vol  = (totalJogos||0) >= 40 ? 1.04 : (totalJogos||0) >= 25 ? 1.02 : 1.0;
+  return Math.round(Math.min(10, base * tier * vol) * 10) / 10;
 }
 
 // Pega os melhores stats disponíveis: prefere s15 > s10 > s7 > s5
@@ -460,11 +479,10 @@ async function loadData(){
 function getScore(t){
   const s=bestStats(t.m);
   if(!s)return null;
-  // Injeta clean_sheet_pct top-level se s não tiver
   const sc=Object.assign({},s);
   if(sc.clean_sheet_pct==null&&t.m.cs!=null)sc.clean_sheet_pct=t.m.cs;
   if(sc.xgd==null&&t.m.xgd!=null)sc.xgd=t.m.xgd;
-  return calcScore(sc);
+  return calcScore(sc, t.liga, t.m.totalJogos||0);
 }
 
 function scoreColor(v){
@@ -475,7 +493,7 @@ function scoreColor(v){
 // ── SIDEBAR ──────────────────────────────────────────────────────────────────
 function renderSidebar(q=''){
   let list=LISTA;
-  if(LIGA)list=list.filter(t=>t.liga===LIGA);
+  if(LIGA)list=list.filter(t=>matchLiga(t,LIGA));
   if(q)list=list.filter(t=>t.nome.toLowerCase().includes(q.toLowerCase()));
   g('sbList').innerHTML=list.map(t=>{
     const sc=getScore(t);
@@ -500,6 +518,17 @@ function setLiga(l,el){
   LIGA=l;
   document.querySelectorAll('.sf').forEach(b=>b.classList.remove('on'));
   el.classList.add('on');renderSidebar(g('searchInput').value);
+}
+function setRankMode(mode, btn) {
+  var toggle = g('rankModeToggle');
+  if(toggle) toggle.dataset.mode = mode;
+  renderRanking();
+}
+function matchLiga(t,LIGA){
+  if(!LIGA)return true;
+  if(LIGA==='_nacionals')return isNacional(t);
+  if(LIGA==='_clubes')return !isNacional(t);
+  return t.liga===LIGA;
 }
 
 // ── PERFIL ───────────────────────────────────────────────────────────────────
@@ -530,7 +559,7 @@ function renderPerfil(t){
   const sc=Object.assign({},s||{});
   if(sc.clean_sheet_pct==null&&m.cs!=null)sc.clean_sheet_pct=m.cs;
   if(sc.xgd==null&&m.xgd!=null)sc.xgd=m.xgd;
-  const score=calcScore(sc);
+  const score=calcScore(sc, t.liga, m.totalJogos||0);
   const sCol=scoreColor(score);
 
   // Badges
@@ -543,6 +572,10 @@ function renderPerfil(t){
   else badges.push(`<span class="badge bg-yel c-yel">⚖ Gols médio</span>`);
   if(m.fadiga>=4)badges.push(`<span class="badge bg-pur c-pur">😓 Fadiga ${m.fadiga}j</span>`);
   if(!m.enriquecido)badges.push(`<span class="badge" style="background:rgba(255,255,255,.04);color:var(--muted)">Sem xG</span>`);
+  const _tier=getLigaTier(t.liga);
+  if(_tier==='nacional')badges.push(`<span class="badge" style="background:rgba(0,212,255,.1);color:var(--acc)">🌍 Seleção</span>`);
+  else if(_tier>=0.95)badges.push(`<span class="badge" style="background:rgba(0,229,160,.08);color:var(--grn)">★ Liga top</span>`);
+  else if(_tier<=0.50)badges.push(`<span class="badge" style="background:rgba(255,77,109,.08);color:var(--red)">Liga menor</span>`);
 
   // Momenta
   function momBox(val,lbl){
@@ -552,7 +585,13 @@ function renderPerfil(t){
   }
 
   // Jogos
-  const ultJogos=(m.ultJogos||[]).slice(0,15).map(j=>{
+  // Dedup: remove jogos duplicados pelo fixtureId ou pela combinação data+adversario
+  const _seen={};
+  const _jogos=(m.ultJogos||[]).filter(j=>{
+    const k=j.fixtureId||(j.data+'|'+j.adversario+'|'+j.resultado);
+    if(_seen[k])return false;_seen[k]=true;return true;
+  }).slice(0,15);
+  const ultJogos=_jogos.map(j=>{
     const cor=j.resultado==='V'?'var(--grn)':j.resultado==='E'?'var(--acc)':'var(--red)';
     const bg=j.resultado==='V'?'var(--grn-dim)':j.resultado==='E'?'var(--acc-dim)':'var(--red-dim)';
     const placar=j.casa?`${j.gols}–${j.golsSof}`:`${j.golsSof}–${j.gols}`;
@@ -649,7 +688,7 @@ function renderPerfil(t){
         <div class="mom-row">
           ${momBox(m.mom5,'Mom5')}${momBox(m.mom10,'Mom10')}${momBox(m.mom20,'Mom20')}
           <div class="mom-box">
-            <div class="mom-val" style="color:var(--muted2)">${st?calcScore(Object.assign({},st,{clean_sheet_pct:st.clean_sheet_pct??m.cs,xgd:st.xgd??m.xgd}))||'—':'—'}</div>
+            <div class="mom-val" style="color:var(--muted2)">${st?calcScore(Object.assign({},st,{clean_sheet_pct:st.clean_sheet_pct??m.cs,xgd:st.xgd??m.xgd}),t.liga,m.totalJogos)||'—':'—'}</div>
             <div class="mom-lbl">Temp.</div>
           </div>
         </div>
@@ -767,9 +806,18 @@ function renderPerfil(t){
 
 // ── RANKING ───────────────────────────────────────────────────────────────────
 function renderRanking(){
-  const list=[...LISTA].sort((a,b)=>(getScore(b)||0)-(getScore(a)||0));
+  // Por padrão o ranking mostra só clubes — seleções têm contexto diferente
+  const _rankMode = g('rankModeToggle') ? g('rankModeToggle').dataset.mode : 'clubes';
+  const list=[...LISTA]
+    .filter(t=>_rankMode==='todos'?true:_rankMode==='selecoes'?isNacional(t):!isNacional(t))
+    .sort((a,b)=>(getScore(b)||0)-(getScore(a)||0));
   const max=getScore(list[0])||10;
   g('rankContent').innerHTML=`
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <button id="rankModeToggle" data-mode="clubes" onclick="setRankMode('clubes',this)" style="padding:4px 12px;border-radius:20px;border:1px solid var(--border2);background:var(--acc-dim);color:var(--acc);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">🏆 Clubes</button>
+      <button onclick="setRankMode('selecoes',g('rankModeToggle'))" style="padding:4px 12px;border-radius:20px;border:1px solid var(--border);background:none;color:var(--muted2);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">🌍 Seleções</button>
+      <button onclick="setRankMode('todos',g('rankModeToggle'))" style="padding:4px 12px;border-radius:20px;border:1px solid var(--border);background:none;color:var(--muted2);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">Todos</button>
+    </div>
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
       <span style="font-size:13px;font-weight:700">${list.length} times · Yellup Score</span>
       <span style="font-size:10px;color:var(--muted)">calculado dos resultados reais · ignora histórico de Elo</span>
@@ -796,6 +844,7 @@ function renderRanking(){
             <span style="font-weight:600">${t.nome}</span>
           </div></td>
           <td style="font-size:9px;color:var(--muted)">${t.liga||'—'}</td>
+          <td class="r" style="font-size:9px">${(()=>{const tier=getLigaTier(t.liga);if(tier==='nacional')return'<span style="color:var(--acc)">SL</span>';if(tier>=0.98)return'<span style="color:var(--grn)">T1</span>';if(tier>=0.90)return'<span style="color:var(--grn)">T2</span>';if(tier>=0.78)return'<span style="color:var(--yel)">T3</span>';if(tier>=0.65)return'<span style="color:var(--yel)">T4</span>';return'<span style="color:var(--red)">T5</span>';})()}</td>
           <td class="r" style="color:${col};font-weight:700">${sc??'—'}</td>
           <td class="r" style="color:${momCol}">${t.m.mom5!=null?(t.m.mom5>0?'+':'')+t.m.mom5:'—'}</td>
           <td><div class="rank-bar-wrap"><div class="rank-bar" style="width:${pct}px;max-width:100px;background:${col}"></div></div></td>
