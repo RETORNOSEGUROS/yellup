@@ -505,14 +505,57 @@ async function loadData(){
 }
 
 // ── SCORE HELPER ─────────────────────────────────────────────────────────────
-function getScore(t){
-  // Usa s30 como base — mais estável que s15
-  const s=forcaStats(t.m);
-  if(!s)return null;
-  const sc=Object.assign({},s);
-  if(sc.clean_sheet_pct==null&&t.m.cs!=null)sc.clean_sheet_pct=t.m.cs;
-  if(sc.xgd==null&&t.m.xgd!=null)sc.xgd=t.m.xgd;
-  return calcScore(sc, t.liga, t.m.totalJogos||0);
+function enrichStats(s, m) {
+  // Injeta métricas top-level nas stats de janela
+  if (!s) return s;
+  const sc = Object.assign({}, s);
+  if (sc.clean_sheet_pct == null && m.cs != null) sc.clean_sheet_pct = m.cs;
+  if (sc.xgd == null && m.xgd != null) sc.xgd = m.xgd;
+  return sc;
+}
+
+function getScore(t) {
+  const m = t.m;
+  const liga = t.liga;
+  const totalJogos = m.totalJogos || 0;
+
+  // Calcula score de cada janela disponível
+  const sc30 = m.s30 ? calcScore(enrichStats(m.s30, m), liga, totalJogos) : null;
+  const sc70 = (m.s70||m.s30) ? calcScore(enrichStats(m.s70||m.s30, m), liga, totalJogos) : null;
+  const sc15 = m.s15 ? calcScore(enrichStats(m.s15, m), liga, totalJogos) : null;
+  const sc10 = m.s10 ? calcScore(enrichStats(m.s10, m), liga, totalJogos) : null;
+  const sc7  = (m.s7||m.s5) ? calcScore(enrichStats(m.s7||m.s5, m), liga, totalJogos) : null;
+
+  // Blend inteligente:
+  // Quando time tem histórico longo (s70) E está em má fase recente (s30 < s70 - 1.5):
+  //   usa 40% s30 + 60% s70  → protege time forte em má fase
+  // Quando time está melhorando (s30 > s70):
+  //   usa 70% s30 + 30% s70  → valoriza melhora recente
+  // Caso padrão:
+  //   usa 60% s30 + 40% s70
+
+  if (sc30 != null && sc70 != null) {
+    let blend;
+    const diff = sc30 - sc70;
+    if (diff < -1.5) {
+      // Time forte em má fase (ex: Real Madrid com derrotas na CL)
+      blend = sc30 * 0.40 + sc70 * 0.60;
+    } else if (diff > 0.5) {
+      // Time melhorando
+      blend = sc30 * 0.70 + sc70 * 0.30;
+    } else {
+      // Consistente
+      blend = sc30 * 0.60 + sc70 * 0.40;
+    }
+    return Math.round(Math.min(10, blend) * 10) / 10;
+  }
+
+  // Fallback: melhor janela disponível
+  if (sc30 != null) return sc30;
+  if (sc15 != null) return sc15;
+  if (sc10 != null) return sc10;
+  if (sc7  != null) return sc7;
+  return null;
 }
 
 function scoreColor(v){
@@ -590,7 +633,7 @@ function renderPerfil(t){
   const sc=Object.assign({},s||{});
   if(sc.clean_sheet_pct==null&&m.cs!=null)sc.clean_sheet_pct=m.cs;
   if(sc.xgd==null&&m.xgd!=null)sc.xgd=m.xgd;
-  const score=calcScore(sc, t.liga, m.totalJogos||0);
+  const score=getScore(t);
   const sCol=scoreColor(score);
 
   // Badges
@@ -612,10 +655,7 @@ function renderPerfil(t){
   // Mom boxes: mostra força ABSOLUTA de cada janela, não variação
   function momBox(janela, lbl, liga, totalJogos) {
     if (!janela) return `<div class="mom-box"><div class="mom-val c-muted">—</div><div class="mom-lbl">${lbl}</div></div>`;
-    const sc = Object.assign({}, janela);
-    if (sc.clean_sheet_pct == null && m.cs != null) sc.clean_sheet_pct = m.cs;
-    if (sc.xgd == null && m.xgd != null) sc.xgd = m.xgd;
-    const val = calcScore(sc, liga, totalJogos);
+    const val = calcScore(enrichStats(janela, m), liga, totalJogos);
     const col = val >= 7 ? 'var(--grn)' : val >= 5 ? 'var(--yel)' : val >= 3 ? 'var(--red)' : 'var(--muted)';
     return `<div class="mom-box"><div class="mom-val" style="color:${col}">${val ?? '—'}</div><div class="mom-lbl">${lbl}</div></div>`;
   }
@@ -720,12 +760,12 @@ function renderPerfil(t){
       <div class="score-block">
         <div class="score-num" style="color:${sCol}">${score??'—'}</div>
         <div class="score-label">Yellup Score</div>
-        <div class="score-sub">${m.cs!=null?'CS: '+m.cs+'%':''}</div>
+        <div class="score-sub">${st&&st.n>=20?'blend s30+hist':'só s30'}${m.cs!=null?' · CS '+m.cs+'%':''}</div>
         <div class="mom-row">
-          ${momBox(m.s7||m.s5, 'Ult7', t.liga, m.totalJogos||0)}
-          ${momBox(m.s15||m.s10, 'Ult15', t.liga, m.totalJogos||0)}
-          ${momBox(m.s30, 'Ult30', t.liga, m.totalJogos||0)}
-          ${momBox(m.s70, 'Temp.', t.liga, m.totalJogos||0)}
+          ${momBox(m.s7||m.s5,   'Ult7',  t.liga, m.totalJogos||0, false)}
+          ${momBox(m.s15||m.s10, 'Ult15', t.liga, m.totalJogos||0, false)}
+          ${momBox(m.s30,        'Ult30', t.liga, m.totalJogos||0, true)}
+          ${momBox(m.s70,        'Temp.', t.liga, m.totalJogos||0, false)}
         </div>
       </div>
     </div>
