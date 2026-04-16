@@ -567,10 +567,11 @@ function getScore(t) {
   // Fonte principal — único método justo entre ligas diferentes.
   // eloRaw calculado pelo Cloud Function: ganhar vs Bayern > ganhar vs Al-Hilal
   // eloToScore() normaliza para escala 1–10 usando percentis do banco
+  // Score por posição percentual no banco (recalcularNormElo atribui _eloScore)
+  if (t._eloScore != null) return t._eloScore;
+  // Fallback: stats para times ainda sem Elo enriquecido
   const eloRaw = (m.elo || m.elo_raw || 0);
-  if (eloRaw > 100) {  // >100 = Elo bruto (não nota 1-10)
-    return eloToScore(eloRaw);
-  }
+  if (eloRaw > 100) return eloToScore(eloRaw); // caso _eloScore ainda não calculado
 
   // ── MÉTODO 2: Fallback stats (times ainda não enriquecidos pela API) ───────
   // Usa tierCap para evitar que ligas fracas inflem o ranking
@@ -1132,18 +1133,29 @@ async function enrichAll(){
     setTimeout(reloadAll,1500);
   }catch(e){setStatus('err','Erro: '+e.message);btn.textContent='Enriquecer via API';btn.disabled=false;}
 }
-// Normalização Elo — 100% client-side, sem Cloud Function
+// Normalização Elo — 100% client-side, por posição percentual
+// Score = posição no ranking do banco inteiro (1º=10, último=1)
+// Evita que vários times fiquem com 10 por terem Elo parecido
 function recalcularNormElo() {
-  const vals = Object.values(PERFIS)
-    .map(t => t.m.elo || t.m.elo_raw || 0)
-    .filter(v => v > 100) // >100 → Elo bruto (não nota 1-10)
-    .sort((a, b) => a - b);
-  if (vals.length < 2) return;
-  const i3  = Math.max(0, Math.floor(vals.length * 0.03));
-  const i97 = Math.min(vals.length - 1, Math.floor(vals.length * 0.97));
-  ELO_MIN  = vals[i3];
-  ELO_MAX  = vals[i97];
-  ELO_SPAN = ELO_MAX - ELO_MIN || 800;
+  // Separa clubes e seleções (ranks independentes)
+  const porGrupo = { clubes: [], selecoes: [] };
+  Object.values(PERFIS).forEach(t => {
+    const elo = t.m.elo || t.m.elo_raw || 0;
+    if (elo <= 100) return; // ignora Elo antigo em escala 1-10
+    const grp = isNacional(t) ? 'selecoes' : 'clubes';
+    porGrupo[grp].push({ t, elo });
+  });
+
+  ['clubes', 'selecoes'].forEach(grp => {
+    const arr = porGrupo[grp].sort((a, b) => b.elo - a.elo);
+    const N = arr.length;
+    if (!N) return;
+    arr.forEach(({ t }, i) => {
+      // Posição 0 (melhor) → 10.0 · Posição N-1 (pior) → 1.0
+      t._eloScore = N === 1 ? 7.0
+        : Math.round((1 - i / (N - 1)) * 9 + 1) * 10 / 10;
+    });
+  });
 }
 
 function normalizarElo(){
@@ -1151,7 +1163,8 @@ function normalizarElo(){
   recalcularNormElo();
   LISTA=Object.values(PERFIS).sort((a,b)=>(getScore(b)||0)-(getScore(a)||0));
   renderSidebar();renderRanking();
-  setStatus('ok',`✓ Range recalculado: ${ELO_MIN}–${ELO_MAX} (${LISTA.filter(t=>(t.m.elo||t.m.elo_raw)>100).length} times com Elo)`);
+  const comElo = Object.values(PERFIS).filter(t=>(t.m.elo||t.m.elo_raw)>100).length;
+  setStatus('ok',`✓ Ranking recalculado: ${comElo} times com Elo`);
   btn.textContent='⚖ Normalizar Elo';btn.disabled=false;
 }
 async function recalcElo(){
