@@ -300,6 +300,59 @@ html,body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--fB)
 .ev-track{flex:1;height:3px;background:var(--s3);border-radius:2px;}
 .ev-fill{height:100%;background:var(--cy);border-radius:2px;transition:width .3s;}
 .coverage{font-size:9px;font-family:var(--fM);color:var(--tx3);text-align:right;margin-top:10px;}
+
+/* ── FORTESCORE ── */
+.forte-wrap{display:grid;grid-template-columns:220px 1fr;height:100%;overflow:hidden;}
+.forte-left{
+  padding:24px 16px;border-right:1px solid var(--b1);
+  display:flex;flex-direction:column;align-items:center;gap:14px;overflow-y:auto;
+}
+.forte-gauge-wrap{position:relative;width:180px;height:180px;flex-shrink:0;}
+.forte-gauge-wrap svg{width:100%;height:100%;}
+.forte-windows{display:flex;gap:4px;width:100%;}
+.fw{background:var(--s2);border:1px solid var(--b1);border-radius:3px;padding:7px 6px;text-align:center;flex:1;}
+.fw-l{font-size:7px;color:var(--tx3);letter-spacing:.7px;text-transform:uppercase;display:block;margin-bottom:3px;}
+.fw-v{font-family:var(--fM);font-size:14px;font-weight:700;display:block;}
+.forte-basis{font-size:9px;font-family:var(--fM);color:var(--tx3);text-align:center;line-height:1.6;}
+.forte-tag{
+  font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+  padding:4px 14px;border-radius:3px;text-align:center;
+}
+
+.forte-right{padding:20px 22px;overflow-y:auto;display:flex;flex-direction:column;gap:0;}
+.forte-section-title{
+  font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--tx3);
+  margin-bottom:14px;display:flex;align-items:center;gap:8px;
+}
+.forte-section-title::after{content:'';flex:1;height:1px;background:var(--b1);}
+
+.bb-row{
+  display:grid;grid-template-columns:148px 1fr 60px;
+  align-items:center;gap:14px;padding:12px 0;
+  border-bottom:1px solid rgba(255,255,255,.025);
+}
+.bb-row:last-child{border-bottom:none;}
+.bb-left{}
+.bb-label{font-size:13px;font-weight:600;line-height:1.2;}
+.bb-desc{font-size:9px;color:var(--tx3);margin-top:2px;line-height:1.3;}
+.bb-bar{height:5px;background:var(--s3);border-radius:3px;overflow:hidden;}
+.bb-fill{height:100%;border-radius:3px;width:0;transition:width .9s cubic-bezier(.34,1.2,.64,1);}
+.bb-vals{text-align:right;}
+.bb-score{font-family:var(--fM);font-size:16px;font-weight:700;display:block;line-height:1;}
+.bb-weight{font-size:8px;color:var(--tx3);font-family:var(--fM);display:block;margin-top:2px;}
+
+.forte-raw-detail{
+  margin-top:16px;background:var(--s2);border:1px solid var(--b1);
+  border-radius:3px;padding:12px 14px;
+}
+.frd-title{font-size:8px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--tx3);margin-bottom:10px;}
+.frd-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.frd-item{text-align:center;}
+.frd-val{font-family:var(--fM);font-size:13px;font-weight:700;}
+.frd-lbl{font-size:8px;color:var(--tx3);letter-spacing:.4px;margin-top:2px;}
+
+.forte-loading{display:flex;align-items:center;justify-content:center;height:100%;gap:10px;color:var(--tx3);font-size:11px;font-family:var(--fM);}
+
 </style>
 </head>
 <body>
@@ -354,11 +407,18 @@ let QUERY    = '';
 let SELECTED = null;
 
 // Módulo 2 — Intervalos
-let EV_DATA     = {};    // fixtureId → [{sc, elapsed, extra}]  sc=true marcou / false sofreu
+let EV_DATA     = {};
 let EV_LOADED   = 0;
 let EV_TOTAL    = 0;
-let EV_ENRICHED = [];    // ref aos enriched fixtures do time atual
+let EV_ENRICHED = [];
 let ACTIVE_TAB  = 'jogos';
+
+// Módulo 3 — ForteScore
+let FORTE_RESULT = null;
+let FORTE_STATE  = 'idle'; // idle | loading | done | error
+let FORTE_TEAM   = null;
+let FORTE_E20    = [];
+let FORTE_SM20   = {};
 
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -466,6 +526,7 @@ async function selectTeam(team) {
   SELECTED = team;
   ACTIVE_TAB = 'jogos';
   EV_DATA = {}; EV_LOADED = 0; EV_TOTAL = 0; EV_ENRICHED = [];
+  FORTE_RESULT = null; FORTE_STATE = 'idle'; FORTE_TEAM = team;
   renderSidebar();
 
   if (!CFG.apiKey) {
@@ -518,6 +579,11 @@ async function selectTeam(team) {
     EV_LOADED   = 0;
     fetchAllEvents(enriched, team.apiId);
 
+    // 6. Start ForteScore calculation in background for Módulo 3
+    FORTE_E20 = enriched;
+    FORTE_SM20 = statsMap;
+    calcForteScore(team, enriched, statsMap);
+
   } catch(e) {
     console.error(e);
     document.getElementById('mainArea').innerHTML += `<div class="err">Erro: ${e.message}</div>`;
@@ -527,10 +593,10 @@ async function selectTeam(team) {
 // ── Tab Switch ─────────────────────────────────────────────────
 function switchTab(id) {
   ACTIVE_TAB = id;
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.textContent.trim().toLowerCase().startsWith(id==='jogos'?'últ':'gol')));
-  document.getElementById('pane-jogos')?.classList.toggle('on', id==='jogos');
-  document.getElementById('pane-inter')?.classList.toggle('on', id==='inter');
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('on', ['jogos','inter','forte'][i]===id));
+  ['jogos','inter','forte'].forEach(t => document.getElementById(`pane-${t}`)?.classList.toggle('on', t===id));
   if (id === 'inter') renderInterPane();
+  if (id === 'forte') renderFortePane();
 }
 
 // ── Fetch Events (background) ──────────────────────────────────
@@ -773,6 +839,7 @@ function buildHeader(team, enriched, agg) {
   <div class="tbar">
     <button class="tab${ACTIVE_TAB==='jogos'?' on':''}"   onclick="switchTab('jogos')">Últimos Jogos</button>
     <button class="tab${ACTIVE_TAB==='inter'?' on':''}"  onclick="switchTab('inter')">Gols por Intervalo</button>
+    <button class="tab${ACTIVE_TAB==='forte'?' on':''}"  onclick="switchTab('forte')">ForteScore</button>
   </div>
   `;
 }
@@ -826,6 +893,9 @@ function buildTable(enriched, team, statsMap) {
       <span id="evProgTxt">aguardando seleção de time...</span>
       <div class="ev-track"><div class="ev-fill" id="evFill" style="width:0%"></div></div>
     </div>
+  </div>
+  <div class="tpane${ACTIVE_TAB==='forte'?' on':''}" id="pane-forte">
+    <div class="forte-loading"><div class="spin"></div>aguardando seleção de time...</div>
   </div>`;
 }
 
@@ -986,6 +1056,325 @@ function calcAgg(enriched, statsMap, tid) {
     gfJ:   N       ? (GF/N).toFixed(2)               : '—',
     gcJ:   N       ? (GC/N).toFixed(2)               : '—'
   };
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO 3 — FORTESCORE
+// ══════════════════════════════════════════════════════════════
+
+// ── League Coefficient Table ───────────────────────────────────
+const LC = {
+  2:1.10, 3:0.97, 848:0.88, 531:1.05,          // UCL, UEL, UECL, Super Cup
+  39:1.00, 40:0.82, 41:0.65, 45:0.85,           // England
+  140:1.00, 141:0.80, 143:0.90,                 // Spain (La Liga, Liga2, Copa del Rey)
+  78:0.98,  79:0.78, 81:0.85,                   // Germany
+  135:0.97, 136:0.77, 137:0.83,                 // Italy
+  61:0.93,  62:0.73, 66:0.80,                   // France
+  94:0.82,  95:0.65, 96:0.80,                   // Portugal
+  88:0.85,  89:0.67,                            // Netherlands
+  144:0.83, 145:0.68,                           // Belgium
+  203:0.80, 204:0.65,                           // Turkey
+  235:0.78,                                     // Russia
+  179:0.74, 180:0.60,                           // Scotland
+  71:0.80,  72:0.63, 73:0.52, 75:0.75,         // Brasileirão A/B/C, Copa do Brasil
+  13:0.88,  11:0.80,                            // Libertadores, Sudamericana
+  128:0.82, 130:0.78,                           // Argentina
+  239:0.72, 265:0.70,                           // Colombia, Chile
+  262:0.75, 263:0.65,                           // Liga MX, Ascenso MX
+  253:0.70, 254:0.58,                           // MLS, USL
+  307:0.65, 291:0.60, 435:0.58,                // Saudi, Qatar, UAE
+  98:0.73,  99:0.60,                            // J-League
+  292:0.70,                                     // K League
+  188:0.60,                                     // A-League
+  169:0.83, 170:0.68,                           // Belgian (alt id)
+  197:0.76, 198:0.65,                           // Switzerland
+  207:0.76,                                     // Austrian Bundesliga
+  244:0.66, 103:0.71, 113:0.72, 119:0.74,      // Finland, Norway, Sweden, Denmark
+  106:0.71, 283:0.68, 333:0.72,                // Poland, Romania, Ukraine
+  286:0.68, 210:0.70,                          // Serbia, Croatia
+  233:0.62, 200:0.63,                          // Egypt, Morocco
+  288:0.58,                                    // South Africa
+};
+function getLC(leagueId) { return LC[leagueId] || 0.60; }
+
+// ── Calc WRS (Win Rate Score) ──────────────────────────────────
+function calcWRS(enriched) {
+  function winScore(games) {
+    if (!games.length) return 0;
+    let sum = 0;
+    games.forEach(e => {
+      const pts    = e.res==='v' ? 1.0 : e.res==='e' ? 0.33 : 0;
+      const coeff  = getLC(e.f.league.id);
+      const aBonus = (e.res==='v' && !e.home) ? 1.08 : 1.0; // bonus vitória fora
+      sum += pts * coeff * aBonus;
+    });
+    return Math.min(1, sum / (games.length * 1.10 * 1.08));
+  }
+  const w50 = winScore(enriched.slice(0,50));
+  const w30 = winScore(enriched.slice(0,30));
+  const w10 = winScore(enriched.slice(0,10));
+  return { w50, w30, w10, combined: w50*0.25 + w30*0.40 + w10*0.35 };
+}
+
+// ── Calc IO (Offensive Index) ──────────────────────────────────
+function calcIO(teamStats, enriched20, statsMap20, tid) {
+  let gfAvg = null;
+  if (teamStats?.goals?.for?.average?.total)
+    gfAvg = parseFloat(teamStats.goals.for.average.total);
+  else {
+    const a = calcAgg(enriched20, statsMap20, tid);
+    if (a.gfJ !== '—') gfAvg = parseFloat(a.gfJ);
+  }
+  if (gfAvg === null) return 0.45;
+  const goalScore = Math.min(1, gfAvg / 2.6);
+  const agg = calcAgg(enriched20, statsMap20, tid);
+  if (agg.xg !== '—') {
+    const xgScore = Math.min(1, parseFloat(agg.xg) / 2.0);
+    return goalScore*0.60 + xgScore*0.40;
+  }
+  return goalScore;
+}
+
+// ── Calc ID (Defensive Index) ──────────────────────────────────
+function calcID(teamStats, enriched20, statsMap20, tid) {
+  let gcAvg = null, csRate = 0;
+  if (teamStats?.goals?.against?.average?.total) {
+    gcAvg  = parseFloat(teamStats.goals.against.average.total);
+    const played = teamStats.fixtures?.played?.total || 1;
+    csRate = (teamStats.clean_sheet?.total || 0) / played;
+  } else {
+    const a = calcAgg(enriched20, statsMap20, tid);
+    if (a.gcJ !== '—') gcAvg = parseFloat(a.gcJ);
+  }
+  if (gcAvg === null) return 0.45;
+  const concedeScore = Math.max(0, 1 - gcAvg / 2.6);
+  return concedeScore*0.70 + csRate*0.30;
+}
+
+// ── Calc IDom (Dominance Index) ────────────────────────────────
+function calcIDom(enriched20, statsMap20, tid) {
+  const a = calcAgg(enriched20, statsMap20, tid);
+  const possScore = a.poss !== '—' ? Math.min(1, parseInt(a.poss) / 64) : 0.50;
+  const passScore = a.pass !== '—' ? Math.min(1, parseInt(a.pass) / 91) : 0.50;
+  return possScore*0.55 + passScore*0.45;
+}
+
+// ── Calc LCS (League / Schedule Quality) ──────────────────────
+function calcLCS(enriched) {
+  if (!enriched.length) return 0.55;
+  const avg = enriched.reduce((s,e) => s + getLC(e.f.league.id), 0) / enriched.length;
+  return Math.max(0, Math.min(1, (avg - 0.50) / 0.60));
+}
+
+// ── Main ForteScore Calculation ────────────────────────────────
+async function calcForteScore(team, enriched20, statsMap20) {
+  FORTE_STATE = 'loading';
+  if (ACTIVE_TAB === 'forte') renderFortePane();
+
+  try {
+    // 1. Fetch last 50 fixtures (more complete window)
+    const r50 = await apiGet(`/fixtures?team=${team.apiId}&last=50`);
+    const fix50 = (r50.response||[]).sort((a,b) => new Date(b.fixture.date)-new Date(a.fixture.date));
+    const e50   = fix50.map(f => enrich(f, team.apiId));
+
+    // 2. Determine main domestic league & season
+    const mainLeague = getMainLeague(fix50);
+    const season     = getMainSeason(fix50);
+
+    // 3. Fetch team season statistics (aggregate)
+    let teamStats = null;
+    try {
+      const sr = await apiGet(`/teams/statistics?team=${team.apiId}&season=${season}&league=${mainLeague}`);
+      teamStats = sr.response || null;
+    } catch(e) { /* prosseguir sem stats de temporada */ }
+
+    // 4. Calculate components
+    const wrs  = calcWRS(e50);
+    const io   = calcIO(teamStats, enriched20, statsMap20, team.apiId);
+    const id   = calcID(teamStats, enriched20, statsMap20, team.apiId);
+    const idom = calcIDom(enriched20, statsMap20, team.apiId);
+    const lcs  = calcLCS(e50);
+
+    // 5. Weighted raw score
+    const raw = wrs.combined*0.45 + io*0.20 + id*0.20 + idom*0.10 + lcs*0.05;
+
+    // 6. Power transform → distribui melhor no range 0-10
+    // Times elite ficam 7.5-9.8, times médios 4-7, fracos 1-4
+    const score = parseFloat(
+      Math.max(0.01, Math.min(10.00, Math.pow(Math.max(0.001, raw), 0.62) * 10)).toFixed(2)
+    );
+
+    FORTE_RESULT = { score, wrs, io, id, idom, lcs, raw, gamesUsed: fix50.length, season, mainLeague };
+    FORTE_STATE  = 'done';
+
+    if (ACTIVE_TAB === 'forte') renderFortePane();
+
+  } catch(e) {
+    console.error('[ForteScore]', e);
+    FORTE_STATE = 'error';
+    if (ACTIVE_TAB === 'forte') renderFortePane();
+  }
+}
+
+// ── Helper: Main Domestic League ──────────────────────────────
+function getMainLeague(fixtures) {
+  const INTL = new Set([2,3,531,848,580,667,9]);
+  const counts = {};
+  fixtures.forEach(f => {
+    if (!INTL.has(f.league.id)) counts[f.league.id] = (counts[f.league.id]||0)+1;
+  });
+  let best = 140, max = 0;
+  Object.entries(counts).forEach(([id,c]) => { if (c>max){ max=c; best=+id; }});
+  return best;
+}
+
+function getMainSeason(fixtures) {
+  if (!fixtures.length) return 2024;
+  const d = new Date(fixtures[0].fixture.date);
+  return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear()-1;
+}
+
+// ── Render ForteScore Pane ─────────────────────────────────────
+function renderFortePane() {
+  const pane = document.getElementById('pane-forte');
+  if (!pane) return;
+  const team = FORTE_TEAM;
+
+  if (FORTE_STATE === 'idle' || !team) {
+    pane.innerHTML = `<div class="forte-loading"><div class="spin"></div>aguardando dados...</div>`;
+    return;
+  }
+  if (FORTE_STATE === 'loading') {
+    pane.innerHTML = `<div class="forte-loading"><div class="spin"></div>calculando ForteScore — buscando 50 jogos...</div>`;
+    return;
+  }
+  if (FORTE_STATE === 'error' || !FORTE_RESULT) {
+    pane.innerHTML = `<div class="err">Erro ao calcular ForteScore. Verifique o console.</div>`;
+    return;
+  }
+
+  const d     = FORTE_RESULT;
+  const color = forteColor(d.score);
+  const label = forteLabel(d.score);
+
+  pane.innerHTML = `
+  <div class="forte-wrap">
+    <div class="forte-left">
+      <div class="forte-gauge-wrap" id="forteGaugeWrap">
+        ${buildGaugeSVG(0, color)}
+      </div>
+      <div class="forte-tag" style="background:${color}18;color:${color};border:1px solid ${color}40">${label.toUpperCase()}</div>
+      <div class="forte-windows">
+        <div class="fw">
+          <span class="fw-l">Últ. 50</span>
+          <span class="fw-v" style="color:${forteColor(d.wrs.w50*10)}">${(d.wrs.w50*10).toFixed(1)}</span>
+        </div>
+        <div class="fw">
+          <span class="fw-l">Últ. 30</span>
+          <span class="fw-v" style="color:${forteColor(d.wrs.w30*10)}">${(d.wrs.w30*10).toFixed(1)}</span>
+        </div>
+        <div class="fw">
+          <span class="fw-l">Últ. 10</span>
+          <span class="fw-v" style="color:${forteColor(d.wrs.w10*10)}">${(d.wrs.w10*10).toFixed(1)}</span>
+        </div>
+      </div>
+      <div class="forte-basis">
+        ${d.gamesUsed} jogos analisados<br>
+        Liga principal · ID ${d.mainLeague}<br>
+        Temporada ${d.season}
+      </div>
+    </div>
+
+    <div class="forte-right">
+      <div class="forte-section-title">Decomposição do Score</div>
+
+      ${bbRow('Resultados','Base histórica por janela (50/30/10 jogos)', d.wrs.combined, 0.45, 'var(--cy)')}
+      ${bbRow('Ataque','Média gols marcados + xG por jogo', d.io, 0.20, 'var(--gn)')}
+      ${bbRow('Defesa','Média gols sofridos + clean sheets', d.id, 0.20, 'var(--rd)')}
+      ${bbRow('Domínio','Posse de bola + precisão de passes', d.idom, 0.10, 'var(--pr)')}
+      ${bbRow('Calendário','Qualidade média dos adversários/ligas', d.lcs, 0.05, 'var(--yl)')}
+
+      <div class="forte-raw-detail">
+        <div class="frd-title">Valores brutos</div>
+        <div class="frd-grid">
+          <div class="frd-item"><div class="frd-val">${d.raw.toFixed(4)}</div><div class="frd-lbl">Raw Score</div></div>
+          <div class="frd-item"><div class="frd-val">${(d.wrs.combined*10).toFixed(2)}</div><div class="frd-lbl">WRS ×10</div></div>
+          <div class="frd-item"><div class="frd-val" style="color:${color}">${d.score}</div><div class="frd-lbl">ForteScore</div></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  // Animate gauge + bars
+  setTimeout(() => {
+    const wrap = document.getElementById('forteGaugeWrap');
+    if (wrap) wrap.innerHTML = buildGaugeSVG(d.score, color);
+  }, 80);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll('#pane-forte .bb-fill').forEach((el,i) => {
+      el.style.transitionDelay = (i*100)+'ms';
+      el.style.width = el.dataset.w+'%';
+    });
+  }));
+}
+
+// ── Gauge SVG Builder ──────────────────────────────────────────
+function buildGaugeSVG(score, color) {
+  const R = 72, CX = 90, CY = 90;
+  const C = 2 * Math.PI * R;
+  const ARC  = C * 0.75;                         // 270° arc
+  const fill = (score / 10) * ARC;
+  return `<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="${CX}" cy="${CY}" r="${R}" fill="none"
+      stroke="rgba(255,255,255,.07)" stroke-width="11" stroke-linecap="round"
+      stroke-dasharray="${ARC} ${C-ARC}" transform="rotate(-225 ${CX} ${CY})"/>
+    <circle cx="${CX}" cy="${CY}" r="${R}" fill="none"
+      stroke="${color}" stroke-width="11" stroke-linecap="round"
+      stroke-dasharray="${fill} ${C-fill}" transform="rotate(-225 ${CX} ${CY})"
+      style="filter:drop-shadow(0 0 8px ${color}55);transition:stroke-dasharray 1.2s cubic-bezier(.34,1.1,.64,1)"/>
+    <text x="${CX}" y="${CY-6}" text-anchor="middle"
+      font-family="JetBrains Mono,monospace" font-size="31" font-weight="700" fill="${color}">${score.toFixed(2)}</text>
+    <text x="${CX}" y="${CY+14}" text-anchor="middle"
+      font-family="Rajdhani,sans-serif" font-size="11" font-weight="700"
+      fill="rgba(255,255,255,.35)" letter-spacing="2">${forteLabel(score).toUpperCase()}</text>
+  </svg>`;
+}
+
+// ── Breakdown Bar Row ──────────────────────────────────────────
+function bbRow(label, desc, val, weight, color) {
+  const pct  = Math.round(Math.min(1, Math.max(0, val)) * 100);
+  const disp = (val * 10).toFixed(2);
+  return `<div class="bb-row">
+    <div class="bb-left">
+      <div class="bb-label">${label}</div>
+      <div class="bb-desc">${desc}</div>
+    </div>
+    <div>
+      <div class="bb-bar"><div class="bb-fill" data-w="${pct}" style="background:${color}"></div></div>
+    </div>
+    <div class="bb-vals">
+      <span class="bb-score" style="color:${color}">${disp}</span>
+      <span class="bb-weight">${Math.round(weight*100)}% peso</span>
+    </div>
+  </div>`;
+}
+
+// ── Score Classification ───────────────────────────────────────
+function forteColor(s) {
+  if (s >= 8.5) return 'var(--cy)';
+  if (s >= 7.0) return 'var(--gn)';
+  if (s >= 5.5) return '#6ee7b7';
+  if (s >= 4.0) return 'var(--yl)';
+  if (s >= 2.5) return '#fb923c';
+  return 'var(--rd)';
+}
+function forteLabel(s) {
+  if (s >= 8.5) return 'Elite';
+  if (s >= 7.0) return 'Forte';
+  if (s >= 5.5) return 'Sólido';
+  if (s >= 4.0) return 'Regular';
+  if (s >= 2.5) return 'Fraco';
+  return 'Muito Fraco';
 }
 
 // ── API Helper ─────────────────────────────────────────────────
