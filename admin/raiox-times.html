@@ -488,9 +488,12 @@ async function loadTeams() {
     // 2. Times sem score: calcula tudo (primeira vez)
     const SUB_RE2 = /\s+U\d+|\sW$|\s+W\s*$|Women|Feminino/i;
     const semScore = TEAMS.filter(t =>
-      t.apiId && FORTE_CACHE[t.apiId] === undefined &&
+      t.apiId &&
+      FORTE_CACHE[t.apiId] === undefined &&
       !(t.tipo === 'selecao' && SUB_RE2.test(t.nome))
     );
+
+    console.log(`[Boot] ${TEAMS.length} times · ${Object.keys(FORTE_CACHE).length} com score · ${semScore.length} para calcular`);
 
     if (semScore.length) {
       backgroundCalcMissing(semScore);       // calcula missing e depois roda daily update
@@ -1243,12 +1246,13 @@ async function calcForteScore(team, enriched20, statsMap20) {
     FORTE_RESULT = { score, wrs, io, id, idom, lcs, raw, gamesUsed: fix50.length, season, mainLeague };
     FORTE_STATE  = 'done';
     FORTE_CACHE[team.apiId] = score;
+    lsSaveScore(String(team.apiId), score);
 
-    // Persiste no Firestore (score completo substitui quick score)
+    // Firestore — score completo
     db.collection('forteScores').doc(String(team.apiId)).set({
       apiId: team.apiId, nome: team.nome, score, quick: false,
       calculatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(() => {});
+    }).catch(e => console.warn(`[Firestore] ${team.nome}:`, e.message));
 
     renderSidebar();
 
@@ -1422,20 +1426,57 @@ function forteLabel(s) {
   return 'Muito Fraco';
 }
 
-// ── Load Stored Scores from Firestore ─────────────────────────
+// ── Score Cache: localStorage ──────────────────────────────────
+const LS_CACHE_KEY = 'yellup_forteCache_v1';
+
+function lsReadCache() {
+  try { return JSON.parse(localStorage.getItem(LS_CACHE_KEY) || '{}'); } catch { return {}; }
+}
+function lsWriteCache(cache) {
+  try {
+    localStorage.setItem(LS_CACHE_KEY, JSON.stringify(cache));
+  } catch(e) {
+    console.warn('[Cache] Erro ao salvar localStorage:', e.message);
+  }
+}
+function lsSaveScore(apiId, score) {
+  const key = String(apiId); // sempre string
+  const c = lsReadCache();
+  c[key] = score;
+  lsWriteCache(c);
+}
+
+// ── Load Stored Scores ─────────────────────────────────────────
 async function loadStoredScores() {
+  // localStorage — instantâneo e sempre funciona
+  const lsCache = lsReadCache();
+  const lsKeys  = Object.keys(lsCache);
+  lsKeys.forEach(key => { FORTE_CACHE[+key] = lsCache[key]; });
+
+  console.log(`[Cache] localStorage: ${lsKeys.length} scores`);
+
+  if (lsKeys.length) {
+    renderSidebar();
+    st('ok', `${lsKeys.length} scores em cache`);
+  }
+
+  // Firestore — complementa o que localStorage não tiver
   try {
     const snap = await db.collection('forteScores').get();
-    let count = 0;
+    let fsNew = 0;
     snap.forEach(doc => {
       const d = doc.data();
-      if (d.apiId && d.score) { FORTE_CACHE[d.apiId] = d.score; count++; }
+      if (d.apiId && d.score && lsCache[String(d.apiId)] === undefined) {
+        FORTE_CACHE[d.apiId] = d.score;
+        lsSaveScore(d.apiId, d.score);
+        fsNew++;
+      }
     });
-    renderSidebar();
-    if (count) st('ok', `${count} ForteScores carregados`);
+    if (fsNew) { renderSidebar(); console.log(`[Cache] Firestore adicionou: ${fsNew}`); }
+    st('ok', `${Object.keys(FORTE_CACHE).length} scores carregados`);
   } catch(e) {
-    console.warn('[Scores]', e.message);
-    renderSidebar();
+    console.warn('[Firestore] Leitura falhou:', e.message);
+    if (!lsKeys.length) renderSidebar();
   }
 }
 
@@ -1551,12 +1592,14 @@ async function calcQuickScore(team) {
     );
 
     FORTE_CACHE[team.apiId] = score;
+    lsSaveScore(String(team.apiId), score);  // sempre String no localStorage
     renderSidebar();
 
+    // Firestore — best effort, falha silenciosa ok pois localStorage já salvou
     db.collection('forteScores').doc(String(team.apiId)).set({
       apiId: team.apiId, nome: team.nome, score, quick: true,
       calculatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(() => {});
+    }).catch(e => console.warn(`[Firestore] ${team.nome}:`, e.message));
 
   } catch(e) { /* ignora falhas individuais */ }
 }
