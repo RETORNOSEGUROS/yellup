@@ -235,6 +235,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Space 
   </nav>
   <div class="topbar-right">
     <button class="tbtn" id="btnEnriquecer" onclick="enrichAll()">Enriquecer via API</button>
+    <button class="tbtn" id="btnNormElo" onclick="normalizarElo()" title="Recalcula as notas Elo relativas ao banco sem chamar a API">⚖ Normalizar Elo</button>
     <button class="tbtn" id="btnRecalc" onclick="recalcElo()">Recalcular</button>
     <div class="status-pill"><div class="status-dot" id="statusDot" style="background:var(--muted)"></div><span id="statusTxt">—</span></div>
     <button class="tbtn tbtn-acc" onclick="reloadAll()">↺</button>
@@ -315,62 +316,53 @@ firebase.initializeApp({
 });
 const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions();
 
-// ── LIGA TIER — peso da qualidade da liga ────────────────────────────────────
-// Padrões baseados nos nomes exatos usados pela API-Football
+// ── LIGA TIER ────────────────────────────────────────────────────────────────
 function getLigaTier(liga) {
   var l = (liga || '').toLowerCase().trim();
-  // Seleções / jogos não competitivos
-  // Cobre todos os formatos usados pela API-Football para seleções nacionais
-  if (/world cup|nations league|friendl|amistoso|international friendly|copa america|eliminat|copa do mundo|african cup|asia cup|gold cup|concacaf|conmebol|ofc nations|caf|afc|uefa euro|euro 20|copa africa|copa asia|copa ofc|qualif|qualification|olympic|pan american|u-[0-9]|under-[0-9]|sub-[0-9]/.test(l)) return 'nacional';
-  // Tier 1 — elite mundial (nomes exatos da API-Football)
+  if (/world cup|nations league|friendl|amistoso|international friendly|copa america|eliminat|copa do mundo|african cup|asia cup|gold cup|concacaf|conmebol|qualif|qualification|olympic|u-[0-9]|under-[0-9]|sub-[0-9]/.test(l)) return 'nacional';
   if (l === 'premier league') return 1.00;
   if (l === 'la liga') return 1.00;
   if (l === 'bundesliga') return 1.00;
   if (l === 'serie a' || l === 'serie a tim') return 1.00;
   if (l === 'ligue 1') return 1.00;
   if (l === 'champions league' || l === 'uefa champions league') return 1.00;
-  // AFC, CAF, CONCACAF Champions = copas regionais menores
-  if (/afc champions|caf champions|concacaf champions|conmebol|copa sudamer/.test(l)) return 0.88;
   if (l === 'uefa europa league') return 0.97;
   if (l === 'uefa conference league') return 0.95;
-  // Tier 2 — forte
   if (/brasileir|libertadores|eredivisie|primeira liga|liga portugal|süper lig|super lig|scottish prem/.test(l)) return 0.93;
-  // Tier 3 — médio
   if (/^liga i$|j1 league|j-league|^mls$|liga mx|a-league|allsvenskan|eliteserien|ekstraklasa|championship/.test(l)) return 0.82;
-  // Premier League de outros países (Ucrânia, Chipre, etc)
+  if (/saudi|roshn|stars league|mbs.*pro/.test(l)) return 0.62;
+  if (/pro league/.test(l) && !/premier|primeira/.test(l)) return 0.62;
+  if (/chinese super|csl|k.league|k-league/.test(l)) return 0.65;
+  if (/egyptian|emirati|qatari|persian gulf|iranian/.test(l)) return 0.60;
   if (/premier league/.test(l)) return 0.72;
-  // Ligas do Oriente Médio, Ásia, África (onde estrelas europeias vão se aposentar)
-  if (/saudi|roshn|stars league|mbs.*pro|khaleeji|tamim/.test(l)) return 0.62;
-  if (/pro league/.test(l) && !/premier league|primeira liga/.test(l)) return 0.62;
-  if (/chinese super|csl|k.league|k-league|j[0-9] league/.test(l)) return 0.68;
-  if (/egyptian|emirati|qatari|bahrain|iranian|persian gulf|iraqi|omani|kuwaiti/.test(l)) return 0.60;
-  if (/nigerian|ghanaian|moroccan|algerian|tunisian.*league|south african premier/.test(l)) return 0.58;
-  if (/a-league|australian/.test(l)) return 0.70;
-  // Tier 4 — menor
   if (/segunda|serie c|national league|primera b/.test(l)) return 0.65;
-  // Tier 5 — micro ligas
   if (/gibraltar|san marino|andorra|faroe|liechtenstein/.test(l)) return 0.45;
-  // Default: ligas não mapeadas assumem médio-baixo (não premiamos o desconhecido)
-  return 0.70; // desconhecido: tier médio-baixo
+  return 0.72;
 }
+
 function isNacional(t) {
-  // 1. Campo nacional salvo diretamente (mais confiável — vem da API-Football)
   if (t.nacional === true) return true;
   if (t.m && t.m.nacional === true) return true;
-  // 2. Detectar pelo nome da liga
   if (getLigaTier(t.liga) === 'nacional') return true;
-  // 3. Detectar pelo nome do time: países conhecidos sem liga definida
-  //    Nomes da API-Football para seleções não têm "FC", "Club", "United", etc
   var nome = (t.nome || '').toLowerCase();
-  var SELECOES_CONHECIDAS = /^(brazil|brasil|argentina|france|germany|england|spain|portugal|italy|netherlands|belgium|croatia|uruguay|colombia|chile|mexico|japan|south korea|senegal|morocco|nigeria|cameroon|ivory coast|ghana|egypt|algeria|tunisia|australia|usa|canada|denmark|sweden|norway|switzerland|austria|poland|czech republic|hungary|turkey|russia|ukraine|iran|saudi arabia|qatar|south africa|ecuador|peru|venezuela|bolivia|paraguay|costa rica|honduras|el salvador|panama|jamaica|haití|cuba|indonesia|china|india|thailand|vietnam|malaysia|new zealand|scotland|wales|ireland|northern ireland)$/;
-  if (SELECOES_CONHECIDAS.test(nome)) return true;
+  var SELECOES = /^(brazil|brasil|argentina|france|germany|england|spain|portugal|italy|netherlands|belgium|croatia|uruguay|colombia|chile|mexico|japan|south korea|senegal|morocco|nigeria|cameroon|ivory coast|ghana|egypt|algeria|tunisia|australia|usa|canada|denmark|sweden|norway|switzerland|austria|poland|czech republic|hungary|turkey|ukraine|iran|saudi arabia|qatar|ecuador|peru|venezuela|bolivia|paraguay|costa rica|honduras|scotland|wales|ireland)$/;
+  if (SELECOES.test(nome)) return true;
   return false;
 }
 
-// ── SCORE ENGINE — calculado no frontend, nunca do Firestore ────────────────
-// Score Final = base × ligaTier × volumeBonus
-// base: Desempenho(5) + Ataque(2) + Defesa(2) + Solidez(1) + xG(±0.5)
-function calcScore(s, liga, totalJogos, porForca) {
+// ── SCORE PRINCIPAL: Elo normalizado ─────────────────────────────────────────
+// Após carregar todos os perfis, normaliza elo_raw (min-max → 1-10)
+// Times sem elo_raw caem para score baseado em stats como fallback
+var ELO_MIN = 1100, ELO_MAX = 1900, ELO_SPAN = 800; // defaults — recalculados em loadData
+
+function eloToScore(elo_raw) {
+  if (elo_raw == null) return null;
+  var norm = (elo_raw - ELO_MIN) / ELO_SPAN * 9 + 1;
+  return Math.round(Math.min(10, Math.max(1, norm)) * 10) / 10;
+}
+
+// Score por stats (fallback quando não tem elo_raw)
+function statsScore(s, liga, totalJogos, pf) {
   if (!s || s.n < 3) return null;
   var des = (s.pts_jogo / 3) * 5;
   var atk = Math.min(s.gf_media, 2.5) / 2.5 * 2;
@@ -382,49 +374,31 @@ function calcScore(s, liga, totalJogos, porForca) {
   var base = Math.min(10, Math.max(0, raw)) * conf;
   var tier = getLigaTier(liga);
   if (tier === 'nacional') tier = 0.80;
-  var vol  = (totalJogos||0) >= 40 ? 1.04 : (totalJogos||0) >= 25 ? 1.02 : 1.0;
-
-  // ── Teto por tier: liga mais fraca = nota máxima menor ──────────────────
-  // T1 (Premier, La Liga...): sem teto
-  // T2 (Brasileirão, Libertadores...): max 9.2
-  // T3 (Liga I, MLS...): max 8.2
-  // T4 (Saudi, Chinese, Egyptian...): max 6.5  ← Al Nassr não passa disso
-  // T5 (Gibraltar, San Marino...): max 4.5
-  var tierCap = tier >= 0.98 ? 10.0
-              : tier >= 0.90 ? 9.2
-              : tier >= 0.78 ? 8.2
-              : tier >= 0.58 ? 6.5
-              : 4.5;
-
-  // ── SOS: ajuste por qualidade de oposição (porForca) ────────────────────
-  // Times que enfrentaram mais "bons" e "fortes" recebem bônus
-  // Times que só jogaram contra "fracos" recebem penalidade
+  var tierCap = tier>=0.98?10:tier>=0.90?9.2:tier>=0.78?8.2:tier>=0.58?6.5:4.5;
+  var vol = (totalJogos||0)>=40?1.04:(totalJogos||0)>=25?1.02:1.0;
   var sosAdj = 0;
-  if (porForca) {
-    var nF = (porForca.forte&&porForca.forte.geral) ? (porForca.forte.geral.n||0) : 0;
-    var nB = (porForca.bom  &&porForca.bom.geral)   ? (porForca.bom.geral.n||0)   : 0;
-    var nM = (porForca.medio&&porForca.medio.geral)  ? (porForca.medio.geral.n||0) : 0;
-    var nFr= (porForca.fraco&&porForca.fraco.geral)  ? (porForca.fraco.geral.n||0) : 0;
-    var tot= nF+nB+nM+nFr;
-    if (tot >= 8) {
-      var qualPct = (nF + nB*0.5 + nM*0.1) / tot;
-      // 30% qualidade = neutro; acima = bônus (até +0.8); abaixo = penalidade (até -0.8)
-      sosAdj = Math.max(-0.8, Math.min(0.8, (qualPct - 0.30) * 1.5));
-    }
+  if (pf) {
+    var nF=(pf.forte&&pf.forte.geral)?pf.forte.geral.n||0:0;
+    var nB=(pf.bom&&pf.bom.geral)?pf.bom.geral.n||0:0;
+    var nM=(pf.medio&&pf.medio.geral)?pf.medio.geral.n||0:0;
+    var nFr=(pf.fraco&&pf.fraco.geral)?pf.fraco.geral.n||0:0;
+    var tot=nF+nB+nM+nFr;
+    if(tot>=8){var q=(nF+nB*0.5+nM*0.1)/tot;sosAdj=Math.max(-0.8,Math.min(0.8,(q-0.30)*1.5));}
   }
-
-  var score = Math.min(tierCap, base * tier * vol) + sosAdj;
+  var score = Math.min(tierCap, base*tier*vol) + sosAdj;
   return Math.round(Math.min(tierCap, Math.max(0, score)) * 10) / 10;
 }
 
-// Força = jogos DOMÉSTICOS (elimina distorção de CL/Copas)
-// s30_dom = últimos 30 jogos da liga doméstica
+// calcScore = alias para compatibilidade com chamadas internas (momBox, etc.)
+function calcScore(s, liga, totalJogos, sTemp, pf) {
+  return statsScore(s, liga, totalJogos, pf);
+}
+
+// Helpers de stats
 function forcaStats(m) {
-  // Prioridade: doméstico (sem ruído de CL/Copa) > geral
   return m.sDom30 || m.sDom15 || m.s30 || m.s15 || m.s10 || m.s7 || m.s5 || null;
 }
 function formaStats(m) {
-  // Forma recente: doméstica > geral
   return m.sDom15 || m.s7 || m.s5 || null;
 }
 function bestStats(m) {
@@ -525,11 +499,23 @@ async function loadData(){
         liga, teamId:p.teamId,
         nacional: p.nacional === true,  // campo salvo pelo enriquecerPerfisDiretamente
         m:{
-          // stats gerais
+          // ── Elo (métrica principal de força) ──────────────────────────────
+          // Cloud Function salva como "eloRaw" — mapeia para elo_raw usado no frontend
+          elo_raw: p.eloRaw ?? p.elo_raw ?? p.elo ?? null,
+          elo: p.elo ?? p.eloRaw ?? p.elo_raw ?? null,
+
+          // ── stats gerais ──────────────────────────────────────────────────
           s5:p.s5||null, s7:p.s7||null, s10:p.s10||null,
-          s15:p.s15||null, s30:p.s30||null, s70:p.s70||null,
-          // stats domésticos (separados de Champions/Europa)
-          s30_dom:p.s30_dom||null, s15_dom:p.s15_dom||null, s15_eur:p.s15_eur||null,
+          s15:p.s15||null, s30:p.s30||null,
+          // Cloud Function salva s50 (não s70)
+          s50:p.s50||p.s70||null,
+
+          // ── stats domésticos (Cloud Function salva sDom30, sDom15, sEur15) ──
+          // Aceita tanto camelCase (novo) quanto snake_case (legado)
+          sDom30: p.sDom30||p.s30_dom||null,
+          sDom15: p.sDom15||p.s15_dom||null,
+          sEur15: p.sEur15||p.s15_eur||null,
+
           statsCasa:p.statsCasa||null, statsFora:p.statsFora||null,
           porForca:p.porForca||null,
           // xG e métricas API
@@ -553,8 +539,35 @@ async function loadData(){
         }
       };
     });
+
+    // ── Normalização Elo: calcula range ANTES de ordenar ────────────────────
+    // Usa percentil 3%–97% para ignorar outliers extremos
+    const eloVals = Object.values(PERFIS)
+      .filter(t => (t.m.elo||t.m.elo_raw) > 0 && !isNacional(t))
+      .map(t => t.m.elo||t.m.elo_raw)
+      .sort((a,b) => a - b);
+    if (eloVals.length >= 10) {
+      const i3  = Math.floor(eloVals.length * 0.03);
+      const i97 = Math.floor(eloVals.length * 0.97);
+      ELO_MIN  = eloVals[i3];
+      ELO_MAX  = eloVals[i97];
+      ELO_SPAN = ELO_MAX - ELO_MIN || 800;
+    }
+
+    // Ordena LISTA com o range correto já calculado
+    // Normalizar Elo: percentis p3-p97 → evita outliers
+    const _elos = Object.values(PERFIS).map(t=>t.m.elo).filter(v=>v>0).sort((a,b)=>a-b);
+    if (_elos.length >= 2) {
+      const i3  = Math.max(0, Math.floor(_elos.length * 0.03));
+      const i97 = Math.min(_elos.length-1, Math.floor(_elos.length * 0.97));
+      ELO_MIN  = _elos[i3];
+      ELO_MAX  = _elos[i97];
+      ELO_SPAN = ELO_MAX - ELO_MIN || 800;
+    }
     LISTA=Object.values(PERFIS).sort((a,b)=>(getScore(b)||0)-(getScore(a)||0));
-    setStatus('ok',`${LISTA.length} times`);
+
+    const comElo = eloVals.length;
+    setStatus('ok',`${LISTA.length} times · ${comElo} com Elo · Range: ${ELO_MIN}–${ELO_MAX}`);
     renderSidebar();renderRanking();populateDrop();
   }catch(e){setStatus('err','Erro: '+e.message);console.error(e);}
 }
@@ -571,45 +584,31 @@ function enrichStats(s, m) {
 
 function getScore(t) {
   const m = t.m;
-  const liga = t.liga;
-  const totalJogos = m.totalJogos || 0;
-  const pf = m.porForca || null;
 
-  // Prioridade: stats domésticos > gerais
-  const sDom = forcaStats(m);   // sDom30 > s30
-  const sHist = tempStats(m);   // s50 > sDom30 > s30
-
-  const scDom  = sDom  ? calcScore(enrichStats(sDom, m),  liga, totalJogos, pf) : null;
-  const scHist = sHist ? calcScore(enrichStats(sHist, m), liga, totalJogos, pf) : null;
-
-  // Calcula o tierCap baseado na liga — aplicado ao resultado final também
-  const tier = getLigaTier(liga);
-  const tierCap = tier >= 0.98 ? 10.0
-                : tier >= 0.90 ?  9.2
-                : tier >= 0.78 ?  8.2
-                : tier >= 0.58 ?  6.5
-                :                 4.5;
-
-  if (scDom != null && scHist != null) {
-    const diff = scDom - scHist;
-    let blend;
-    if (diff < -1.5) {
-      blend = scDom * 0.40 + scHist * 0.60;
-    } else if (diff > 0.5) {
-      blend = scDom * 0.70 + scHist * 0.30;
-    } else {
-      blend = scDom * 0.60 + scHist * 0.40;
-    }
-    // Aplica tierCap no resultado final do blend
-    return Math.round(Math.min(tierCap, blend) * 10) / 10;
+  // ── MÉTODO 1: Elo normalizado (relativo a todos os times no banco) ─────────
+  // Fonte principal — único método justo entre ligas diferentes.
+  // eloRaw calculado pelo Cloud Function: ganhar vs Bayern > ganhar vs Al-Hilal
+  // eloToScore() normaliza para escala 1–10 usando percentis do banco
+  if (m.elo && m.elo > 0) {
+    return eloToScore(m.elo);
   }
 
-  if (scDom != null) return Math.round(Math.min(tierCap, scDom) * 10) / 10;
-  const sc15 = m.s15 ? calcScore(enrichStats(m.s15, m), liga, totalJogos, pf) : null;
-  const sc10 = m.s10 ? calcScore(enrichStats(m.s10, m), liga, totalJogos, pf) : null;
-  const sc7  = (m.s7||m.s5) ? calcScore(enrichStats(m.s7||m.s5, m), liga, totalJogos, pf) : null;
-  const fallback = sc15 || sc10 || sc7 || null;
-  return fallback != null ? Math.round(Math.min(tierCap, fallback) * 10) / 10 : null;
+  // ── MÉTODO 2: Fallback stats (times ainda não enriquecidos pela API) ───────
+  // Usa tierCap para evitar que ligas fracas inflem o ranking
+  const liga = t.liga;
+  const tier = getLigaTier(liga);
+  const cap  = typeof tier === 'number'
+    ? (tier >= 0.98 ? 10 : tier >= 0.90 ? 9.2 : tier >= 0.78 ? 8.2 : tier >= 0.58 ? 6.5 : 4.5)
+    : 5;
+
+  const s   = forcaStats(m);
+  const sHi = tempStats(m);
+  if (!s) return null;
+
+  const sc1 = statsScore(enrichStats(s, m), liga, m.totalJogos || 0, m.porForca || null);
+  const sc2 = sHi ? statsScore(enrichStats(sHi, m), liga, m.totalJogos || 0, m.porForca || null) : null;
+  const sc  = sc2 != null ? sc1 * 0.6 + sc2 * 0.4 : sc1;
+  return sc != null ? Math.round(Math.min(cap, sc) * 10) / 10 : null;
 }
 
 function scoreColor(v){
@@ -1139,12 +1138,29 @@ function switchTab(id){
 }
 function reloadAll(){PERFIS={};LISTA=[];SELECTED=null;loadData();}
 async function enrichAll(){
-  const btn=g('btnEnriquecer');btn.disabled=true;btn.textContent='Enriquecendo...';
-  try{const r=await fns.httpsCallable('enriquecerPerfisDiretamente')({batchSize:8});
-    setStatus('ok',`✓ ${r.data.processados} enriquecidos (${r.data.erros} erros)`);
+  const btn=g('btnEnriquecer');btn.disabled=true;
+  let offset=0,total=0,erros=0;
+  try{
+    while(true){
+      btn.textContent=`Enriquecendo (${total})...`;
+      const r=await fns.httpsCallable('enriquecerPerfisDiretamente')({batchSize:6,maxTimes:200,offset});
+      total+=(r.data.processados||0); erros+=(r.data.erros||0);
+      if((r.data.processados||0)<200) break;
+      offset+=200;
+    }
+    setStatus('ok',`✓ ${total} times com Elo calculado (${erros} erros) — recarregando...`);
     btn.textContent='Enriquecer via API';btn.disabled=false;
     setTimeout(reloadAll,1500);
   }catch(e){setStatus('err','Erro: '+e.message);btn.textContent='Enriquecer via API';btn.disabled=false;}
+}
+async function normalizarElo(){
+  const btn=g('btnNormElo');btn.disabled=true;btn.textContent='Normalizando...';
+  try{
+    const r=await fns.httpsCallable('normalizarElo')({});
+    setStatus('ok',`✓ ${r.data.total} times normalizados — Elo: ${r.data.minElo}–${r.data.maxElo}`);
+    btn.textContent='⚖ Normalizar Elo';btn.disabled=false;
+    setTimeout(reloadAll,1000);
+  }catch(e){setStatus('err','Erro normalizar: '+e.message);btn.textContent='⚖ Normalizar Elo';btn.disabled=false;}
 }
 async function recalcElo(){
   const btn=g('btnRecalc');btn.disabled=true;btn.textContent='Recalculando...';
