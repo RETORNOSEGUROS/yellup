@@ -481,7 +481,23 @@ async function loadTeams() {
     });
     TEAMS.sort((a,b) => a.nome.localeCompare(b.nome, 'pt'));
     st('ok', `${TEAMS.length} times carregados`);
-    renderSidebar();
+
+    // 1. Lê scores salvos no Firestore → ordena sidebar imediatamente
+    await loadStoredScores();
+
+    // 2. Times sem score: calcula tudo (primeira vez)
+    const SUB_RE2 = /\s+U\d+|\sW$|\s+W\s*$|Women|Feminino/i;
+    const semScore = TEAMS.filter(t =>
+      t.apiId && FORTE_CACHE[t.apiId] === undefined &&
+      !(t.tipo === 'selecao' && SUB_RE2.test(t.nome))
+    );
+
+    if (semScore.length) {
+      backgroundCalcMissing(semScore);       // calcula missing e depois roda daily update
+    } else {
+      checkDailyUpdate();                    // todos têm score → só atualiza quem jogou
+    }
+
   } catch(e) {
     st('err', 'Erro: ' + e.message);
     document.getElementById('sbList').innerHTML = `<div class="err">${e.message}</div>`;
@@ -1227,7 +1243,14 @@ async function calcForteScore(team, enriched20, statsMap20) {
     FORTE_RESULT = { score, wrs, io, id, idom, lcs, raw, gamesUsed: fix50.length, season, mainLeague };
     FORTE_STATE  = 'done';
     FORTE_CACHE[team.apiId] = score;
-    renderSidebar(); // re-sort com novo score
+
+    // Persiste no Firestore (score completo substitui quick score)
+    db.collection('forteScores').doc(String(team.apiId)).set({
+      apiId: team.apiId, nome: team.nome, score, quick: false,
+      calculatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(() => {});
+
+    renderSidebar();
 
     if (ACTIVE_TAB === 'forte') renderFortePane();
 
@@ -1398,6 +1421,168 @@ function forteLabel(s) {
   if (s >= 2.5) return 'Fraco';
   return 'Muito Fraco';
 }
+
+// ── Load Stored Scores from Firestore ─────────────────────────
+async function loadStoredScores() {
+  try {
+    const snap = await db.collection('forteScores').get();
+    let count = 0;
+    snap.forEach(doc => {
+      const d = doc.data();
+      if (d.apiId && d.score) { FORTE_CACHE[d.apiId] = d.score; count++; }
+    });
+    renderSidebar();
+    if (count) st('ok', `${count} ForteScores carregados`);
+  } catch(e) {
+    console.warn('[Scores]', e.message);
+    renderSidebar();
+  }
+}
+
+// ── Background Calc: todos os times sem score ──────────────────
+let BG_RUNNING = false;
+let BG_STOP    = false;
+
+async function backgroundCalcMissing(missing) {
+  if (BG_RUNNING || !CFG.apiKey || !missing.length) {
+    if (!missing.length) checkDailyUpdate();
+    return;
+  }
+
+  BG_RUNNING = true;
+  BG_STOP    = false;
+  const total = missing.length;
+  let done    = 0;
+
+  showBgBtn(true, () => { BG_STOP = true; BG_RUNNING = false; showBgBtn(false); st('ok','Cálculo pausado'); });
+  st('ok', `Calculando: 0/${total}...`);
+
+  for (let i = 0; i < missing.length; i += 4) {
+    if (BG_STOP) break;
+    await Promise.all(missing.slice(i, i+4).map(t => calcQuickScore(t)));
+    done += Math.min(4, missing.length - i);
+    st('ok', `Calculando: ${done}/${total}...`);
+    if (i+4 < missing.length && !BG_STOP) await sleep(2000);
+  }
+
+  BG_RUNNING = false;
+  showBgBtn(false);
+  st('ok', `${Object.keys(FORTE_CACHE).length} times com ForteScore`);
+
+  // Após calcular tudo pela primeira vez, roda daily update
+  if (!BG_STOP) checkDailyUpdate();
+}
+
+// ── Daily Update: só times que jogaram hoje/ontem ─────────────
+async function checkDailyUpdate() {
+  if (!CFG.apiKey) return;
+
+  // Verifica se já rodou hoje (localStorage evita chamadas redundantes)
+  const LS_KEY = 'forte_daily_' + new Date().toISOString().slice(0,10);
+  if (localStorage.getItem(LS_KEY)) {
+    st('ok', `ForteScore atualizado hoje · ${Object.keys(FORTE_CACHE).length} times`);
+    return;
+  }
+
+  try {
+    // 1 chamada: todos os jogos dos últimos 2 dias
+    const d1 = fmtDate(new Date(Date.now() - 86400000 * 2));
+    const d2 = fmtDate(new Date());
+    st('ok', 'Verificando jogos recentes...');
+
+    const r = await apiGet(`/fixtures?from=${d1}&to=${d2}`);
+    const fixtures = r.response || [];
+
+    // Quais dos nossos times jogaram?
+    const teamSet  = new Map(TEAMS.map(t => [t.apiId, t]));
+    const played   = new Set();
+    fixtures.forEach(f => {
+      if (teamSet.has(f.teams.home.id)) played.add(f.teams.home.id);
+      if (teamSet.has(f.teams.away.id)) played.add(f.teams.away.id);
+    });
+
+    const toUpdate = [...played].map(id => teamSet.get(id)).filter(Boolean);
+
+    if (!toUpdate.length) {
+      st('ok', 'Nenhum time jogou recentemente');
+      localStorage.setItem(LS_KEY, '1');
+      return;
+    }
+
+    st('ok', `Atualizando ${toUpdate.length} times que jogaram...`);
+
+    // Recalcula só os times que jogaram
+    let done = 0;
+    for (let i = 0; i < toUpdate.length; i += 4) {
+      await Promise.all(toUpdate.slice(i, i+4).map(t => calcQuickScore(t)));
+      done += Math.min(4, toUpdate.length - i);
+      st('ok', `Atualizando: ${done}/${toUpdate.length}...`);
+      if (i+4 < toUpdate.length) await sleep(2000);
+    }
+
+    localStorage.setItem(LS_KEY, '1');
+    st('ok', `${toUpdate.length} times atualizados · ${Object.keys(FORTE_CACHE).length} total`);
+    renderSidebar();
+
+  } catch(e) {
+    console.warn('[DailyUpdate]', e.message);
+    st('ok', `${Object.keys(FORTE_CACHE).length} times com ForteScore`);
+  }
+}
+
+// ── Quick Score (1 chamada API por time) ───────────────────────
+async function calcQuickScore(team) {
+  try {
+    const r   = await apiGet(`/fixtures?team=${team.apiId}&last=20`);
+    const fix = (r.response||[]).sort((a,b) => new Date(b.fixture.date)-new Date(a.fixture.date));
+    if (!fix.length) return;
+
+    const e20  = fix.map(f => enrich(f, team.apiId));
+    const wrs  = calcWRS(e20);
+    const lcs  = calcLCS(e20);
+    const N    = e20.length;
+    const GF   = e20.reduce((s,e) => s+(e.tGoals||0), 0);
+    const GC   = e20.reduce((s,e) => s+(e.oGoals||0), 0);
+    const io   = N ? Math.min(1, (GF/N)/2.6) : 0.45;
+    const id   = N ? Math.max(0, 1-(GC/N)/2.6) : 0.45;
+    const raw  = wrs.combined*0.45 + io*0.20 + id*0.20 + 0.50*0.10 + lcs*0.05;
+    const score = parseFloat(
+      Math.max(0.01, Math.min(10.00, Math.pow(Math.max(0.001, raw), 0.62)*10)).toFixed(2)
+    );
+
+    FORTE_CACHE[team.apiId] = score;
+    renderSidebar();
+
+    db.collection('forteScores').doc(String(team.apiId)).set({
+      apiId: team.apiId, nome: team.nome, score, quick: true,
+      calculatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(() => {});
+
+  } catch(e) { /* ignora falhas individuais */ }
+}
+
+// ── Cancel Button ──────────────────────────────────────────────
+function showBgBtn(show, onClick) {
+  let btn = document.getElementById('bgCancelBtn');
+  if (show && !btn) {
+    btn = document.createElement('button');
+    btn.id = 'bgCancelBtn';
+    btn.textContent = '✕ Parar';
+    btn.style.cssText = `padding:3px 10px;border-radius:3px;border:1px solid var(--rd-b);
+      background:var(--rd-d);color:var(--rd);font-size:10px;font-weight:700;
+      cursor:pointer;font-family:var(--fB);letter-spacing:.5px;margin-left:6px;`;
+    btn.onclick = onClick;
+    document.querySelector('.topbar-r').prepend(btn);
+  } else if (!show && btn) btn.remove();
+}
+
+// ── Helpers ────────────────────────────────────────────────────
+function fmtDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── API Helper ─────────────────────────────────────────────────
 
 // ── API Helper ─────────────────────────────────────────────────
 async function apiGet(path) {
