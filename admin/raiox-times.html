@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raio-X Times · Yellup Scout</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<!-- ══════════════════════════════════════════════════
+     CONFIGURAÇÃO — preencha antes de usar
+══════════════════════════════════════════════════ -->
+<script>
+const CFG = {
+  apiKey:  '',          // ← sua chave api-sports.io
+  apiBase: 'https://v3.football.api-sports.io',
+  firebase: {
+    apiKey:            '',
+    authDomain:        '',
+    projectId:         'painel-yellup',
+    storageBucket:     '',
+    messagingSenderId: '',
+    appId:             ''
+  }
+};
+</script>
+
+<style>
+/* ══════════════════════════════════════════════════
+   RAIO-X TIMES · Design: Terminal Analytics
+══════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg:#060810;  --s1:#0a0e18;  --s2:#0e1420;  --s3:#131a28;
+  --b1:rgba(80,120,220,.07);  --b2:rgba(80,120,220,.13);  --b3:rgba(80,120,220,.22);
+  --tx:#cddaee;  --tx2:#8898b8;  --tx3:#3e5070;
+  --cy:#00d4ff;  --cy-d:rgba(0,212,255,.08);  --cy-b:rgba(0,212,255,.20);
+  --gn:#0fe898;  --gn-d:rgba(15,232,152,.09);  --gn-b:rgba(15,232,152,.22);
+  --rd:#f43f5e;  --rd-d:rgba(244,63,94,.09);   --rd-b:rgba(244,63,94,.22);
+  --yl:#fbbf24;  --yl-d:rgba(251,191,36,.09);  --yl-b:rgba(251,191,36,.22);
+  --pr:#a78bfa;
+  --fB:'Rajdhani',sans-serif;  --fM:'JetBrains Mono',monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--fB);font-size:14px;overflow:hidden;}
+::-webkit-scrollbar{width:3px;height:3px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--b3);border-radius:2px;}
+
+/* ── TOPBAR ── */
+.topbar{
+  height:44px;background:var(--s1);border-bottom:1px solid var(--b1);
+  display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0;z-index:100;
+}
+.logo-hex{
+  width:26px;height:26px;
+  background:linear-gradient(135deg,var(--cy),#0070cc);
+  clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.logo-text{font-weight:700;font-size:14px;letter-spacing:1.2px;text-transform:uppercase;}
+.logo-text em{color:var(--cy);font-style:normal;}
+.logo-pipe{width:1px;height:18px;background:var(--b2);}
+.page-id{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--tx3);}
+.topbar-r{margin-left:auto;display:flex;align-items:center;gap:6px;}
+.s-dot{width:5px;height:5px;border-radius:50%;background:var(--gn);box-shadow:0 0 5px var(--gn);transition:all .3s;}
+.s-txt{font-family:var(--fM);font-size:9px;color:var(--tx3);}
+
+/* ── LAYOUT ── */
+.layout{display:grid;grid-template-columns:252px 1fr;height:calc(100vh - 44px);overflow:hidden;}
+
+/* ── SIDEBAR ── */
+.sidebar{background:var(--s1);border-right:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden;}
+.sb-head{padding:10px;border-bottom:1px solid var(--b1);flex-shrink:0;}
+.sb-search{
+  width:100%;background:var(--s3);border:1px solid var(--b2);border-radius:3px;
+  color:var(--tx);font-family:var(--fB);font-size:13px;font-weight:500;
+  padding:7px 10px;outline:none;transition:border .15s;
+}
+.sb-search:focus{border-color:var(--cy-b);}
+.sb-search::placeholder{color:var(--tx3);}
+.sb-pills{display:flex;gap:4px;margin-top:8px;}
+.sp{
+  flex:1;padding:4px 0;background:none;border:1px solid var(--b1);border-radius:2px;
+  color:var(--tx3);font-family:var(--fB);font-size:10px;font-weight:700;
+  letter-spacing:.6px;text-transform:uppercase;cursor:pointer;transition:all .1s;
+}
+.sp:hover{color:var(--tx2);border-color:var(--b2);}
+.sp.on{background:var(--cy-d);border-color:var(--cy-b);color:var(--cy);}
+.sb-count{font-size:9px;font-family:var(--fM);color:var(--tx3);padding:6px 10px 3px;}
+.sb-list{flex:1;overflow-y:auto;}
+
+/* Sidebar item */
+.si{
+  display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;
+  transition:background .1s;border-bottom:1px solid rgba(255,255,255,.02);
+  border-left:2px solid transparent;
+}
+.si:hover{background:rgba(255,255,255,.025);}
+.si.on{background:var(--cy-d);border-left-color:var(--cy);}
+.si-logo{width:20px;height:20px;object-fit:contain;flex-shrink:0;border-radius:1px;}
+.si-ph{width:20px;height:20px;background:var(--s3);border-radius:2px;flex-shrink:0;}
+.si-info{flex:1;overflow:hidden;}
+.si-nm{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2;}
+.si-sub{font-size:9px;color:var(--tx3);font-family:var(--fM);margin-top:1px;}
+.tag{font-size:8px;font-weight:700;padding:2px 5px;border-radius:2px;letter-spacing:.4px;flex-shrink:0;}
+.tag-sel{background:rgba(167,139,250,.15);color:var(--pr);border:1px solid rgba(167,139,250,.2);}
+.tag-clu{background:var(--cy-d);color:var(--cy);border:1px solid var(--cy-b);}
+
+/* ── MAIN ── */
+.main{display:flex;flex-direction:column;overflow:hidden;}
+
+/* Empty / Loading */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;color:var(--tx3);user-select:none;}
+.empty-ic{font-size:40px;opacity:.25;}
+.empty-t{font-size:15px;font-weight:600;letter-spacing:.3px;}
+.empty-s{font-size:11px;font-family:var(--fM);opacity:.6;}
+.loader{display:flex;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--tx3);font-size:11px;font-family:var(--fM);}
+.spin{width:14px;height:14px;border:2px solid var(--b2);border-top-color:var(--cy);border-radius:50%;animation:spin .65s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ── TEAM HEADER ── */
+.th{
+  background:var(--s1);border-bottom:1px solid var(--b1);
+  padding:13px 18px;display:flex;align-items:center;gap:14px;flex-shrink:0;
+}
+.th-logo{width:44px;height:44px;object-fit:contain;flex-shrink:0;}
+.th-inf{flex:1;min-width:0;}
+.th-nm{font-size:21px;font-weight:700;letter-spacing:.3px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.th-meta{font-size:10px;color:var(--tx3);font-family:var(--fM);margin-top:3px;}
+.th-tags{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;}
+.th-tag{
+  font-size:9px;font-weight:700;padding:2px 8px;border-radius:2px;
+  letter-spacing:.4px;text-transform:uppercase;
+}
+.th-kpis{display:flex;gap:2px;flex-shrink:0;}
+.kpi{
+  background:var(--s2);border:1px solid var(--b1);
+  padding:7px 12px;text-align:center;min-width:56px;border-radius:3px;
+}
+.kpi-v{font-family:var(--fM);font-size:17px;font-weight:700;line-height:1;}
+.kpi-l{font-size:8px;color:var(--tx3);letter-spacing:.5px;text-transform:uppercase;margin-top:3px;}
+
+/* ── FORMA STRIP ── */
+.fs{
+  background:var(--s2);border-bottom:1px solid var(--b1);
+  padding:7px 18px;display:flex;align-items:center;gap:3px;flex-shrink:0;flex-wrap:wrap;
+}
+.fs-lbl{font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--tx3);margin-right:6px;}
+.fb{
+  width:19px;height:19px;border-radius:2px;display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:700;font-family:var(--fM);cursor:default;
+}
+.fb-v{background:var(--gn-d);color:var(--gn);border:1px solid var(--gn-b);}
+.fb-e{background:var(--yl-d);color:var(--yl);border:1px solid var(--yl-b);}
+.fb-d{background:var(--rd-d);color:var(--rd);border:1px solid var(--rd-b);}
+.fs-pipe{width:1px;height:13px;background:var(--b2);margin:0 8px;}
+.fs-stat{font-size:11px;font-family:var(--fM);color:var(--tx2);}
+
+/* ── AGGREGATE BAR ── */
+.agg{
+  background:var(--s1);border-bottom:1px solid var(--b1);
+  padding:7px 18px;display:flex;align-items:center;gap:0;flex-shrink:0;flex-wrap:wrap;
+}
+.agg-item{display:flex;align-items:center;gap:5px;padding:0 10px;border-right:1px solid var(--b1);}
+.agg-item:first-child{padding-left:0;}
+.agg-item:last-child{border-right:none;}
+.agg-l{font-size:8px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--tx3);}
+.agg-v{font-family:var(--fM);font-size:12px;font-weight:700;color:var(--cy);}
+
+/* ── TABLE ── */
+.tw{flex:1;overflow:auto;}
+.st{width:100%;border-collapse:collapse;min-width:860px;}
+.st thead th{
+  background:var(--s2);border-bottom:1px solid var(--b2);
+  padding:5px 10px;font-size:8px;font-weight:700;letter-spacing:.9px;
+  text-transform:uppercase;color:var(--tx3);white-space:nowrap;
+  position:sticky;top:0;z-index:10;
+}
+.st thead th.c{text-align:center;}
+.st tbody tr{border-bottom:1px solid rgba(255,255,255,.02);transition:background .08s;}
+.st tbody tr:hover{background:rgba(255,255,255,.025);}
+.st tbody td{padding:8px 10px;vertical-align:middle;}
+
+/* Row result borders */
+.rv{border-left:2px solid var(--gn);}
+.re{border-left:2px solid var(--yl);}
+.rd{border-left:2px solid var(--rd);}
+.rn{border-left:2px solid var(--b2);}
+
+/* Date col */
+.td-dt{font-family:var(--fM);font-size:10px;color:var(--tx3);white-space:nowrap;min-width:58px;}
+.td-dt .d1{font-size:12px;color:var(--tx2);font-weight:700;}
+
+/* Liga col */
+.td-lg{max-width:110px;min-width:80px;}
+.lg-in{display:flex;align-items:center;gap:5px;}
+.lg-ico{width:13px;height:13px;object-fit:contain;flex-shrink:0;}
+.lg-nm{font-size:10px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* Match col */
+.td-mt{min-width:200px;}
+.mt-in{display:flex;align-items:center;gap:5px;}
+.tm-ico{width:15px;height:15px;object-fit:contain;flex-shrink:0;}
+.tm-nm{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:72px;}
+.tm-nm.hl{color:var(--cy);}
+.vs{font-size:8px;color:var(--tx3);flex-shrink:0;}
+
+/* Score col */
+.td-sc{text-align:center;min-width:68px;}
+.sc-num{font-family:var(--fM);font-size:14px;font-weight:700;white-space:nowrap;}
+.sc-v{color:var(--gn);} .sc-e{color:var(--yl);} .sc-d{color:var(--rd);} .sc-n{color:var(--tx3);}
+.sc-loc{font-size:8px;letter-spacing:.4px;color:var(--tx3);margin-top:2px;font-weight:700;text-transform:uppercase;}
+
+/* Stat cols */
+.td-s{text-align:center;font-family:var(--fM);font-size:11px;white-space:nowrap;min-width:72px;}
+.sa{color:var(--cy);font-weight:700;}
+.sb-{color:var(--tx3);}
+.sn{color:var(--tx3);font-size:10px;}
+
+/* Mini possession bar */
+.pb-wrap{display:flex;flex-direction:column;align-items:center;gap:3px;}
+.pb-nums{font-size:11px;white-space:nowrap;}
+.pb{width:48px;height:3px;background:var(--s3);border-radius:2px;overflow:hidden;display:flex;}
+.pb-a{background:var(--cy);height:100%;}
+.pb-b{background:var(--tx3);height:100%;}
+
+/* Skeleton */
+.sk{
+  height:9px;border-radius:2px;display:inline-block;
+  background:linear-gradient(90deg,var(--s2) 25%,var(--s3) 50%,var(--s2) 75%);
+  background-size:200% 100%;animation:sk 1.4s infinite;
+}
+@keyframes sk{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+
+/* Warn / Error */
+.warn{
+  background:var(--yl-d);border:1px solid var(--yl-b);border-radius:3px;
+  padding:10px 14px;margin:12px;font-size:12px;color:var(--yl);line-height:1.6;
+}
+.warn code{font-family:var(--fM);font-size:10px;background:rgba(251,191,36,.12);padding:1px 4px;border-radius:2px;}
+.err{
+  background:var(--rd-d);border:1px solid var(--rd-b);border-radius:3px;
+  padding:8px 14px;margin:10px 18px;font-size:11px;font-family:var(--fM);color:var(--rd);
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo-hex"></div>
+  <span class="logo-text">YELL<em>UP</em></span>
+  <div class="logo-pipe"></div>
+  <span class="page-id">RAIO-X · TIMES</span>
+  <div class="topbar-r">
+    <div class="s-dot" id="sDot"></div>
+    <span class="s-txt" id="sTxt">conectando...</span>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="sb-head">
+      <input class="sb-search" id="sbSearch" type="text" placeholder="Buscar time ou seleção...">
+      <div class="sb-pills">
+        <button class="sp on" data-f="all">Todos</button>
+        <button class="sp" data-f="clube">Clubes</button>
+        <button class="sp" data-f="selecao">Seleções</button>
+      </div>
+    </div>
+    <div class="sb-count" id="sbCount">— times</div>
+    <div class="sb-list" id="sbList">
+      <div class="loader" style="height:160px"><div class="spin"></div>carregando...</div>
+    </div>
+  </div>
+
+  <div class="main" id="mainArea">
+    <div class="empty">
+      <div class="empty-ic">⚡</div>
+      <div class="empty-t">Selecione um time</div>
+      <div class="empty-s">use a busca na barra lateral</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// RAIO-X TIMES · Yellup Scout
+// Módulo 1 — Feed dos Últimos 20 Jogos + Stats Progressivos
+// ══════════════════════════════════════════════════════════════
+
+// ── State ─────────────────────────────────────────────────────
+let db       = null;
+let TEAMS    = [];       // [{id, apiId, nome, pais, tipo, escudo}]
+let FILTER   = 'all';
+let QUERY    = '';
+let SELECTED = null;     // team atual
+
+// ── Boot ──────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  // Firebase
+  try {
+    if (!CFG.firebase.projectId) throw new Error('projectId vazio');
+    firebase.initializeApp(CFG.firebase);
+    db = firebase.firestore();
+    st('ok', 'Firebase OK');
+  } catch(e) {
+    st('err', 'Firebase: ' + e.message);
+    document.getElementById('sbList').innerHTML =
+      `<div class="warn" style="margin:10px">Configure o bloco <code>CFG.firebase</code> para usar.</div>`;
+    return;
+  }
+
+  if (!CFG.apiKey) st('warn', 'API key não configurada');
+
+  await loadTeams();
+
+  // Sidebar events
+  document.getElementById('sbSearch').addEventListener('input', e => {
+    QUERY = e.target.value.toLowerCase().trim();
+    renderSidebar();
+  });
+  document.querySelectorAll('.sp').forEach(btn => {
+    btn.addEventListener('click', () => {
+      FILTER = btn.dataset.f;
+      document.querySelectorAll('.sp').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      renderSidebar();
+    });
+  });
+  document.getElementById('sbList').addEventListener('click', e => {
+    const item = e.target.closest('.si');
+    if (!item) return;
+    const idx = +item.dataset.idx;
+    if (!isNaN(idx) && TEAMS[idx]) selectTeam(TEAMS[idx]);
+  });
+});
+
+// ── Load Teams ────────────────────────────────────────────────
+async function loadTeams() {
+  try {
+    const [s1, s2] = await Promise.all([
+      db.collection('times').get(),
+      db.collection('selecoes-admin').get()
+    ]);
+    TEAMS = [];
+    s1.forEach(d => {
+      const v = d.data();
+      if (!v.apiFootballId) return;
+      TEAMS.push({ id: d.id, apiId: v.apiFootballId, nome: v.nome||'—', pais: v.pais||'', tipo: v.tipo||'clube', escudo: v.escudo||null });
+    });
+    s2.forEach(d => {
+      const v = d.data();
+      if (!v.apiFootballId) return;
+      TEAMS.push({ id: d.id, apiId: v.apiFootballId, nome: v.nome||'—', pais: v.pais||'', tipo: 'selecao', escudo: v.escudo||null });
+    });
+    TEAMS.sort((a,b) => a.nome.localeCompare(b.nome, 'pt'));
+    st('ok', `${TEAMS.length} times carregados`);
+    renderSidebar();
+  } catch(e) {
+    st('err', 'Erro: ' + e.message);
+    document.getElementById('sbList').innerHTML = `<div class="err">${e.message}</div>`;
+  }
+}
+
+// ── Sidebar Render ─────────────────────────────────────────────
+function renderSidebar() {
+  const list  = document.getElementById('sbList');
+  const count = document.getElementById('sbCount');
+
+  const filtered = TEAMS.reduce((acc, t, i) => {
+    if (FILTER === 'clube'   && t.tipo !== 'clube')   return acc;
+    if (FILTER === 'selecao' && t.tipo !== 'selecao') return acc;
+    if (QUERY && !t.nome.toLowerCase().includes(QUERY) && !t.pais.toLowerCase().includes(QUERY)) return acc;
+    acc.push({ t, i });
+    return acc;
+  }, []);
+
+  count.textContent = `${filtered.length} times`;
+
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty" style="height:100px"><div class="empty-s">nenhum resultado</div></div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(({ t, i }) => `
+    <div class="si${SELECTED?.apiId === t.apiId ? ' on' : ''}" data-idx="${i}">
+      ${t.escudo
+        ? `<img class="si-logo" src="${t.escudo}" loading="lazy" onerror="this.className='si-ph'">`
+        : `<div class="si-ph"></div>`}
+      <div class="si-info">
+        <div class="si-nm">${t.nome}</div>
+        <div class="si-sub">${t.pais} · #${t.apiId}</div>
+      </div>
+      <span class="tag ${t.tipo === 'selecao' ? 'tag-sel' : 'tag-clu'}">${t.tipo === 'selecao' ? 'SEL' : 'CLB'}</span>
+    </div>
+  `).join('');
+}
+
+// ── Select Team ────────────────────────────────────────────────
+async function selectTeam(team) {
+  SELECTED = team;
+  renderSidebar();
+
+  if (!CFG.apiKey) {
+    document.getElementById('mainArea').innerHTML =
+      buildHeader(team, [], null) +
+      `<div class="warn">⚠ <strong>API key não configurada.</strong><br>Edite <code>CFG.apiKey</code> com sua chave da <a href="https://dashboard.api-football.com" target="_blank" style="color:var(--cy)">api-sports.io</a>.</div>`;
+    return;
+  }
+
+  document.getElementById('mainArea').innerHTML =
+    buildHeader(team, [], null) +
+    `<div class="loader" style="flex:1"><div class="spin"></div>buscando últimos 20 jogos…</div>`;
+
+  try {
+    // 1. Fetch fixtures
+    const fr  = await apiGet(`/fixtures?team=${team.apiId}&last=20`);
+    const raw = (fr.response || []).sort((a,b) => new Date(b.fixture.date) - new Date(a.fixture.date));
+    if (!raw.length) {
+      document.getElementById('mainArea').innerHTML =
+        buildHeader(team, [], null) + `<div class="err">Nenhum jogo encontrado para ID ${team.apiId}.</div>`;
+      return;
+    }
+
+    const enriched = raw.map(f => enrich(f, team.apiId));
+
+    // 2. Render with skeleton stats
+    document.getElementById('mainArea').innerHTML =
+      buildHeader(team, enriched, null) + buildTable(enriched, team, {});
+
+    // 3. Fetch stats progressively in batches of 5
+    const statsMap = {};
+    const ids = enriched.map(e => e.f.fixture.id);
+    for (let i = 0; i < ids.length; i += 5) {
+      await Promise.all(ids.slice(i, i+5).map(async id => {
+        try {
+          const sr = await apiGet(`/fixtures/statistics?fixture=${id}`);
+          statsMap[id] = sr.response || [];
+        } catch { statsMap[id] = []; }
+      }));
+      patchRows(enriched, statsMap, team);
+    }
+
+    // 4. Final header with aggregates
+    const agg = calcAgg(enriched, statsMap, team.apiId);
+    document.getElementById('th-agg')?.replaceWith(buildAggNode(agg));
+
+  } catch(e) {
+    console.error(e);
+    document.getElementById('mainArea').innerHTML += `<div class="err">Erro: ${e.message}</div>`;
+  }
+}
+
+// ── Enrich fixture with result from team's POV ─────────────────
+function enrich(f, tid) {
+  const home   = f.teams.home.id === tid;
+  const tGoals = home ? f.goals.home : f.goals.away;
+  const oGoals = home ? f.goals.away : f.goals.home;
+  const res = tGoals === null ? 'n' : tGoals > oGoals ? 'v' : tGoals === oGoals ? 'e' : 'd';
+  return { f, home, tGoals, oGoals, res };
+}
+
+// ── Build Header HTML ──────────────────────────────────────────
+function buildHeader(team, enriched, agg) {
+  const N  = enriched.length;
+  const W  = enriched.filter(e => e.res==='v').length;
+  const D  = enriched.filter(e => e.res==='e').length;
+  const L  = enriched.filter(e => e.res==='d').length;
+  const GF = enriched.reduce((s,e) => s+(e.tGoals||0), 0);
+  const GC = enriched.reduce((s,e) => s+(e.oGoals||0), 0);
+  const pts = N ? ((W*3+D)/N).toFixed(2) : '—';
+
+  const forma = enriched.slice(0,10).map(e =>
+    `<div class="fb fb-${e.res}" title="${e.f.teams.home.name} ${e.f.goals.home??'?'}-${e.f.goals.away??'?'} ${e.f.teams.away.name}">${e.res==='v'?'V':e.res==='e'?'E':'D'}</div>`
+  ).join('');
+
+  return `
+  <div class="th">
+    ${team.escudo ? `<img class="th-logo" src="${team.escudo}">` : ''}
+    <div class="th-inf">
+      <div class="th-nm">${team.nome}</div>
+      <div class="th-meta">${team.pais} · ID ${team.apiId}</div>
+      <div class="th-tags">
+        <span class="th-tag" style="background:var(--gn-d);color:var(--gn);border:1px solid var(--gn-b)">${W}V</span>
+        <span class="th-tag" style="background:var(--yl-d);color:var(--yl);border:1px solid var(--yl-b)">${D}E</span>
+        <span class="th-tag" style="background:var(--rd-d);color:var(--rd);border:1px solid var(--rd-b)">${L}D</span>
+        ${N ? `<span class="th-tag" style="background:var(--cy-d);color:var(--cy);border:1px solid var(--cy-b)">${pts} pts/j</span>` : ''}
+      </div>
+    </div>
+    <div class="th-kpis">
+      <div class="kpi"><div class="kpi-v" style="color:var(--gn)">${GF}</div><div class="kpi-l">GF</div></div>
+      <div class="kpi"><div class="kpi-v" style="color:var(--rd)">${GC}</div><div class="kpi-l">GC</div></div>
+      <div class="kpi"><div class="kpi-v">${N}</div><div class="kpi-l">Jogos</div></div>
+    </div>
+  </div>
+  ${N ? `<div class="fs"><span class="fs-lbl">Forma</span>${forma}<div class="fs-pipe"></div>
+    <span class="fs-stat" style="color:var(--gn)">${W}V</span>&nbsp;
+    <span class="fs-stat" style="color:var(--yl)">${D}E</span>&nbsp;
+    <span class="fs-stat" style="color:var(--rd)">${L}D</span>
+  </div>` : ''}
+  <div id="th-agg">${agg ? buildAggHtml(agg) : ''}</div>
+  `;
+}
+
+function buildAggHtml(agg) {
+  if (!agg) return '';
+  return `<div class="agg">
+    <div class="agg-item"><span class="agg-l">Média 20J</span></div>
+    <div class="agg-item"><span class="agg-l">Posse</span><span class="agg-v">${agg.poss}%</span></div>
+    <div class="agg-item"><span class="agg-l">xG</span><span class="agg-v">${agg.xg}</span></div>
+    <div class="agg-item"><span class="agg-l">Finalizações</span><span class="agg-v">${agg.shots}</span></div>
+    <div class="agg-item"><span class="agg-l">Passes %</span><span class="agg-v">${agg.pass}%</span></div>
+    <div class="agg-item"><span class="agg-l">Ataques Per.</span><span class="agg-v">${agg.atk}</span></div>
+    <div class="agg-item"><span class="agg-l">GF/J</span><span class="agg-v" style="color:var(--gn)">${agg.gfJ}</span></div>
+    <div class="agg-item"><span class="agg-l">GC/J</span><span class="agg-v" style="color:var(--rd)">${agg.gcJ}</span></div>
+  </div>`;
+}
+
+function buildAggNode(agg) {
+  const div = document.createElement('div');
+  div.id = 'th-agg';
+  div.innerHTML = buildAggHtml(agg);
+  return div;
+}
+
+// ── Build Table HTML ───────────────────────────────────────────
+function buildTable(enriched, team, statsMap) {
+  const rows = enriched.map(e => buildRow(e, team, statsMap[e.f.fixture.id] ?? null)).join('');
+  return `
+  <div class="tw">
+    <table class="st">
+      <thead><tr>
+        <th>Data</th>
+        <th>Competição</th>
+        <th>Confronto</th>
+        <th class="c">Placar</th>
+        <th class="c">Posse %</th>
+        <th class="c">xG</th>
+        <th class="c">Finalizações</th>
+        <th class="c">Passes %</th>
+        <th class="c">Ataques Perig.</th>
+      </tr></thead>
+      <tbody id="tbody">${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+// ── Build Row HTML ─────────────────────────────────────────────
+function buildRow(e, team, stats) {
+  const f   = e.f;
+  const dt  = new Date(f.fixture.date);
+  const dd  = `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}`;
+  const yy  = String(dt.getFullYear()).slice(2);
+  const hh  = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+
+  const rCls  = { v:'rv', e:'re', d:'rd', n:'rn' }[e.res];
+  const scCls = { v:'sc-v', e:'sc-e', d:'sc-d', n:'sc-n' }[e.res];
+
+  // Stats cells
+  let stHtml;
+  if (!stats) {
+    stHtml = `
+      <td class="td-s"><span class="sk" style="width:52px"></span></td>
+      <td class="td-s"><span class="sk" style="width:42px"></span></td>
+      <td class="td-s"><span class="sk" style="width:52px"></span></td>
+      <td class="td-s"><span class="sk" style="width:42px"></span></td>
+      <td class="td-s"><span class="sk" style="width:38px"></span></td>`;
+  } else {
+    const s   = parseStats(stats, f.teams.home.id, f.teams.away.id);
+    const ts  = e.home ? 'home' : 'away';
+    const os  = e.home ? 'away' : 'home';
+
+    // Possession
+    const pT = s.poss[ts], pO = s.poss[os];
+    const possHtml = pT !== null ? `
+      <div class="pb-wrap">
+        <div class="pb-nums"><span class="sa">${pT}</span><span class="sb-">/${pO}</span></div>
+        <div class="pb"><div class="pb-a" style="width:${pT}%"></div><div class="pb-b" style="width:${pO}%"></div></div>
+      </div>` : `<span class="sn">—</span>`;
+
+    const xgT = s.xg[ts], xgO = s.xg[os];
+    const xgHtml = xgT !== null
+      ? `<span class="sa">${xgT}</span><span class="sb-">/${xgO}</span>`
+      : `<span class="sn">—</span>`;
+
+    const shT = s.shots[ts], shO = s.shots[os], sgT = s.shotsOG[ts], sgO = s.shotsOG[os];
+    const shotsHtml = shT !== null
+      ? `<span class="sa">${shT}</span><span class="sb-" style="font-size:9px">(${sgT??'?'})</span><span class="sb-">/${shO}</span><span class="sb-" style="font-size:9px">(${sgO??'?'})</span>`
+      : `<span class="sn">—</span>`;
+
+    const paT = s.passAcc[ts], paO = s.passAcc[os];
+    const passHtml = paT !== null
+      ? `<span class="sa">${paT}%</span><span class="sb-">/${paO}%</span>`
+      : `<span class="sn">—</span>`;
+
+    const aT = s.dAtk[ts], aO = s.dAtk[os];
+    const atkHtml = aT !== null
+      ? `<span class="sa">${aT}</span><span class="sb-">/${aO}</span>`
+      : `<span class="sn">—</span>`;
+
+    stHtml = `
+      <td class="td-s">${possHtml}</td>
+      <td class="td-s">${xgHtml}</td>
+      <td class="td-s">${shotsHtml}</td>
+      <td class="td-s">${passHtml}</td>
+      <td class="td-s">${atkHtml}</td>`;
+  }
+
+  return `
+  <tr class="${rCls}" id="r${f.fixture.id}">
+    <td class="td-dt"><div class="d1">${dd}</div><div>${yy} ${hh}</div></td>
+    <td class="td-lg">
+      <div class="lg-in">
+        ${f.league.logo ? `<img class="lg-ico" src="${f.league.logo}" loading="lazy">` : ''}
+        <span class="lg-nm" title="${f.league.name}">${f.league.name}</span>
+      </div>
+    </td>
+    <td class="td-mt">
+      <div class="mt-in">
+        ${f.teams.home.logo ? `<img class="tm-ico" src="${f.teams.home.logo}" loading="lazy">` : ''}
+        <span class="tm-nm${f.teams.home.id===team.apiId?' hl':''}" title="${f.teams.home.name}">${cut(f.teams.home.name)}</span>
+        <span class="vs">vs</span>
+        <span class="tm-nm${f.teams.away.id===team.apiId?' hl':''}" title="${f.teams.away.name}">${cut(f.teams.away.name)}</span>
+        ${f.teams.away.logo ? `<img class="tm-ico" src="${f.teams.away.logo}" loading="lazy">` : ''}
+      </div>
+    </td>
+    <td class="td-sc">
+      <div class="sc-num ${scCls}">${f.goals.home??'?'} – ${f.goals.away??'?'}</div>
+      <div class="sc-loc">${e.home?'Casa':'Fora'}</div>
+    </td>
+    ${stHtml}
+  </tr>`;
+}
+
+// ── Patch Stats Progressively ──────────────────────────────────
+function patchRows(enriched, statsMap, team) {
+  const tbody = document.getElementById('tbody');
+  if (!tbody) return;
+  // Re-render only rows that now have stats
+  enriched.forEach(e => {
+    const id  = e.f.fixture.id;
+    const st  = statsMap[id];
+    if (!st) return;
+    const row = document.getElementById(`r${id}`);
+    if (!row) return;
+    const tds     = row.querySelectorAll('td');
+    const tmp     = document.createElement('tbody');
+    tmp.innerHTML = buildRow(e, team, st);
+    const newTds  = tmp.firstElementChild.querySelectorAll('td');
+    // Patch stats tds (index 4-8)
+    [4,5,6,7,8].forEach(i => {
+      if (tds[i] && newTds[i]) tds[i].replaceWith(newTds[i].cloneNode(true));
+    });
+  });
+}
+
+// ── Parse Stats Object ─────────────────────────────────────────
+function parseStats(raw, homeId, awayId) {
+  const r = { poss:{home:null,away:null}, xg:{home:null,away:null}, shots:{home:null,away:null},
+               shotsOG:{home:null,away:null}, passAcc:{home:null,away:null}, dAtk:{home:null,away:null} };
+  if (!raw?.length) return r;
+
+  raw.forEach(ts => {
+    const side = ts.team?.id === homeId ? 'home' : 'away';
+    (ts.statistics || []).forEach(({ type: t, value: v }) => {
+      if (v === null || v === undefined) return;
+      if (t === 'Ball Possession')                     r.poss[side]    = parseInt(v)||0;
+      else if (t === 'Total Shots')                    r.shots[side]   = parseInt(v)||0;
+      else if (t === 'Shots on Goal')                  r.shotsOG[side] = parseInt(v)||0;
+      else if (t === 'Passes %')                       r.passAcc[side] = parseInt(v)||0;
+      else if (t === 'expected_goals'||t==='Expected Goals') r.xg[side] = parseFloat(v)||0;
+      else if (t === 'Dangerous Attacks')              r.dAtk[side]    = parseInt(v)||0;
+    });
+  });
+  return r;
+}
+
+// ── Aggregate Calculation ──────────────────────────────────────
+function calcAgg(enriched, statsMap, tid) {
+  const T = {poss:0,xg:0,shots:0,pass:0,atk:0}, C = {poss:0,xg:0,shots:0,pass:0,atk:0};
+  let GF=0, GC=0, N=enriched.length;
+
+  enriched.forEach(e => {
+    GF += e.tGoals||0; GC += e.oGoals||0;
+    const st = statsMap[e.f.fixture.id]; if (!st) return;
+    const s  = parseStats(st, e.f.teams.home.id, e.f.teams.away.id);
+    const sd = e.home ? 'home' : 'away';
+
+    if (s.poss[sd]    !== null) { T.poss  += s.poss[sd];    C.poss++;  }
+    if (s.xg[sd]      !== null) { T.xg    += s.xg[sd];      C.xg++;    }
+    if (s.shots[sd]   !== null) { T.shots += s.shots[sd];   C.shots++; }
+    if (s.passAcc[sd] !== null) { T.pass  += s.passAcc[sd]; C.pass++;  }
+    if (s.dAtk[sd]    !== null) { T.atk   += s.dAtk[sd];    C.atk++;   }
+  });
+
+  return {
+    poss:  C.poss  ? Math.round(T.poss/C.poss)      : '—',
+    xg:    C.xg    ? (T.xg/C.xg).toFixed(2)         : '—',
+    shots: C.shots ? Math.round(T.shots/C.shots)     : '—',
+    pass:  C.pass  ? Math.round(T.pass/C.pass)       : '—',
+    atk:   C.atk   ? Math.round(T.atk/C.atk)        : '—',
+    gfJ:   N       ? (GF/N).toFixed(2)               : '—',
+    gcJ:   N       ? (GC/N).toFixed(2)               : '—'
+  };
+}
+
+// ── API Helper ─────────────────────────────────────────────────
+async function apiGet(path) {
+  const res = await fetch(CFG.apiBase + path, {
+    headers: { 'x-apisports-key': CFG.apiKey }
+  });
+  if (!res.ok) throw new Error(`API ${res.status} ${res.statusText}`);
+  const json = await res.json();
+  if (json.errors && Object.keys(json.errors).length) {
+    const msg = Object.values(json.errors)[0];
+    throw new Error(msg);
+  }
+  return json;
+}
+
+// ── Utils ──────────────────────────────────────────────────────
+function cut(name, max=13) {
+  if (!name) return '—';
+  return name.length > max ? name.slice(0, max).trim() + '…' : name;
+}
+function st(state, msg) {
+  const dot = document.getElementById('sDot');
+  const txt = document.getElementById('sTxt');
+  txt.textContent = msg;
+  const c = state==='ok' ? 'var(--gn)' : state==='err' ? 'var(--rd)' : 'var(--yl)';
+  dot.style.background = c;
+  dot.style.boxShadow  = `0 0 5px ${c}`;
+}
+</script>
+</body>
+</html>
