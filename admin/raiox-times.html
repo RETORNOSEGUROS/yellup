@@ -415,10 +415,11 @@ let ACTIVE_TAB  = 'jogos';
 
 // Módulo 3 — ForteScore
 let FORTE_RESULT = null;
-let FORTE_STATE  = 'idle'; // idle | loading | done | error
+let FORTE_STATE  = 'idle';
 let FORTE_TEAM   = null;
 let FORTE_E20    = [];
 let FORTE_SM20   = {};
+let FORTE_CACHE  = {};   // apiId → score  (persiste entre seleções para ordenar sidebar)
 
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -492,13 +493,27 @@ function renderSidebar() {
   const list  = document.getElementById('sbList');
   const count = document.getElementById('sbCount');
 
+  // Filtro de seleções secundárias (sub-categorias e feminino)
+  const SUB_RE = /\s+U\d+|\sW$|\s+W\s*$|Women|Feminino/i;
+
   const filtered = TEAMS.reduce((acc, t, i) => {
     if (FILTER === 'clube'   && t.tipo !== 'clube')   return acc;
     if (FILTER === 'selecao' && t.tipo !== 'selecao') return acc;
+    if (t.tipo === 'selecao' && SUB_RE.test(t.nome))  return acc; // remove sub/feminino
     if (QUERY && !t.nome.toLowerCase().includes(QUERY) && !t.pais.toLowerCase().includes(QUERY)) return acc;
     acc.push({ t, i });
     return acc;
   }, []);
+
+  // Ordena: times com ForteScore calculado primeiro (desc), resto alfabético no final
+  filtered.sort((a, b) => {
+    const sa = FORTE_CACHE[a.t.apiId];
+    const sb = FORTE_CACHE[b.t.apiId];
+    if (sa !== undefined && sb !== undefined) return sb - sa;
+    if (sa !== undefined) return -1;
+    if (sb !== undefined) return  1;
+    return a.t.nome.localeCompare(b.t.nome, 'pt');
+  });
 
   count.textContent = `${filtered.length} times`;
 
@@ -507,7 +522,12 @@ function renderSidebar() {
     return;
   }
 
-  list.innerHTML = filtered.map(({ t, i }) => `
+  list.innerHTML = filtered.map(({ t, i }) => {
+    const score = FORTE_CACHE[t.apiId];
+    const scoreHtml = score !== undefined
+      ? `<span style="font-family:var(--fM);font-size:11px;font-weight:700;color:${forteColor(score)}">${score.toFixed(1)}</span>`
+      : '';
+    return `
     <div class="si${SELECTED?.apiId === t.apiId ? ' on' : ''}" data-idx="${i}">
       ${t.escudo
         ? `<img class="si-logo" src="${t.escudo}" loading="lazy" onerror="this.className='si-ph'">`
@@ -516,9 +536,9 @@ function renderSidebar() {
         <div class="si-nm">${t.nome}</div>
         <div class="si-sub">${t.pais} · #${t.apiId}</div>
       </div>
-      <span class="tag ${t.tipo === 'selecao' ? 'tag-sel' : 'tag-clu'}">${t.tipo === 'selecao' ? 'SEL' : 'CLB'}</span>
-    </div>
-  `).join('');
+      ${scoreHtml || `<span class="tag ${t.tipo === 'selecao' ? 'tag-sel' : 'tag-clu'}">${t.tipo === 'selecao' ? 'SEL' : 'CLB'}</span>`}
+    </div>`;
+  }).join('');
 }
 
 // ── Select Team ────────────────────────────────────────────────
@@ -852,7 +872,7 @@ function buildAggHtml(agg) {
     <div class="agg-item"><span class="agg-l">xG</span><span class="agg-v">${agg.xg}</span></div>
     <div class="agg-item"><span class="agg-l">Finalizações</span><span class="agg-v">${agg.shots}</span></div>
     <div class="agg-item"><span class="agg-l">Passes %</span><span class="agg-v">${agg.pass}%</span></div>
-    <div class="agg-item"><span class="agg-l">Ataques Per.</span><span class="agg-v">${agg.atk}</span></div>
+    <div class="agg-item"><span class="agg-l">Passes Tot.</span><span class="agg-v">${agg.passTotal}</span></div>
     <div class="agg-item"><span class="agg-l">GF/J</span><span class="agg-v" style="color:var(--gn)">${agg.gfJ}</span></div>
     <div class="agg-item"><span class="agg-l">GC/J</span><span class="agg-v" style="color:var(--rd)">${agg.gcJ}</span></div>
   </div>`;
@@ -881,7 +901,7 @@ function buildTable(enriched, team, statsMap) {
           <th class="c">xG</th>
           <th class="c">Finalizações</th>
           <th class="c">Passes %</th>
-          <th class="c">Ataques Perig.</th>
+          <th class="c">Passes Total</th>
         </tr></thead>
         <tbody id="tbody">${rows}</tbody>
       </table>
@@ -947,7 +967,7 @@ function buildRow(e, team, stats) {
       ? `<span class="sa">${paT}%</span><span class="sb-">/${paO}%</span>`
       : `<span class="sn">—</span>`;
 
-    const aT = s.dAtk[ts], aO = s.dAtk[os];
+    const aT = s.passTotal[ts], aO = s.passTotal[os];
     const atkHtml = aT !== null
       ? `<span class="sa">${aT}</span><span class="sb-">/${aO}</span>`
       : `<span class="sn">—</span>`;
@@ -1011,19 +1031,19 @@ function patchRows(enriched, statsMap, team) {
 // ── Parse Stats Object ─────────────────────────────────────────
 function parseStats(raw, homeId, awayId) {
   const r = { poss:{home:null,away:null}, xg:{home:null,away:null}, shots:{home:null,away:null},
-               shotsOG:{home:null,away:null}, passAcc:{home:null,away:null}, dAtk:{home:null,away:null} };
+               shotsOG:{home:null,away:null}, passAcc:{home:null,away:null}, passTotal:{home:null,away:null} };
   if (!raw?.length) return r;
 
   raw.forEach(ts => {
     const side = ts.team?.id === homeId ? 'home' : 'away';
     (ts.statistics || []).forEach(({ type: t, value: v }) => {
       if (v === null || v === undefined) return;
-      if (t === 'Ball Possession')                     r.poss[side]    = parseInt(v)||0;
-      else if (t === 'Total Shots')                    r.shots[side]   = parseInt(v)||0;
-      else if (t === 'Shots on Goal')                  r.shotsOG[side] = parseInt(v)||0;
-      else if (t === 'Passes %')                       r.passAcc[side] = parseInt(v)||0;
-      else if (t === 'expected_goals'||t==='Expected Goals') r.xg[side] = parseFloat(v)||0;
-      else if (t === 'Dangerous Attacks')              r.dAtk[side]    = parseInt(v)||0;
+      if (t === 'Ball Possession')                          r.poss[side]      = parseInt(v)||0;
+      else if (t === 'Total Shots')                         r.shots[side]     = parseInt(v)||0;
+      else if (t === 'Shots on Goal')                       r.shotsOG[side]   = parseInt(v)||0;
+      else if (t === 'Passes %')                            r.passAcc[side]   = parseInt(v)||0;
+      else if (t === 'expected_goals'||t==='Expected Goals') r.xg[side]       = parseFloat(v)||0;
+      else if (t === 'Total passes'||t === 'Passes total')  r.passTotal[side] = parseInt(v)||0;
     });
   });
   return r;
@@ -1031,7 +1051,7 @@ function parseStats(raw, homeId, awayId) {
 
 // ── Aggregate Calculation ──────────────────────────────────────
 function calcAgg(enriched, statsMap, tid) {
-  const T = {poss:0,xg:0,shots:0,pass:0,atk:0}, C = {poss:0,xg:0,shots:0,pass:0,atk:0};
+  const T = {poss:0,xg:0,shots:0,pass:0,passTotal:0}, C = {poss:0,xg:0,shots:0,pass:0,passTotal:0};
   let GF=0, GC=0, N=enriched.length;
 
   enriched.forEach(e => {
@@ -1040,21 +1060,21 @@ function calcAgg(enriched, statsMap, tid) {
     const s  = parseStats(st, e.f.teams.home.id, e.f.teams.away.id);
     const sd = e.home ? 'home' : 'away';
 
-    if (s.poss[sd]    !== null) { T.poss  += s.poss[sd];    C.poss++;  }
-    if (s.xg[sd]      !== null) { T.xg    += s.xg[sd];      C.xg++;    }
-    if (s.shots[sd]   !== null) { T.shots += s.shots[sd];   C.shots++; }
-    if (s.passAcc[sd] !== null) { T.pass  += s.passAcc[sd]; C.pass++;  }
-    if (s.dAtk[sd]    !== null) { T.atk   += s.dAtk[sd];    C.atk++;   }
+    if (s.poss[sd]      !== null) { T.poss      += s.poss[sd];      C.poss++;      }
+    if (s.xg[sd]        !== null) { T.xg        += s.xg[sd];        C.xg++;        }
+    if (s.shots[sd]     !== null) { T.shots     += s.shots[sd];     C.shots++;     }
+    if (s.passAcc[sd]   !== null) { T.pass      += s.passAcc[sd];   C.pass++;      }
+    if (s.passTotal[sd] !== null) { T.passTotal += s.passTotal[sd]; C.passTotal++; }
   });
 
   return {
-    poss:  C.poss  ? Math.round(T.poss/C.poss)      : '—',
-    xg:    C.xg    ? (T.xg/C.xg).toFixed(2)         : '—',
-    shots: C.shots ? Math.round(T.shots/C.shots)     : '—',
-    pass:  C.pass  ? Math.round(T.pass/C.pass)       : '—',
-    atk:   C.atk   ? Math.round(T.atk/C.atk)        : '—',
-    gfJ:   N       ? (GF/N).toFixed(2)               : '—',
-    gcJ:   N       ? (GC/N).toFixed(2)               : '—'
+    poss:      C.poss      ? Math.round(T.poss/C.poss)          : '—',
+    xg:        C.xg        ? (T.xg/C.xg).toFixed(2)             : '—',
+    shots:     C.shots     ? Math.round(T.shots/C.shots)         : '—',
+    pass:      C.pass      ? Math.round(T.pass/C.pass)           : '—',
+    passTotal: C.passTotal ? Math.round(T.passTotal/C.passTotal) : '—',
+    gfJ:       N           ? (GF/N).toFixed(2)                   : '—',
+    gcJ:       N           ? (GC/N).toFixed(2)                   : '—'
   };
 }
 
@@ -1206,6 +1226,8 @@ async function calcForteScore(team, enriched20, statsMap20) {
 
     FORTE_RESULT = { score, wrs, io, id, idom, lcs, raw, gamesUsed: fix50.length, season, mainLeague };
     FORTE_STATE  = 'done';
+    FORTE_CACHE[team.apiId] = score;
+    renderSidebar(); // re-sort com novo score
 
     if (ACTIVE_TAB === 'forte') renderFortePane();
 
