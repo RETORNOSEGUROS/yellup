@@ -343,7 +343,11 @@ function getLigaTier(liga) {
   return 0.78;
 }
 function isNacional(t) {
-  return getLigaTier(t.liga) === 'nacional' || t.m.nacional === true;
+  // Prioridade: campo nacional salvo na coleção times (mais confiável)
+  // Fallback: detectar pelo nome da liga
+  if (t.nacional === true) return true;
+  if (t.m && t.m.nacional === true) return true;
+  return getLigaTier(t.liga) === 'nacional';
 }
 
 // ── SCORE ENGINE — calculado no frontend, nunca do Firestore ────────────────
@@ -365,12 +369,20 @@ function calcScore(s, liga, totalJogos) {
   return Math.round(Math.min(10, base * tier * vol) * 10) / 10;
 }
 
-// Pega os melhores stats disponíveis: prefere s15 > s10 > s7 > s5
+// Força = últimos 30 jogos (visão estável da temporada)
+// Forma  = últimos 7 jogos (momento atual)
+function forcaStats(m) {
+  return m.s30 || m.s15 || m.s10 || m.s7 || m.s5 || null;
+}
+function formaStats(m) {
+  return m.s7 || m.s5 || null;
+}
 function bestStats(m) {
-  return m.s15 || m.s10 || m.s7 || m.s5 || null;
+  // alias mantido para compatibilidade interna
+  return forcaStats(m);
 }
 function tempStats(m) {
-  return m.s30 || m.s70 || m.s10 || null;
+  return m.s70 || m.s30 || m.s15 || null;
 }
 
 // ── MINUTOS ──────────────────────────────────────────────────────────────────
@@ -458,6 +470,7 @@ async function loadData(){
       PERFIS[tid]={
         id:tid, nome:p.nome||'—', logo:p.logo||'',
         liga, teamId:p.teamId,
+        nacional: p.nacional === true,  // campo da coleção times
         m:{
           // stats principais — do enriquecer (s15/s30) ou do recalcular (s5/s10/s70)
           s5:p.s5||null, s7:p.s7||null, s10:p.s10||null,
@@ -493,7 +506,8 @@ async function loadData(){
 
 // ── SCORE HELPER ─────────────────────────────────────────────────────────────
 function getScore(t){
-  const s=bestStats(t.m);
+  // Usa s30 como base — mais estável que s15
+  const s=forcaStats(t.m);
   if(!s)return null;
   const sc=Object.assign({},s);
   if(sc.clean_sheet_pct==null&&t.m.cs!=null)sc.clean_sheet_pct=t.m.cs;
@@ -568,8 +582,9 @@ function selectTime(id){
 
 function renderPerfil(t){
   const m=t.m;
-  const s=bestStats(m);
-  const st=tempStats(m);
+  const s=forcaStats(m);    // força: s30
+  const sf=formaStats(m);   // forma: s7
+  const st=tempStats(m);    // temporada: s70
 
   // Score calculado agora, ignorando eloNota do Firestore
   const sc=Object.assign({},s||{});
@@ -594,10 +609,15 @@ function renderPerfil(t){
   else if(_tier<=0.50)badges.push(`<span class="badge" style="background:rgba(255,77,109,.08);color:var(--red)">Liga menor</span>`);
 
   // Momenta
-  function momBox(val,lbl){
-    const col=val>0?'var(--grn)':val<0?'var(--red)':'var(--muted)';
-    const icon=val>0?'▲':val<0?'▼':'=';
-    return `<div class="mom-box"><div class="mom-val" style="color:${col}">${val!=null?icon+' '+Math.abs(val):'—'}</div><div class="mom-lbl">${lbl}</div></div>`;
+  // Mom boxes: mostra força ABSOLUTA de cada janela, não variação
+  function momBox(janela, lbl, liga, totalJogos) {
+    if (!janela) return `<div class="mom-box"><div class="mom-val c-muted">—</div><div class="mom-lbl">${lbl}</div></div>`;
+    const sc = Object.assign({}, janela);
+    if (sc.clean_sheet_pct == null && m.cs != null) sc.clean_sheet_pct = m.cs;
+    if (sc.xgd == null && m.xgd != null) sc.xgd = m.xgd;
+    const val = calcScore(sc, liga, totalJogos);
+    const col = val >= 7 ? 'var(--grn)' : val >= 5 ? 'var(--yel)' : val >= 3 ? 'var(--red)' : 'var(--muted)';
+    return `<div class="mom-box"><div class="mom-val" style="color:${col}">${val ?? '—'}</div><div class="mom-lbl">${lbl}</div></div>`;
   }
 
   // Jogos
@@ -702,35 +722,34 @@ function renderPerfil(t){
         <div class="score-label">Yellup Score</div>
         <div class="score-sub">${m.cs!=null?'CS: '+m.cs+'%':''}</div>
         <div class="mom-row">
-          ${momBox(m.mom5,'Mom5')}${momBox(m.mom10,'Mom10')}${momBox(m.mom20,'Mom20')}
-          <div class="mom-box">
-            <div class="mom-val" style="color:var(--muted2)">${st?calcScore(Object.assign({},st,{clean_sheet_pct:st.clean_sheet_pct??m.cs,xgd:st.xgd??m.xgd}),t.liga,m.totalJogos)||'—':'—'}</div>
-            <div class="mom-lbl">Temp.</div>
-          </div>
+          ${momBox(m.s7||m.s5, 'Ult7', t.liga, m.totalJogos||0)}
+          ${momBox(m.s15||m.s10, 'Ult15', t.liga, m.totalJogos||0)}
+          ${momBox(m.s30, 'Ult30', t.liga, m.totalJogos||0)}
+          ${momBox(m.s70, 'Temp.', t.liga, m.totalJogos||0)}
         </div>
       </div>
     </div>
 
     <!-- MÉTRICAS PRINCIPAIS -->
-    <div class="sec">Momento — ${m.s15?'últimos 15':m.s10?'últimos 10':'últimos 5'} jogos</div>
+    <div class="sec">Forma recente — ${m.s7?'últimos 7':m.s5?'últimos 5':'—'} jogos <span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">/ Força no header = s30</span></div>
     <div class="cards4">
       <div class="card">
-        <div class="card-val c-yel">${s?.pts_jogo??'—'}</div>
-        <div class="card-lbl">Pts / jogo</div>
-        <div class="card-delta" style="color:var(--muted);font-size:9px">temp: ${st?.pts_jogo??'—'}</div>
+        <div class="card-val c-yel">${sf?.pts_jogo??'—'}</div>
+        <div class="card-lbl">Pts / jogo (ult7)</div>
+        <div class="card-delta" style="color:var(--muted);font-size:9px">s30: ${s?.pts_jogo??'—'}</div>
       </div>
       <div class="card">
-        <div class="card-val c-grn">${s?.gf_media??'—'}</div>
+        <div class="card-val c-grn">${sf?.gf_media??'—'}</div>
         <div class="card-lbl">Gols marcados / j</div>
-        <div class="card-delta" style="color:var(--muted);font-size:9px">temp: ${st?.gf_media??'—'}</div>
+        <div class="card-delta" style="color:var(--muted);font-size:9px">s30: ${s?.gf_media??'—'}</div>
       </div>
       <div class="card">
-        <div class="card-val c-red">${s?.gs_media??'—'}</div>
+        <div class="card-val c-red">${sf?.gs_media??'—'}</div>
         <div class="card-lbl">Gols sofridos / j</div>
-        <div class="card-delta" style="color:var(--muted);font-size:9px">temp: ${st?.gs_media??'—'}</div>
+        <div class="card-delta" style="color:var(--muted);font-size:9px">s30: ${s?.gs_media??'—'}</div>
       </div>
       <div class="card">
-        <div class="card-val" style="color:${(s?.tot_media||0)>=3?'var(--red)':(s?.tot_media||0)>=2?'var(--yel)':'var(--grn)'}">${s?.tot_media??'—'}</div>
+        <div class="card-val" style="color:${(sf?.tot_media||0)>=3?'var(--red)':(sf?.tot_media||0)>=2?'var(--yel)':'var(--grn)'}">${sf?.tot_media??'—'}</div>
         <div class="card-lbl">Total gols / j</div>
         <div class="card-delta" style="color:var(--muted);font-size:9px">${m.tendGolsTag==='alta'?'🔥 Alta':m.tendGolsTag==='baixa'?'🔒 Baixa':'⚖ Média'}</div>
       </div>
