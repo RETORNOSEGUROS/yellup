@@ -343,10 +343,10 @@ function getLigaTier(liga) {
   return 0.78;
 }
 function isNacional(t) {
-  // Prioridade: campo nacional salvo na coleção times (mais confiável)
-  // Fallback: detectar pelo nome da liga
+  // 1. Campo nacional salvo diretamente (mais confiável — vem da API-Football)
   if (t.nacional === true) return true;
   if (t.m && t.m.nacional === true) return true;
+  // 2. Fallback: detectar pelo nome da liga
   return getLigaTier(t.liga) === 'nacional';
 }
 
@@ -369,20 +369,25 @@ function calcScore(s, liga, totalJogos) {
   return Math.round(Math.min(10, base * tier * vol) * 10) / 10;
 }
 
-// Força = últimos 30 jogos (visão estável da temporada)
-// Forma  = últimos 7 jogos (momento atual)
+// Força = jogos DOMÉSTICOS (elimina distorção de CL/Copas)
+// s30_dom = últimos 30 jogos da liga doméstica
 function forcaStats(m) {
-  return m.s30 || m.s15 || m.s10 || m.s7 || m.s5 || null;
+  // Prioridade: doméstico (sem ruído de CL/Copa) > geral
+  return m.sDom30 || m.sDom15 || m.s30 || m.s15 || m.s10 || m.s7 || m.s5 || null;
 }
 function formaStats(m) {
-  return m.s7 || m.s5 || null;
+  // Forma recente: doméstica > geral
+  return m.sDom15 || m.s7 || m.s5 || null;
 }
 function bestStats(m) {
-  // alias mantido para compatibilidade interna
   return forcaStats(m);
 }
 function tempStats(m) {
-  return m.s70 || m.s30 || m.s15 || null;
+  // Histórico longo para blend
+  return m.s50 || m.sDom30 || m.s30 || m.s15 || null;
+}
+function europaStats(m) {
+  return m.sEur15 || null;
 }
 
 // ── MINUTOS ──────────────────────────────────────────────────────────────────
@@ -470,11 +475,13 @@ async function loadData(){
       PERFIS[tid]={
         id:tid, nome:p.nome||'—', logo:p.logo||'',
         liga, teamId:p.teamId,
-        nacional: p.nacional === true,  // campo da coleção times
+        nacional: p.nacional === true || p.tipo === 'selecao',  // campo salvo pelo enriquecer
         m:{
-          // stats principais — do enriquecer (s15/s30) ou do recalcular (s5/s10/s70)
+          // stats gerais
           s5:p.s5||null, s7:p.s7||null, s10:p.s10||null,
           s15:p.s15||null, s30:p.s30||null, s70:p.s70||null,
+          // stats domésticos (separados de Champions/Europa)
+          s30_dom:p.s30_dom||null, s15_dom:p.s15_dom||null, s15_eur:p.s15_eur||null,
           statsCasa:p.statsCasa||null, statsFora:p.statsFora||null,
           porForca:p.porForca||null,
           // xG e métricas API
@@ -625,9 +632,10 @@ function selectTime(id){
 
 function renderPerfil(t){
   const m=t.m;
-  const s=forcaStats(m);    // força: s30
-  const sf=formaStats(m);   // forma: s7
-  const st=tempStats(m);    // temporada: s70
+  const s=forcaStats(m);    // força: sDom30 > s30
+  const sf=formaStats(m);   // forma: sDom15 > s7
+  const st=tempStats(m);    // histórico: s50 > sDom30
+  const seur=europaStats(m);// performance europeia
 
   // Score calculado agora, ignorando eloNota do Firestore
   const sc=Object.assign({},s||{});
@@ -650,6 +658,7 @@ function renderPerfil(t){
   if(_tier==='nacional')badges.push(`<span class="badge" style="background:rgba(0,212,255,.1);color:var(--acc)">🌍 Seleção</span>`);
   else if(_tier>=0.95)badges.push(`<span class="badge" style="background:rgba(0,229,160,.08);color:var(--grn)">★ Liga top</span>`);
   else if(_tier<=0.50)badges.push(`<span class="badge" style="background:rgba(255,77,109,.08);color:var(--red)">Liga menor</span>`);
+  if(m.totalEur>0&&m.sEur15){const eurScore=calcScore(enrichStats(m.sEur15,m),t.liga,m.totalJogos,null);badges.push(`<span class="badge" style="background:rgba(79,150,244,.08);color:var(--blu)">CL/EUR: ${eurScore??'—'}</span>`);}
 
   // Momenta
   // Mom boxes: mostra força ABSOLUTA de cada janela, não variação
@@ -760,7 +769,7 @@ function renderPerfil(t){
       <div class="score-block">
         <div class="score-num" style="color:${sCol}">${score??'—'}</div>
         <div class="score-label">Yellup Score</div>
-        <div class="score-sub">${st&&st.n>=20?'blend s30+hist':'só s30'}${m.cs!=null?' · CS '+m.cs+'%':''}</div>
+        <div class="score-sub">${m.s30_dom?'dom+geral':'só geral'}${m.cs!=null?' · CS '+m.cs+'%':''}</div>
         <div class="mom-row">
           ${momBox(m.s7||m.s5,   'Ult7',  t.liga, m.totalJogos||0, false)}
           ${momBox(m.s15||m.s10, 'Ult15', t.liga, m.totalJogos||0, false)}
@@ -771,7 +780,7 @@ function renderPerfil(t){
     </div>
 
     <!-- MÉTRICAS PRINCIPAIS -->
-    <div class="sec">Forma recente — ${m.s7?'últimos 7':m.s5?'últimos 5':'—'} jogos <span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">/ Força no header = s30</span></div>
+    <div class="sec">Forma recente — ${m.sDom15?'ult15 domésticos':m.s7?'ult7 todos':'ult5'} <span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">· Força = ${m.sDom30?'sDom30':'s30'} · ${m.totalDom||0} jogos domésticos no banco</span></div>
     <div class="cards4">
       <div class="card">
         <div class="card-val c-yel">${sf?.pts_jogo??'—'}</div>
@@ -824,7 +833,7 @@ function renderPerfil(t){
     ${xgHtml}
 
     <!-- COMPARATIVO -->
-    <div class="sec">Comparativo de períodos</div>
+    <div class="sec">Comparativo — ${m.sDom30?'doméstico vs histórico':'geral vs histórico'}</div>
     <table class="comp-table">
       <thead><tr><th>Métrica</th><th class="r">${m.s15?'Ult15':m.s10?'Ult10':'Ult5'}</th><th class="r">${m.s30?'Ult30':m.s70?'Temp':'—'}</th></tr></thead>
       <tbody>
