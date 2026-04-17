@@ -527,6 +527,43 @@ html,body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--fB)
 .h2h-mr-tnm{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;}
 .h2h-mr-sc{font-family:var(--fM);font-size:13px;font-weight:700;min-width:52px;text-align:center;}
 .h2h-mr-lg{font-size:9px;color:var(--tx3);font-family:var(--fM);}
+
+/* ── DUAL 5-MIN INTERVAL CHART ── */
+.di-halves{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;}
+.di-half{flex:1;min-width:0;}
+.di-half-lbl{
+  font-size:8px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+  color:var(--tx3);padding-bottom:6px;border-bottom:1px solid var(--b2);
+  margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;
+}
+.di-cols{display:flex;gap:2px;align-items:flex-end;}
+.di-col{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:0;}
+.di-col.di-ac{opacity:.82;}
+.di-bars{display:flex;align-items:flex-end;gap:1px;height:90px;}
+.di-bar{width:7px;border-radius:1px 1px 0 0;min-height:2px;transition:height .6s cubic-bezier(.34,1.2,.64,1);}
+.di-bar-asc{background:var(--gn);}
+.di-bar-acn{background:var(--rd);}
+.di-bar-bsc{background:rgba(15,232,152,.40);border:1px solid rgba(15,232,152,.55);}
+.di-bar-bcn{background:rgba(244,63,94,.40);border:1px solid rgba(244,63,94,.55);}
+.di-col.di-ac .di-bar-asc{background:rgba(15,232,152,.55);}
+.di-col.di-ac .di-bar-acn{background:rgba(244,63,94,.55);}
+.di-col.di-ac .di-bar-bsc{background:rgba(15,232,152,.25);}
+.di-col.di-ac .di-bar-bcn{background:rgba(244,63,94,.25);}
+.di-nums{display:flex;gap:1px;font-family:var(--fM);font-size:8px;font-weight:700;flex-wrap:wrap;justify-content:center;min-height:11px;}
+.di-lbl{font-size:7px;color:var(--tx3);text-align:center;white-space:nowrap;}
+.di-col.di-ac .di-lbl{color:var(--yl);}
+.di-legend{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+.di-leg{display:flex;align-items:center;gap:4px;font-size:10px;font-family:var(--fM);}
+.di-leg-sq{width:8px;height:8px;border-radius:1px;flex-shrink:0;}
+.di-cross{display:flex;gap:5px;margin-top:10px;flex-wrap:wrap;}
+.di-cx-item{
+  background:var(--s2);border:1px solid var(--b1);border-radius:3px;
+  padding:5px 10px;font-size:9px;display:flex;align-items:center;gap:8px;
+  flex:1;min-width:160px;
+}
+.di-cx-win{font-family:var(--fM);font-size:11px;font-weight:700;white-space:nowrap;}
+.di-cx-desc{color:var(--tx3);font-family:var(--fM);font-size:8px;flex:1;}
+.di-cx-idx{font-family:var(--fM);font-size:13px;font-weight:700;}
 </style>
 </head>
 <body>
@@ -1997,6 +2034,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH) {
     ${renderForteCompare(scA, scB, colA, colB, sumAB)}
     ${renderStatsCompare(aggA, aggB, eA, eB)}
     ${renderPerMinute(aggA, aggB)}
+    ${renderDualIntervals(evA, evB)}
     ${renderSlidingWindows(evA, evB)}
     ${renderTiers(eA, 'A')}
     ${renderTiers(eB, 'B')}
@@ -2116,7 +2154,158 @@ function renderPerMinute(aggA, aggB) {
   </div>`;
 }
 
-// ── Block 4 — Sliding Windows 15min step 5 ────────────────────
+// ── Block 4a — Dual 5-min Intervals ───────────────────────────
+function renderDualIntervals(evA, evB) {
+  const BUCKETS = [
+    {l:'0–5',ac:false},{l:'6–10',ac:false},{l:'11–15',ac:false},{l:'16–20',ac:false},
+    {l:'21–25',ac:false},{l:'26–30',ac:false},{l:'31–35',ac:false},{l:'36–40',ac:false},
+    {l:'41–45',ac:false},{l:'AC 1T',ac:true},
+    {l:'46–50',ac:false},{l:'51–55',ac:false},{l:'56–60',ac:false},{l:'61–65',ac:false},
+    {l:'66–70',ac:false},{l:'71–75',ac:false},{l:'76–80',ac:false},{l:'81–85',ac:false},
+    {l:'86–90',ac:false},{l:'AC 2T',ac:true}
+  ];
+
+  // Build per-bucket arrays for both teams
+  const asc=new Array(20).fill(0), acn=new Array(20).fill(0);
+  const bsc=new Array(20).fill(0), bcn=new Array(20).fill(0);
+
+  Object.values(evA).forEach(evs=>evs.forEach(ev=>{
+    const bi=getBucket(ev.elapsed,ev.extra); if(bi<0)return;
+    ev.sc ? asc[bi]++ : acn[bi]++;
+  }));
+  Object.values(evB).forEach(evs=>evs.forEach(ev=>{
+    const bi=getBucket(ev.elapsed,ev.extra); if(bi<0)return;
+    ev.sc ? bsc[bi]++ : bcn[bi]++;
+  }));
+
+  const maxVal = Math.max(...asc,...acn,...bsc,...bcn,1);
+  const MAX_H  = 90;
+
+  // Cross index per bucket: A marks × B concedes + B marks × A concedes
+  // Normalised 0–10 — higher = more likely a goal
+  const crossIdx = BUCKETS.map((_,i) => {
+    const aAtk = asc[i] * bcn[i]; // A scores often + B concedes often
+    const bAtk = bsc[i] * acn[i]; // B scores often + A concedes often
+    return { aAtk, bAtk, total: aAtk + bAtk };
+  });
+  const maxCross = Math.max(...crossIdx.map(c=>c.total), 1);
+
+  // Find top 3 cross-index buckets
+  const ranked = crossIdx
+    .map((c,i)=>({...c,i}))
+    .filter(c=>c.total>0)
+    .sort((a,b)=>b.total-a.total)
+    .slice(0,4);
+
+  function colH(i) {
+    const bk   = BUCKETS[i];
+    const hAsc = Math.max(2,Math.round((asc[i]/maxVal)*MAX_H));
+    const hAcn = Math.max(2,Math.round((acn[i]/maxVal)*MAX_H));
+    const hBsc = Math.max(2,Math.round((bsc[i]/maxVal)*MAX_H));
+    const hBcn = Math.max(2,Math.round((bcn[i]/maxVal)*MAX_H));
+    const cx   = crossIdx[i];
+    const hotA = ranked.slice(0,3).some(r=>r.i===i && r.aAtk>=r.bAtk);
+    const hotB = ranked.slice(0,3).some(r=>r.i===i && r.bAtk>r.aAtk);
+    const hot  = ranked.slice(0,2).some(r=>r.i===i);
+
+    // Numbers row: only show non-zero
+    const ns = [
+      asc[i]?`<span style="color:var(--gn)">${asc[i]}</span>`:'',
+      acn[i]?`<span style="color:var(--rd)">${acn[i]}</span>`:'',
+      bsc[i]?`<span style="color:rgba(15,232,152,.7)">${bsc[i]}</span>`:'',
+      bcn[i]?`<span style="color:rgba(244,63,94,.7)">${bcn[i]}</span>`:'',
+    ].filter(Boolean).join(' ');
+
+    return `
+      <div class="di-col${bk.ac?' di-ac':''}" style="${hot?'background:rgba(0,212,255,.04);border-radius:3px;':''}" >
+        <div class="di-nums">${ns||'<span style="color:var(--tx3)">·</span>'}</div>
+        <div class="di-bars">
+          <div class="di-bar di-bar-asc" data-h="${hAsc}" style="height:2px"></div>
+          <div class="di-bar di-bar-acn" data-h="${hAcn}" style="height:2px"></div>
+          <div class="di-bar di-bar-bsc" data-h="${hBsc}" style="height:2px"></div>
+          <div class="di-bar di-bar-bcn" data-h="${hBcn}" style="height:2px"></div>
+        </div>
+        <div class="di-lbl">${bk.l}</div>
+      </div>`;
+  }
+
+  const half1 = [0,1,2,3,4,5,6,7,8,9].map(colH).join('');
+  const half2 = [10,11,12,13,14,15,16,17,18,19].map(colH).join('');
+
+  const sc1A=asc.slice(0,10).reduce((s,v)=>s+v,0);
+  const cn1A=acn.slice(0,10).reduce((s,v)=>s+v,0);
+  const sc2A=asc.slice(10).reduce((s,v)=>s+v,0);
+  const cn2A=acn.slice(10).reduce((s,v)=>s+v,0);
+  const sc1B=bsc.slice(0,10).reduce((s,v)=>s+v,0);
+  const cn1B=bcn.slice(0,10).reduce((s,v)=>s+v,0);
+  const sc2B=bsc.slice(10).reduce((s,v)=>s+v,0);
+  const cn2B=bcn.slice(10).reduce((s,v)=>s+v,0);
+
+  const crossHtml = ranked.length ? `
+    <div style="font-size:8px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--tx3);margin-bottom:6px;margin-top:12px">
+      Janelas de maior probabilidade de gol
+    </div>
+    <div class="di-cross">
+      ${ranked.map(r=>{
+        const bk = BUCKETS[r.i];
+        const favA = r.aAtk >= r.bAtk;
+        const favTeam = favA ? H2H_A.nome : H2H_B.nome;
+        const col = favA ? forteColor(FORTE_CACHE[H2H_A.apiId]||5) : forteColor(FORTE_CACHE[H2H_B.apiId]||5);
+        const idx = (r.total/maxCross*10).toFixed(1);
+        const idxCol = +idx>=7?'var(--cy)':+idx>=4?'var(--gn)':'var(--tx2)';
+        const descA = favA
+          ? `${H2H_A.nome} fez ${asc[r.i]} · ${H2H_B.nome} tomou ${bcn[r.i]}`
+          : `${H2H_B.nome} fez ${bsc[r.i]} · ${H2H_A.nome} tomou ${acn[r.i]}`;
+        return `
+          <div class="di-cx-item">
+            <span style="font-family:var(--fM);font-size:10px;font-weight:700;color:var(--tx2);min-width:38px">${bk.l}</span>
+            <span class="di-cx-win" style="color:${col}">→ ${favTeam}</span>
+            <span class="di-cx-desc">${descA}</span>
+            <span class="di-cx-idx" style="color:${idxCol}">${idx}</span>
+          </div>`;
+      }).join('')}
+    </div>` : '';
+
+  return `
+  <div class="h2h-section">
+    <div class="h2h-sec-title">Gols por Intervalo 5min · Ambos os Times</div>
+    <div class="di-legend">
+      <div class="di-leg"><div class="di-leg-sq" style="background:var(--gn)"></div>${H2H_A.nome} marcou</div>
+      <div class="di-leg"><div class="di-leg-sq" style="background:var(--rd)"></div>${H2H_A.nome} sofreu</div>
+      <div class="di-leg"><div class="di-leg-sq" style="background:rgba(15,232,152,.4);border:1px solid rgba(15,232,152,.6)"></div>${H2H_B.nome} marcou</div>
+      <div class="di-leg"><div class="di-leg-sq" style="background:rgba(244,63,94,.4);border:1px solid rgba(244,63,94,.6)"></div>${H2H_B.nome} sofreu</div>
+    </div>
+    <div class="di-halves">
+      <div class="di-half">
+        <div class="di-half-lbl">
+          <span>Primeiro Tempo</span>
+          <span style="font-family:var(--fM);font-size:10px">
+            <span style="color:var(--gn)">${sc1A}↑${sc1B}↑</span>
+            <span style="color:var(--rd);margin-left:6px">${cn1A}↓${cn1B}↓</span>
+          </span>
+        </div>
+        <div class="di-cols">${half1}</div>
+      </div>
+      <div style="width:1px;background:var(--b2);margin:0 4px;align-self:stretch;flex-shrink:0"></div>
+      <div class="di-half">
+        <div class="di-half-lbl">
+          <span>Segundo Tempo</span>
+          <span style="font-family:var(--fM);font-size:10px">
+            <span style="color:var(--gn)">${sc2A}↑${sc2B}↑</span>
+            <span style="color:var(--rd);margin-left:6px">${cn2A}↓${cn2B}↓</span>
+          </span>
+        </div>
+        <div class="di-cols">${half2}</div>
+      </div>
+    </div>
+    ${crossHtml}
+    <div style="font-size:8px;color:var(--tx3);font-family:var(--fM);margin-top:8px">
+      Barras sólidas = ${H2H_A.nome} · Barras translúcidas = ${H2H_B.nome} · Índice cruzado: A faz × B toma + B faz × A toma
+    </div>
+  </div>`;
+}
+
+// ── Block 4b — Sliding Windows 15min step 5 ───────────────────
 function renderSlidingWindows(evA, evB) {
   // Build goal arrays per minute (0..94)
   const goalsA = new Array(95).fill(0), goalsB = new Array(95).fill(0);
