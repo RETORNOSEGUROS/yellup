@@ -982,23 +982,51 @@ async function carregarMediasHistoricas() {
       fn({ teamId: f.timeCasa.id }).catch(() => null),
       fn({ teamId: f.timeFora.id }).catch(() => null),
     ]);
+
+    // Log first jogo keys for diagnosis — remove after confirming
+    const jogosC = rC?.data?.jogos || [];
+    const jogosF = rF?.data?.jogos || [];
+    if (jogosC[0]?.stats?.time) {
+      console.log('[HistMedias] Chaves stats casa:', Object.keys(jogosC[0].stats.time));
+    }
+    if (jogosF[0]?.stats?.time) {
+      console.log('[HistMedias] Chaves stats fora:', Object.keys(jogosF[0].stats.time));
+    }
+
     const calcMedias = (jogos) => {
       if (!jogos?.length) return null;
       const n = jogos.length;
-      const avg = k => jogos.reduce((a, j) => a + (parseFloat(j.stats?.time?.[k]) || 0), 0) / n;
+
+      // avgMulti: tenta múltiplos aliases de chave, retorna o primeiro não-zero
+      const avgMulti = (...keys) => {
+        return jogos.reduce((acc, j) => {
+          const stats = j.stats?.time || {};
+          for (const k of keys) {
+            const v = parseFloat(stats[k]);
+            if (!isNaN(v) && v > 0) return acc + v;
+          }
+          return acc;
+        }, 0) / n;
+      };
+
       return {
-        corners:  avg('Corner Kicks'),
-        shots:    avg('Total Shots'),
-        shotsOn:  avg('Shots on Goal'),
-        passes:   avg('Total passes'),
-        precisao: avg('Passes %'),
-        faltas:   avg('Fouls'),
-        xg:       avg('expected_goals'),
+        corners:  avgMulti('Corner Kicks', 'Corners', 'corner_kicks'),
+        shots:    avgMulti('Total Shots', 'Shots', 'total_shots'),
+        shotsOn:  avgMulti('Shots on Goal', 'Shots On Goal', 'shots_on_goal'),
+        passes:   avgMulti('Total passes', 'Total Passes', 'Passes', 'passes', 'total_passes'),
+        precisao: avgMulti('Passes %', 'Pass Accuracy', 'passes_accuracy', 'pass_accuracy'),
+        faltas:   avgMulti('Fouls', 'fouls'),
+        xg:       avgMulti('expected_goals', 'Expected Goals', 'xG', 'xg'),
         n,
       };
     };
-    HIST_MEDIAS.casa = calcMedias(rC?.data?.jogos);
-    HIST_MEDIAS.fora = calcMedias(rF?.data?.jogos);
+
+    HIST_MEDIAS.casa = calcMedias(jogosC);
+    HIST_MEDIAS.fora = calcMedias(jogosF);
+
+    console.log('[HistMedias] Casa:', HIST_MEDIAS.casa);
+    console.log('[HistMedias] Fora:', HIST_MEDIAS.fora);
+
     // Re-renderizar ritmo com médias agora disponíveis
     if (DADOS.estatisticas?.length >= 2) renderStats();
   } catch(e) { console.warn('Hist médias:', e); }
@@ -2900,21 +2928,34 @@ function calcRaioX() {
   };
 
   // Referências históricas (/90min)
-  // Prioridade: HIST_MEDIAS do time → PERFIL (gf/gc) → GLOBAL_REF
-  // Trata xg=0 como ausente (ligas sem xG na API, ex: Brasileirão)
+  // Prioridade: HIST_MEDIAS do time → estimativa por chutes → GLOBAL_REF
+  // xG: Cloud Function não retorna expected_goals → estima shots × 0.095
+  // Passes: Cloud Function não retorna Total passes → usa GLOBAL_REF ou estimativa
   const GLOBAL_REF = { xg:1.40, passes:450, shots:12, shotsOn:4.5, precisao:80 };
 
   const buildRef = (medias, perfil) => {
-    const nz = (v, fallback) => (v && v > 0) ? v : fallback; // non-zero or fallback
-    return {
-      xg:      nz(medias?.xg,       GLOBAL_REF.xg),
-      passes:  nz(medias?.passes,   GLOBAL_REF.passes),
-      shots:   nz(medias?.shots,    GLOBAL_REF.shots),
-      shotsOn: nz(medias?.shotsOn,  GLOBAL_REF.shotsOn),
-      precisao:nz(medias?.precisao, GLOBAL_REF.precisao),
-      // Label to show source
-      fonte: medias?.n > 0 ? `hist. ${medias.n}j` : (perfil ? 'perfil' : 'global'),
-    };
+    const nz = (v, fb) => (v != null && v > 0) ? v : fb;
+
+    // shots e shotsOn vêm corretamente da Cloud Function
+    const shots   = nz(medias?.shots,   GLOBAL_REF.shots);
+    const shotsOn = nz(medias?.shotsOn, GLOBAL_REF.shotsOn);
+
+    // xG: usa real se disponível, senão estima por chutes (shots × 0.095 ± ajuste precisão)
+    const precisao = nz(medias?.precisao, GLOBAL_REF.precisao);
+    const xgReal   = nz(medias?.xg, 0);
+    const xgEst    = +(shots * 0.095 * (precisao / 80)).toFixed(2); // normaliza por qualidade de passes
+    const xg       = xgReal > 0 ? xgReal : (xgEst > 0 ? xgEst : GLOBAL_REF.xg);
+    const xgEstimado = xgReal === 0;
+
+    // Passes: usa real se disponível, senão global (não temos como estimar bem sem contexto)
+    const passes = nz(medias?.passes, GLOBAL_REF.passes);
+    const passesEstimado = !(medias?.passes > 0);
+
+    const fonte = medias?.n > 0
+      ? `hist. ${medias.n}j${xgEstimado ? ' (xG est.)' : ''}`
+      : (perfil ? 'perfil' : 'global');
+
+    return { xg, passes, shots, shotsOn, precisao, fonte, xgEstimado, passesEstimado };
   };
 
   const refH = buildRef(HIST_MEDIAS.casa, PERFIL_CASA);
@@ -2936,7 +2977,8 @@ function calcRaioX() {
 
       // Precisão é uma taxa — não projeta, compara direto
       const proj90 = isRate ? atual : +(atual / min * 90).toFixed(dec);
-      const hist   = ref[key] ?? null;
+      const hist      = ref[key] ?? null;
+      const isEstRef  = (key === 'xg' && ref.xgEstimado) || (key === 'passes' && ref.passesEstimado);
       const compareVal = isRate ? atual : proj90;
 
       let statusCls = 'na', status = '—';
@@ -2953,7 +2995,7 @@ function calcRaioX() {
         label,
         atual:  fmt(atual, dec, unit),
         proj90: isRate ? '—' : fmt(proj90, dec, unit),
-        hist:   hist !== null ? fmt(hist, dec, unit) : '—',
+        hist:   hist !== null ? (isEstRef ? '~' : '') + fmt(hist, dec, unit) : '—',
         status, statusCls,
       };
     }).filter(Boolean);
