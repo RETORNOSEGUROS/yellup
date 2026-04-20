@@ -2815,6 +2815,7 @@ function renderRaioXVivo() {
           <div class="rx-team-badges">
             ${acima > 0 ? `<span class="rx-badge up">▲${acima} acima</span>` : ''}
             ${abaixo > 0 ? `<span class="rx-badge down">▼${abaixo} abaixo</span>` : ''}
+            <span class="rx-badge ok" title="fonte da referência histórica">${sd.fonte||'global'}</span>
           </div>
         </div>
         <table class="rx-table">
@@ -2899,18 +2900,25 @@ function calcRaioX() {
   };
 
   // Referências históricas (/90min)
-  // Fallback = benchmarks médios globais
+  // Prioridade: HIST_MEDIAS do time → PERFIL (gf/gc) → GLOBAL_REF
+  // Trata xg=0 como ausente (ligas sem xG na API, ex: Brasileirão)
   const GLOBAL_REF = { xg:1.40, passes:450, shots:12, shotsOn:4.5, precisao:80 };
-  const refH = HIST_MEDIAS.casa
-    ? { xg: HIST_MEDIAS.casa.xg||GLOBAL_REF.xg, passes: HIST_MEDIAS.casa.passes||GLOBAL_REF.passes,
-        shots: HIST_MEDIAS.casa.shots||GLOBAL_REF.shots, shotsOn: HIST_MEDIAS.casa.shotsOn||GLOBAL_REF.shotsOn,
-        precisao: HIST_MEDIAS.casa.precisao||GLOBAL_REF.precisao }
-    : GLOBAL_REF;
-  const refA = HIST_MEDIAS.fora
-    ? { xg: HIST_MEDIAS.fora.xg||GLOBAL_REF.xg, passes: HIST_MEDIAS.fora.passes||GLOBAL_REF.passes,
-        shots: HIST_MEDIAS.fora.shots||GLOBAL_REF.shots, shotsOn: HIST_MEDIAS.fora.shotsOn||GLOBAL_REF.shotsOn,
-        precisao: HIST_MEDIAS.fora.precisao||GLOBAL_REF.precisao }
-    : GLOBAL_REF;
+
+  const buildRef = (medias, perfil) => {
+    const nz = (v, fallback) => (v && v > 0) ? v : fallback; // non-zero or fallback
+    return {
+      xg:      nz(medias?.xg,       GLOBAL_REF.xg),
+      passes:  nz(medias?.passes,   GLOBAL_REF.passes),
+      shots:   nz(medias?.shots,    GLOBAL_REF.shots),
+      shotsOn: nz(medias?.shotsOn,  GLOBAL_REF.shotsOn),
+      precisao:nz(medias?.precisao, GLOBAL_REF.precisao),
+      // Label to show source
+      fonte: medias?.n > 0 ? `hist. ${medias.n}j` : (perfil ? 'perfil' : 'global'),
+    };
+  };
+
+  const refH = buildRef(HIST_MEDIAS.casa, PERFIL_CASA);
+  const refA = buildRef(HIST_MEDIAS.fora, PERFIL_FORA);
 
   const STAT_DEFS = [
     { key:'xg',       label:'xG',           dec:2, isRate:false, unit:'' },
@@ -2958,7 +2966,7 @@ function calcRaioX() {
     const acima  = stats.filter(s => s.statusCls === 'up').length;
     const abaixo = stats.filter(s => s.statusCls === 'down').length;
 
-    return { nome, stats, pressao, xgAtual, gols, acima, abaixo };
+    return { nome, stats, pressao, xgAtual, gols, acima, abaixo, fonte: ref.fonte };
   };
 
   const casa = calcSide('casa', refH, f.timeCasa.nome);
@@ -4508,15 +4516,21 @@ async function gerarPreAnalise() {
 
 // ── Build aggregate from HIST_MEDIAS + PERFIL ──────────────────────────
 function _buildAgg(medias, perfil) {
+  const nz = (v, fb) => (v && v > 0) ? v : fb; // non-zero or fallback
+  // GF/GC: prefer perfil (calculated from actual goals), then medias.xg as proxy
+  const gfJ = perfil?.s5?.gf_media
+    || (medias?.n > 0 && medias?.shots > 0 ? medias.shots * 0.10 : null) // shots proxy
+    || 1.3;
+  const gcJ = perfil?.s5?.gs_media || 1.3;
   return {
-    xg:      medias?.xg       ?? 1.3,
-    passes:  medias?.passes   ?? 400,
-    shots:   medias?.shots    ?? 12,
-    shotsOn: medias?.shotsOn  ?? 4,
-    precisao:medias?.precisao ?? 78,
-    gfJ: perfil?.s5?.gf_media ?? medias?.xg ?? 1.3,
-    gcJ: perfil?.s5?.gs_media ?? 1.3,
-    n:   medias?.n ?? 0,
+    xg:      nz(medias?.xg,       null),  // null if 0 — no xG available
+    passes:  nz(medias?.passes,   400),
+    shots:   nz(medias?.shots,    12),
+    shotsOn: nz(medias?.shotsOn,  4),
+    precisao:nz(medias?.precisao, 78),
+    gfJ, gcJ,
+    n: medias?.n ?? 0,
+    temXG: !!(medias?.xg > 0),
   };
 }
 
@@ -4596,14 +4610,15 @@ function renderPreJogo() {
 
   // Stats compare
   const aC = d.aggCasa, aF = d.aggFora;
+  const temXG = aC.temXG || aF.temXG;
   const statsRows = [
     ['Pts/Jogo', (aC.gfJ-aC.gcJ+1.5).toFixed(2), (aF.gfJ-aF.gcJ+1.5).toFixed(2)],
-    ['xG',       aC.xg.toFixed(2),               aF.xg.toFixed(2)],
-    ['Finalizações', aC.shots.toFixed(1),         aF.shots.toFixed(1)],
-    ['Passes Tot.', Math.round(aC.passes),         Math.round(aF.passes)],
-    ['Passes %',  Math.round(aC.precisao)+'%',    Math.round(aF.precisao)+'%'],
-    ['GF/J',     aC.gfJ.toFixed(2),               aF.gfJ.toFixed(2)],
-    ['GC/J',     aC.gcJ.toFixed(2),               aF.gcJ.toFixed(2)],
+    ...(temXG ? [['xG', aC.xg?.toFixed(2)??'—', aF.xg?.toFixed(2)??'—']] : []),
+    ['Finalizações', aC.shots?.toFixed(1)??'—',   aF.shots?.toFixed(1)??'—'],
+    ['Passes Tot.',  Math.round(aC.passes||0),      Math.round(aF.passes||0)],
+    ['Passes %',     Math.round(aC.precisao||0)+'%', Math.round(aF.precisao||0)+'%'],
+    ['GF/J',         aC.gfJ.toFixed(2),              aF.gfJ.toFixed(2)],
+    ['GC/J',         aC.gcJ.toFixed(2),              aF.gcJ.toFixed(2)],
   ].map(([lbl,vA,vB]) => {
     const nA=parseFloat(vA), nB=parseFloat(vB);
     const winA = lbl==='GC/J' ? nA<nB : nA>nB;
@@ -4663,19 +4678,28 @@ function renderPreJogo() {
       </div>
     </div>` : '';
 
-  // Top placares
+  // Top placares — destaque nos 2 mais prováveis
   const topP = (d.topPlacares||[]).slice(0,6);
   const topPHtml = topP.length ? `
-    <div style="margin-top:10px;">
-      <div style="font-size:8px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--t3);margin-bottom:5px;">Placares mais prováveis</div>
+    <div style="margin-top:12px;">
+      <div style="font-size:8px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--t3);margin-bottom:6px;">Placares mais prováveis</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">
+        ${topP.slice(0,2).map((p,i) => `
+          <div style="flex:1;min-width:80px;background:${i===0?'rgba(0,229,160,.12)':'rgba(255,184,0,.08)'};border:1px solid ${i===0?'rgba(0,229,160,.3)':'rgba(255,184,0,.25)'};border-radius:8px;padding:10px;text-align:center;">
+            <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:800;color:${i===0?'var(--acc)':'var(--yel)'}">${p.g}</div>
+            <div style="font-size:10px;color:var(--t3);margin-top:3px;font-family:'DM Mono',monospace">${Math.round(p.prob*100)}% prob</div>
+            <div style="font-size:8px;color:var(--t3);margin-top:1px">${i===0?'mais provável':'2º mais provável'}</div>
+          </div>`).join('')}
+      </div>
       <div style="display:flex;gap:4px;flex-wrap:wrap;">
-        ${topP.map((p,i) => {
-          const col = i===0?'var(--acc)':i<=2?'var(--yel)':'var(--t2)';
-          return `<div style="background:var(--bg3);border-radius:5px;padding:5px 8px;text-align:center;min-width:42px;">
-            <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${col}">${p.g}</div>
+        ${topP.slice(2).map(p => `
+          <div style="background:var(--bg3);border-radius:5px;padding:5px 9px;text-align:center;min-width:44px;">
+            <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:var(--t2)">${p.g}</div>
             <div style="font-size:8px;color:var(--t3);margin-top:1px">${Math.round(p.prob*100)}%</div>
-          </div>`;
-        }).join('')}
+          </div>`).join('')}
+      </div>
+      <div style="font-size:8px;color:var(--t3);margin-top:6px;font-family:'DM Mono',monospace;">
+        Soma dos top-2: média de gols = ${((topP[0]?.g?.split('-').reduce((a,b)=>+a+ +b,0)||0) + (topP[1]?.g?.split('-').reduce((a,b)=>+a+ +b,0)||0))/2 | 0} gols aprox.
       </div>
     </div>` : '';
 
