@@ -2928,38 +2928,47 @@ function calcRaioX() {
   };
 
   // Referências históricas (/90min)
-  // Prioridade: HIST_MEDIAS do time → estimativa por chutes → GLOBAL_REF
-  // xG: Cloud Function não retorna expected_goals → estima shots × 0.095
-  // Passes: Cloud Function não retorna Total passes → usa GLOBAL_REF ou estimativa
+  // Prioridade: 1) localStorage yellup_teamRef_{id} (salvo pelo raiox-times.html)
+  //             2) HIST_MEDIAS (estimativa parcial via Cloud Function)
+  //             3) GLOBAL_REF (fallback global)
   const GLOBAL_REF = { xg:1.40, passes:450, shots:12, shotsOn:4.5, precisao:80 };
 
-  const buildRef = (medias, perfil) => {
+  const readTeamRef = (apiId) => {
+    try {
+      const s = localStorage.getItem(`yellup_teamRef_${apiId}`);
+      return s ? JSON.parse(s) : null;
+    } catch { return null; }
+  };
+
+  const buildRef = (medias, perfil, teamRef) => {
     const nz = (v, fb) => (v != null && v > 0) ? v : fb;
 
-    // shots e shotsOn vêm corretamente da Cloud Function
-    const shots   = nz(medias?.shots,   GLOBAL_REF.shots);
+    // xG: localStorage (raiox-times) > HIST_MEDIAS real > estimativa por chutes > global
+    const shots    = nz(teamRef?.shots,  nz(medias?.shots, GLOBAL_REF.shots));
+    const precisao = nz(teamRef?.precisao, nz(medias?.precisao, GLOBAL_REF.precisao));
+    const xgLS     = teamRef?.xg;
+    const xgHist   = nz(medias?.xg, 0);
+    const xgEst    = +(shots * 0.095 * (precisao / 80)).toFixed(2);
+    const xg       = nz(xgLS, nz(xgHist, xgEst > 0 ? xgEst : GLOBAL_REF.xg));
+    const xgEstimado = !xgLS && !xgHist;
+
+    // Passes: localStorage > HIST_MEDIAS > global
+    const passes = nz(teamRef?.passTotal, nz(medias?.passes, GLOBAL_REF.passes));
+    const passesEstimado = !teamRef?.passTotal && !(medias?.passes > 0);
+
     const shotsOn = nz(medias?.shotsOn, GLOBAL_REF.shotsOn);
 
-    // xG: usa real se disponível, senão estima por chutes (shots × 0.095 ± ajuste precisão)
-    const precisao = nz(medias?.precisao, GLOBAL_REF.precisao);
-    const xgReal   = nz(medias?.xg, 0);
-    const xgEst    = +(shots * 0.095 * (precisao / 80)).toFixed(2); // normaliza por qualidade de passes
-    const xg       = xgReal > 0 ? xgReal : (xgEst > 0 ? xgEst : GLOBAL_REF.xg);
-    const xgEstimado = xgReal === 0;
-
-    // Passes: usa real se disponível, senão global (não temos como estimar bem sem contexto)
-    const passes = nz(medias?.passes, GLOBAL_REF.passes);
-    const passesEstimado = !(medias?.passes > 0);
-
-    const fonte = medias?.n > 0
-      ? `hist. ${medias.n}j${xgEstimado ? ' (xG est.)' : ''}`
-      : (perfil ? 'perfil' : 'global');
+    const fonte = teamRef
+      ? `raiox ${new Date(teamRef.savedAt).toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'})}`
+      : medias?.n > 0 ? `hist. ${medias.n}j${xgEstimado ? ' (est.)' : ''}` : 'global';
 
     return { xg, passes, shots, shotsOn, precisao, fonte, xgEstimado, passesEstimado };
   };
 
-  const refH = buildRef(HIST_MEDIAS.casa, PERFIL_CASA);
-  const refA = buildRef(HIST_MEDIAS.fora, PERFIL_FORA);
+  const refCasaLS = readTeamRef(f.timeCasa.id);
+  const refForaLS = readTeamRef(f.timeFora.id);
+  const refH = buildRef(HIST_MEDIAS.casa, PERFIL_CASA, refCasaLS);
+  const refA = buildRef(HIST_MEDIAS.fora, PERFIL_FORA, refForaLS);
 
   const STAT_DEFS = [
     { key:'xg',       label:'xG',           dec:2, isRate:false, unit:'' },
