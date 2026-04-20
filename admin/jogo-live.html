@@ -4731,26 +4731,38 @@ function renderPreJogo() {
 
   // Top placares — destaque nos 2 mais prováveis
   const topP = (d.topPlacares||[]).slice(0,6);
+
+  // Total de gols previsto (média ponderada pelos top placares, ou lambda)
+  let golsPrevisto = d.lambda ? +d.lambda.toFixed(1) : '—';
+  // Cálculo mais preciso: soma prob × gols para cada placar
+  if (topP.length) {
+    let sumGols = 0, sumProb = 0;
+    topP.forEach(p => {
+      const g = p.g?.split('-').reduce((a,b)=>+a+ +b, 0) || 0;
+      sumGols += g * p.prob;
+      sumProb += p.prob;
+    });
+    // Extrapola para 100% de probabilidade (top placares representam ~50-70% do total)
+    golsPrevisto = sumProb > 0 ? +(sumGols / sumProb).toFixed(1) : golsPrevisto;
+  }
+
   const topPHtml = topP.length ? `
-    <div style="margin-top:12px;">
-      <div style="font-size:8px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--t3);margin-bottom:6px;">Placares mais prováveis</div>
-      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">
+    <div style="margin-bottom:12px;">
+      <div style="font-size:8px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--t3);margin-bottom:8px;">Placares mais prováveis</div>
+      <div style="display:flex;gap:6px;margin-bottom:6px;">
         ${topP.slice(0,2).map((p,i) => `
-          <div style="flex:1;min-width:80px;background:${i===0?'rgba(0,229,160,.12)':'rgba(255,184,0,.08)'};border:1px solid ${i===0?'rgba(0,229,160,.3)':'rgba(255,184,0,.25)'};border-radius:8px;padding:10px;text-align:center;">
-            <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:800;color:${i===0?'var(--acc)':'var(--yel)'}">${p.g}</div>
-            <div style="font-size:10px;color:var(--t3);margin-top:3px;font-family:'DM Mono',monospace">${Math.round(p.prob*100)}% prob</div>
-            <div style="font-size:8px;color:var(--t3);margin-top:1px">${i===0?'mais provável':'2º mais provável'}</div>
+          <div style="flex:1;background:${i===0?'rgba(0,229,160,.12)':'rgba(255,184,0,.08)'};border:1px solid ${i===0?'rgba(0,229,160,.3)':'rgba(255,184,0,.25)'};border-radius:8px;padding:12px 8px;text-align:center;">
+            <div style="font-family:'DM Mono',monospace;font-size:24px;font-weight:800;line-height:1;color:${i===0?'var(--acc)':'var(--yel)'}">${p.g}</div>
+            <div style="font-size:11px;font-weight:700;font-family:'DM Mono',monospace;color:${i===0?'var(--acc)':'var(--yel)'};margin-top:4px">${Math.round(p.prob*100)}%</div>
+            <div style="font-size:8px;color:var(--t3);margin-top:2px">${i===0?'🥇 mais provável':'🥈 2º mais provável'}</div>
           </div>`).join('')}
       </div>
       <div style="display:flex;gap:4px;flex-wrap:wrap;">
         ${topP.slice(2).map(p => `
-          <div style="background:var(--bg3);border-radius:5px;padding:5px 9px;text-align:center;min-width:44px;">
-            <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:var(--t2)">${p.g}</div>
+          <div style="background:var(--bg3);border:1px solid var(--brd,rgba(255,255,255,.06));border-radius:5px;padding:5px 10px;text-align:center;min-width:48px;">
+            <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:var(--t2)">${p.g}</div>
             <div style="font-size:8px;color:var(--t3);margin-top:1px">${Math.round(p.prob*100)}%</div>
           </div>`).join('')}
-      </div>
-      <div style="font-size:8px;color:var(--t3);margin-top:6px;font-family:'DM Mono',monospace;">
-        Soma dos top-2: média de gols = ${((topP[0]?.g?.split('-').reduce((a,b)=>+a+ +b,0)||0) + (topP[1]?.g?.split('-').reduce((a,b)=>+a+ +b,0)||0))/2 | 0} gols aprox.
       </div>
     </div>` : '';
 
@@ -4766,12 +4778,35 @@ function renderPreJogo() {
       <div class="pj-sec-title">
         Previsão de Gols · Poisson Ajustado${abertoFlag}
       </div>
-      <div style="font-size:9px;font-family:'DM Mono',monospace;color:var(--t3);margin-bottom:8px;">
-        λ bruto ${lRaw} → ajustado por vulnerabilidade → λ casa <strong style="color:var(--acc)">${lC}</strong> · λ fora <strong style="color:var(--blu)">${lF}</strong> · total <strong>${lTot}</strong>
+
+      <div style="font-size:9px;font-family:'DM Mono',monospace;color:var(--t3);margin-bottom:10px;">
+        λ bruto ${lRaw} → ajustado → λ casa <strong style="color:var(--acc)">${lC}</strong> · λ fora <strong style="color:var(--blu)">${lF}</strong>
       </div>
-      <div class="pj-ou">${ouBoxes}</div>
-      ${res12}
+
+      <!-- Total de gols previsto — destaque principal -->
+      <div style="display:flex;align-items:center;gap:10px;background:var(--bg3,rgba(255,255,255,.04));border-radius:8px;padding:10px 14px;margin-bottom:12px;">
+        <div style="text-align:center;min-width:60px;">
+          <div style="font-family:'DM Mono',monospace;font-size:30px;font-weight:800;line-height:1;color:var(--t1)">${golsPrevisto}</div>
+          <div style="font-size:8px;color:var(--t3);margin-top:3px;letter-spacing:.5px;text-transform:uppercase">gols previstos</div>
+        </div>
+        <div style="width:1px;height:36px;background:rgba(255,255,255,.08)"></div>
+        <div style="flex:1;font-size:10px;color:var(--t2);font-family:'DM Mono',monospace;line-height:1.5">
+          Over 1.5: <strong style="color:${Math.round((ou[1.5]||0)*100)>=60?'var(--acc)':'var(--t2)'}">${Math.round((ou[1.5]||0)*100)}%</strong>
+          &nbsp;·&nbsp;
+          Over 2.5: <strong style="color:${Math.round((ou[2.5]||0)*100)>=55?'var(--yel)':'var(--t2)'}">${Math.round((ou[2.5]||0)*100)}%</strong>
+          &nbsp;·&nbsp;
+          Over 3.5: <strong>${Math.round((ou[3.5]||0)*100)}%</strong>
+        </div>
+      </div>
+
+      <!-- Top 2 Placares -->
       ${topPHtml}
+
+      <!-- Over/Under completo -->
+      <div class="pj-ou">${ouBoxes}</div>
+
+      <!-- 1X2 -->
+      ${res12}
     </div>`;
 
   // Hot windows
