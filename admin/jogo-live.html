@@ -4467,7 +4467,8 @@ async function gerarPreAnalise() {
     } catch(e) {}
 
     const lambda    = (aggC.gfJ||1.3) + (aggF.gfJ||1.3);
-    const overUnder = _calcOverUnder(lambda);
+    const poisson   = _calcPoisson(aggC, aggF);
+    const overUnder = poisson.overUnder;
     const crossWins = _calcDistribWindows(aggC, aggF, nC, nF);
 
     const isFinished = ['FT','AET','PEN'].includes(f.status?.short || '');
@@ -4478,7 +4479,12 @@ async function gerarPreAnalise() {
       logoCasa: f.timeCasa.logo||''  , logoFora: f.timeFora.logo||'',
       forteCasa: fsC, forteFora: fsF,
       aggCasa: aggC, aggFora: aggF,
-      lambda, overUnder, crossWins,
+      lambda: poisson.lambdaTotal,
+      lambdaCasa: poisson.lambdaCasa,
+      lambdaFora: poisson.lambdaFora,
+      lambdaRaw: poisson.lambdaRaw,
+      jogoAberto: poisson.jogoAberto,
+      overUnder, crossWins,
       golsReais:  isFinished ? ((f.placar?.casa??0)+(f.placar?.fora??0)) : null,
       placarReal: isFinished ? `${f.placar?.casa??'?'}-${f.placar?.fora??'?'}` : null,
     };
@@ -4618,8 +4624,16 @@ function renderPreJogo() {
       <div class="pj-stats">${statsRows}</div>
     </div>`;
 
-  // Over/Under Poisson
-  const ou = d.overUnder;
+  // Over/Under Poisson ajustado
+  const ou  = d.overUnder;
+  const lC  = d.lambdaCasa?.toFixed(2) ?? '—';
+  const lF  = d.lambdaFora?.toFixed(2) ?? '—';
+  const lRaw= d.lambdaRaw?.toFixed(2)  ?? d.lambda?.toFixed(2) ?? '—';
+  const lTot= d.lambda?.toFixed(2) ?? '—';
+  const p1  = d.p1 != null ? Math.round(d.p1*100) : null;
+  const pX  = d.pX != null ? Math.round(d.pX*100) : null;
+  const p2  = d.p2 != null ? Math.round(d.p2*100) : null;
+
   const ouBoxes = [0.5,1.5,2.5,3.5,4.5].map(x => {
     const pct = Math.round((ou[x]||0)*100);
     const col = pct>=70?'var(--acc)':pct>=50?'var(--yel)':'var(--t2)';
@@ -4630,10 +4644,59 @@ function renderPreJogo() {
     </div>`;
   }).join('');
 
+  // 1X2
+  const mx12 = Math.max(p1??0, pX??0, p2??0);
+  const c12  = (v) => v===mx12?'var(--acc)':'var(--t2)';
+  const res12 = p1!=null ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-top:8px;">
+      <div style="background:var(--bg3);border-radius:6px;padding:7px;text-align:center;">
+        <div style="font-size:15px;font-weight:700;font-family:'DM Mono',monospace;color:${c12(p1)}">${p1}%</div>
+        <div style="font-size:8px;color:var(--t3);margin-top:2px">${d.nomeCasa?.split(' ')[0]} vence</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:6px;padding:7px;text-align:center;">
+        <div style="font-size:15px;font-weight:700;font-family:'DM Mono',monospace;color:${c12(pX)}">${pX}%</div>
+        <div style="font-size:8px;color:var(--t3);margin-top:2px">Empate</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:6px;padding:7px;text-align:center;">
+        <div style="font-size:15px;font-weight:700;font-family:'DM Mono',monospace;color:${c12(p2)}">${p2}%</div>
+        <div style="font-size:8px;color:var(--t3);margin-top:2px">${d.nomeFora?.split(' ')[0]} vence</div>
+      </div>
+    </div>` : '';
+
+  // Top placares
+  const topP = (d.topPlacares||[]).slice(0,6);
+  const topPHtml = topP.length ? `
+    <div style="margin-top:10px;">
+      <div style="font-size:8px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--t3);margin-bottom:5px;">Placares mais prováveis</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">
+        ${topP.map((p,i) => {
+          const col = i===0?'var(--acc)':i<=2?'var(--yel)':'var(--t2)';
+          return `<div style="background:var(--bg3);border-radius:5px;padding:5px 8px;text-align:center;min-width:42px;">
+            <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${col}">${p.g}</div>
+            <div style="font-size:8px;color:var(--t3);margin-top:1px">${Math.round(p.prob*100)}%</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
+  const abertoFlag = d.jogoAberto ? `
+    <div style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;
+      background:rgba(255,69,96,.1);border:1px solid rgba(255,69,96,.3);
+      font-size:9px;font-family:'DM Mono',monospace;color:var(--red);margin-left:8px;">
+      🔓 Jogo Aberto · GC/J soma ${d.gcSoma}
+    </div>` : '';
+
   const ouHtml = `
     <div class="pj-section">
-      <div class="pj-sec-title">Previsão de Gols · λ=${d.lambda.toFixed(2)} (modelo Poisson)</div>
+      <div class="pj-sec-title">
+        Previsão de Gols · Poisson Ajustado${abertoFlag}
+      </div>
+      <div style="font-size:9px;font-family:'DM Mono',monospace;color:var(--t3);margin-bottom:8px;">
+        λ bruto ${lRaw} → ajustado por vulnerabilidade → λ casa <strong style="color:var(--acc)">${lC}</strong> · λ fora <strong style="color:var(--blu)">${lF}</strong> · total <strong>${lTot}</strong>
+      </div>
       <div class="pj-ou">${ouBoxes}</div>
+      ${res12}
+      ${topPHtml}
     </div>`;
 
   // Hot windows
@@ -4735,25 +4798,96 @@ async function salvarPreAnalise() {
   } catch(e) { console.warn('salvarPreAnalise:', e.message); }
 }
 
-// ── Poisson over/under ─────────────────────────────────────────────────
-function _calcOverUnder(lambda) {
-  const poissonPMF = (k) => {
-    let p = Math.exp(-lambda);
-    for (let i = 1; i <= k; i++) p *= lambda / i;
+// ── Poisson Model — Ajustado (3 melhorias) ────────────────────────────
+// Ajuste 1: Lambda por vulnerabilidade do adversário
+// Ajuste 2: Bônus casa (times que jogam melhor em casa)
+// Ajuste 3: Flag "jogo aberto" quando GC/J somado > 2.5
+const GLOBAL_GC_MEDIA = 1.35; // média global de gols sofridos por jogo
+
+function _calcPoisson(aggC, aggF) {
+  const gfC = aggC.gfJ || 1.3;
+  const gcC = aggC.gcJ || 1.3;
+  const gfF = aggF.gfJ || 1.3;
+  const gcF = aggF.gcJ || 1.3;
+
+  // Ajuste 1 — Lambda por vulnerabilidade
+  // Casa marca mais quando adversário tem GC/J alto
+  const lambdaCasa = gfC * (gcF / GLOBAL_GC_MEDIA);
+  // Fora marca mais quando defensora tem GC/J alto, mas com penalidade fora (×0.85)
+  const lambdaFora = gfF * (gcC / GLOBAL_GC_MEDIA) * 0.85;
+
+  // Ajuste 3 — Jogo aberto: se GC/J somado > 2.5, amplifica lambdas
+  const gcSoma    = gcC + gcF;
+  const jogoAberto = gcSoma > 2.5;
+  const fatorAberto = jogoAberto ? 1 + (gcSoma - 2.5) * 0.15 : 1.0;
+
+  const lambdaCasaFinal = lambdaCasa * fatorAberto;
+  const lambdaForaFinal = lambdaFora * fatorAberto;
+  const lambdaTotal     = lambdaCasaFinal + lambdaForaFinal;
+  const lambdaRaw       = gfC + gfF; // valor original para comparação
+
+  // Distribuição Poisson independente (modelo Dixon-Coles simplificado)
+  const poissonPMF = (lam, k) => {
+    let p = Math.exp(-lam);
+    for (let i = 1; i <= k; i++) p *= lam / i;
     return p;
   };
-  const cdf = (k) => {
-    let s = 0;
-    for (let i = 0; i <= k; i++) s += poissonPMF(i);
-    return s;
+
+  // Calcula probabilidades de placar [0..6] × [0..6]
+  const MAX = 7;
+  let p = Array.from({length:MAX}, (_,i) =>
+    Array.from({length:MAX}, (_,j) =>
+      poissonPMF(lambdaCasaFinal, i) * poissonPMF(lambdaForaFinal, j)
+    )
+  );
+
+  // Over/Under via soma dos placares
+  const pOver = (x) => {
+    let sum = 0;
+    for (let i = 0; i < MAX; i++)
+      for (let j = 0; j < MAX; j++)
+        if (i+j > x) sum += p[i][j];
+    return Math.min(0.99, sum);
   };
+
+  // Resultados 1X2
+  let p1=0, pX=0, p2=0;
+  for (let i=0;i<MAX;i++) for (let j=0;j<MAX;j++) {
+    if (i>j) p1+=p[i][j];
+    else if (i===j) pX+=p[i][j];
+    else p2+=p[i][j];
+  }
+
+  // Top 5 placares mais prováveis
+  const placares = [];
+  for (let i=0;i<MAX;i++) for (let j=0;j<MAX;j++)
+    placares.push({g:`${i}-${j}`, prob:p[i][j]});
+  placares.sort((a,b)=>b.prob-a.prob);
+
   return {
-    0.5: 1 - cdf(0),
-    1.5: 1 - cdf(1),
-    2.5: 1 - cdf(2),
-    3.5: 1 - cdf(3),
-    4.5: 1 - cdf(4),
+    lambdaCasa: +lambdaCasaFinal.toFixed(3),
+    lambdaFora: +lambdaForaFinal.toFixed(3),
+    lambdaTotal: +lambdaTotal.toFixed(3),
+    lambdaRaw:   +lambdaRaw.toFixed(3),
+    jogoAberto,
+    gcSoma: +gcSoma.toFixed(2),
+    p1: +p1.toFixed(3), pX: +pX.toFixed(3), p2: +p2.toFixed(3),
+    topPlacares: placares.slice(0,6),
+    overUnder: {
+      0.5: +pOver(0).toFixed(3),
+      1.5: +pOver(1).toFixed(3),
+      2.5: +pOver(2).toFixed(3),
+      3.5: +pOver(3).toFixed(3),
+      4.5: +pOver(4).toFixed(3),
+    },
   };
+}
+
+// mantido por compatibilidade (não usado no novo fluxo)
+function _calcOverUnder(lambda) {
+  const pmf = (k) => { let p=Math.exp(-lambda); for(let i=1;i<=k;i++) p*=lambda/i; return p; };
+  const cdf = (k) => { let s=0; for(let i=0;i<=k;i++) s+=pmf(i); return s; };
+  return { 0.5:1-cdf(0), 1.5:1-cdf(1), 2.5:1-cdf(2), 3.5:1-cdf(3), 4.5:1-cdf(4) };
 }
 
 // ── Cross-index windows ────────────────────────────────────────────────
@@ -4795,7 +4929,9 @@ function _gerarNarrativa(d) {
   const aC = d.aggCasa, aF = d.aggFora;
   const fsC = d.forteCasa, fsF = d.forteFora;
   const nC = d.nomeCasa, nF = d.nomeFora;
-  const lambda = d.lambda;
+  const lambda  = d.lambda || d.lambdaTotal || d.lambdaRaw || 2.5;
+  const lC      = d.lambdaCasa;
+  const lF      = d.lambdaFora;
   const ou = d.overUnder;
   const topWins = (d.crossWins||[]).slice(0,3);
 
@@ -4829,7 +4965,13 @@ function _gerarNarrativa(d) {
   const p15 = Math.round((ou[1.5]||0)*100);
   const p35 = Math.round((ou[3.5]||0)*100);
   const tag25 = p25>=65?'green':p25>=45?'yel':'red';
-  parts.push(`<p><span class="pj-tag ${tag25}">Over 2.5: ${p25}%</span> Com λ=${lambda.toFixed(2)} (soma dos xG médios), o modelo Poisson estima ${p15}% de chance de mais de 1 gol, ${p25}% de mais de 2 e ${p35}% de mais de 3.</p>`);
+
+  // Jogo aberto
+  if (d.jogoAberto) {
+    parts.push(`<p><span class="pj-tag red">🔓 Jogo Aberto</span> Soma de GC/J = <strong>${d.gcSoma}</strong> — ambos os times concedem acima da média global (1.35). Histórico indica <strong>maior probabilidade de placar elástico</strong>. Lambda foi amplificado automaticamente para refletir esse padrão.</p>`);
+  }
+
+  parts.push(`<p><span class="pj-tag ${tag25}">Over 2.5: ${p25}%</span> Modelo Poisson ajustado: λ casa <strong>${lC?.toFixed(2)??'—'}</strong> · λ fora <strong>${lF?.toFixed(2)??'—'}</strong> · total <strong>${lambda.toFixed(2)}</strong>. Estimativa: ${p15}% Over 1.5 · ${p25}% Over 2.5 · ${p35}% Over 3.5.</p>`);
 
   // Janelas quentes
   if (topWins.length >= 2) {
