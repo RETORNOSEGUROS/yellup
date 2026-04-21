@@ -4676,17 +4676,86 @@ function renderPreJogo() {
       </div>
     </div>`;
 
-  // Stats compare
-  const aC = d.aggCasa, aF = d.aggFora;
-  const temXG = aC.temXG || aF.temXG;
-  const statsRows = [
-    ['Pts/Jogo', (aC.gfJ-aC.gcJ+1.5).toFixed(2), (aF.gfJ-aF.gcJ+1.5).toFixed(2)],
-    ...(temXG ? [['xG', aC.xg?.toFixed(2)??'—', aF.xg?.toFixed(2)??'—']] : []),
-    ['Finalizações', aC.shots?.toFixed(1)??'—',   aF.shots?.toFixed(1)??'—'],
-    ['Passes Tot.',  Math.round(aC.passes||0),      Math.round(aF.passes||0)],
-    ['Passes %',     Math.round(aC.precisao||0)+'%', Math.round(aF.precisao||0)+'%'],
-    ['GF/J',         aC.gfJ.toFixed(2),              aF.gfJ.toFixed(2)],
-    ['GC/J',         aC.gcJ.toFixed(2),              aF.gcJ.toFixed(2)],
+  // ── Referência por Minuto — dados direto do raiox-times localStorage ──
+  const refCasa = readTeamRef(d.timeCasaId) || {};
+  const refFora = readTeamRef(d.timeForaId) || {};
+  const hasRefLS = !!(refCasa.xg || refFora.xg);
+
+  // Stats: usa raiox-times localStorage se disponível, senão aggCasa/aggFora
+  const stC = {
+    xg:      refCasa.xg       ?? aC.xg,
+    shots:   refCasa.shots    ?? aC.shots,
+    passes:  refCasa.passTotal ?? aC.passes,
+    precisao:refCasa.precisao ?? aC.precisao,
+    poss:    refCasa.poss     ?? null,
+    gfJ:     refCasa.gfJ      ?? aC.gfJ,
+    gcJ:     refCasa.gcJ      ?? aC.gcJ,
+  };
+  const stF = {
+    xg:      refFora.xg       ?? aF.xg,
+    shots:   refFora.shots    ?? aF.shots,
+    passes:  refFora.passTotal ?? aF.passes,
+    precisao:refFora.precisao ?? aF.precisao,
+    poss:    refFora.poss     ?? null,
+    gfJ:     refFora.gfJ      ?? aF.gfJ,
+    gcJ:     refFora.gcJ      ?? aF.gcJ,
+  };
+
+  const fmtN = (v, dec=2) => (v != null && v > 0) ? (+v).toFixed(dec) : '—';
+  const fmtI = (v) => (v != null && v > 0) ? Math.round(+v) : '—';
+
+  // Per-minute reference card
+  const pmCard = (st, nome, cor) => {
+    const xgM  = st.xg > 0    ? (st.xg/90).toFixed(4)    : '—';
+    const shM  = st.shots > 0  ? (st.shots/90).toFixed(3) : '—';
+    const psM  = st.passes > 0 ? Math.round(st.passes/90) : '—';
+    const gfM  = st.gfJ > 0   ? (st.gfJ/90).toFixed(4)   : '—';
+    const gcM  = st.gcJ > 0   ? (st.gcJ/90).toFixed(4)   : '—';
+    const xg15 = st.xg > 0    ? (st.xg/90*15).toFixed(3) : '—';
+    const xg45 = st.xg > 0    ? (st.xg/90*45).toFixed(3) : '—';
+    const xg90 = st.xg > 0    ? (+st.xg).toFixed(3)      : '—';
+    return `
+      <div style="flex:1;background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:10px 12px;min-width:140px;">
+        <div style="font-size:10px;font-weight:700;color:${cor};margin-bottom:8px;border-bottom:1px solid var(--brd);padding-bottom:5px;">${nome}</div>
+        ${[
+          ['xG por min',     xgM,  'var(--acc)'],
+          ['Fin. por min',   shM,  'var(--t1)'],
+          ['Passes por min', psM,  'var(--t1)'],
+          ['GF por min',     gfM,  'var(--acc)'],
+          ['GC por min',     gcM,  'var(--red)'],
+          ['xG esp. 15\'',   xg15, 'var(--acc)'],
+          ['xG esp. 45\'',   xg45, 'var(--acc)'],
+          ['xG esp. 90\'',   xg90, 'var(--acc)'],
+        ].map(([lbl,val,vc]) => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.03);">
+            <span style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace">${lbl}</span>
+            <span style="font-size:11px;font-weight:700;font-family:'DM Mono',monospace;color:${vc}">${val}</span>
+          </div>`).join('')}
+      </div>`;
+  };
+
+  const refMinHtml = `
+    <div class="pj-section">
+      <div class="pj-sec-title">
+        Referência por Minuto · base para análise ao vivo
+        ${hasRefLS ? '<span style="font-size:8px;color:var(--acc);font-family:\'DM Mono\',monospace;margin-left:6px;">✓ dados do Raio-X Times</span>' : '<span style="font-size:8px;color:var(--yel);font-family:\'DM Mono\',monospace;margin-left:6px;">⚠ estimado</span>'}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${pmCard(stC, d.nomeCasa, colC)}
+        ${pmCard(stF, d.nomeFora, colF)}
+      </div>
+    </div>`;
+
+  // Stats compare — agora com dados do raiox-times
+  const temXG = (stC.xg > 0) || (stF.xg > 0);
+  const statsRowsNew = [
+    ...(stC.poss || stF.poss ? [['Posse %', fmtI(stC.poss)+'%', fmtI(stF.poss)+'%']] : []),
+    ...(temXG ? [['xG', fmtN(stC.xg), fmtN(stF.xg)]] : []),
+    ['Finalizações', fmtN(stC.shots,1), fmtN(stF.shots,1)],
+    ['Passes Tot.',  fmtI(stC.passes),   fmtI(stF.passes)],
+    ['Passes %',     fmtI(stC.precisao)+'%', fmtI(stF.precisao)+'%'],
+    ['GF/J',         fmtN(stC.gfJ),     fmtN(stF.gfJ)],
+    ['GC/J',         fmtN(stC.gcJ),     fmtN(stF.gcJ)],
   ].map(([lbl,vA,vB]) => {
     const nA=parseFloat(vA), nB=parseFloat(vB);
     const winA = lbl==='GC/J' ? nA<nB : nA>nB;
@@ -4704,7 +4773,7 @@ function renderPreJogo() {
         <div></div>
         <div style="font-size:10px;font-weight:700;color:${colF};padding:3px 10px">${d.nomeFora}</div>
       </div>
-      <div class="pj-stats">${statsRows}</div>
+      <div class="pj-stats">${statsRowsNew}</div>
     </div>`;
 
   // Over/Under Poisson ajustado
@@ -4907,7 +4976,7 @@ function renderPreJogo() {
       </button>
     </div>`;
 
-  el.innerHTML = saveHtml + forteHtml + statsHtml + ouHtml + winsHtml + narrHtml + resultHtml;
+  el.innerHTML = saveHtml + forteHtml + statsHtml + refMinHtml + ouHtml + winsHtml + narrHtml + resultHtml;
 }
 
 // ── Save to Firestore ──────────────────────────────────────────────────
