@@ -884,6 +884,23 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 <script>
 const gc = id => document.getElementById(id);
 
+// ── Stats normalization — usado em TODOS os lugares que leem estatísticas ──
+// API pode retornar stats como array [{type,value}] OU objeto {key:value}
+// Também usa String() para comparar IDs (evita type mismatch number vs string)
+function normStats(raw) {
+  if (!raw) return {};
+  if (Array.isArray(raw)) {
+    const o = {};
+    raw.forEach(s => { if (s?.type != null) o[s.type] = s.value; });
+    return o;
+  }
+  return raw;
+}
+function getStats(sts, teamId) {
+  const entry = sts.find(t => String(t.time?.id) === String(teamId));
+  return normStats(entry?.stats);
+}
+
 firebase.initializeApp({
   apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
   authDomain:"painel-yellup.firebaseapp.com",
@@ -1044,8 +1061,8 @@ async function buscarDados() {
     // Diagnóstico: logar DA no console do navegador
     const _sts = DADOS.estatisticas || [];
     const _f = DADOS.fixture;
-    const _hRaw = _sts.find(t => t.time.id === _f.timeCasa.id)?.stats || {};
-    const _aRaw = _sts.find(t => t.time.id === _f.timeFora.id)?.stats || {};
+    const _hRaw = getStats(_sts, _f.timeCasa.id);
+    const _aRaw = getStats(_sts, _f.timeFora.id);
     console.log(`[YellupDiag] DA: casa=${_hRaw['Dangerous Attacks']} fora=${_aRaw['Dangerous Attacks']} | stats keys casa:`, Object.keys(_hRaw));
     pushStatsHist();
     log("OK dados recebidos");
@@ -1075,8 +1092,8 @@ function pushStatsHist() {
     return lastRow?.placarFora ?? 0;
   };
   // FIX: usar String() para evitar falha quando id vem como number em um lado e string no outro
-  const rawHome = sts.find(t => String(t.time.id) === String(f.timeCasa.id))?.stats || {};
-  const rawAway = sts.find(t => String(t.time.id) === String(f.timeFora.id))?.stats || {};
+  const rawHome = getStats(sts, f.timeCasa.id);
+  const rawAway = getStats(sts, f.timeFora.id);
 
   // FIX: stats pode vir como array [{type,value}] OU objeto {key:value}
   // Normalizar para sempre objeto antes de ler
@@ -1088,8 +1105,8 @@ function pushStatsHist() {
     }
     return raw || {};
   };
-  const home = normStats(rawHome);
-  const away = normStats(rawAway);
+  const home = rawHome;
+  const away = rawAway;
 
   // Helper: lê número ou null (não converte undefined→0)
   const pn = (obj, key) => {
@@ -1382,8 +1399,8 @@ function renderStats() {
     gc("donutsGrid").innerHTML = "<div class='empty' style='grid-column:1/-1'>Aguardando...</div>";
     return;
   }
-  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  const home = getStats(sts, f.timeCasa.id);
+  const away = getStats(sts, f.timeFora.id);
   const posseC = parseInt(home["Ball Possession"]) || 50;
   const posseF = parseInt(away["Ball Possession"]) || (100 - posseC);
   gc("posseCasaBar").style.width = posseC + "%"; gc("posseCasaBar").textContent = posseC + "%";
@@ -1466,8 +1483,8 @@ function renderSinaisLocais() {
   if (!DADOS) return;
   const sts = DADOS.estatisticas || [], f = DADOS.fixture;
   if (sts.length < 2) return;
-  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  const home = getStats(sts, f.timeCasa.id);
+  const away = getStats(sts, f.timeFora.id);
   const min = Math.max(f.status.elapsed || 1, 1);
   const nC = f.timeCasa.nome, nF = f.timeFora.nome;
 
@@ -1768,8 +1785,8 @@ function _montarContexto() {
   if (!DADOS) return null;
   const f = DADOS.fixture;
   const sts = DADOS.estatisticas || [];
-  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  const home = getStats(sts, f.timeCasa.id);
+  const away = getStats(sts, f.timeFora.id);
   const evs = (DADOS.eventos || []).slice(-15); // últimos 15 eventos
   const min = f.status.elapsed || 0;
 
@@ -1870,8 +1887,8 @@ function pararIALoop() {
 function renderInsights() {
   const sts = DADOS.estatisticas || [], f = DADOS.fixture, insights = [];
   if (sts.length < 2) { gc("insightList").innerHTML = "<div class='empty'>Dados insuficientes</div>"; return; }
-  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  const home = getStats(sts, f.timeCasa.id);
+  const away = getStats(sts, f.timeFora.id);
   const min = f.status.elapsed || 0, nC = f.timeCasa.nome, nF = f.timeFora.nome;
   const posseC = parseInt(home["Ball Possession"]) || 50, posseF = 100 - posseC;
   const chutsH = parseInt(home["Total Shots"]) || 0, chutsA = parseInt(away["Total Shots"]) || 0;
@@ -1907,8 +1924,8 @@ function detectarEscanteiosNovos() {
   if (!DADOS) return;
   const sts = DADOS.estatisticas || [], f = DADOS.fixture;
   if (sts.length < 2) return;
-  const home = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const away = sts.find(t => t.time.id === f.timeFora.id)?.stats || {};
+  const home = getStats(sts, f.timeCasa.id);
+  const away = getStats(sts, f.timeFora.id);
   const cornersC = parseInt(home['Corner Kicks']) || 0;
   const cornersF = parseInt(away['Corner Kicks']) || 0;
   const min = f.status.elapsed || 0;
@@ -2898,8 +2915,8 @@ function calcRaioX() {
   const min         = Math.max(isFinished ? 90 : rawMin, 1);
   if (sts.length < 2) return null;
 
-  const stC = sts.find(t => String(t.time.id) === String(f.timeCasa.id))?.stats || {};
-  const stF = sts.find(t => String(t.time.id) === String(f.timeFora.id))?.stats  || {};
+  const stC = getStats(sts, f.timeCasa.id);
+  const stF = getStats(sts, f.timeFora.id);
 
   const pn = (obj, key) => {
     const v = obj[key];
@@ -3437,8 +3454,8 @@ function renderDivergencia() {
   const placarFora = DADOS.fixture?.placar?.fora ?? f.placar?.fora ?? 0;
 
   // Stats ao vivo
-  const stC = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const stF = sts.find(t => t.time.id === f.timeFora.id)?.stats  || {};
+  const stC = getStats(sts, f.timeCasa.id);
+  const stF = getStats(sts, f.timeFora.id);
 
   function n(obj, key) {
     const v = obj[key];
@@ -3715,8 +3732,8 @@ function renderDesvioVivo() {
   if (sts.length < 2 || min < 5) { card.style.display = 'none'; return; }
   card.style.display = 'block';
 
-  const stC = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const stF = sts.find(t => t.time.id === f.timeFora.id)?.stats  || {};
+  const stC = getStats(sts, f.timeCasa.id);
+  const stF = getStats(sts, f.timeFora.id);
 
   function n(obj, key) {
     const v = obj[key];
@@ -3810,8 +3827,8 @@ async function buscarFingerprintAgora() {
   gc('fpDiagCard').style.display  = 'none';
   gc('fpEmpty').style.display     = 'none';
 
-  const stC = sts.find(t => t.time.id === f.timeCasa.id)?.stats || {};
-  const stF = sts.find(t => t.time.id === f.timeFora.id)?.stats  || {};
+  const stC = getStats(sts, f.timeCasa.id);
+  const stF = getStats(sts, f.timeFora.id);
   const n   = v => { const x = v; if (x==null) return null; return parseFloat(String(x).replace('%',''))||null; };
 
   try {
