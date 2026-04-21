@@ -306,7 +306,28 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 .cen-cond.nok{background:var(--bg4);color:var(--t3);}
 .cen-hist{padding:4px 13px 8px;font-size:10px;color:var(--t3);font-family:"DM Mono",monospace;}
 
-/* ── ABA CAMPO ─────────────────────────────────── */
+/* ── Gols por intervalo no Pré-Jogo ── */
+.pj-di-wrap{overflow-x:auto;padding-bottom:4px;}
+.pj-di-half{margin-bottom:10px;}
+.pj-di-half-title{font-size:8px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--t3);margin-bottom:5px;display:flex;justify-content:space-between;}
+.pj-di-cols{display:flex;gap:2px;align-items:flex-end;}
+.pj-di-col{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:0;}
+.pj-di-col.ac{opacity:.8;}
+.pj-di-bars{display:flex;align-items:flex-end;gap:1px;height:70px;}
+.pj-di-bar{width:6px;border-radius:1px 1px 0 0;min-height:2px;transition:height .5s cubic-bezier(.34,1.2,.64,1);}
+.pj-di-bar.asc{background:var(--acc);}
+.pj-di-bar.acn{background:var(--red);}
+.pj-di-bar.bsc{background:rgba(0,229,160,.35);border:1px solid rgba(0,229,160,.5);}
+.pj-di-bar.bcn{background:rgba(255,69,96,.35);border:1px solid rgba(255,69,96,.5);}
+.pj-di-col.ac .pj-di-bar.asc{background:rgba(0,229,160,.6);}
+.pj-di-col.ac .pj-di-bar.acn{background:rgba(255,69,96,.6);}
+.pj-di-nums{display:flex;gap:1px;font-family:'DM Mono',monospace;font-size:7px;font-weight:700;flex-wrap:wrap;justify-content:center;min-height:10px;}
+.pj-di-lbl{font-size:6px;color:var(--t3);text-align:center;white-space:nowrap;}
+.pj-di-col.ac .pj-di-lbl{color:var(--yel);}
+.pj-di-legend{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.pj-di-leg-item{display:flex;align-items:center;gap:4px;font-size:8px;color:var(--t3);font-family:'DM Mono',monospace;}
+.pj-di-leg-sq{width:8px;height:8px;border-radius:1px;}
+</style>
 .campo-wrap{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .field-box{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;overflow:hidden;}
 .field-top{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--brd);}
@@ -4977,7 +4998,17 @@ function renderPreJogo() {
       </button>
     </div>`;
 
-  el.innerHTML = saveHtml + forteHtml + statsHtml + refMinHtml + ouHtml + winsHtml + narrHtml + resultHtml;
+  // Intervalos
+  const intervalosHtml = renderIntervalosPreJogo(d.timeCasaId, d.timeForaId, d.nomeCasa, d.nomeFora);
+
+  el.innerHTML = saveHtml + forteHtml + statsHtml + refMinHtml + intervalosHtml + ouHtml + winsHtml + narrHtml + resultHtml;
+
+  // Animar barras do gráfico de intervalos
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.querySelectorAll('.pj-di-bar[data-pjh]').forEach(b => {
+      b.style.height = b.dataset.pjh + 'px';
+    });
+  }));
 }
 
 // ── Save to Firestore ──────────────────────────────────────────────────
@@ -5121,7 +5152,133 @@ function _calcCrossWindows(ivC, ivF, nC, nF) {
     .slice(0, 8);
 }
 
-// ── Narrative generator ────────────────────────────────────────────────
+// ── Gols por Intervalo — Pré-Jogo ─────────────────────────────────────
+function renderIntervalosPreJogo(idA, idB, nomeA, nomeB) {
+  // Tenta ler os buckets do localStorage (salvo pelo raiox-times ao clicar Analisar)
+  let iv = null;
+  try {
+    const k1 = localStorage.getItem(`yellup_intervalos_${idA}_${idB}`);
+    const k2 = localStorage.getItem(`yellup_intervalos_${idB}_${idA}`);
+    if (k1) { iv = JSON.parse(k1); }
+    else if (k2) {
+      // ordem invertida — trocar A↔B
+      const d = JSON.parse(k2);
+      iv = { asc:d.bsc, acn:d.bcn, bsc:d.asc, bcn:d.acn,
+             nomeA, nomeB, idA, idB, savedAt:d.savedAt };
+    }
+  } catch { return ''; }
+
+  if (!iv) return `
+    <div class="pj-section">
+      <div class="pj-sec-title">Gols por Intervalo</div>
+      <div style="font-size:10px;color:var(--t3);font-family:'DM Mono',monospace;padding:8px 0;">
+        ⚠ Abra o Raio-X Times → Comparar → Analisar os dois times para carregar o gráfico de intervalos.
+      </div>
+    </div>`;
+
+  const { asc, acn, bsc, bcn } = iv;
+  const BUCKET_LABELS = [
+    '0–5','6–10','11–15','16–20','21–25','26–30','31–35','36–40','41–45','AC 1T',
+    '46–50','51–55','56–60','61–65','66–70','71–75','76–80','81–85','86–90','AC 2T'
+  ];
+  const IS_AC = [false,false,false,false,false,false,false,false,false,true,
+                 false,false,false,false,false,false,false,false,false,true];
+
+  const maxVal = Math.max(...asc,...acn,...bsc,...bcn,1);
+  const MAX_H  = 70;
+
+  // Cross index
+  const cross = BUCKET_LABELS.map((_,i) => ({
+    aAtk: asc[i]*bcn[i], bAtk: bsc[i]*acn[i], total: asc[i]*bcn[i]+bsc[i]*acn[i], i
+  }));
+  const maxCross = Math.max(...cross.map(c=>c.total),1);
+
+  const ranked = [...cross].filter(c=>c.total>0).sort((a,b)=>b.total-a.total).slice(0,4);
+  const hotSet = new Set(ranked.slice(0,2).map(r=>r.i));
+
+  const mkCol = (i) => {
+    const hot  = hotSet.has(i);
+    const hAsc = Math.max(2, Math.round(asc[i]/maxVal*MAX_H));
+    const hAcn = Math.max(2, Math.round(acn[i]/maxVal*MAX_H));
+    const hBsc = Math.max(2, Math.round(bsc[i]/maxVal*MAX_H));
+    const hBcn = Math.max(2, Math.round(bcn[i]/maxVal*MAX_H));
+    const ns = [
+      asc[i]?`<span style="color:var(--acc)">${asc[i]}</span>`:'',
+      acn[i]?`<span style="color:var(--red)">${acn[i]}</span>`:'',
+      bsc[i]?`<span style="color:rgba(0,229,160,.6)">${bsc[i]}</span>`:'',
+      bcn[i]?`<span style="color:rgba(255,69,96,.6)">${bcn[i]}</span>`:'',
+    ].filter(Boolean).join(' ');
+    return `
+      <div class="pj-di-col${IS_AC[i]?' ac':''}" style="${hot?'background:rgba(0,229,160,.04);border-radius:3px;':''}">
+        <div class="pj-di-nums">${ns||'<span style="color:var(--t3)">·</span>'}</div>
+        <div class="pj-di-bars">
+          <div class="pj-di-bar asc" data-pjh="${hAsc}" style="height:2px"></div>
+          <div class="pj-di-bar acn" data-pjh="${hAcn}" style="height:2px"></div>
+          <div class="pj-di-bar bsc" data-pjh="${hBsc}" style="height:2px"></div>
+          <div class="pj-di-bar bcn" data-pjh="${hBcn}" style="height:2px"></div>
+        </div>
+        <div class="pj-di-lbl">${BUCKET_LABELS[i]}</div>
+      </div>`;
+  };
+
+  const sc1A=asc.slice(0,10).reduce((s,v)=>s+v,0), cn1A=acn.slice(0,10).reduce((s,v)=>s+v,0);
+  const sc2A=asc.slice(10).reduce((s,v)=>s+v,0),   cn2A=acn.slice(10).reduce((s,v)=>s+v,0);
+  const sc1B=bsc.slice(0,10).reduce((s,v)=>s+v,0), cn1B=bcn.slice(0,10).reduce((s,v)=>s+v,0);
+  const sc2B=bsc.slice(10).reduce((s,v)=>s+v,0),   cn2B=bcn.slice(10).reduce((s,v)=>s+v,0);
+
+  const crossHtml = ranked.length ? `
+    <div style="font-size:8px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--t3);margin:10px 0 5px">
+      Janelas de maior probabilidade de gol
+    </div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;">
+      ${ranked.map(r => {
+        const idx = +(r.total/maxCross*10).toFixed(1);
+        const team = r.aAtk>=r.bAtk ? nomeA : nomeB;
+        const col  = idx>=7?'var(--red)':idx>=4?'var(--yel)':'var(--t2)';
+        return `<div style="background:var(--bg3);border:1px solid var(--brd);border-radius:6px;padding:5px 9px;display:flex;align-items:center;gap:6px;">
+          <span style="font-size:9px;font-weight:700;font-family:'DM Mono',monospace">${BUCKET_LABELS[r.i]}'</span>
+          <span style="color:var(--t3);font-size:8px">→</span>
+          <span style="font-size:9px;font-weight:700;color:var(--acc)">${team.split(' ')[0]}</span>
+          <span style="font-size:12px;font-weight:700;font-family:'DM Mono',monospace;color:${col}">${idx}</span>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  const savedDate = iv.savedAt ? new Date(iv.savedAt).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) : '';
+
+  return `
+    <div class="pj-section">
+      <div class="pj-sec-title">
+        Gols por Intervalo 5min
+        <span style="font-size:8px;color:var(--acc);font-family:'DM Mono',monospace;margin-left:6px;">✓ raiox ${savedDate}</span>
+      </div>
+      <div class="pj-di-legend">
+        <div class="pj-di-leg-item"><div class="pj-di-leg-sq" style="background:var(--acc)"></div>${nomeA} marcou</div>
+        <div class="pj-di-leg-item"><div class="pj-di-leg-sq" style="background:var(--red)"></div>${nomeA} sofreu</div>
+        <div class="pj-di-leg-item"><div class="pj-di-leg-sq" style="background:rgba(0,229,160,.4);border:1px solid rgba(0,229,160,.5)"></div>${nomeB} marcou</div>
+        <div class="pj-di-leg-item"><div class="pj-di-leg-sq" style="background:rgba(255,69,96,.4);border:1px solid rgba(255,69,96,.5)"></div>${nomeB} sofreu</div>
+      </div>
+      <div class="pj-di-wrap">
+        <div class="pj-di-half">
+          <div class="pj-di-half-title">
+            <span>PRIMEIRO TEMPO</span>
+            <span><span style="color:var(--acc)">${sc1A}↑${cn1A}↓</span> &nbsp; <span style="color:rgba(0,229,160,.6)">${sc1B}↑${cn1B}↓</span></span>
+          </div>
+          <div class="pj-di-cols" id="pjDiCols1">${[0,1,2,3,4,5,6,7,8,9].map(mkCol).join('')}</div>
+        </div>
+        <div class="pj-di-half">
+          <div class="pj-di-half-title">
+            <span>SEGUNDO TEMPO</span>
+            <span><span style="color:var(--acc)">${sc2A}↑${cn2A}↓</span> &nbsp; <span style="color:rgba(0,229,160,.6)">${sc2B}↑${cn2B}↓</span></span>
+          </div>
+          <div class="pj-di-cols" id="pjDiCols2">${[10,11,12,13,14,15,16,17,18,19].map(mkCol).join('')}</div>
+        </div>
+      </div>
+      ${crossHtml}
+    </div>`;
+}
+
+
 function _gerarNarrativa(d) {
   const aC = d.aggCasa, aF = d.aggFora;
   const fsC = d.forteCasa, fsF = d.forteFora;
