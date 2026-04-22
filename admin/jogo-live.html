@@ -1041,18 +1041,20 @@ async function carregarMediasHistoricas() {
       const n = jogos.length;
 
       // avgMulti: tenta múltiplos aliases de chave
-      // Para xG: null = 0 (dado presente mas sem valor), não pular
+      // null/undefined = competição sem dado → pular
+      // "0" ou 0 = dado calculado como zero → contar
       const avgMulti = (...keys) => {
         let sum = 0, count = 0;
         jogos.forEach(j => {
           const stats = j.stats?.time || {};
           for (const k of keys) {
             const raw = stats[k];
-            if (raw === undefined) continue; // chave não existe
+            if (raw === undefined || raw === null) continue; // sem dado nessa chave
             const v = parseFloat(raw);
-            sum += isNaN(v) ? 0 : v;
+            if (isNaN(v)) continue;
+            sum += v;
             count++;
-            break; // encontrou a chave, para de tentar aliases
+            break;
           }
         });
         return count > 0 ? sum / count : 0;
@@ -1474,11 +1476,11 @@ function renderStats() {
     const hn = parseFloat(hv) || 0, an = parseFloat(av) || 0, total = hn + an || 1;
     const hPct = Math.round(hn / total * 100);
     const fV = v => {
-      if (v === undefined) return "--";
-      // null para stats numéricos (ex: xG=null no início) → mostrar 0
-      const raw = v === null ? "0" : String(v).replace('%','');
-      if (raw === '' || raw === 'null') return "--";
-      const n = dec ? parseFloat(raw).toFixed(dec) : raw;
+      if (v === null || v === undefined) return "--";
+      const s = String(v).replace('%','');
+      if (s === '' || s === 'null') return "--";
+      const n = dec ? parseFloat(s).toFixed(dec) : s;
+      if (n === 'NaN') return "--";
       return n + (unit || "");
     };
     html += "<div class='stat-row'><div class='stat-val home'>" + fV(hv) + "</div><div class='stat-bar-wrap'><div class='stat-label'>" + label + "</div><div class='stat-bar'><div class='stat-bar-home' style='width:" + hPct + "%'></div><div class='stat-bar-away' style='width:" + (100 - hPct) + "%'></div></div></div><div class='stat-val away'>" + fV(av) + "</div></div>";
