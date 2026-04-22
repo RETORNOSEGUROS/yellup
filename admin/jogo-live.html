@@ -1040,16 +1040,22 @@ async function carregarMediasHistoricas() {
       if (!jogos?.length) return null;
       const n = jogos.length;
 
-      // avgMulti: tenta múltiplos aliases de chave, retorna o primeiro não-zero
+      // avgMulti: tenta múltiplos aliases de chave
+      // Para xG: null = 0 (dado presente mas sem valor), não pular
       const avgMulti = (...keys) => {
-        return jogos.reduce((acc, j) => {
+        let sum = 0, count = 0;
+        jogos.forEach(j => {
           const stats = j.stats?.time || {};
           for (const k of keys) {
-            const v = parseFloat(stats[k]);
-            if (!isNaN(v) && v > 0) return acc + v;
+            const raw = stats[k];
+            if (raw === undefined) continue; // chave não existe
+            const v = parseFloat(raw);
+            sum += isNaN(v) ? 0 : v;
+            count++;
+            break; // encontrou a chave, para de tentar aliases
           }
-          return acc;
-        }, 0) / n;
+        });
+        return count > 0 ? sum / count : 0;
       };
 
       return {
