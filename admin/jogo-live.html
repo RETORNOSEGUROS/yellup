@@ -911,7 +911,13 @@ function normStats(raw) {
   if (!raw) return {};
   if (Array.isArray(raw)) {
     const o = {};
-    raw.forEach(s => { if (s?.type != null) o[s.type] = s.value; });
+    raw.forEach(s => {
+      if (s?.type != null) {
+        // Guardar mesmo null — mas preservar valor original para que
+        // parseFloat possa processar strings como "1.24" ou "82%"
+        o[s.type] = s.value;
+      }
+    });
     return o;
   }
   return raw;
@@ -1443,7 +1449,7 @@ function renderStats() {
     { label:"Chutes",       hk:"Total Shots",        ak:"Total Shots" },
     { label:"No Alvo",      hk:"Shots on Goal",      ak:"Shots on Goal" },
     { label:"Passes",       hk:"Total passes",       ak:"Total passes" },
-    { label:"Precisao",     hk:"Passes %",           ak:"Passes %", unit:"%" },
+    { label:"Precisao",     hk:"Passes %",           ak:"Passes %" },  // valor ja vem com % da API
     { label:"Faltas",       hk:"Fouls",              ak:"Fouls" },
     { label:"Escanteios",   hk:"Corner Kicks",       ak:"Corner Kicks" },
     { label:"Amarelos",     hk:"Yellow Cards",       ak:"Yellow Cards" },
@@ -1461,7 +1467,14 @@ function renderStats() {
     const hv = home[hk], av = away[ak];
     const hn = parseFloat(hv) || 0, an = parseFloat(av) || 0, total = hn + an || 1;
     const hPct = Math.round(hn / total * 100);
-    const fV = v => v === null || v === undefined ? "--" : (dec ? parseFloat(v).toFixed(dec) : v) + (unit || "");
+    const fV = v => {
+      if (v === undefined) return "--";
+      // null para stats numéricos (ex: xG=null no início) → mostrar 0
+      const raw = v === null ? "0" : String(v).replace('%','');
+      if (raw === '' || raw === 'null') return "--";
+      const n = dec ? parseFloat(raw).toFixed(dec) : raw;
+      return n + (unit || "");
+    };
     html += "<div class='stat-row'><div class='stat-val home'>" + fV(hv) + "</div><div class='stat-bar-wrap'><div class='stat-label'>" + label + "</div><div class='stat-bar'><div class='stat-bar-home' style='width:" + hPct + "%'></div><div class='stat-bar-away' style='width:" + (100 - hPct) + "%'></div></div></div><div class='stat-val away'>" + fV(av) + "</div></div>";
   });
   gc("statsRows").innerHTML = html;
