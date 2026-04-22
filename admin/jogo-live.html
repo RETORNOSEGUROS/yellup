@@ -1068,6 +1068,7 @@ async function carregarMediasHistoricas() {
         precisao: avgMulti('Passes %', 'Pass Accuracy', 'passes_accuracy', 'pass_accuracy'),
         faltas:   avgMulti('Fouls', 'fouls'),
         xg:       avgMulti('expected_goals', 'Expected Goals', 'xG', 'xg'),
+        poss:     avgMulti('Ball Possession', 'ball_possession'),
         n,
       };
     };
@@ -2866,7 +2867,7 @@ function renderRaioXVivo() {
 
     const rows = sd.stats.map(s => `
       <tr>
-        <td>${s.label}</td>
+        <td title="${s.isPF ? 'Passes por Finalização — quanto menor, mais eficiente. Ref = média histórica.' : ''}">${s.label}${s.isPF ? '<span style="color:var(--t3);font-size:7px;margin-left:2px;" title="passes÷finalizações">ⓘ</span>' : ''}</td>
         <td class="rx-val-atual" style="color:${corVar}">${s.atual}</td>
         <td class="rx-val-proj">${s.proj90}</td>
         <td class="rx-val-ref">${s.hist}</td>
@@ -2924,7 +2925,7 @@ function renderRaioXVivo() {
     bucketHtml +
     `<div class="rx-teams">${teamCard('casa','acc')}${teamCard('fora','blu')}</div>` +
     `<div style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;padding:4px 2px;line-height:1.5;">
-      Ref = média histórica/90min dos últimos jogos · Proj = ritmo atual × 90' · Status: ▲ acima da média ✓ normal ▼ abaixo
+      Ref = média histórica/90min · Proj = ritmo atual × 90' · P/Fin. = passes÷finalizações (menor = mais eficiente) · ▲ acima da média ✓ normal ▼ abaixo
     </div>`;
 
   // Notificação sonora para alertas altos
@@ -2981,6 +2982,7 @@ function calcRaioX() {
       shots:   pn(stC, 'Total Shots'),
       shotsOn: pn(stC, 'Shots on Goal'),
       precisao:pn(stC, 'Passes %'),
+      posse:   pn(stC, 'Ball Possession'),
       gols: f.placar?.casa ?? 0,
     },
     fora: {
@@ -2989,6 +2991,7 @@ function calcRaioX() {
       shots:   pn(stF, 'Total Shots'),
       shotsOn: pn(stF, 'Shots on Goal'),
       precisao:pn(stF, 'Passes %'),
+      posse:   pn(stF, 'Ball Possession'),
       gols: f.placar?.fora ?? 0,
     }
   };
@@ -2997,12 +3000,11 @@ function calcRaioX() {
   // Prioridade: 1) localStorage yellup_teamRef_{id} (salvo pelo raiox-times.html)
   //             2) HIST_MEDIAS (estimativa parcial via Cloud Function)
   //             3) GLOBAL_REF (fallback global)
-  const GLOBAL_REF = { xg:1.40, passes:450, shots:12, shotsOn:4.5, precisao:80 };
+  const GLOBAL_REF = { xg:1.40, passes:450, shots:12, shotsOn:4.5, precisao:80, poss:50 };
 
   const buildRef = (medias, perfil, teamRef) => {
     const nz = (v, fb) => (v != null && v > 0) ? v : fb;
 
-    // xG: localStorage (raiox-times) > HIST_MEDIAS real > estimativa por chutes > global
     const shots    = nz(teamRef?.shots,  nz(medias?.shots, GLOBAL_REF.shots));
     const precisao = nz(teamRef?.precisao, nz(medias?.precisao, GLOBAL_REF.precisao));
     const xgLS     = teamRef?.xg;
@@ -3011,17 +3013,20 @@ function calcRaioX() {
     const xg       = nz(xgLS, nz(xgHist, xgEst > 0 ? xgEst : GLOBAL_REF.xg));
     const xgEstimado = !xgLS && !xgHist;
 
-    // Passes: localStorage > HIST_MEDIAS > global
     const passes = nz(teamRef?.passTotal, nz(medias?.passes, GLOBAL_REF.passes));
     const passesEstimado = !teamRef?.passTotal && !(medias?.passes > 0);
 
     const shotsOn = nz(medias?.shotsOn, GLOBAL_REF.shotsOn);
+    const poss    = nz(teamRef?.poss, nz(medias?.poss, GLOBAL_REF.poss));
+
+    // P/F referência histórica: passes / shots médios
+    const pfRef = shots > 0 ? +(passes / shots).toFixed(1) : null;
 
     const fonte = teamRef
       ? `raiox ${new Date(teamRef.savedAt).toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'})}`
       : medias?.n > 0 ? `hist. ${medias.n}j${xgEstimado ? ' (est.)' : ''}` : 'global';
 
-    return { xg, passes, shots, shotsOn, precisao, fonte, xgEstimado, passesEstimado };
+    return { xg, passes, shots, shotsOn, precisao, poss, pfRef, fonte, xgEstimado, passesEstimado };
   };
 
   const refCasaLS = readTeamRef(f.timeCasa.id);
@@ -3035,6 +3040,7 @@ function calcRaioX() {
     { key:'shots',    label:'Finalizações',  dec:1, isRate:false, unit:'' },
     { key:'shotsOn',  label:'Chutes Alvo',   dec:1, isRate:false, unit:'' },
     { key:'precisao', label:'Passes %',      dec:0, isRate:true,  unit:'%' },
+    { key:'posse',    label:'Posse %',       dec:0, isRate:true,  unit:'%' },
   ];
 
   const calcSide = (side, ref, nome) => {
@@ -3043,7 +3049,6 @@ function calcRaioX() {
       const atual = c[key];
       if (atual === null) return null;
 
-      // Precisão é uma taxa — não projeta, compara direto
       const proj90 = isRate ? atual : +(atual / min * 90).toFixed(dec);
       const hist      = ref[key] ?? null;
       const isEstRef  = (key === 'xg' && ref.xgEstimado) || (key === 'passes' && ref.passesEstimado);
@@ -3067,6 +3072,29 @@ function calcRaioX() {
         status, statusCls,
       };
     }).filter(Boolean);
+
+    // ── P/F: Passes por Finalização ────────────────────────────────
+    const pf = (c.passes != null && c.shots != null && c.shots > 0)
+      ? +(c.passes / c.shots).toFixed(1) : null;
+    const pfRef = ref.pfRef ?? null;
+    let pfStatus = 'na', pfStatusCls = 'na';
+    if (pf !== null && pfRef !== null && pfRef > 0) {
+      // P/F menor = mais eficiente (menos passes por chute)
+      const ratio = pf / pfRef;
+      if (ratio <= 0.88)      { pfStatus = '▲'; pfStatusCls = 'up'; }   // mais eficiente
+      else if (ratio <= 1.12) { pfStatus = '✓'; pfStatusCls = 'ok'; }
+      else                    { pfStatus = '▼'; pfStatusCls = 'down'; }  // menos eficiente
+    }
+    if (pf !== null) {
+      stats.push({
+        label: 'P/Fin.',
+        atual: pf.toFixed(1),
+        proj90: '—',
+        hist: pfRef !== null ? pfRef.toFixed(1) : '—',
+        status: pfStatus, statusCls: pfStatusCls,
+        isPF: true,
+      });
+    }
 
     // Pressão represada: xG acumulado – gols marcados
     const xgAtual = c.xg;
