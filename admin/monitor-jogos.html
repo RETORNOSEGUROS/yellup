@@ -302,6 +302,7 @@ function forteColor(s) {
 }
 
 // ── ForteScore pré-jogo — busca do Firestore uma vez por time ────────
+// O raiox-times.html salva em forteScores/{apiId} com campo "score"
 // Cache em memória: { teamApiId: score|null }
 const fsPreCache = {};
 
@@ -309,31 +310,19 @@ async function buscarFortePre(teamApiId) {
   const key = String(teamApiId);
   if (fsPreCache[key] !== undefined) return fsPreCache[key];
 
-  // 1) Tenta localStorage primeiro (raiox-times pode já ter calculado)
+  // 1) localStorage — raiox-times pode já ter calculado nesta sessão
   const ls = getForteScore(teamApiId);
   if (ls != null) { fsPreCache[key] = ls; return ls; }
 
-  // 2) Busca Firestore — coleção perfis-times
+  // 2) Firestore — coleção forteScores (salvo pelo raiox-times)
   try {
-    const doc = await db.collection('perfis-times').doc(key).get();
+    const doc = await db.collection('forteScores').doc(key).get();
     if (doc.exists) {
-      const d = doc.data();
-      const score = d.forca5 ?? d.forteScore ?? null;
+      const score = doc.data().score ?? null;
       fsPreCache[key] = score;
       return score;
     }
   } catch(e) { console.warn('fortePre:', e.message); }
-
-  // 3) Tenta coleção forteScores (nome alternativo)
-  try {
-    const doc = await db.collection('forteScores').doc(key).get();
-    if (doc.exists) {
-      const d = doc.data();
-      const score = d.score ?? d.forca5 ?? null;
-      fsPreCache[key] = score;
-      return score;
-    }
-  } catch(e) { /* silencioso */ }
 
   fsPreCache[key] = null;
   return null;
