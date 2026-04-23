@@ -2926,7 +2926,17 @@ function renderRaioXVivo() {
     `<div class="rx-teams">${teamCard('casa','acc')}${teamCard('fora','blu')}</div>` +
     `<div style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;padding:4px 2px;line-height:1.5;">
       Ref = média histórica/90min · Proj = ritmo atual × 90' · P/Fin. = passes÷finalizações (menor = mais eficiente) · ▲ acima da média ✓ normal ▼ abaixo
+    </div>
+    <div style="text-align:center;margin-top:10px;">
+      <button onclick="exportarRelatorioRaioX()"
+        style="padding:7px 18px;border-radius:8px;border:1px solid var(--brd2);background:var(--bg3);color:var(--t2);font-size:11px;cursor:pointer;font-family:'Syne',sans-serif;display:inline-flex;align-items:center;gap:6px;">
+        📄 Exportar Relatório JSON
+      </button>
+      <div id="rxExportStatus" style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;margin-top:5px;"></div>
     </div>`;
+
+  // Auto-save snapshot Raio-X no Firestore
+  _salvarSnapshotRaioX(d);
 
   // Notificação sonora para alertas altos
   if (d.alertas.some(a => a.nivel === 'alto')) {
@@ -2943,6 +2953,129 @@ function renderRaioXVivo() {
       badgeExiste.remove();
     }
   }
+}
+
+// ── Raio-X snapshot store ─────────────────────────────────────────────
+let RX_SNAPSHOTS = [];  // histórico em memória durante a sessão
+
+async function _salvarSnapshotRaioX(d) {
+  if (!d || !FIX_ID || !DADOS?.fixture) return;
+  const f = DADOS.fixture;
+  const min = d.min;
+
+  const snap = {
+    min,
+    placarCasa: f.placar?.casa ?? 0,
+    placarFora: f.placar?.fora ?? 0,
+    // Casa
+    xgC:    d.casa.xgAtual ?? null,
+    passesC:parseFloat(d.casa.stats.find(s=>s.label==='Passes Tot.')?.atual) || null,
+    shotsC: parseFloat(d.casa.stats.find(s=>s.label==='Finalizações')?.atual) || null,
+    posseC: parseFloat(d.casa.stats.find(s=>s.label==='Posse %')?.atual) || null,
+    pfC:    parseFloat(d.casa.stats.find(s=>s.label==='P/Fin.')?.atual) || null,
+    pressaoC: d.casa.pressao ?? null,
+    acimaC:  d.casa.acima,
+    // Fora
+    xgF:    d.fora.xgAtual ?? null,
+    passesF:parseFloat(d.fora.stats.find(s=>s.label==='Passes Tot.')?.atual) || null,
+    shotsF: parseFloat(d.fora.stats.find(s=>s.label==='Finalizações')?.atual) || null,
+    posseF: parseFloat(d.fora.stats.find(s=>s.label==='Posse %')?.atual) || null,
+    pfF:    parseFloat(d.fora.stats.find(s=>s.label==='P/Fin.')?.atual) || null,
+    pressaoF: d.fora.pressao ?? null,
+    acimaF:  d.fora.acima,
+    // Alertas
+    alertas: d.alertas.map(a => a.titulo),
+    ts: Date.now(),
+  };
+
+  // Guardar em memória (deduplicar por minuto)
+  const existIdx = RX_SNAPSHOTS.findIndex(r => r.min === min);
+  if (existIdx >= 0) RX_SNAPSHOTS[existIdx] = snap;
+  else RX_SNAPSHOTS.push(snap);
+
+  // Salvar no Firestore — best effort
+  try {
+    const docId = String(min).padStart(3, '0');
+    await db.collection('raioxSnapshots')
+      .doc(String(FIX_ID))
+      .collection('minutos')
+      .doc(docId)
+      .set(snap, { merge: true });
+  } catch(e) { /* silencioso */ }
+}
+
+// ── Exportar relatório JSON compacto ──────────────────────────────────
+async function exportarRelatorioRaioX() {
+  const f = DADOS?.fixture;
+  if (!f) return;
+
+  const status = gc('rxExportStatus');
+  if (status) status.textContent = 'Carregando snapshots...';
+
+  // Tenta carregar snapshots do Firestore se memória tiver menos de 5
+  let snaps = [...RX_SNAPSHOTS];
+  if (snaps.length < 5) {
+    try {
+      const q = await db.collection('raioxSnapshots')
+        .doc(String(FIX_ID)).collection('minutos').orderBy('min').get();
+      if (!q.empty) {
+        snaps = q.docs.map(d => d.data());
+      }
+    } catch(e) { console.warn('exportar raioX:', e.message); }
+  }
+
+  if (!snaps.length) {
+    if (status) status.textContent = '⚠ Sem dados — abra a aba Raio-X durante o jogo';
+    return;
+  }
+
+  snaps.sort((a,b) => (a.min||0)-(b.min||0));
+
+  // Montar gols
+  const gols = (DADOS?.eventos||[])
+    .filter(e => e.tipo === 'Goal' || e.detalhe === 'Normal Goal')
+    .map(e => ({
+      min: e.minuto,
+      time: String(e.time?.id) === String(f.timeCasa.id) ? f.timeCasa.nome : f.timeFora.nome,
+      jogador: e.jogador?.nome || '—',
+    }));
+
+  const relatorio = {
+    yellup: 'raioX-report-v1',
+    jogo: `${f.timeCasa.nome} ${f.placar?.casa ?? '?'}-${f.placar?.fora ?? '?'} ${f.timeFora.nome}`,
+    competicao: f.liga?.nome || '',
+    data: f.data ? new Date(f.data).toLocaleDateString('pt-BR') : '',
+    fixtureId: FIX_ID,
+    nomeCasa: f.timeCasa.nome,
+    nomeFora: f.timeFora.nome,
+    gols,
+    snapshots: snaps.map(s => {
+      const g = gols.filter(g => g.min <= (s.min||0)).length;
+      return {
+        min: s.min,
+        placar: `${s.placarCasa??0}-${s.placarFora??0}`,
+        // Casa
+        xgC: s.xgC, passesC: s.passesC, shotsC: s.shotsC,
+        posseC: s.posseC, pfC: s.pfC, pressaoC: s.pressaoC, acimaC: s.acimaC,
+        // Fora
+        xgF: s.xgF, passesF: s.passesF, shotsF: s.shotsF,
+        posseF: s.posseF, pfF: s.pfF, pressaoF: s.pressaoF, acimaF: s.acimaF,
+        // Alertas ativos naquele momento
+        alertas: s.alertas?.length ? s.alertas : undefined,
+      };
+    }),
+  };
+
+  // Download
+  const blob = new Blob([JSON.stringify(relatorio, null, 0)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const nome = `yellup_${f.timeCasa.nome.replace(/\s/g,'')}_${f.timeFora.nome.replace(/\s/g,'')}_${FIX_ID}.json`;
+  a.href = url; a.download = nome; a.click();
+  URL.revokeObjectURL(url);
+
+  const kb = (JSON.stringify(relatorio).length / 1024).toFixed(1);
+  if (status) status.textContent = `✓ ${snaps.length} snapshots · ${kb}kb · ${nome}`;
 }
 
 // ── Global helpers para localStorage do raiox-times ──────────────────
