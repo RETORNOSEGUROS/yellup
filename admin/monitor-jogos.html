@@ -783,13 +783,17 @@ async function carregarRegistros() {
   try {
     const snap = await db.collection(COLECAO)
       .where('dataJogo', '==', data)
-      .orderBy('fixtureId')
-      .orderBy('minuto')
       .limit(2000)
       .get();
 
     registros = [];
     snap.forEach(d => registros.push({ _id: d.id, ...d.data() }));
+
+    // Ordena no cliente
+    registros.sort((a,b) => {
+      if ((a.fixtureId||0) !== (b.fixtureId||0)) return (a.fixtureId||0)-(b.fixtureId||0);
+      return (a.minuto||0)-(b.minuto||0);
+    });
 
     // Atualizar filtro de jogo
     atualizarFiltroJogo();
@@ -1154,27 +1158,26 @@ async function _buscarDocs() {
   const jogoId = gc('expJogo').value;
   let query = db.collection(COLECAO);
 
+  // Sem orderBy no Firestore — evita exigência de índice composto
+  // Toda ordenação é feita no cliente depois
   if (expMode === 'hoje') {
-    // dataJogo + fixtureId + minuto → índice composto pode não existir
-    // Solução: só filtra por data e ordena por minuto, agrupa no JS
-    query = query.where('dataJogo', '==', toBRTDate(new Date())).orderBy('minuto').limit(5000);
+    query = query.where('dataJogo', '==', toBRTDate(new Date())).limit(5000);
   } else if (expMode === 'data') {
-    query = query.where('dataJogo', '==', data).orderBy('minuto').limit(5000);
+    query = query.where('dataJogo', '==', data).limit(5000);
   } else if (expMode === 'jogo' && jogoId) {
-    // fixtureId único: só ordena por minuto — não precisa de índice composto
-    query = query.where('fixtureId', '==', Number(jogoId)).orderBy('minuto').limit(2000);
+    query = query.where('fixtureId', '==', Number(jogoId)).limit(2000);
   } else {
-    // tudo: sem where, ordena só por minuto
-    query = query.orderBy('minuto').limit(5000);
+    // tudo — sem filtro, sem orderBy
+    query = query.limit(5000);
   }
 
   const snap = await query.get();
   const docs = [];
   snap.forEach(d => docs.push({ _id: d.id, ...d.data() }));
 
-  // Ordena no cliente por fixtureId + minuto (sem depender de índice composto)
+  // Ordena no cliente: por fixtureId, depois por minuto numérico
   docs.sort((a, b) => {
-    if (a.fixtureId !== b.fixtureId) return (a.fixtureId||0) - (b.fixtureId||0);
+    if ((a.fixtureId||0) !== (b.fixtureId||0)) return (a.fixtureId||0) - (b.fixtureId||0);
     return (a.minuto||0) - (b.minuto||0);
   });
 
