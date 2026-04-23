@@ -301,7 +301,43 @@ function forteColor(s) {
   return'var(--red)';
 }
 
-// ── LOCALSTORAGE HELPERS ─────────────────────────────────────────────
+// ── ForteScore pré-jogo — busca do Firestore uma vez por time ────────
+// Cache em memória: { teamApiId: score|null }
+const fsPreCache = {};
+
+async function buscarFortePre(teamApiId) {
+  const key = String(teamApiId);
+  if (fsPreCache[key] !== undefined) return fsPreCache[key];
+
+  // 1) Tenta localStorage primeiro (raiox-times pode já ter calculado)
+  const ls = getForteScore(teamApiId);
+  if (ls != null) { fsPreCache[key] = ls; return ls; }
+
+  // 2) Busca Firestore — coleção perfis-times
+  try {
+    const doc = await db.collection('perfis-times').doc(key).get();
+    if (doc.exists) {
+      const d = doc.data();
+      const score = d.forca5 ?? d.forteScore ?? null;
+      fsPreCache[key] = score;
+      return score;
+    }
+  } catch(e) { console.warn('fortePre:', e.message); }
+
+  // 3) Tenta coleção forteScores (nome alternativo)
+  try {
+    const doc = await db.collection('forteScores').doc(key).get();
+    if (doc.exists) {
+      const d = doc.data();
+      const score = d.score ?? d.forca5 ?? null;
+      fsPreCache[key] = score;
+      return score;
+    }
+  } catch(e) { /* silencioso */ }
+
+  fsPreCache[key] = null;
+  return null;
+}
 function lsGet(key) { try{const s=localStorage.getItem(key);return s?JSON.parse(s):null;}catch{return null;} }
 function getForteScore(apiId) { const c=lsGet('yellup_forteCache_v1'); return c?c[String(apiId)]??null:null; }
 function getTeamRef(apiId)    { return lsGet(`yellup_teamRef_${apiId}`); }
@@ -498,10 +534,11 @@ async function processarJogo(fid, dados, jogoMeta) {
   const refF = getTeamRef(f.timeFora.id);
   const intervalos = getIntervalos(f.timeCasa.id, f.timeFora.id);
 
-  // ForteScore
-  const fsCache = lsGet('yellup_forteCache_v1')||{};
-  const fsC = fsCache[String(f.timeCasa.id)]??null;
-  const fsF = fsCache[String(f.timeFora.id)]??null;
+  // ForteScore pré-jogo — busca Firestore uma vez, depois usa cache
+  const [fsC, fsF] = await Promise.all([
+    buscarFortePre(f.timeCasa.id),
+    buscarFortePre(f.timeFora.id),
+  ]);
 
   // Alertas
   const alertas = calcAlertas(snap, refC, refF, intervalos, min);
@@ -547,7 +584,13 @@ function renderCards() {
   const histMap={};
   historico.forEach(r=>{
     const k=String(r.fixtureId);
-    if(!histMap[k]){histMap[k]={snaps:[],meta:{timeCasa:r.timeCasa,timeFora:r.timeFora,liga:r.liga||''},fsC:r.forcaCasa,fsF:r.forcaFora};}
+    if(!histMap[k]){
+      // ForteScore: usa o do Firestore, com fallback para localStorage (caso o monitor
+      // tenha rodado antes do raiox-times calcular o score)
+      const fsC = r.forcaCasa ?? getForteScore(r.timeCasa?.id);
+      const fsF = r.forcaFora ?? getForteScore(r.timeFora?.id);
+      histMap[k]={snaps:[],meta:{timeCasa:r.timeCasa,timeFora:r.timeFora,liga:r.liga||''},fsC,fsF};
+    }
     histMap[k].snaps.push(r);
   });
   const histEntries=Object.values(histMap).filter(e=>{
@@ -880,7 +923,12 @@ async function executarExport(){
     const map={};
     docs.forEach(d=>{
       const k=String(d.fixtureId);
-      if(!map[k])map[k]={fixtureId:d.fixtureId,jogo:`${d.timeCasa?.nome} vs ${d.timeFora?.nome}`,data:d.dataJogo,forcaCasa:d.forcaCasa,forcaFora:d.forcaFora,nomeCasa:d.timeCasa?.nome,nomeFora:d.timeFora?.nome,snapshots:[]};
+      if(!map[k]){
+        // Enriquece ForteScore do localStorage se não veio do Firestore
+        const fsC = d.forcaCasa ?? getForteScore(d.timeCasa?.id);
+        const fsF = d.forcaFora ?? getForteScore(d.timeFora?.id);
+        map[k]={fixtureId:d.fixtureId,jogo:`${d.timeCasa?.nome} vs ${d.timeFora?.nome}`,data:d.dataJogo,forcaCasa:fsC,forcaFora:fsF,nomeCasa:d.timeCasa?.nome,nomeFora:d.timeFora?.nome,snapshots:[]};
+      }
       const s={min:d.minuto,label:d.minutoLabel,placar:`${d.placarCasa??0}-${d.placarFora??0}`,
         apC:d.apCasa,apF:d.apFora,shC:d.chutesCasa,shF:d.chutesFora,
         alC:d.alvoCasa,alF:d.alvoFora,psC:d.passesCasa,psF:d.passesFora,
