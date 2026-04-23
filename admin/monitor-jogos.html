@@ -1076,22 +1076,44 @@ async function limparRegistrosDoDia() {
 
 let expMode = 'hoje';
 
-function abrirExportar() {
+async function abrirExportar() {
   const modal = gc('exportModal');
   modal.style.display = 'flex';
-  // Popula select de jogos com os registros já carregados
+
+  // Popula select de jogos — combina registros em memória + busca Firestore se poucos
   const sel = gc('expJogo');
-  sel.innerHTML = '<option value="">Selecione um jogo...</option>';
+  sel.innerHTML = '<option value="">Carregando jogos...</option>';
+
   const jogosUnicos = {};
+
+  // Primeiro: usa registros já carregados em memória
   registros.forEach(r => {
     const key = String(r.fixtureId);
     if (!jogosUnicos[key]) jogosUnicos[key] = `${r.timeCasa?.nome||'?'} × ${r.timeFora?.nome||'?'} (${r.dataJogo||'?'})`;
   });
-  Object.entries(jogosUnicos).forEach(([id, nome]) => {
-    const o = document.createElement('option');
-    o.value = id; o.textContent = `#${id} · ${nome}`;
-    sel.appendChild(o);
-  });
+
+  // Se tiver poucos, busca mais do Firestore (últimos 5000 docs ordenados por minuto)
+  if (Object.keys(jogosUnicos).length < 5) {
+    try {
+      const snap = await db.collection(COLECAO).orderBy('minuto').limit(5000).get();
+      snap.forEach(d => {
+        const r = d.data();
+        const key = String(r.fixtureId);
+        if (!jogosUnicos[key]) jogosUnicos[key] = `${r.timeCasa?.nome||'?'} × ${r.timeFora?.nome||'?'} (${r.dataJogo||'?'})`;
+      });
+    } catch(e) { console.warn('abrirExportar jogos:', e.message); }
+  }
+
+  sel.innerHTML = '<option value="">Selecione um jogo...</option>';
+  // Ordena por nome para facilitar busca
+  Object.entries(jogosUnicos)
+    .sort((a,b) => a[1].localeCompare(b[1]))
+    .forEach(([id, nome]) => {
+      const o = document.createElement('option');
+      o.value = id; o.textContent = `#${id} · ${nome}`;
+      sel.appendChild(o);
+    });
+
   // Set data padrão
   gc('expData').value = toBRTDate(new Date());
   setExpMode('hoje');
@@ -1133,18 +1155,29 @@ async function _buscarDocs() {
   let query = db.collection(COLECAO);
 
   if (expMode === 'hoje') {
-    query = query.where('dataJogo', '==', toBRTDate(new Date()));
+    // dataJogo + fixtureId + minuto → índice composto pode não existir
+    // Solução: só filtra por data e ordena por minuto, agrupa no JS
+    query = query.where('dataJogo', '==', toBRTDate(new Date())).orderBy('minuto').limit(5000);
   } else if (expMode === 'data') {
-    query = query.where('dataJogo', '==', data);
+    query = query.where('dataJogo', '==', data).orderBy('minuto').limit(5000);
   } else if (expMode === 'jogo' && jogoId) {
-    query = query.where('fixtureId', '==', Number(jogoId));
+    // fixtureId único: só ordena por minuto — não precisa de índice composto
+    query = query.where('fixtureId', '==', Number(jogoId)).orderBy('minuto').limit(2000);
+  } else {
+    // tudo: sem where, ordena só por minuto
+    query = query.orderBy('minuto').limit(5000);
   }
-  // 'tudo' — sem filtro, mas limita a 5000 docs
-  query = query.orderBy('fixtureId').orderBy('minuto').limit(5000);
 
   const snap = await query.get();
   const docs = [];
   snap.forEach(d => docs.push({ _id: d.id, ...d.data() }));
+
+  // Ordena no cliente por fixtureId + minuto (sem depender de índice composto)
+  docs.sort((a, b) => {
+    if (a.fixtureId !== b.fixtureId) return (a.fixtureId||0) - (b.fixtureId||0);
+    return (a.minuto||0) - (b.minuto||0);
+  });
+
   return docs;
 }
 
