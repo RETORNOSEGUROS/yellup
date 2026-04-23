@@ -117,6 +117,7 @@ td.iyo-hot{font-weight:800;color:var(--yel);}
       <span class="badge" id="badgeTotal">0 registros</span>
       <span class="badge" id="badgeTimer" style="color:var(--acc);">--</span>
       <button class="btn on" id="btnMonitor" onclick="toggleMonitor()">⏸ Pausar</button>
+      <button class="btn" onclick="abrirExportar()" style="border-color:rgba(155,109,255,.4);color:var(--pur);">📊 Exportar</button>
       <button class="btn btn-red" onclick="confirmarLimpar()" style="font-size:11px">🗑 Limpar</button>
     </div>
   </div>
@@ -162,6 +163,78 @@ td.iyo-hot{font-weight:800;color:var(--yel);}
   </div>
   <div class="pagination" id="pagination"></div>
 
+</div><!-- /app -->
+
+<!-- ═══ MODAL EXPORTAR ══════════════════════════════════════════════════════ -->
+<div id="exportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:500;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--brd2);border-radius:14px;padding:24px;width:min(500px,94vw);max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+      <div style="font-size:14px;font-weight:700;">📊 Exportar Histórico</div>
+      <button onclick="fecharExportar()" style="background:none;border:none;color:var(--t3);font-size:16px;cursor:pointer;">✕</button>
+    </div>
+
+    <div style="font-size:11px;color:var(--t2);margin-bottom:16px;line-height:1.6;">
+      Gera um JSON compacto com todos os jogos monitorados.<br>
+      Envie para o Claude para análise minuto a minuto.
+    </div>
+
+    <!-- Modo -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--t3);margin-bottom:6px;">PERÍODO</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button id="expBtnHoje"  onclick="setExpMode('hoje')"  class="btn on"  style="font-size:11px">📅 Hoje</button>
+        <button id="expBtnData"  onclick="setExpMode('data')"  class="btn"     style="font-size:11px">🗓 Data específica</button>
+        <button id="expBtnJogo"  onclick="setExpMode('jogo')"  class="btn"     style="font-size:11px">⚽ Jogo específico</button>
+        <button id="expBtnTudo"  onclick="setExpMode('tudo')"  class="btn"     style="font-size:11px">📦 Tudo</button>
+      </div>
+    </div>
+
+    <div id="expDataWrap" style="display:none;margin-bottom:12px;">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--t3);margin-bottom:6px;">DATA</div>
+      <input type="date" id="expData" style="padding:6px 10px;border:1px solid var(--brd2);border-radius:6px;background:var(--bg3);color:var(--t1);font-size:12px;font-family:'DM Mono',monospace;width:100%;outline:none;">
+    </div>
+
+    <div id="expJogoWrap" style="display:none;margin-bottom:12px;">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--t3);margin-bottom:6px;">JOGO</div>
+      <select id="expJogo" style="padding:6px 10px;border:1px solid var(--brd2);border-radius:6px;background:var(--bg3);color:var(--t1);font-size:11px;font-family:'DM Mono',monospace;width:100%;outline:none;">
+        <option value="">Selecione um jogo...</option>
+      </select>
+    </div>
+
+    <!-- Opções -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--t3);margin-bottom:8px;">INCLUIR</div>
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer;">
+          <input type="checkbox" id="expOptDeltas" checked> Deltas (pressão dos últimos 10min)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer;">
+          <input type="checkbox" id="expOptAlertas" checked> Alertas de gol ativados
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer;">
+          <input type="checkbox" id="expOptMomentum" checked> Momentum Score
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer;">
+          <input type="checkbox" id="expOptCompacto" checked> Compacto (omite nulls e zeros)
+        </label>
+      </div>
+    </div>
+
+    <div id="expPreview" style="background:var(--bg3);border:1px solid var(--brd);border-radius:8px;padding:10px 12px;font-size:9px;font-family:'DM Mono',monospace;color:var(--t3);min-height:36px;margin-bottom:14px;">
+      Selecione o período para ver um resumo...
+    </div>
+
+    <div style="display:flex;gap:8px;">
+      <button onclick="executarExportar()" id="expBtnGerar"
+        style="flex:1;padding:10px;border-radius:8px;background:var(--pur);border:none;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:'Syne',sans-serif;">
+        ⬇ Baixar JSON
+      </button>
+      <button onclick="fecharExportar()" style="padding:10px 16px;border-radius:8px;border:1px solid var(--brd2);background:var(--bg3);color:var(--t3);cursor:pointer;font-family:'Syne',sans-serif;font-size:12px;">
+        Cancelar
+      </button>
+    </div>
+    <div id="expStatus" style="font-size:9px;color:var(--t3);font-family:'DM Mono',monospace;margin-top:8px;text-align:center;"></div>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -994,6 +1067,194 @@ async function limparRegistrosDoDia() {
     await carregarRegistros();
   } catch(e) {
     toast('Erro: '+e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 📊 EXPORTAR HISTÓRICO — gera JSON compacto para análise com Claude
+// ═══════════════════════════════════════════════════════════════════════
+
+let expMode = 'hoje';
+
+function abrirExportar() {
+  const modal = gc('exportModal');
+  modal.style.display = 'flex';
+  // Popula select de jogos com os registros já carregados
+  const sel = gc('expJogo');
+  sel.innerHTML = '<option value="">Selecione um jogo...</option>';
+  const jogosUnicos = {};
+  registros.forEach(r => {
+    const key = String(r.fixtureId);
+    if (!jogosUnicos[key]) jogosUnicos[key] = `${r.timeCasa?.nome||'?'} × ${r.timeFora?.nome||'?'} (${r.dataJogo||'?'})`;
+  });
+  Object.entries(jogosUnicos).forEach(([id, nome]) => {
+    const o = document.createElement('option');
+    o.value = id; o.textContent = `#${id} · ${nome}`;
+    sel.appendChild(o);
+  });
+  // Set data padrão
+  gc('expData').value = toBRTDate(new Date());
+  setExpMode('hoje');
+}
+
+function fecharExportar() {
+  gc('exportModal').style.display = 'none';
+  gc('expStatus').textContent = '';
+}
+
+function setExpMode(m) {
+  expMode = m;
+  ['hoje','data','jogo','tudo'].forEach(x => {
+    gc('expBtn'+x.charAt(0).toUpperCase()+x.slice(1)).className = 'btn' + (x===m?' on':'');
+  });
+  gc('expDataWrap').style.display = m === 'data' ? 'block' : 'none';
+  gc('expJogoWrap').style.display = m === 'jogo' ? 'block' : 'none';
+  atualizarPreview();
+}
+
+async function atualizarPreview() {
+  const prev = gc('expPreview');
+  prev.textContent = 'Calculando...';
+  try {
+    const docs = await _buscarDocs();
+    if (!docs.length) { prev.textContent = 'Nenhum registro encontrado.'; return; }
+    const jogos  = new Set(docs.map(d => d.fixtureId)).size;
+    const alertas = docs.filter(d => d.alertaGolCasa || d.alertaGolFora).length;
+    const tamanhoEst = Math.round(JSON.stringify(docs).length / 1024);
+    prev.textContent = `${docs.length} snapshots · ${jogos} jogos · ${alertas} alertas · ~${tamanhoEst}kb`;
+  } catch(e) {
+    prev.textContent = 'Erro: '+e.message;
+  }
+}
+
+async function _buscarDocs() {
+  const data   = gc('expData').value  || toBRTDate(new Date());
+  const jogoId = gc('expJogo').value;
+  let query = db.collection(COLECAO);
+
+  if (expMode === 'hoje') {
+    query = query.where('dataJogo', '==', toBRTDate(new Date()));
+  } else if (expMode === 'data') {
+    query = query.where('dataJogo', '==', data);
+  } else if (expMode === 'jogo' && jogoId) {
+    query = query.where('fixtureId', '==', Number(jogoId));
+  }
+  // 'tudo' — sem filtro, mas limita a 5000 docs
+  query = query.orderBy('fixtureId').orderBy('minuto').limit(5000);
+
+  const snap = await query.get();
+  const docs = [];
+  snap.forEach(d => docs.push({ _id: d.id, ...d.data() }));
+  return docs;
+}
+
+async function executarExportar() {
+  const btn    = gc('expBtnGerar');
+  const status = gc('expStatus');
+  btn.textContent = '⏳ Carregando...';
+  btn.disabled = true;
+  status.textContent = '';
+
+  try {
+    const docs = await _buscarDocs();
+    if (!docs.length) { status.textContent = '⚠ Nenhum registro encontrado.'; return; }
+
+    const inclDeltas   = gc('expOptDeltas').checked;
+    const inclAlertas  = gc('expOptAlertas').checked;
+    const inclMomentum = gc('expOptMomentum').checked;
+    const compacto     = gc('expOptCompacto').checked;
+
+    // Agrupa por jogo (fixtureId)
+    const jogosMap = {};
+    docs.forEach(d => {
+      const key = String(d.fixtureId);
+      if (!jogosMap[key]) {
+        jogosMap[key] = {
+          fixtureId: d.fixtureId,
+          jogo: `${d.timeCasa?.nome||'?'} vs ${d.timeFora?.nome||'?'}`,
+          nomeCasa: d.timeCasa?.nome, nomeFora: d.timeFora?.nome,
+          data: d.dataJogo,
+          forcaCasa: d.forcaCasa, forcaFora: d.forcaFora,
+          eloNotaCasa: d.eloNotaCasa, eloNotaFora: d.eloNotaFora,
+          snapshots: [],
+        };
+      }
+
+      // Snapshot compacto — só campos relevantes
+      const s = {
+        min:   d.minuto,
+        label: d.minutoLabel || String(d.minuto),
+        status: d.statusJogo,
+        placar: `${d.placarCasa??0}-${d.placarFora??0}`,
+        // Stats acumulados
+        xgC: d.xgCasa, xgF: d.xgFora,
+        apC: d.apCasa, apF: d.apFora,
+        shC: d.chutesCasa, shF: d.chutesFora,
+        alC: d.alvoCasa,  alF: d.alvoFora,
+        psC: d.passesCasa, psF: d.passesFora,
+        escC: d.escCasa, escF: d.escFora,
+        posC: d.posseCasa, posF: d.posseFora,
+        iyoC: d.iyoCasa, iyoF: d.iyoFora,
+      };
+
+      if (inclDeltas && d.dXgCasa != null) {
+        s.dXgC = d.dXgCasa; s.dXgF = d.dXgFora;
+        s.dAlC = d.dAlvoCasa; s.dAlF = d.dAlvoFora;
+        s.dEsC = d.dEscCasa; s.dEsF = d.dEscFora;
+        s.dApC = d.dApCasa; s.dApF = d.dApFora;
+      }
+      if (inclMomentum && d.momentumCasa != null) {
+        s.momC = d.momentumCasa; s.momF = d.momentumFora;
+        s.momNC = d.momentumNivelCasa; s.momNF = d.momentumNivelFora;
+      }
+      if (inclAlertas) {
+        const al = [];
+        if (d.alertaGolCasa)        al.push('⚡golC');
+        if (d.alertaGolFora)        al.push('⚡golF');
+        if (d.alertaEscanteiosCasa) al.push('🚩escC');
+        if (d.alertaEscanteiosFora) al.push('🚩escF');
+        if (al.length) s.al = al;
+      }
+
+      // Remove nulls/zeros se compacto
+      if (compacto) {
+        Object.keys(s).forEach(k => {
+          if (s[k] === null || s[k] === undefined) delete s[k];
+          if (typeof s[k] === 'number' && s[k] === 0 && !['min','placar'].includes(k)) delete s[k];
+        });
+      }
+
+      jogosMap[key].snapshots.push(s);
+    });
+
+    const relatorio = {
+      yellup: 'monitor-export-v1',
+      exportadoEm: new Date().toLocaleString('pt-BR'),
+      totalSnapshots: docs.length,
+      jogos: Object.values(jogosMap),
+    };
+
+    // Download
+    const json = JSON.stringify(relatorio);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const data = gc('expData').value || toBRTDate(new Date());
+    a.href = url;
+    a.download = `yellup_monitor_${expMode === 'jogo' ? gc('expJogo').value : data.replace(/-/g,'')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    const kb = (json.length / 1024).toFixed(1);
+    status.textContent = `✓ ${docs.length} snapshots · ${Object.keys(jogosMap).length} jogos · ${kb}kb`;
+    toast(`📊 Exportado: ${Object.keys(jogosMap).length} jogos, ${kb}kb`, 'ok');
+
+  } catch(e) {
+    status.textContent = '❌ ' + e.message;
+    toast('Erro ao exportar: '+e.message, 'err');
+  } finally {
+    btn.textContent = '⬇ Baixar JSON';
+    btn.disabled = false;
   }
 }
 </script>
