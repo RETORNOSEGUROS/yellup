@@ -712,25 +712,18 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (!isNaN(idx) && TEAMS[idx]) selectTeam(TEAMS[idx]);
   });
 
-  // ── Auto-comparar via URL params: ?a=apiId&b=apiId ──────────────
-  // Usado pelo jogos-admin.html para abrir comparativo direto de um jogo
-  const urlParams = new URLSearchParams(window.location.search);
-  const paramA = urlParams.get('a');
-  const paramB = urlParams.get('b');
-  if (paramA && paramB) {
-    const autoCompare = () => {
-      const tA = TEAMS.find(t => String(t.apiId) === String(paramA));
-      const tB = TEAMS.find(t => String(t.apiId) === String(paramB));
-      if (tA && tB) {
-        document.getElementById('h2hOverlay').style.display = 'flex';
-        setH2HTeam('A', tA);
-        setH2HTeam('B', tB);
-        setTimeout(() => runH2H(), 300);
-      } else {
-        console.warn(`[AutoCompare] Time não encontrado: a=${paramA} b=${paramB}`);
-      }
-    };
-    autoCompare();
+  // Abertura automática via ?a=apiId&b=apiId — usado pelo jogos-admin.html
+  const _p = new URLSearchParams(window.location.search);
+  const _pA = _p.get('a'), _pB = _p.get('b');
+  if (_pA && _pB) {
+    const tA = TEAMS.find(t => String(t.apiId) === String(_pA));
+    const tB = TEAMS.find(t => String(t.apiId) === String(_pB));
+    if (tA && tB) {
+      document.getElementById('h2hOverlay').style.display = 'flex';
+      setH2HTeam('A', tA);
+      setH2HTeam('B', tB);
+      setTimeout(() => runH2H(), 300);
+    }
   }
 });
 
@@ -917,18 +910,15 @@ async function fetchAllEvents(enriched, teamId) {
   for (let i = 0; i < ids.length; i += 4) {
     const batch = ids.slice(i, i+4);
     await Promise.all(batch.map(async id => {
-      const enr = enriched.find(e => e.f.fixture.id === id);
       try {
         const r = await apiGet(`/fixtures/events?fixture=${id}&type=Goal`);
-        // Só usa eventos reais — sem sintéticos que distorcem a distribuição por minuto
-        EV_DATA[id] = parseEvents(r.response || [], enr, teamId);
-      } catch {
-        EV_DATA[id] = [];
-      }
+        EV_DATA[id] = parseEvents(r.response || [], enriched.find(e => e.f.fixture.id===id), teamId);
+      } catch { EV_DATA[id] = []; }
       EV_LOADED++;
       updateEvProgress();
     }));
   }
+  // If user already on interval tab, re-render chart
   if (ACTIVE_TAB === 'inter') renderInterPane();
 }
 
@@ -995,12 +985,7 @@ function renderInterPane() {
   const maxVal = Math.max(...sc, ...cn, 1);
   const MAX_H  = 110; // px
 
-  // Totais reais: lidos diretamente do placar das partidas (sempre correto)
-  // A distribuição por bucket usa eventos da API (pode ser menor que o total real)
-  const totalScReal = EV_ENRICHED.reduce((s,e) => s+(e.tGoals||0), 0);
-  const totalCnReal = EV_ENRICHED.reduce((s,e) => s+(e.oGoals||0), 0);
-
-  // Half totals (distribuição por eventos)
+  // Half totals
   const sc1 = sc.slice(0,10).reduce((a,b)=>a+b,0);
   const cn1 = cn.slice(0,10).reduce((a,b)=>a+b,0);
   const sc2 = sc.slice(10).reduce((a,b)=>a+b,0);
@@ -1061,14 +1046,14 @@ function renderInterPane() {
       </div>
       <div class="chart-summary">
         <div class="cs-block">
-          <div class="cs-val" style="color:var(--gn)">${totalScReal}</div>
+          <div class="cs-val" style="color:var(--gn)">${sc1+sc2}</div>
           <div class="cs-lbl">Total Marcados</div>
-          <div class="cs-sub">${(totalScReal/Math.max(done,1)).toFixed(2)} / jogo</div>
+          <div class="cs-sub">${((sc1+sc2)/Math.max(done,1)).toFixed(2)} / jogo</div>
         </div>
         <div class="cs-block">
-          <div class="cs-val" style="color:var(--rd)">${totalCnReal}</div>
+          <div class="cs-val" style="color:var(--rd)">${cn1+cn2}</div>
           <div class="cs-lbl">Total Sofridos</div>
-          <div class="cs-sub">${(totalCnReal/Math.max(done,1)).toFixed(2)} / jogo</div>
+          <div class="cs-sub">${((cn1+cn2)/Math.max(done,1)).toFixed(2)} / jogo</div>
         </div>
         <div class="cs-block">
           <div class="cs-val" style="color:var(--cy)">${sc.indexOf(Math.max(...sc))>=0?BUCKETS[sc.indexOf(Math.max(...sc))].l:'—'}</div>
@@ -2043,23 +2028,19 @@ async function runH2H() {
     };
     await Promise.all([fetchStats(fixA,smA), fetchStats(fixB,smB)]);
 
-    // Fetch events — reutiliza EV_DATA se o time já foi carregado individualmente
+    // Fetch events for interval analysis
     const evA = {}, evB = {};
-    const fetchEvs = async (enrichedList, map, tid) => {
-      for (let i = 0; i < enrichedList.length; i += 5) {
-        await Promise.all(enrichedList.slice(i, i+5).map(async enr => {
-          const id = enr.f.fixture.id;
-          if (EV_DATA[id] !== undefined) { map[id] = EV_DATA[id]; return; }
+    const fetchEvs = async (fixes, map, tid) => {
+      for (let i=0;i<fixes.length;i+=5) {
+        await Promise.all(fixes.slice(i,i+5).map(async f => {
           try {
-            const r = await apiGet(`/fixtures/events?fixture=${id}&type=Goal`);
-            map[id] = parseEvents(r.response||[], enr, tid);
-          } catch {
-            map[id] = [];
-          }
+            const r = await apiGet(`/fixtures/events?fixture=${f.fixture.id}&type=Goal`);
+            map[f.fixture.id] = parseEvents(r.response||[], enrichedFind(fixes,f.fixture.id,tid), tid);
+          } catch { map[f.fixture.id]=[]; }
         }));
       }
     };
-    await Promise.all([fetchEvs(eA, evA, H2H_A.apiId), fetchEvs(eB, evB, H2H_B.apiId)]);
+    await Promise.all([fetchEvs(fixA,evA,H2H_A.apiId), fetchEvs(fixB,evB,H2H_B.apiId)]);
 
     renderH2H(eA, eB, smA, smB, evA, evB, fixH);
   } catch(e) {
@@ -2340,12 +2321,6 @@ function renderDualIntervals(evA, evB) {
   const sc2B=bsc.slice(10).reduce((s,v)=>s+v,0);
   const cn2B=bcn.slice(10).reduce((s,v)=>s+v,0);
 
-  // Totais reais lidos do placar das partidas (não dos eventos — podem ser incompletos)
-  const totalScA = eA.reduce((s,e)=>s+(e.tGoals||0),0);
-  const totalCnA = eA.reduce((s,e)=>s+(e.oGoals||0),0);
-  const totalScB = eB.reduce((s,e)=>s+(e.tGoals||0),0);
-  const totalCnB = eB.reduce((s,e)=>s+(e.oGoals||0),0);
-
   const crossHtml = ranked.length ? `
     <div style="font-size:8px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--tx3);margin-bottom:6px;margin-top:12px">
       Janelas de maior probabilidade de gol
@@ -2387,7 +2362,6 @@ function renderDualIntervals(evA, evB) {
           <span style="font-family:var(--fM);font-size:10px">
             <span style="color:var(--gn)">${sc1A}↑${sc1B}↑</span>
             <span style="color:var(--rd);margin-left:6px">${cn1A}↓${cn1B}↓</span>
-            <span style="color:var(--tx3);font-size:8px;margin-left:4px">(${totalScA}/${totalScB} total)</span>
           </span>
         </div>
         <div class="di-cols">${half1}</div>
@@ -2399,7 +2373,6 @@ function renderDualIntervals(evA, evB) {
           <span style="font-family:var(--fM);font-size:10px">
             <span style="color:var(--gn)">${sc2A}↑${sc2B}↑</span>
             <span style="color:var(--rd);margin-left:6px">${cn2A}↓${cn2B}↓</span>
-            <span style="color:var(--tx3);font-size:8px;margin-left:4px">(sofridos: ${totalCnA}/${totalCnB})</span>
           </span>
         </div>
         <div class="di-cols">${half2}</div>
