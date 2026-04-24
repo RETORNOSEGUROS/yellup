@@ -917,16 +917,35 @@ async function fetchAllEvents(enriched, teamId) {
   for (let i = 0; i < ids.length; i += 4) {
     const batch = ids.slice(i, i+4);
     await Promise.all(batch.map(async id => {
+      const enr = enriched.find(e => e.f.fixture.id === id);
       try {
-        const r = await apiGet(`/fixtures/events?fixture=${id}&type=Goal`);
-        EV_DATA[id] = parseEvents(r.response || [], enriched.find(e => e.f.fixture.id===id), teamId);
-      } catch { EV_DATA[id] = []; }
+        // Sem &type=Goal — busca TODOS os eventos e filtra localmente
+        // A API às vezes não retorna pênaltis/gols especiais com o filtro de tipo
+        const r = await apiGet(`/fixtures/events?fixture=${id}`);
+        EV_DATA[id] = parseEvents(r.response || [], enr, teamId);
+      } catch {
+        // Fallback: se API falhar, gera eventos sintéticos com minuto 0
+        // para não perder os gols do placar final
+        EV_DATA[id] = gerarEventosFallback(enr, teamId);
+      }
       EV_LOADED++;
       updateEvProgress();
     }));
   }
-  // If user already on interval tab, re-render chart
   if (ACTIVE_TAB === 'inter') renderInterPane();
+}
+
+// Fallback: cria eventos sem minuto quando a API não retorna eventos
+// Garante que o total de gols bata com o placar, mas sem distribuição de minuto
+function gerarEventosFallback(enr, teamId) {
+  if (!enr) return [];
+  const events = [];
+  const scored  = enr.tGoals || 0;
+  const allowed = enr.oGoals || 0;
+  // Distribui gols uniformemente no minuto 45 (não ideal mas garante contagem correta)
+  for (let i = 0; i < scored;  i++) events.push({ sc: true,  elapsed: 45, extra: null });
+  for (let i = 0; i < allowed; i++) events.push({ sc: false, elapsed: 45, extra: null });
+  return events;
 }
 
 function updateEvProgress() {
@@ -2040,10 +2059,14 @@ async function runH2H() {
     const fetchEvs = async (fixes, map, tid) => {
       for (let i=0;i<fixes.length;i+=5) {
         await Promise.all(fixes.slice(i,i+5).map(async f => {
+          const enr = enrichedFind(fixes, f.fixture.id, tid);
           try {
-            const r = await apiGet(`/fixtures/events?fixture=${f.fixture.id}&type=Goal`);
-            map[f.fixture.id] = parseEvents(r.response||[], enrichedFind(fixes,f.fixture.id,tid), tid);
-          } catch { map[f.fixture.id]=[]; }
+            // Sem &type=Goal — busca todos e filtra localmente (pênaltis não vêm com filtro)
+            const r = await apiGet(`/fixtures/events?fixture=${f.fixture.id}`);
+            map[f.fixture.id] = parseEvents(r.response||[], enr, tid);
+          } catch {
+            map[f.fixture.id] = gerarEventosFallback(enr, tid);
+          }
         }));
       }
     };
