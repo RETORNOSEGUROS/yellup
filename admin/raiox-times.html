@@ -2033,10 +2033,18 @@ async function runH2H() {
     const fetchEvs = async (fixes, map, tid) => {
       for (let i=0;i<fixes.length;i+=5) {
         await Promise.all(fixes.slice(i,i+5).map(async f => {
+          const id = f.fixture.id;
+          // Reutiliza eventos já carregados pela análise individual — evita chamadas duplas
+          // que podem falhar por rate limit e dar totais diferentes
+          if (EV_DATA[id] !== undefined) {
+            map[id] = EV_DATA[id];
+            return;
+          }
           try {
-            const r = await apiGet(`/fixtures/events?fixture=${f.fixture.id}&type=Goal`);
-            map[f.fixture.id] = parseEvents(r.response||[], enrichedFind(fixes,f.fixture.id,tid), tid);
-          } catch { map[f.fixture.id]=[]; }
+            const r = await apiGet(`/fixtures/events?fixture=${id}&type=Goal`);
+            map[id] = parseEvents(r.response||[], enrichedFind(fixes,id,tid), tid);
+            EV_DATA[id] = map[id]; // cacheia para evitar refetch
+          } catch { map[id]=[]; }
         }));
       }
     };
