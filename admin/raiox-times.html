@@ -716,14 +716,30 @@ window.addEventListener('DOMContentLoaded', async () => {
   const _p = new URLSearchParams(window.location.search);
   const _pA = _p.get('a'), _pB = _p.get('b');
   if (_pA && _pB) {
-    const tA = TEAMS.find(t => String(t.apiId) === String(_pA));
-    const tB = TEAMS.find(t => String(t.apiId) === String(_pB));
-    if (tA && tB) {
-      document.getElementById('h2hOverlay').style.display = 'flex';
-      setH2HTeam('A', tA);
-      setH2HTeam('B', tB);
-      setTimeout(() => runH2H(), 300);
-    }
+    const autoCompare = async () => {
+      const getTeam = async (id) => {
+        let t = TEAMS.find(t => String(t.apiId) === String(id));
+        if (t) return t;
+        // Time não cadastrado no Yellup — busca via API Football
+        try {
+          const r = await apiGet(`/teams?id=${id}`);
+          const item = r.response?.[0];
+          if (!item) return null;
+          const tm = item.team;
+          return { id: null, apiId: tm.id, nome: tm.name, pais: tm.country||'', tipo: 'clube', escudo: tm.logo||null, _apiOnly: true };
+        } catch { return null; }
+      };
+      const [tA, tB] = await Promise.all([getTeam(_pA), getTeam(_pB)]);
+      if (tA && tB) {
+        document.getElementById('h2hOverlay').style.display = 'flex';
+        setH2HTeam('A', tA);
+        setH2HTeam('B', tB);
+        setTimeout(() => runH2H(), 300);
+      } else {
+        console.warn(`[AutoCompare] Time não encontrado: a=${_pA} b=${_pB}`);
+      }
+    };
+    autoCompare();
   }
 });
 
@@ -803,7 +819,17 @@ function renderSidebar() {
   count.textContent = `${filtered.length} times`;
 
   if (!filtered.length) {
-    list.innerHTML = `<div class="empty" style="height:100px"><div class="empty-s">nenhum resultado</div></div>`;
+    // Nenhum resultado local — mostra botão para buscar via API Football
+    const q = QUERY.trim();
+    list.innerHTML = `
+      <div class="empty" style="height:auto;padding:12px;">
+        <div class="empty-s" style="margin-bottom:8px;">não encontrado localmente</div>
+        ${q ? `<button onclick="buscarTimeViaAPI(${JSON.stringify(q)})"
+          style="padding:6px 12px;border-radius:6px;border:1px solid var(--acc);background:rgba(0,229,160,.08);
+          color:var(--acc);font-size:10px;cursor:pointer;font-family:var(--fM);width:100%">
+          🔍 Buscar "${q}" via API
+        </button>` : ''}
+      </div>`;
     return;
   }
 
@@ -824,6 +850,59 @@ function renderSidebar() {
       ${scoreHtml || `<span class="tag ${t.tipo === 'selecao' ? 'tag-sel' : 'tag-clu'}">${t.tipo === 'selecao' ? 'SEL' : 'CLB'}</span>`}
     </div>`;
   }).join('');
+}
+
+// ── Buscar time via API Football (não cadastrado no Yellup) ────
+async function buscarTimeViaAPI(query) {
+  const list = document.getElementById('sbList');
+  list.innerHTML = `<div class="empty" style="height:80px"><div class="spin"></div></div>`;
+  try {
+    const isId = /^\d+$/.test(query.trim());
+    const endpoint = isId ? `/teams?id=${query.trim()}` : `/teams?search=${encodeURIComponent(query.trim())}`;
+    const r = await apiGet(endpoint);
+    const teams = (r.response || []).slice(0, 10);
+    if (!teams.length) {
+      list.innerHTML = `<div class="empty" style="height:80px"><div class="empty-s">sem resultados na API</div></div>`;
+      return;
+    }
+    list.innerHTML = teams.map(item => {
+      const t = item.team;
+      const tmpTeam = { id: null, apiId: t.id, nome: t.name, pais: item.venue?.city || t.country || '', tipo: 'clube', escudo: t.logo || null, _apiOnly: true };
+      const idx = TEAMS.length + Math.random(); // dummy idx
+      // Armazena temporariamente para seleção
+      window._apiTeamCache = window._apiTeamCache || {};
+      window._apiTeamCache[t.id] = tmpTeam;
+      return `
+        <div class="si" onclick="selectTeamById(${t.id})" style="cursor:pointer">
+          ${t.logo ? `<img class="si-logo" src="${t.logo}" loading="lazy" onerror="this.className='si-ph'">` : `<div class="si-ph"></div>`}
+          <div class="si-info">
+            <div class="si-nm">${t.name}</div>
+            <div class="si-sub">${t.country||''} · #${t.id} <span style="color:var(--yel);font-size:8px">via API</span></div>
+          </div>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = `<div class="empty" style="height:80px"><div class="empty-s">erro: ${e.message}</div></div>`;
+  }
+}
+
+async function selectTeamById(apiId) {
+  // Tenta encontrar no TEAMS primeiro
+  let team = TEAMS.find(t => String(t.apiId) === String(apiId));
+  if (!team) {
+    // Usa cache temporário ou busca na API
+    team = window._apiTeamCache?.[apiId];
+    if (!team) {
+      try {
+        const r = await apiGet(`/teams?id=${apiId}`);
+        const item = r.response?.[0];
+        if (!item) { alert('Time não encontrado'); return; }
+        const t = item.team;
+        team = { id: null, apiId: t.id, nome: t.name, pais: t.country||'', tipo: 'clube', escudo: t.logo||null, _apiOnly: true };
+      } catch(e) { alert('Erro ao buscar time: ' + e.message); return; }
+    }
+  }
+  selectTeam(team);
 }
 
 // ── Select Team ────────────────────────────────────────────────
