@@ -921,11 +921,11 @@ function updateEvProgress() {
 // sc = true  → time selecionado marcou
 // sc = false → time selecionado sofreu
 function parseEvents(events, enriched, teamId) {
-  if (!events?.length || !enriched) return [];
+  if (!events?.length) return [];
   return events
-    .filter(ev => ev.type === 'Goal')
+    .filter(ev => ev.type?.toLowerCase() === 'goal')  // case-insensitive
     .map(ev => {
-      const bySelected = ev.team?.id === teamId;
+      const bySelected = String(ev.team?.id) === String(teamId);
       const ownGoal    = ev.detail === 'Own Goal';
       const scored     = ownGoal ? !bySelected : bySelected;
       return { sc: scored, elapsed: ev.time?.elapsed ?? 0, extra: ev.time?.extra ?? null };
@@ -1068,15 +1068,28 @@ function renderInterPane() {
 
 // ── Bucket Classifier ──────────────────────────────────────────
 function getBucket(elapsed, extra) {
-  const hasExtra = extra && extra > 0;
+  // API Football pode retornar acréscimos de duas formas:
+  // A) elapsed=45, extra=2  → hasExtra=true  → AC 1T ✓
+  // B) elapsed=47, extra=null → forma alternativa de 45+2 → deve ir para AC 1T
+  // C) elapsed=92, extra=null → 90+2 → deve ir para AC 2T
+
+  const hasExtra = extra != null && extra > 0;
+
+  // AC 2T: qualquer minuto acima de 90, ou 90 com acréscimo explícito
+  if (elapsed > 90 || (elapsed === 90 && hasExtra)) return 19;
+
+  // AC 1T: 45 com acréscimo explícito, OU minutos 46-47 sem acréscimo
+  // (API às vezes reporta 45+1 como elapsed=46, 45+2 como elapsed=47)
+  if (elapsed === 45 && hasExtra) return 9;
+  if (elapsed === 46 || elapsed === 47) return 9;  // 45+1 ou 45+2 reportado como minuto real
+
+  // Primeiro tempo normal: 1-45
   if (elapsed <= 45) {
-    if (hasExtra) return 9;                                        // AC 1T
-    return Math.min(8, Math.floor((Math.max(1, elapsed) - 1) / 5)); // 0–8
-  } else {
-    if (elapsed >= 90 && hasExtra) return 19;                     // AC 2T
-    if (elapsed > 90) return 19;
-    return Math.min(18, 10 + Math.floor((elapsed - 46) / 5));    // 10–18
+    return Math.min(8, Math.floor((Math.max(1, elapsed) - 1) / 5));
   }
+
+  // Segundo tempo normal: 48-90
+  return Math.min(18, 10 + Math.floor((elapsed - 48) / 5));
 }
 
 // ── Enrich fixture with result from team's POV ─────────────────
