@@ -1997,10 +1997,12 @@ function setH2HTeam(side, team) {
 async function runH2H() {
   if (!H2H_A || !H2H_B) return;
   const body = document.getElementById('h2hBody');
-  body.innerHTML = `<div class="h2h-idle"><div class="spin"></div>&nbsp;Carregando dados...</div>`;
+
+  const setStatus = msg => body.innerHTML = `<div class="h2h-idle"><div class="spin"></div>&nbsp;${msg}</div>`;
+  setStatus('Buscando jogos...');
 
   try {
-    // Parallel: fixtures A, fixtures B, H2H direct matches
+    // Busca fixtures das duas equipes + H2H direto
     const [rA, rB, rH] = await Promise.all([
       apiGet(`/fixtures?team=${H2H_A.apiId}&last=20`),
       apiGet(`/fixtures?team=${H2H_B.apiId}&last=20`),
@@ -2014,11 +2016,11 @@ async function runH2H() {
     const eA = fixA.map(f=>enrich(f,H2H_A.apiId));
     const eB = fixB.map(f=>enrich(f,H2H_B.apiId));
 
-    // Fetch stats for both teams (batches of 5)
+    // Stats: sequencial por time, batches de 3
     const smA = {}, smB = {};
     const fetchStats = async (fixes, map) => {
-      for (let i=0;i<fixes.length;i+=5) {
-        await Promise.all(fixes.slice(i,i+5).map(async f => {
+      for (let i=0;i<fixes.length;i+=3) {
+        await Promise.all(fixes.slice(i,i+3).map(async f => {
           try {
             const r = await apiGet(`/fixtures/statistics?fixture=${f.fixture.id}`);
             map[f.fixture.id] = r.response||[];
@@ -2026,29 +2028,30 @@ async function runH2H() {
         }));
       }
     };
-    await Promise.all([fetchStats(fixA,smA), fetchStats(fixB,smB)]);
+    setStatus('Buscando stats do time A...');
+    await fetchStats(fixA, smA);
+    setStatus('Buscando stats do time B...');
+    await fetchStats(fixB, smB);
 
-    // Fetch events for interval analysis
+    // Eventos: sequencial por time, reutiliza EV_DATA quando disponível
     const evA = {}, evB = {};
     const fetchEvs = async (fixes, map, tid) => {
-      for (let i=0;i<fixes.length;i+=5) {
-        await Promise.all(fixes.slice(i,i+5).map(async f => {
+      for (let i=0;i<fixes.length;i+=3) {
+        await Promise.all(fixes.slice(i,i+3).map(async f => {
           const id = f.fixture.id;
-          // Reutiliza eventos já carregados pela análise individual — evita chamadas duplas
-          // que podem falhar por rate limit e dar totais diferentes
-          if (EV_DATA[id] !== undefined) {
-            map[id] = EV_DATA[id];
-            return;
-          }
+          if (EV_DATA[id] !== undefined) { map[id] = EV_DATA[id]; return; }
           try {
             const r = await apiGet(`/fixtures/events?fixture=${id}&type=Goal`);
             map[id] = parseEvents(r.response||[], enrichedFind(fixes,id,tid), tid);
-            EV_DATA[id] = map[id]; // cacheia para evitar refetch
+            EV_DATA[id] = map[id];
           } catch { map[id]=[]; }
         }));
       }
     };
-    await Promise.all([fetchEvs(fixA,evA,H2H_A.apiId), fetchEvs(fixB,evB,H2H_B.apiId)]);
+    setStatus('Buscando eventos do time A...');
+    await fetchEvs(fixA, evA, H2H_A.apiId);
+    setStatus('Buscando eventos do time B...');
+    await fetchEvs(fixB, evB, H2H_B.apiId);
 
     renderH2H(eA, eB, smA, smB, evA, evB, fixH);
   } catch(e) {
