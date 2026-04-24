@@ -2063,23 +2063,25 @@ async function runH2H() {
     };
     await Promise.all([fetchStats(fixA,smA), fetchStats(fixB,smB)]);
 
-    // Fetch events for interval analysis
+    // Fetch events — reutiliza EV_DATA se o time já foi carregado individualmente
     const evA = {}, evB = {};
-    const fetchEvs = async (fixes, map, tid) => {
-      for (let i=0;i<fixes.length;i+=5) {
-        await Promise.all(fixes.slice(i,i+5).map(async f => {
-          const enr = enrichedFind(fixes, f.fixture.id, tid);
+    const fetchEvs = async (enrichedList, map, tid) => {
+      for (let i = 0; i < enrichedList.length; i += 5) {
+        await Promise.all(enrichedList.slice(i, i+5).map(async enr => {
+          const id = enr.f.fixture.id;
+          // Reutiliza da análise individual se disponível
+          if (EV_DATA[id] !== undefined) { map[id] = EV_DATA[id]; return; }
           try {
-            const r = await apiGet(`/fixtures/events?fixture=${f.fixture.id}&type=Goal`);
+            const r = await apiGet(`/fixtures/events?fixture=${id}&type=Goal`);
             const parsed = parseEvents(r.response||[], enr, tid);
-            map[f.fixture.id] = reconciliarGols(parsed, enr);
+            map[id] = reconciliarGols(parsed, enr);
           } catch {
-            map[f.fixture.id] = gerarEventosFallback(enr);
+            map[id] = gerarEventosFallback(enr);
           }
         }));
       }
     };
-    await Promise.all([fetchEvs(fixA,evA,H2H_A.apiId), fetchEvs(fixB,evB,H2H_B.apiId)]);
+    await Promise.all([fetchEvs(eA, evA, H2H_A.apiId), fetchEvs(eB, evB, H2H_B.apiId)]);
 
     renderH2H(eA, eB, smA, smB, evA, evB, fixH);
   } catch(e) {
