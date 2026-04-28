@@ -650,11 +650,22 @@ let QUERY    = '';
 let SELECTED = null;
 
 // Módulo 2 — Intervalos
+// EV_DATA[teamId][fixtureId] = events (sc na perspectiva de teamId)
+// Cache persistente entre seleções de time — não é resetado em selectTeam
 let EV_DATA     = {};
 let EV_LOADED   = 0;
 let EV_TOTAL    = 0;
 let EV_ENRICHED = [];
+let EV_FAILED   = new Set();   // fixtureIds cujo fetch falhou para o time atual
 let ACTIVE_TAB  = 'jogos';
+
+// ── Helpers de cache de eventos por time ──────────────────────
+function getTeamEvents(tid) { return EV_DATA[tid] || {}; }
+function hasTeamEvent(tid, fid) { return EV_DATA[tid]?.[fid] !== undefined; }
+function setTeamEvent(tid, fid, events) {
+  if (!EV_DATA[tid]) EV_DATA[tid] = {};
+  EV_DATA[tid][fid] = events;
+}
 
 // Módulo 3 — ForteScore
 let FORTE_RESULT = null;
@@ -909,7 +920,8 @@ async function selectTeamById(apiId) {
 async function selectTeam(team) {
   SELECTED = team;
   ACTIVE_TAB = 'jogos';
-  EV_DATA = {}; EV_LOADED = 0; EV_TOTAL = 0; EV_ENRICHED = [];
+  // EV_DATA NÃO é resetado: cache persiste entre seleções (por teamId)
+  EV_LOADED = 0; EV_TOTAL = 0; EV_ENRICHED = []; EV_FAILED = new Set();
   FORTE_RESULT = null; FORTE_STATE = 'idle'; FORTE_TEAM = team;
   renderSidebar();
 
@@ -989,10 +1001,21 @@ async function fetchAllEvents(enriched, teamId) {
   for (let i = 0; i < ids.length; i += 4) {
     const batch = ids.slice(i, i+4);
     await Promise.all(batch.map(async id => {
+      // Já existe cache válido pra esse (time, jogo)? Pula o fetch.
+      if (hasTeamEvent(teamId, id)) {
+        EV_LOADED++;
+        updateEvProgress();
+        return;
+      }
       try {
         const r = await apiGet(`/fixtures/events?fixture=${id}&type=Goal`);
-        EV_DATA[id] = parseEvents(r.response || [], enriched.find(e => e.f.fixture.id===id), teamId);
-      } catch { EV_DATA[id] = []; }
+        setTeamEvent(teamId, id, parseEvents(r.response || [], enriched.find(e => e.f.fixture.id===id), teamId));
+      } catch (err) {
+        // Falha mesmo após retries — registra como vazio mas marca o jogo como "sem dados"
+        setTeamEvent(teamId, id, []);
+        EV_FAILED.add(id);
+        console.warn(`[events] fixture ${id} falhou:`, err.message);
+      }
       EV_LOADED++;
       updateEvProgress();
     }));
@@ -1053,7 +1076,9 @@ function renderInterPane() {
   const sc = new Array(20).fill(0);
   const cn = new Array(20).fill(0);
 
-  Object.values(EV_DATA).forEach(events => {
+  // Lê apenas os eventos do time atualmente selecionado (cache por teamId)
+  const teamEvents = SELECTED ? getTeamEvents(SELECTED.apiId) : {};
+  Object.values(teamEvents).forEach(events => {
     events.forEach(ev => {
       const bi = getBucket(ev.elapsed, ev.extra);
       if (bi < 0) return;
@@ -1069,6 +1094,12 @@ function renderInterPane() {
   const cn1 = cn.slice(0,10).reduce((a,b)=>a+b,0);
   const sc2 = sc.slice(10).reduce((a,b)=>a+b,0);
   const cn2 = cn.slice(10).reduce((a,b)=>a+b,0);
+
+  // Cobertura: compara gols rastreados (eventos) vs gols oficiais (placar)
+  const totalEv   = (sc1+sc2) + (cn1+cn2);
+  const totalReal = EV_ENRICHED.reduce((s,e) => s + (e.tGoals||0) + (e.oGoals||0), 0);
+  const cobertura = totalReal ? Math.round((totalEv/totalReal)*100) : 100;
+  const failedN   = EV_FAILED.size;
 
   function colHtml(i) {
     const bk = BUCKETS[i];
@@ -1145,7 +1176,13 @@ function renderInterPane() {
           <div class="cs-sub">${Math.max(...cn)} gols sofridos</div>
         </div>
       </div>
-      ${loading ? `<div class="coverage">⟳ carregando restantes (${done}/${total})...</div>` : `<div class="coverage">✓ ${done} jogos analisados</div>`}
+      ${loading
+        ? `<div class="coverage">⟳ carregando restantes (${done}/${total})...</div>`
+        : `<div class="coverage">
+             ✓ ${done} jogos · ${totalEv}/${totalReal} gols rastreados
+             <span style="color:${cobertura>=95?'var(--gn)':cobertura>=80?'var(--yl)':'var(--rd)'}">(${cobertura}%)</span>
+             ${failedN ? `<span style="color:var(--rd);margin-left:8px">⚠ ${failedN} jogo${failedN>1?'s':''} sem dados de eventos da API</span>` : ''}
+           </div>`}
     </div>`;
 
   // Animate bars after render
@@ -1992,17 +2029,58 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ── API Helper ─────────────────────────────────────────────────
 
 // ── API Helper ─────────────────────────────────────────────────
-async function apiGet(path) {
-  const res = await fetch(CFG.apiBase + path, {
-    headers: { 'x-apisports-key': CFG.apiKey }
-  });
-  if (!res.ok) throw new Error(`API ${res.status} ${res.statusText}`);
-  const json = await res.json();
-  if (json.errors && Object.keys(json.errors).length) {
-    const msg = Object.values(json.errors)[0];
-    throw new Error(msg);
+async function apiGet(path, retries = 3) {
+  let lastErr;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(CFG.apiBase + path, {
+        headers: { 'x-apisports-key': CFG.apiKey }
+      });
+      // Rate limit — espera mais a cada tentativa
+      if (res.status === 429) {
+        lastErr = new Error(`API 429 rate limit (tentativa ${attempt+1}/${retries})`);
+        if (attempt < retries - 1) {
+          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+          continue;
+        }
+        throw lastErr;
+      }
+      // Erro do servidor — backoff curto
+      if (res.status >= 500 && res.status < 600) {
+        lastErr = new Error(`API ${res.status} (tentativa ${attempt+1}/${retries})`);
+        if (attempt < retries - 1) {
+          await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+          continue;
+        }
+        throw lastErr;
+      }
+      // Outros HTTP errors: erro permanente, não tenta de novo
+      if (!res.ok) throw new Error(`API ${res.status} ${res.statusText}`);
+      const json = await res.json();
+      if (json.errors && Object.keys(json.errors).length) {
+        const msg = Object.values(json.errors)[0];
+        // Erros de payload da API-Football podem ser transitórios também
+        lastErr = new Error(msg);
+        if (attempt < retries - 1 && /rate|limit|quota|busy/i.test(msg)) {
+          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+          continue;
+        }
+        throw lastErr;
+      }
+      return json;
+    } catch (e) {
+      lastErr = e;
+      // Erro de rede (fetch failed) — tenta de novo
+      const isNetwork = e instanceof TypeError;
+      if (isNetwork && attempt < retries - 1) {
+        await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+        continue;
+      }
+      // Erros já lançados acima (429/5xx/payload) já fizeram suas próprias retries
+      if (!isNetwork) throw e;
+    }
   }
-  return json;
+  throw lastErr || new Error('apiGet falhou após retries');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2112,18 +2190,25 @@ async function runH2H() {
     setStatus('Buscando stats do time B...');
     await fetchStats(fixB, smB);
 
-    // Eventos: sequencial por time, reutiliza EV_DATA quando disponível
+    // Eventos: sequencial por time, reutiliza EV_DATA quando disponível PARA AQUELE TIME
+    // (cache antigo armazenava só por fixtureId — bug de inversão em jogos H2H)
     const evA = {}, evB = {};
     const fetchEvs = async (fixes, map, tid) => {
       for (let i=0;i<fixes.length;i+=3) {
         await Promise.all(fixes.slice(i,i+3).map(async f => {
           const id = f.fixture.id;
-          if (EV_DATA[id] !== undefined) { map[id] = EV_DATA[id]; return; }
+          // Cache hit somente se já houver evento PARSEADO PARA ESTE TIME
+          if (hasTeamEvent(tid, id)) { map[id] = getTeamEvents(tid)[id]; return; }
           try {
             const r = await apiGet(`/fixtures/events?fixture=${id}&type=Goal`);
-            map[id] = parseEvents(r.response||[], enrichedFind(fixes,id,tid), tid);
-            EV_DATA[id] = map[id];
-          } catch { map[id]=[]; }
+            const parsed = parseEvents(r.response||[], enrichedFind(fixes,id,tid), tid);
+            map[id] = parsed;
+            setTeamEvent(tid, id, parsed);
+          } catch (err) {
+            map[id] = [];
+            setTeamEvent(tid, id, []);   // marca como buscado p/ não tentar de novo no mesmo H2H
+            console.warn(`[h2h-events] fixture ${id} (time ${tid}) falhou:`, err.message);
+          }
         }));
       }
     };
