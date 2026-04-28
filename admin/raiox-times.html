@@ -2437,20 +2437,27 @@ function renderDualIntervals(evA, evB) {
   const MAX_H  = 90;
 
   // Cross index per bucket: A marks × B concedes + B marks × A concedes
-  // Normalised 0–10 — higher = more likely a goal
+  // Modelo multiplicativo: estima probabilidade conjunta sob independência
   const crossIdx = BUCKETS.map((_,i) => {
     const aAtk = asc[i] * bcn[i]; // A scores often + B concedes often
     const bAtk = bsc[i] * acn[i]; // B scores often + A concedes often
     return { aAtk, bAtk, total: aAtk + bAtk };
   });
-  const maxCross = Math.max(...crossIdx.map(c=>c.total), 1);
 
-  // Find top 3 cross-index buckets
+  // Filtro de janelas que indicam provável gol
+  // Regra 1 (sinal cruzado):  aAtk + bAtk >= 6     → ex: 3GFx2GC, 3x3, 4x2 etc.
+  // Regra 2 (volume forte):   um time fez 4+ E o outro sofreu 1+ no intervalo
+  // → captura tanto a corroboração quanto "4 GF/GC isolado merece atenção"
+  const LIMIAR_TOTAL = 6;
+  const LIMIAR_VOLUME = 4;
   const ranked = crossIdx
     .map((c,i)=>({...c,i}))
-    .filter(c=>c.total>0)
-    .sort((a,b)=>b.total-a.total)
-    .slice(0,4);
+    .filter(c =>
+      c.total >= LIMIAR_TOTAL ||
+      (asc[c.i] >= LIMIAR_VOLUME && bcn[c.i] >= 1) ||
+      (bsc[c.i] >= LIMIAR_VOLUME && acn[c.i] >= 1)
+    )
+    .sort((a,b)=>b.total-a.total);
 
   function colH(i) {
     const bk   = BUCKETS[i];
@@ -2498,7 +2505,7 @@ function renderDualIntervals(evA, evB) {
 
   const crossHtml = ranked.length ? `
     <div style="font-size:8px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--tx3);margin-bottom:6px;margin-top:12px">
-      Janelas de maior probabilidade de gol
+      Janelas com indício de gol · ${ranked.length} ${ranked.length===1?'janela':'janelas'} acima do limiar
     </div>
     <div class="di-cross">
       ${ranked.map(r=>{
@@ -2506,20 +2513,27 @@ function renderDualIntervals(evA, evB) {
         const favA = r.aAtk >= r.bAtk;
         const favTeam = favA ? H2H_A.nome : H2H_B.nome;
         const col = favA ? forteColor(FORTE_CACHE[H2H_A.apiId]||5) : forteColor(FORTE_CACHE[H2H_B.apiId]||5);
-        const idx = (r.total/maxCross*10).toFixed(1);
-        const idxCol = +idx>=7?'var(--cy)':+idx>=4?'var(--gn)':'var(--tx2)';
+        // Escala absoluta: total/2, capeado em 10.0 (total=20+ vira 10.0)
+        const idx = Math.min(10, r.total / 2).toFixed(1);
+        const idxCol = +idx>=7?'var(--cy)':+idx>=5?'var(--gn)':+idx>=3?'var(--yl)':'var(--tx2)';
         const descA = favA
           ? `${H2H_A.nome} fez ${asc[r.i]} · ${H2H_B.nome} tomou ${bcn[r.i]}`
           : `${H2H_B.nome} fez ${bsc[r.i]} · ${H2H_A.nome} tomou ${acn[r.i]}`;
         return `
           <div class="di-cx-item">
             <span style="font-family:var(--fM);font-size:10px;font-weight:700;color:var(--tx2);min-width:38px">${bk.l}</span>
-            <span class="di-cx-win" style="color:${col}">→ ${favTeam}</span>
+            <span class="di-cx-win" style="color:${col}"><strong>PROVÁVEL GOL</strong> · ${favTeam}</span>
             <span class="di-cx-desc">${descA}</span>
             <span class="di-cx-idx" style="color:${idxCol}">${idx}</span>
           </div>`;
       }).join('')}
-    </div>` : '';
+    </div>` : `
+    <div style="font-size:8px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--tx3);margin-bottom:6px;margin-top:12px">
+      Janelas com indício de gol
+    </div>
+    <div style="font-size:11px;color:var(--tx3);font-family:var(--fM);padding:8px 0">
+      Nenhuma janela com sinal acima do limiar nos últimos 20 jogos de cada time.
+    </div>`;
 
   return `
   <div class="h2h-section">
@@ -2554,8 +2568,9 @@ function renderDualIntervals(evA, evB) {
       </div>
     </div>
     ${crossHtml}
-    <div style="font-size:8px;color:var(--tx3);font-family:var(--fM);margin-top:8px">
-      Barras sólidas = ${H2H_A.nome} · Barras translúcidas = ${H2H_B.nome} · Índice cruzado: A faz × B toma + B faz × A toma
+    <div style="font-size:8px;color:var(--tx3);font-family:var(--fM);margin-top:8px;line-height:1.5">
+      Barras sólidas = ${H2H_A.nome} · Barras translúcidas = ${H2H_B.nome}<br>
+      Índice cruzado: A faz × B toma + B faz × A toma · Limiar de exibição: total ≥ 6 OU 4+ gols de um lado com ≥1 do outro · Score: 0–10 absoluto (≥10 = sinal muito forte)
     </div>
   </div>`;
 }
