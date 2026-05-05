@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Previsões de Gols · Yellup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+:root {
+  --bg:#0a0e1a; --s1:#0f1422; --s2:#141927; --s3:#1a2030;
+  --b1:#1f2638; --b2:#2a3142;
+  --tx1:#e8ecf3; --tx2:#a0a8ba; --tx3:#5a6478;
+  --gn:#0fe898; --gn-d:rgba(15,232,152,.08); --gn-b:rgba(15,232,152,.25);
+  --rd:#ff5577; --rd-d:rgba(255,85,119,.08); --rd-b:rgba(255,85,119,.25);
+  --yl:#facc15; --yl-d:rgba(250,204,21,.08); --yl-b:rgba(250,204,21,.25);
+  --cy:#00d4ff; --cy-d:rgba(0,212,255,.08); --cy-b:rgba(0,212,255,.25);
+  --pu:#a78bfa;
+  --fS:'Inter',system-ui,-apple-system,sans-serif;
+  --fM:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:13px; min-height:100vh; }
+
+/* TOPBAR */
+.topbar { display:flex; align-items:center; padding:12px 20px; background:var(--s1); border-bottom:1px solid var(--b1); gap:14px; }
+.logo { font-size:16px; font-weight:800; letter-spacing:1px; color:var(--cy); }
+.logo em { font-style:normal; color:var(--tx1); }
+.page-id { font-size:9px; font-weight:700; letter-spacing:1.4px; color:var(--tx3); text-transform:uppercase; }
+.topbar .spacer { flex:1; }
+.btn { background:transparent; color:var(--tx2); border:1px solid var(--b2); border-radius:6px; padding:7px 14px; font-size:11px; font-weight:600; cursor:pointer; font-family:var(--fS); transition:.15s; }
+.btn:hover { color:var(--tx1); border-color:var(--tx3); }
+.btn-pri { background:var(--cy-d); color:var(--cy); border-color:var(--cy-b); }
+.btn-pri:hover { background:rgba(0,212,255,.18); }
+.btn-pri:disabled { opacity:.5; cursor:not-allowed; }
+
+/* MAIN */
+.main { max-width:1400px; margin:0 auto; padding:20px; }
+.bar { display:flex; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
+.bar h1 { font-size:18px; font-weight:600; color:var(--tx1); }
+.dt-pick { background:var(--s2); border:1px solid var(--b1); color:var(--tx1); padding:7px 12px; border-radius:6px; font-size:12px; font-family:var(--fM); }
+.tag { padding:3px 9px; border-radius:4px; font-size:10px; font-weight:700; font-family:var(--fM); }
+.tag-info { background:var(--cy-d); color:var(--cy); border:1px solid var(--cy-b); }
+
+/* STATUS BANNER */
+.banner { padding:12px 16px; border-radius:8px; margin-bottom:16px; display:flex; gap:10px; align-items:center; font-size:12px; }
+.banner-info { background:var(--cy-d); color:var(--cy); border:1px solid var(--cy-b); }
+.banner-warn { background:var(--yl-d); color:var(--yl); border:1px solid var(--yl-b); }
+.banner-err  { background:var(--rd-d); color:var(--rd); border:1px solid var(--rd-b); }
+
+/* JOGO CARD */
+.jc { background:var(--s1); border:1px solid var(--b1); border-radius:10px; margin-bottom:10px; overflow:hidden; transition:.15s; }
+.jc:hover { border-color:var(--b2); }
+.jc-hd { display:grid; grid-template-columns:90px 1fr 130px 1fr 130px; align-items:center; padding:14px 18px; gap:14px; cursor:pointer; }
+.jc-time { font-family:var(--fM); font-size:11px; color:var(--tx3); font-weight:600; }
+.jc-time strong { color:var(--tx1); display:block; font-size:13px; font-weight:700; }
+.jc-tm { display:flex; align-items:center; gap:10px; min-width:0; }
+.jc-tm.right { justify-content:flex-end; }
+.jc-tm img { width:26px; height:26px; object-fit:contain; flex-shrink:0; }
+.jc-tm-nm { font-size:13px; font-weight:600; color:var(--tx1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.jc-vs { text-align:center; font-family:var(--fM); font-size:18px; font-weight:700; }
+.jc-vs.pend { color:var(--tx3); }
+.jc-vs.fim { color:var(--gn); }
+.jc-status { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; padding:3px 8px; border-radius:4px; text-align:center; }
+.jc-status-ag { background:var(--cy-d); color:var(--cy); }
+.jc-status-fim { background:var(--gn-d); color:var(--gn); }
+.jc-status-live { background:var(--rd-d); color:var(--rd); }
+.jc-prev { font-family:var(--fM); font-size:11px; text-align:right; }
+.jc-prev .lambda { color:var(--cy); font-size:14px; font-weight:700; }
+.jc-prev .lbl { color:var(--tx3); font-size:9px; text-transform:uppercase; letter-spacing:.5px; }
+.jc-prev.empty { color:var(--tx3); font-style:italic; }
+
+/* DETAIL PANE */
+.jc-det { display:none; padding:0 18px 18px; border-top:1px solid var(--b1); margin-top:6px; padding-top:14px; }
+.jc.open .jc-det { display:block; }
+.jc.open .jc-hd { background:var(--s2); }
+
+.det-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+.det-block { background:var(--s2); border:1px solid var(--b1); border-radius:8px; padding:14px; }
+.det-h { font-size:9px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--tx3); margin-bottom:10px; }
+
+/* FORTESCORE LADO A LADO */
+.fs-pair { display:grid; grid-template-columns:1fr auto 1fr; gap:14px; align-items:center; }
+.fs-side { text-align:center; }
+.fs-team { font-size:11px; color:var(--tx2); font-weight:600; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fs-val { font-size:32px; font-weight:700; font-family:var(--fM); }
+.fs-vs { font-family:var(--fM); font-size:11px; color:var(--tx3); }
+.fs-cmp { display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center; margin-top:4px; font-family:var(--fM); font-size:10px; }
+.fs-cmp-bar { background:var(--s3); border-radius:2px; height:5px; overflow:hidden; position:relative; }
+.fs-cmp-fill { height:100%; }
+
+/* DISTRIBUIÇÃO POISSON */
+.poisson { display:grid; grid-template-columns:repeat(6,1fr); gap:5px; margin-top:6px; }
+.poi-c { background:var(--s3); border-radius:6px; padding:8px 4px; text-align:center; position:relative; overflow:hidden; }
+.poi-c-bar { position:absolute; bottom:0; left:0; right:0; background:var(--cy-d); border-top:2px solid var(--cy); }
+.poi-c-lbl { position:relative; font-family:var(--fM); font-size:10px; color:var(--tx2); font-weight:700; }
+.poi-c-pct { position:relative; font-family:var(--fM); font-size:13px; color:var(--tx1); font-weight:700; margin-top:2px; }
+.poi-c.peak .poi-c-bar { background:rgba(0,212,255,.25); border-top-color:var(--cy); }
+.poi-c.peak .poi-c-pct { color:var(--cy); }
+
+/* ACURÁCIA (jogo encerrado) */
+.acc { background:var(--gn-d); border:1px solid var(--gn-b); border-radius:8px; padding:12px 14px; margin-top:12px; font-family:var(--fM); font-size:11px; }
+.acc.miss { background:var(--rd-d); border-color:var(--rd-b); }
+.acc-hd { font-weight:700; margin-bottom:6px; }
+
+/* JANELAS */
+.jan-list { display:flex; flex-direction:column; gap:3px; }
+.jan-item { display:grid; grid-template-columns:50px 1fr auto; gap:10px; align-items:center; padding:5px 10px; background:var(--s3); border-radius:4px; font-family:var(--fM); font-size:10px; }
+.jan-min { color:var(--tx2); font-weight:700; }
+.jan-team { color:var(--gn); font-weight:700; }
+.jan-sc { color:var(--cy); font-weight:700; }
+
+/* SPINNER */
+.sp { display:inline-block; width:11px; height:11px; border:2px solid currentColor; border-bottom-color:transparent; border-radius:50%; animation:sp 0.7s linear infinite; vertical-align:middle; }
+@keyframes sp { to { transform:rotate(360deg); } }
+
+/* PROGRESS */
+.prog { background:var(--s2); border:1px solid var(--b1); border-radius:8px; padding:14px; margin-bottom:14px; display:none; }
+.prog.on { display:block; }
+.prog-bar { background:var(--s3); height:6px; border-radius:3px; overflow:hidden; margin-top:8px; }
+.prog-fill { background:var(--cy); height:100%; transition:.3s; }
+.prog-info { display:flex; justify-content:space-between; font-family:var(--fM); font-size:11px; color:var(--tx2); }
+
+.empty-state { text-align:center; padding:60px 20px; color:var(--tx3); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="logo">YELL<em>UP</em></span>
+  <span class="page-id">PREVISÕES · GOLS</span>
+  <div class="spacer"></div>
+  <button class="btn" onclick="window.location.href='jogos-admin.html'">← Jogos</button>
+  <button class="btn-pri btn" id="btnCalc" onclick="calcularTodos()">⚡ Calcular previsões do dia</button>
+</div>
+
+<div class="main">
+  <div class="bar">
+    <h1 id="dataTitle">Carregando...</h1>
+    <input type="date" class="dt-pick" id="dtPick" onchange="mudarData(this.value)">
+    <div class="spacer"></div>
+    <span id="counters"></span>
+  </div>
+
+  <div class="prog" id="progress">
+    <div class="prog-info">
+      <span id="progLbl">Calculando...</span>
+      <span id="progNum">0/0</span>
+    </div>
+    <div class="prog-bar"><div class="prog-fill" id="progFill" style="width:0"></div></div>
+  </div>
+
+  <div id="banner"></div>
+  <div id="lista"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════
+const CFG = {
+  apiKey: '35647fb22d9fa6e5ab4397cb1a0d27a3',
+  apiBase: 'https://v3.football.api-sports.io',
+  firebase: {
+    apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+    authDomain: "painel-yellup.firebaseapp.com",
+    projectId: "painel-yellup",
+    storageBucket: "painel-yellup.appspot.com",
+    messagingSenderId: "608347210297",
+    appId: "1:608347210297:web:75092713724e617c7203e8"
+  }
+};
+firebase.initializeApp(CFG.firebase);
+const db = firebase.firestore();
+const auth = firebase.auth();
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let JOGOS = [];           // jogos do dia (do Firestore)
+let PREVS = {};           // fixtureId -> previsão salva
+let CACHE_TEAMS = {};     // apiId -> { last20, calcAt }
+let CACHE_EVENTS = {};    // fixtureId+'_'+teamId -> events parsed
+let CACHE_FORTE = {};     // apiId -> score
+let SELECTED_DATE = null;
+
+const TTL_TEAM = 12 * 60 * 60 * 1000;  // 12h
+const TTL_FORTE = 24 * 60 * 60 * 1000; // 24h
+
+// ═══════════════════════════════════════════════════════════
+// AUTH + INIT
+// ═══════════════════════════════════════════════════════════
+auth.onAuthStateChanged(u => {
+  if (!u || u.email !== 'admin@yellup.com') {
+    window.location.href = 'login.html';
+    return;
+  }
+  loadCachesFromLocalStorage();
+  init();
+});
+
+function loadCachesFromLocalStorage() {
+  try {
+    const t = localStorage.getItem('yellup_cache_teams');
+    if (t) CACHE_TEAMS = JSON.parse(t);
+    const f = localStorage.getItem('yellup_cache_forte');
+    if (f) CACHE_FORTE = JSON.parse(f);
+    const e = localStorage.getItem('yellup_cache_events');
+    if (e) CACHE_EVENTS = JSON.parse(e);
+  } catch(_) {}
+}
+function persistCaches() {
+  try {
+    localStorage.setItem('yellup_cache_teams', JSON.stringify(CACHE_TEAMS));
+    localStorage.setItem('yellup_cache_forte', JSON.stringify(CACHE_FORTE));
+    localStorage.setItem('yellup_cache_events', JSON.stringify(CACHE_EVENTS));
+  } catch(_) {}
+}
+
+async function init() {
+  const hoje = toBRTDate(new Date());
+  document.getElementById('dtPick').value = hoje;
+  await mudarData(hoje);
+}
+
+// ═══════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════
+function toBRTDate(d) {
+  const t = new Date(d.getTime() - (d.getTimezoneOffset() * 60000) + (-3 * 60 * 60000));
+  return t.toISOString().slice(0, 10);
+}
+function fmtTime(ts) {
+  if (!ts) return '—';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+}
+function fmtData(d) {
+  const dt = new Date(d + 'T12:00:00');
+  return dt.toLocaleDateString('pt-BR', {weekday:'long', day:'numeric', month:'long'});
+}
+function el(id) { return document.getElementById(id); }
+
+function showBanner(tipo, msg) {
+  const b = el('banner');
+  b.innerHTML = `<div class="banner banner-${tipo}">${msg}</div>`;
+}
+function clearBanner() { el('banner').innerHTML = ''; }
+
+// ═══════════════════════════════════════════════════════════
+// API com retry
+// ═══════════════════════════════════════════════════════════
+async function apiGet(path, retries = 3) {
+  let lastErr;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(CFG.apiBase + path, { headers: { 'x-apisports-key': CFG.apiKey }});
+      if (res.status === 429) {
+        if (attempt < retries - 1) { await sleep(1500 * (attempt+1)); continue; }
+        throw new Error('API 429 rate limit');
+      }
+      if (res.status >= 500) {
+        if (attempt < retries - 1) { await sleep(800 * (attempt+1)); continue; }
+        throw new Error(`API ${res.status}`);
+      }
+      if (!res.ok) throw new Error(`API ${res.status} ${res.statusText}`);
+      const json = await res.json();
+      if (json.errors && Object.keys(json.errors).length) {
+        const msg = Object.values(json.errors)[0];
+        if (/rate|limit|quota|busy/i.test(msg) && attempt < retries-1) {
+          await sleep(1500 * (attempt+1)); continue;
+        }
+        throw new Error(msg);
+      }
+      return json;
+    } catch (e) {
+      lastErr = e;
+      if (e instanceof TypeError && attempt < retries-1) {
+        await sleep(800 * (attempt+1)); continue;
+      }
+      if (!(e instanceof TypeError)) throw e;
+    }
+  }
+  throw lastErr || new Error('apiGet falhou');
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ═══════════════════════════════════════════════════════════
+// FETCH com cache
+// ═══════════════════════════════════════════════════════════
+async function fetchTeamLast20(apiId) {
+  const ck = String(apiId);
+  const c = CACHE_TEAMS[ck];
+  if (c && (Date.now() - c.calcAt < TTL_TEAM)) {
+    return c.last20;
+  }
+  const r = await apiGet(`/fixtures?team=${apiId}&last=20`);
+  const fixes = (r.response || [])
+    .filter(f => f.fixture.status.short === 'FT' || f.fixture.status.short === 'AET' || f.fixture.status.short === 'PEN')
+    .sort((a,b) => new Date(b.fixture.date) - new Date(a.fixture.date))
+    .slice(0, 20);
+  CACHE_TEAMS[ck] = { last20: fixes, calcAt: Date.now() };
+  persistCaches();
+  return fixes;
+}
+
+async function fetchFixtureEvents(fixtureId, teamId) {
+  const ck = `${fixtureId}_${teamId}`;
+  if (CACHE_EVENTS[ck] !== undefined) return CACHE_EVENTS[ck];
+  try {
+    const r = await apiGet(`/fixtures/events?fixture=${fixtureId}&type=Goal`);
+    const parsed = parseGoalEvents(r.response || [], teamId);
+    CACHE_EVENTS[ck] = parsed;
+    persistCaches();
+    return parsed;
+  } catch (e) {
+    console.warn(`events fixture=${fixtureId} falhou:`, e.message);
+    return [];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CORE — enrich + parse + bucket
+// ═══════════════════════════════════════════════════════════
+function enrich(f, tid) {
+  const home = f.teams.home.id === tid;
+  const tGoals = home ? f.goals.home : f.goals.away;
+  const oGoals = home ? f.goals.away : f.goals.home;
+  const res = tGoals === null ? 'n' : tGoals > oGoals ? 'v' : tGoals === oGoals ? 'e' : 'd';
+  return { f, home, tGoals, oGoals, res };
+}
+
+function parseGoalEvents(events, teamId) {
+  if (!Array.isArray(events)) return [];
+  return events
+    .filter(ev => ev.type?.toLowerCase() === 'goal')
+    .map(ev => ({
+      elapsed: ev.time?.elapsed ?? 0,
+      extra: ev.time?.extra,
+      sc: ev.team?.id === teamId   // true = team marked, false = team conceded
+    }));
+}
+
+// 20 buckets: 0-5, 6-10, ..., 41-45, AC1T, 46-50, ..., 86-90, AC2T
+function getBucket(elapsed, extra) {
+  const hasExtra = extra != null && extra > 0;
+  if (elapsed > 90 || (elapsed === 90 && hasExtra)) return 19;
+  if (elapsed === 45 && hasExtra) return 9;
+  if (elapsed === 46 || elapsed === 47) return 9;
+  if (elapsed <= 45) return Math.min(8, Math.floor((Math.max(1, elapsed) - 1) / 5));
+  return Math.min(18, 10 + Math.floor((elapsed - 48) / 5));
+}
+
+const BUCKET_LABELS = ['0-5','6-10','11-15','16-20','21-25','26-30','31-35','36-40','41-45','AC1T',
+                       '46-50','51-55','56-60','61-65','66-70','71-75','76-80','81-85','86-90','AC2T'];
+
+// ═══════════════════════════════════════════════════════════
+// LEAGUE COEFFICIENT (mantido, com defaults melhores)
+// ═══════════════════════════════════════════════════════════
+const LC = {
+  2:1.10, 3:0.97, 848:0.88, 531:1.05,
+  39:1.00, 40:0.82, 41:0.65, 45:0.85,
+  140:1.00, 141:0.80, 143:0.90,
+  78:0.98, 79:0.78, 81:0.85,
+  135:0.97, 136:0.77, 137:0.83,
+  61:0.93, 62:0.73, 66:0.80,
+  94:0.82, 95:0.65, 96:0.80,
+  88:0.85, 89:0.67,
+  144:0.83, 145:0.68,
+  203:0.80, 204:0.65,
+  235:0.78,
+  179:0.74, 180:0.60,
+  71:0.80, 72:0.63, 73:0.52, 75:0.75,
+  13:0.88, 11:0.80,
+  128:0.82, 130:0.78,
+  239:0.72, 265:0.70,
+  262:0.75, 263:0.65,
+  253:0.70, 254:0.58,
+  307:0.65, 291:0.60, 435:0.58,
+  98:0.73, 99:0.60,
+  292:0.70, 188:0.60,
+  169:0.83, 170:0.68,
+  197:0.76, 198:0.65, 207:0.76,
+  244:0.66, 103:0.71, 113:0.72, 119:0.74,
+  106:0.71, 283:0.68, 333:0.72,
+  286:0.68, 210:0.70,
+  233:0.62, 200:0.63, 288:0.58,
+};
+function getLC(leagueId) { return LC[leagueId] || 0.60; }
+
+// ═══════════════════════════════════════════════════════════
+// FORTESCORE simplificado (com LC + forma recente)
+// Componentes: WRS·0.45 + IO·0.20 + ID·0.20 + LCS·0.15
+// ═══════════════════════════════════════════════════════════
+function calcForteScore(enriched20) {
+  if (!enriched20.length) return { score: 5.0, components: {} };
+
+  // WRS — pontos × LC × bônus fora, recência ponderada (10/10/15 → 25%/40%/35%)
+  const winScore = (games) => {
+    if (!games.length) return 0;
+    let sum = 0, wMax = 0;
+    games.forEach(e => {
+      const pts = e.res==='v' ? 1.0 : e.res==='e' ? 0.33 : 0;
+      const coeff = getLC(e.f.league.id);
+      const bonusFora = (e.res==='v' && !e.home) ? 1.08 : 1.0;
+      sum += pts * coeff * bonusFora;
+      wMax += 1.0 * coeff * 1.08;
+    });
+    return wMax ? Math.min(1, sum / wMax) : 0;
+  };
+  const w20 = winScore(enriched20);
+  const w10 = winScore(enriched20.slice(0, 10));
+  const w5  = winScore(enriched20.slice(0, 5));
+  const wrs = w20*0.30 + w10*0.40 + w5*0.30;
+
+  // IO — média de gols feitos / 2.6 (escala over-the-top "elite faz 2.6+")
+  const gfMed = enriched20.reduce((s,e)=>s+(e.tGoals||0),0) / enriched20.length;
+  const io = Math.min(1, gfMed / 2.6);
+
+  // ID — 1 - GC/2.6 (simétrico ao IO)
+  const gcMed = enriched20.reduce((s,e)=>s+(e.oGoals||0),0) / enriched20.length;
+  const id = Math.max(0, 1 - gcMed / 2.6);
+
+  // LCS — média do coeficiente das ligas em que jogou
+  const lcMed = enriched20.reduce((s,e)=>s+getLC(e.f.league.id),0) / enriched20.length;
+  const lcs = Math.max(0, Math.min(1, (lcMed - 0.50) / 0.60));
+
+  // Combinação
+  const raw = wrs*0.45 + io*0.20 + id*0.20 + lcs*0.15;
+  const score = parseFloat(Math.max(0.01, Math.min(10, Math.pow(raw, 0.55) * 10)).toFixed(2));
+
+  return { score, components: { wrs, io, id, lcs, gfMed, gcMed, lcMed } };
+}
+
+// ═══════════════════════════════════════════════════════════
+// MOTOR DE PREVISÃO DE GOLS (POISSON)
+// ═══════════════════════════════════════════════════════════
+function calcPrevisao(rxA, rxB) {
+  // rxA, rxB: { team, enriched, forte, totalsByBucket } — saída de scanTeam
+  const gfA = rxA.enriched.reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, rxA.enriched.length);
+  const gcA = rxA.enriched.reduce((s,e)=>s+(e.oGoals||0),0) / Math.max(1, rxA.enriched.length);
+  const gfB = rxB.enriched.reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, rxB.enriched.length);
+  const gcB = rxB.enriched.reduce((s,e)=>s+(e.oGoals||0),0) / Math.max(1, rxB.enriched.length);
+
+  // λ base: média entre (o que A faz) e (o que B sofre), e vice-versa
+  // Isso cruza ataque de A com defesa de B — princípio fundamental do modelo Dixon-Coles simplificado
+  let lambdaA = (gfA + gcB) / 2;
+  let lambdaB = (gfB + gcA) / 2;
+
+  // Boost por janelas extremas (heurística validada do usuário)
+  // Se houver janela com cross_idx >= 20 (score 10) E outra >= 14 (score 7), dá um boost
+  const janelas = calcJanelas(rxA, rxB);
+  const top1 = janelas[0]?.total || 0;
+  const top2 = janelas[1]?.total || 0;
+  let boostHeur = 1.0;
+  if (top1 >= 20 && top2 >= 14) {
+    // Padrão "matchup aberto" — boost de ~15-25%
+    boostHeur = 1.20;
+  } else if (top1 >= 20) {
+    boostHeur = 1.10;  // só uma janela extrema, boost menor
+  }
+
+  // Boost relativo da forma recente (últimos 5 vs últimos 20)
+  // Se A tá em forma melhor que sua média histórica, lambdaA sobe
+  const formA5 = rxA.enriched.slice(0,5).reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, Math.min(5, rxA.enriched.length));
+  const formB5 = rxB.enriched.slice(0,5).reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, Math.min(5, rxB.enriched.length));
+  const adjA = gfA > 0 ? Math.max(0.7, Math.min(1.3, formA5 / gfA)) : 1;
+  const adjB = gfB > 0 ? Math.max(0.7, Math.min(1.3, formB5 / gfB)) : 1;
+
+  lambdaA *= adjA * boostHeur;
+  lambdaB *= adjB * boostHeur;
+
+  // Cap razoável (jogos com λ > 5 são muito raros e provavelmente erro de dados)
+  lambdaA = Math.max(0.1, Math.min(5, lambdaA));
+  lambdaB = Math.max(0.1, Math.min(5, lambdaB));
+
+  const lambdaTotal = lambdaA + lambdaB;
+
+  // Distribuição Poisson de gols totais
+  const probs = poissonDistribution(lambdaTotal, 5);
+  // probs = [P(0), P(1), P(2), P(3), P(4), P(5+)]
+
+  return {
+    lambdaA: round2(lambdaA),
+    lambdaB: round2(lambdaB),
+    lambdaTotal: round2(lambdaTotal),
+    probs: probs.map(round3),
+    janelasTop: janelas.slice(0, 5),
+    boostHeur: round2(boostHeur),
+    rawInputs: { gfA, gcA, gfB, gcB, formA5, formB5, adjA: round2(adjA), adjB: round2(adjB) }
+  };
+}
+
+function poissonDistribution(lambda, untilK) {
+  // Retorna [P(0), P(1), ..., P(untilK-1), P(>=untilK)]
+  const arr = [];
+  let acc = 0;
+  for (let k = 0; k < untilK; k++) {
+    const p = Math.pow(lambda, k) * Math.exp(-lambda) / fact(k);
+    arr.push(p);
+    acc += p;
+  }
+  arr.push(Math.max(0, 1 - acc));
+  return arr;
+}
+function fact(n) { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; }
+const round2 = x => Math.round(x * 100) / 100;
+const round3 = x => Math.round(x * 1000) / 1000;
+
+// ═══════════════════════════════════════════════════════════
+// JANELAS (cross-index) — reusado de raiox-times
+// ═══════════════════════════════════════════════════════════
+function calcJanelas(rxA, rxB) {
+  // rxA.totalsByBucket = { sc: [20], cn: [20] }
+  const out = [];
+  for (let i = 0; i < 20; i++) {
+    const aSc = rxA.totalsByBucket.sc[i];
+    const aCn = rxA.totalsByBucket.cn[i];
+    const bSc = rxB.totalsByBucket.sc[i];
+    const bCn = rxB.totalsByBucket.cn[i];
+    const aAtk = aSc * bCn;
+    const bAtk = bSc * aCn;
+    const total = aAtk + bAtk;
+    const fav = aAtk >= bAtk ? 'A' : 'B';
+    if (total >= 6 || (aSc >= 4 && bCn >= 1) || (bSc >= 4 && aCn >= 1)) {
+      out.push({ i, label: BUCKET_LABELS[i], total, aAtk, bAtk, fav, aSc, aCn, bSc, bCn });
+    }
+  }
+  return out.sort((a,b) => b.total - a.total);
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCAN COMPLETO DE UM TIME
+// ═══════════════════════════════════════════════════════════
+async function scanTeam(apiId, teamMeta) {
+  const fixes = await fetchTeamLast20(apiId);
+  const enriched = fixes.map(f => enrich(f, apiId));
+
+  // ForteScore (com cache de 24h)
+  let forte;
+  const fc = CACHE_FORTE[apiId];
+  if (fc && (Date.now() - fc.calcAt < TTL_FORTE)) {
+    forte = fc.data;
+  } else {
+    forte = calcForteScore(enriched);
+    CACHE_FORTE[apiId] = { data: forte, calcAt: Date.now() };
+    persistCaches();
+  }
+
+  // Eventos por bucket
+  const totalsByBucket = { sc: new Array(20).fill(0), cn: new Array(20).fill(0) };
+  for (const e of enriched) {
+    const evs = await fetchFixtureEvents(e.f.fixture.id, apiId);
+    evs.forEach(ev => {
+      const bi = getBucket(ev.elapsed, ev.extra);
+      if (bi >= 0 && bi < 20) {
+        ev.sc ? totalsByBucket.sc[bi]++ : totalsByBucket.cn[bi]++;
+      }
+    });
+  }
+
+  return { team: teamMeta, enriched, forte, totalsByBucket };
+}
+
+// ═══════════════════════════════════════════════════════════
+// CARREGAR JOGOS DO DIA + PREVISÕES SALVAS
+// ═══════════════════════════════════════════════════════════
+async function mudarData(yyyy_mm_dd) {
+  SELECTED_DATE = yyyy_mm_dd;
+  el('dataTitle').textContent = fmtData(yyyy_mm_dd);
+  el('lista').innerHTML = '<div class="empty-state"><span class="sp"></span> Carregando jogos...</div>';
+  clearBanner();
+
+  try {
+    const dtIni = new Date(yyyy_mm_dd + 'T00:00:00-03:00');
+    const dtFim = new Date(yyyy_mm_dd + 'T23:59:59-03:00');
+
+    const snap = await db.collection('jogos-admin')
+      .where('dataInicio', '>=', firebase.firestore.Timestamp.fromDate(dtIni))
+      .where('dataInicio', '<=', firebase.firestore.Timestamp.fromDate(dtFim))
+      .orderBy('dataInicio', 'asc')
+      .limit(200)
+      .get();
+
+    JOGOS = snap.docs.map(d => ({ _id: d.id, ...d.data() }))
+      .filter(j => j.timeCasa?.apiId && j.timeFora?.apiId);
+
+    // Carrega previsões já salvas pra esses jogos
+    PREVS = {};
+    if (JOGOS.length) {
+      const ids = JOGOS.map(j => String(j.apiFixtureId)).filter(Boolean);
+      // Firestore "in" só aceita 10 por vez — paralelizar em chunks
+      const chunks = [];
+      for (let i = 0; i < ids.length; i += 10) chunks.push(ids.slice(i, i+10));
+      const results = await Promise.all(chunks.map(chunk =>
+        db.collection('previsoes-historico')
+          .where(firebase.firestore.FieldPath.documentId(), 'in', chunk)
+          .get()
+      ));
+      results.forEach(r => r.docs.forEach(d => PREVS[d.id] = d.data()));
+    }
+
+    renderLista();
+  } catch (e) {
+    console.error(e);
+    el('lista').innerHTML = `<div class="empty-state">Erro: ${e.message}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENDER LISTA
+// ═══════════════════════════════════════════════════════════
+function renderLista() {
+  const total = JOGOS.length;
+  const comPrev = JOGOS.filter(j => PREVS[String(j.apiFixtureId)]).length;
+  const enc = JOGOS.filter(j => j.status === 'encerrado').length;
+  el('counters').innerHTML = `<span class="tag tag-info">${total} jogos · ${comPrev} com previsão · ${enc} encerrados</span>`;
+
+  if (!total) {
+    el('lista').innerHTML = '<div class="empty-state">Nenhum jogo cadastrado para esta data.</div>';
+    el('btnCalc').disabled = true;
+    return;
+  }
+  el('btnCalc').disabled = false;
+  el('lista').innerHTML = JOGOS.map(j => renderJogoCard(j)).join('');
+}
+
+function renderJogoCard(j) {
+  const id = j.apiFixtureId;
+  const prev = PREVS[String(id)];
+  const isFt = j.status === 'encerrado';
+  const isLive = j.status === 'ao_vivo';
+  const stCls = isFt ? 'jc-status-fim' : isLive ? 'jc-status-live' : 'jc-status-ag';
+  const stLbl = isFt ? 'Encerrado' : isLive ? 'Ao vivo' : 'Agendado';
+  const placar = isFt || isLive
+    ? `<div class="jc-vs ${isFt?'fim':''}">${j.placarCasa ?? '?'} - ${j.placarFora ?? '?'}</div>`
+    : `<div class="jc-vs pend">${fmtTime(j.dataInicio)}</div>`;
+
+  let prevHtml = '';
+  if (prev) {
+    prevHtml = `
+      <div class="jc-prev">
+        <div class="lambda">${prev.lambdaTotal?.toFixed(1) || '?'}</div>
+        <div class="lbl">gols esperados</div>
+      </div>`;
+  } else {
+    prevHtml = `<div class="jc-prev empty">sem previsão</div>`;
+  }
+
+  const detPane = renderDetalhe(j, prev);
+
+  return `
+    <div class="jc" id="jc-${id}">
+      <div class="jc-hd" onclick="toggleDet(${id})">
+        <div class="jc-time">
+          ${fmtTime(j.dataInicio)}
+          <strong>${(j.liga?.nome || '').slice(0, 22)}</strong>
+        </div>
+        <div class="jc-tm">
+          ${j.timeCasa.escudo ? `<img src="${j.timeCasa.escudo}" onerror="this.style.display='none'">` : ''}
+          <span class="jc-tm-nm">${j.timeCasa.nome}</span>
+        </div>
+        ${placar}
+        <div class="jc-tm right">
+          <span class="jc-tm-nm">${j.timeFora.nome}</span>
+          ${j.timeFora.escudo ? `<img src="${j.timeFora.escudo}" onerror="this.style.display='none'">` : ''}
+        </div>
+        ${prevHtml}
+      </div>
+      <div class="jc-det">
+        <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+          <span class="tag ${stCls}">${stLbl}</span>
+          <span style="font-family:var(--fM);font-size:10px;color:var(--tx3)">API#${id}</span>
+          <div style="flex:1"></div>
+          ${prev ? `<button class="btn" onclick="calcularUm('${j._id}', ${id})">↻ Recalcular</button>` : ''}
+          ${!prev ? `<button class="btn-pri btn" onclick="calcularUm('${j._id}', ${id})">Calcular previsão</button>` : ''}
+        </div>
+        ${detPane}
+      </div>
+    </div>`;
+}
+
+function renderDetalhe(j, prev) {
+  if (!prev) {
+    return `<div style="padding:20px;text-align:center;color:var(--tx3);font-size:12px">
+      Clique em "Calcular previsão" para gerar análise deste jogo.
+    </div>`;
+  }
+
+  const fA = prev.forteA?.score?.toFixed(1) || '?';
+  const fB = prev.forteB?.score?.toFixed(1) || '?';
+  const corA = forteColor(prev.forteA?.score || 5);
+  const corB = forteColor(prev.forteB?.score || 5);
+
+  // Distribuição Poisson
+  const probs = prev.probs || [];
+  const peakIdx = probs.indexOf(Math.max(...probs));
+  const poissonHtml = ['0','1','2','3','4','5+'].map((lbl, i) => {
+    const p = probs[i] || 0;
+    const pct = (p * 100).toFixed(0);
+    const peak = i === peakIdx ? 'peak' : '';
+    return `<div class="poi-c ${peak}">
+      <div class="poi-c-bar" style="height:${Math.max(8, p*100)}%"></div>
+      <div class="poi-c-lbl">${lbl}</div>
+      <div class="poi-c-pct">${pct}%</div>
+    </div>`;
+  }).join('');
+
+  // Janelas top 5
+  const janHtml = (prev.janelasTop || []).slice(0,5).map(jn => {
+    const fav = jn.fav === 'A' ? j.timeCasa.nome : j.timeFora.nome;
+    const desc = jn.fav === 'A'
+      ? `${j.timeCasa.nome} fez ${jn.aSc} · ${j.timeFora.nome} tomou ${jn.bCn}`
+      : `${j.timeFora.nome} fez ${jn.bSc} · ${j.timeCasa.nome} tomou ${jn.aCn}`;
+    const sc = Math.min(10, jn.total/2).toFixed(1);
+    return `<div class="jan-item">
+      <span class="jan-min">${jn.label}</span>
+      <span class="jan-team">${fav.slice(0,18)}</span>
+      <span class="jan-sc">${sc}</span>
+    </div>`;
+  }).join('');
+
+  // Acurácia se encerrado
+  let accHtml = '';
+  if (j.status === 'encerrado' && j.placarCasa !== null && j.placarFora !== null) {
+    const golsReais = (j.placarCasa || 0) + (j.placarFora || 0);
+    const ix = Math.min(5, golsReais);
+    const probReal = probs[ix] || 0;
+    const probMaisProvavel = Math.max(...probs);
+    const acerto = ix === peakIdx;
+    const margem = (probReal * 100).toFixed(0);
+    accHtml = `
+      <div class="acc ${acerto?'':'miss'}">
+        <div class="acc-hd">${acerto ? '✓' : '✗'} Resultado: ${golsReais} gols (${j.placarCasa}-${j.placarFora})</div>
+        Probabilidade prevista para ${golsReais} gols: <strong>${margem}%</strong> ·
+        Mais provável era: <strong>${peakIdx === 5 ? '5+' : peakIdx} gols</strong> (${(probMaisProvavel*100).toFixed(0)}%)
+      </div>`;
+  }
+
+  return `
+    <div class="det-grid">
+      <div class="det-block">
+        <div class="det-h">ForteScore — comparação</div>
+        <div class="fs-pair">
+          <div class="fs-side">
+            <div class="fs-team">${j.timeCasa.nome}</div>
+            <div class="fs-val" style="color:${corA}">${fA}</div>
+          </div>
+          <div class="fs-vs">VS</div>
+          <div class="fs-side">
+            <div class="fs-team">${j.timeFora.nome}</div>
+            <div class="fs-val" style="color:${corB}">${fB}</div>
+          </div>
+        </div>
+        <div style="font-family:var(--fM);font-size:10px;color:var(--tx3);margin-top:12px;line-height:1.6">
+          λ ${j.timeCasa.nome.slice(0,16)}: <span style="color:var(--tx2)">${prev.lambdaA?.toFixed(2)}</span><br>
+          λ ${j.timeFora.nome.slice(0,16)}: <span style="color:var(--tx2)">${prev.lambdaB?.toFixed(2)}</span><br>
+          ${prev.boostHeur > 1 ? `Boost matchup aberto: <span style="color:var(--cy)">×${prev.boostHeur}</span>` : ''}
+        </div>
+      </div>
+
+      <div class="det-block">
+        <div class="det-h">Probabilidade de total de gols</div>
+        <div class="poisson">${poissonHtml}</div>
+        <div style="font-family:var(--fM);font-size:10px;color:var(--tx3);margin-top:10px;text-align:center">
+          Total esperado: <strong style="color:var(--cy)">${prev.lambdaTotal?.toFixed(2)} gols</strong> · destacado = mais provável
+        </div>
+      </div>
+
+      <div class="det-block" style="grid-column:1/-1">
+        <div class="det-h">Janelas com indício de gol</div>
+        ${janHtml ? `<div class="jan-list">${janHtml}</div>` :
+          `<div style="font-size:11px;color:var(--tx3);font-family:var(--fM)">Nenhuma janela acima do limiar.</div>`}
+      </div>
+    </div>
+    ${accHtml}`;
+}
+
+function forteColor(score) {
+  if (score >= 8) return 'var(--cy)';
+  if (score >= 6.5) return 'var(--gn)';
+  if (score >= 5) return 'var(--yl)';
+  return 'var(--rd)';
+}
+
+function toggleDet(id) {
+  const card = el(`jc-${id}`);
+  if (!card) return;
+  card.classList.toggle('open');
+}
+
+// ═══════════════════════════════════════════════════════════
+// CALCULAR (um jogo / todos os jogos)
+// ═══════════════════════════════════════════════════════════
+async function calcularUm(docId, fixtureId) {
+  const j = JOGOS.find(jg => jg._id === docId);
+  if (!j) return;
+  showProg('Calculando...', 0, 1);
+  try {
+    const prev = await calcularJogo(j);
+    PREVS[String(fixtureId)] = prev;
+    showProg('Concluído', 1, 1);
+    setTimeout(hideProg, 800);
+    renderLista();
+    // re-abrir o card
+    const card = el(`jc-${fixtureId}`);
+    if (card) card.classList.add('open');
+  } catch (e) {
+    console.error(e);
+    showBanner('err', 'Erro ao calcular: ' + e.message);
+    hideProg();
+  }
+}
+
+async function calcularTodos() {
+  if (!JOGOS.length) return;
+  el('btnCalc').disabled = true;
+  showProg('Calculando previsões...', 0, JOGOS.length);
+
+  let ok = 0, fail = 0;
+  for (let i = 0; i < JOGOS.length; i++) {
+    const j = JOGOS[i];
+    try {
+      const prev = await calcularJogo(j);
+      PREVS[String(j.apiFixtureId)] = prev;
+      ok++;
+    } catch (e) {
+      console.warn('Falhou ' + j._id + ': ' + e.message);
+      fail++;
+    }
+    showProg(`Calculando... (${ok+fail}/${JOGOS.length})`, ok+fail, JOGOS.length);
+  }
+
+  hideProg();
+  el('btnCalc').disabled = false;
+  showBanner(fail ? 'warn' : 'info', `✓ ${ok} previsões salvas${fail ? ` · ${fail} falharam` : ''}`);
+  renderLista();
+}
+
+async function calcularJogo(j) {
+  // Scan dos dois times
+  const [rxA, rxB] = await Promise.all([
+    scanTeam(j.timeCasa.apiId, j.timeCasa),
+    scanTeam(j.timeFora.apiId, j.timeFora)
+  ]);
+
+  const previsao = calcPrevisao(rxA, rxB);
+
+  // Snapshot pro Firestore — só o essencial
+  const doc = {
+    apiFixtureId: j.apiFixtureId,
+    jogoId: j._id,
+    timeCasa: { apiId: j.timeCasa.apiId, nome: j.timeCasa.nome },
+    timeFora: { apiId: j.timeFora.apiId, nome: j.timeFora.nome },
+    liga: { apiId: j.liga?.apiId, nome: j.liga?.nome },
+    dataJogo: j.dataInicio,
+    forteA: rxA.forte,
+    forteB: rxB.forte,
+    lambdaA: previsao.lambdaA,
+    lambdaB: previsao.lambdaB,
+    lambdaTotal: previsao.lambdaTotal,
+    probs: previsao.probs,
+    janelasTop: previsao.janelasTop.map(jn => ({
+      i: jn.i, label: jn.label, total: jn.total, fav: jn.fav,
+      aSc: jn.aSc, aCn: jn.aCn, bSc: jn.bSc, bCn: jn.bCn
+    })),
+    boostHeur: previsao.boostHeur,
+    rawInputs: previsao.rawInputs,
+    analisado: false,
+    calculadoEm: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  await db.collection('previsoes-historico')
+    .doc(String(j.apiFixtureId))
+    .set(doc, { merge: true });
+
+  return doc;
+}
+
+function showProg(lbl, n, total) {
+  el('progress').classList.add('on');
+  el('progLbl').textContent = lbl;
+  el('progNum').textContent = `${n}/${total}`;
+  el('progFill').style.width = total ? `${(n/total)*100}%` : '0';
+}
+function hideProg() { el('progress').classList.remove('on'); }
+</script>
+
+</body>
+</html>
