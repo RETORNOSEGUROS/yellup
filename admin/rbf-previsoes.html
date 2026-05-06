@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RBF Previsões — Yellup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    background: #0d1117;
+    color: #c9d1d9;
+    padding: 16px;
+    font-size: 12px;
+  }
+  h1 { font-size: 16px; color: #58a6ff; margin-bottom: 4px; font-weight: 600; }
+  .sub { color: #8b949e; font-size: 11px; margin-bottom: 16px; }
+  .panel {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .panel-title {
+    color: #58a6ff;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+  }
+  .stat {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    padding: 6px 10px;
+    border-radius: 4px;
+  }
+  .stat-label { color: #8b949e; font-size: 10px; }
+  .stat-val { color: #c9d1d9; font-size: 14px; font-weight: 600; }
+  .stat-val.green { color: #3fb950; }
+  .stat-val.red { color: #f85149; }
+  .stat-val.yellow { color: #d29922; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  th {
+    background: #21262d;
+    padding: 6px 8px;
+    text-align: left;
+    color: #8b949e;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid #30363d;
+    position: sticky; top: 0;
+  }
+  td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #21262d;
+  }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:hover { background: #161b22; }
+  .tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-right: 3px;
+  }
+  .tag-poisson { background: #1f6feb33; color: #58a6ff; }
+  .tag-rbf { background: #db61a233; color: #ff7eb6; }
+  .tag-real { background: #2ea04333; color: #3fb950; }
+  .tag-warn { background: #d2992233; color: #d29922; }
+  .delta-pos { color: #f85149; }
+  .delta-neg { color: #3fb950; }
+  .small { font-size: 10px; color: #8b949e; }
+  button {
+    background: #238636;
+    color: white;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  button:hover { background: #2ea043; }
+  button.alt { background: #21262d; border: 1px solid #30363d; }
+  button.alt:hover { background: #30363d; }
+  .muted { color: #6e7681; }
+  .ok { color: #3fb950; }
+  .err { color: #f85149; }
+  pre {
+    background: #0d1117;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #30363d;
+    overflow-x: auto;
+    font-size: 10px;
+    color: #8b949e;
+    max-height: 200px;
+  }
+  #log {
+    font-size: 10px;
+    color: #6e7681;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #30363d;
+  }
+  .tab {
+    padding: 6px 14px;
+    cursor: pointer;
+    color: #8b949e;
+    border-bottom: 2px solid transparent;
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+  .view { display: none; }
+  .view.active { display: block; }
+</style>
+</head>
+<body>
+
+<h1>📐 RBF Previsões — Modelo experimental</h1>
+<div class="sub">Fórmula de função base radial gaussiana. Treina com jogos encerrados, prevê os abertos. Compara lado a lado com Poisson v3.</div>
+
+<div class="panel">
+  <button onclick="treinarEPrever()" id="btn-rodar">▶️ Treinar e prever</button>
+  <button class="alt" onclick="exportarFormula()">📋 Exportar pesos</button>
+  <button class="alt" onclick="window.location.href='/admin/'">← Admin</button>
+  <span id="status" class="small" style="margin-left: 12px;"></span>
+</div>
+
+<div class="panel" id="painel-stats" style="display:none;">
+  <div class="panel-title">Estatísticas do treino</div>
+  <div class="stat-grid" id="stats"></div>
+</div>
+
+<div class="tab-bar">
+  <div class="tab active" onclick="trocarAba('abertos')">🔮 Jogos abertos</div>
+  <div class="tab" onclick="trocarAba('encerrados')">📊 Validação (encerrados)</div>
+  <div class="tab" onclick="trocarAba('vizinhos')">🎯 Análise de vizinhança</div>
+  <div class="tab" onclick="trocarAba('log')">📝 Log</div>
+</div>
+
+<div class="view active" id="view-abertos">
+  <div class="panel">
+    <div class="panel-title">Previsões — jogos abertos (RBF vs Poisson v3)</div>
+    <div id="tabela-abertos"></div>
+  </div>
+</div>
+
+<div class="view" id="view-encerrados">
+  <div class="panel">
+    <div class="panel-title">Validação leave-one-out — quem acerta mais?</div>
+    <div id="tabela-encerrados"></div>
+  </div>
+</div>
+
+<div class="view" id="view-vizinhos">
+  <div class="panel">
+    <div class="panel-title">Top vizinhos de cada jogo aberto</div>
+    <div class="small" style="margin-bottom: 8px;">Mostra os 5 jogos passados mais "parecidos" com cada jogo aberto, e quanto cada um pesa na previsão final.</div>
+    <div id="vizinhos-conteudo"></div>
+  </div>
+</div>
+
+<div class="view" id="view-log">
+  <div class="panel">
+    <div class="panel-title">Log de execução</div>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<!-- Firebase compat (mesmo do previsoes.html) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+<script>
+// ============================================================================
+// CONFIG — usa o mesmo Firebase do sistema (ajuste se necessário)
+// ============================================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyCxPMnFi5FYvlvCdNxnXpPmHUBeP0SGFfE",
+  authDomain: "painel-yellup.firebaseapp.com",
+  projectId: "painel-yellup",
+  storageBucket: "painel-yellup.firebasestorage.app",
+  messagingSenderId: "478556700918",
+  appId: "1:478556700918:web:dd5e44567a89d14d8d9e22"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
+
+// ============================================================================
+// FEATURE EXTRACTION — 14 features dos rawInputs
+// ============================================================================
+// Ordem: λ, λA, λB, forteA, forteB, gfA, gcA, gfB, gcB, formA, formB, f18, t1, |A-B|
+function extrairFeatures(jogo) {
+  const p = jogo.previsao || {};
+  const r = p.rawInputs || {};
+
+  // Pega o melhor disponível (final tem prioridade sobre geral)
+  const gfA = r.gfA_final ?? r.gfA_geral ?? r.gfA ?? null;
+  const gcA = r.gcA_final ?? r.gcA_geral ?? r.gcA ?? null;
+  const gfB = r.gfB_final ?? r.gfB_geral ?? r.gfB ?? null;
+  const gcB = r.gcB_final ?? r.gcB_geral ?? r.gcB ?? null;
+  const formA = r.formA5 ?? null;
+  const formB = r.formB5 ?? null;
+  const f18 = r.f18 ?? null;
+  const t1 = (p.janelasTop && p.janelasTop[0]) ? (p.janelasTop[0].total || 0) : 0;
+  const lam = p.lambdaTotal ?? null;
+  const lamA = p.lambdaA ?? null;
+  const lamB = p.lambdaB ?? null;
+  const forteA = p.forteA ?? null;
+  const forteB = p.forteB ?? null;
+
+  const v = [lam, lamA, lamB, forteA, forteB, gfA, gcA, gfB, gcB, formA, formB, f18, t1, Math.abs((forteA||0)-(forteB||0))];
+  // Se algum for null, retorna null (jogo não treinável)
+  if (v.some(x => x === null || x === undefined || isNaN(x))) return null;
+  return v;
+}
+
+const NOMES_FEATURES = ['λ','λA','λB','A','B','gfA','gcA','gfB','gcB','formA','formB','f18','t1','|A-B|'];
+
+// ============================================================================
+// MATEMÁTICA — operações vetoriais e solver
+// ============================================================================
+function media(arr) { return arr.reduce((s,x)=>s+x,0) / arr.length; }
+function desvio(arr) {
+  const m = media(arr);
+  return Math.sqrt(arr.reduce((s,x)=>s+(x-m)**2,0) / arr.length);
+}
+
+function calcularEstatisticas(X) {
+  const d = X[0].length;
+  const mu = new Array(d).fill(0);
+  const sd = new Array(d).fill(0);
+  for (let k=0; k<d; k++) {
+    const col = X.map(row => row[k]);
+    mu[k] = media(col);
+    sd[k] = desvio(col) || 1;
+  }
+  return { mu, sd };
+}
+
+function normalizar(x, mu, sd) {
+  return x.map((v, i) => (v - mu[i]) / sd[i]);
+}
+
+function distEuclid(a, b) {
+  let s = 0;
+  for (let i=0; i<a.length; i++) s += (a[i]-b[i])**2;
+  return Math.sqrt(s);
+}
+
+function kernel(d, sigma) {
+  return Math.exp(-(d*d) / (2*sigma*sigma));
+}
+
+// Solver Cholesky para sistema simétrico definido positivo K*w = y
+// (kernel gaussiano + ridge é sempre SPD)
+function choleskyDecomp(A) {
+  const n = A.length;
+  const L = Array.from({length: n}, () => new Array(n).fill(0));
+  for (let i=0; i<n; i++) {
+    for (let j=0; j<=i; j++) {
+      let sum = 0;
+      for (let k=0; k<j; k++) sum += L[i][k] * L[j][k];
+      if (i === j) {
+        const diag = A[i][i] - sum;
+        if (diag <= 0) return null; // não SPD
+        L[i][j] = Math.sqrt(diag);
+      } else {
+        L[i][j] = (A[i][j] - sum) / L[j][j];
+      }
+    }
+  }
+  return L;
+}
+
+function choleskySolve(K, y, ridge = 1e-4) {
+  const n = K.length;
+  // Add ridge
+  const A = K.map((row, i) => row.map((v, j) => v + (i===j ? ridge : 0)));
+  const L = choleskyDecomp(A);
+  if (!L) return null;
+  // L*z = y
+  const z = new Array(n).fill(0);
+  for (let i=0; i<n; i++) {
+    let s = y[i];
+    for (let k=0; k<i; k++) s -= L[i][k] * z[k];
+    z[i] = s / L[i][i];
+  }
+  // L^T*w = z
+  const w = new Array(n).fill(0);
+  for (let i=n-1; i>=0; i--) {
+    let s = z[i];
+    for (let k=i+1; k<n; k++) s -= L[k][i] * w[k];
+    w[i] = s / L[i][i];
+  }
+  return w;
+}
+
+function matrizKernel(Xn, sigma) {
+  const n = Xn.length;
+  const K = Array.from({length: n}, () => new Array(n).fill(0));
+  for (let i=0; i<n; i++) {
+    for (let j=i; j<n; j++) {
+      const d = distEuclid(Xn[i], Xn[j]);
+      const k = kernel(d, sigma);
+      K[i][j] = k;
+      K[j][i] = k;
+    }
+  }
+  return K;
+}
+
+// ============================================================================
+// LEAVE-ONE-OUT — escolher sigma ótimo
+// ============================================================================
+function looMAE(Xn, y, sigma) {
+  const n = y.length;
+  let somaErro = 0, contador = 0;
+  for (let i=0; i<n; i++) {
+    // Remove jogo i
+    const Xt = Xn.filter((_, j) => j !== i);
+    const yt = y.filter((_, j) => j !== i);
+    const Kt = matrizKernel(Xt, sigma);
+    const w = choleskySolve(Kt, yt, 1e-3);
+    if (!w) continue;
+    // Prevê jogo i
+    let pred = 0;
+    for (let j=0; j<Xt.length; j++) {
+      pred += w[j] * kernel(distEuclid(Xn[i], Xt[j]), sigma);
+    }
+    somaErro += Math.abs(pred - y[i]);
+    contador++;
+  }
+  return contador ? somaErro / contador : Infinity;
+}
+
+function buscarMelhorSigma(Xn, y) {
+  const sigmas = [0.5, 0.7, 1.0, 1.3, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0];
+  let melhorMAE = Infinity, melhorSigma = 1.0;
+  const resultados = [];
+  log(`Buscando σ ótimo via leave-one-out (${y.length} jogos)...`);
+  for (const sigma of sigmas) {
+    const mae = looMAE(Xn, y, sigma);
+    resultados.push({sigma, mae});
+    log(`  σ=${sigma}  →  MAE=${mae.toFixed(3)}`);
+    if (mae < melhorMAE) { melhorMAE = mae; melhorSigma = sigma; }
+  }
+  return { melhorSigma, melhorMAE, resultados };
+}
+
+// ============================================================================
+// PIPELINE COMPLETO
+// ============================================================================
+let ESTADO = {
+  modelo: null,      // {sigma, w, mu, sd, Xn, y, jogosTreino}
+  abertos: [],       // jogos a prever
+  encerrados: [],    // jogos usados no treino
+  loo: null,
+};
+
+function log(msg) {
+  const el = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString();
+  el.textContent += `[${ts}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+  console.log(msg);
+}
+
+function status(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+async function treinarEPrever() {
+  document.getElementById('btn-rodar').disabled = true;
+  status('autenticando...');
+  try {
+    if (!auth.currentUser) {
+      const email = prompt('Email admin:');
+      const senha = prompt('Senha:');
+      await auth.signInWithEmailAndPassword(email, senha);
+    }
+    status('lendo Firestore...');
+    log('Iniciando pipeline RBF...');
+
+    // Buscar todos os jogos do histórico
+    const snap = await db.collection('previsoes-historico').get();
+    const todos = [];
+    snap.forEach(doc => todos.push({ id: doc.id, ...doc.data() }));
+    log(`${todos.length} jogos no histórico.`);
+
+    // Filtrar encerrados válidos (com totalGols)
+    const encerradosBrutos = todos.filter(j =>
+      j.real && j.real.encerrado && typeof j.real.totalGols === 'number'
+    );
+    log(`Encerrados com gols válidos: ${encerradosBrutos.length}`);
+
+    // Extrair features dos encerrados
+    const treino = [];
+    let descartados = 0;
+    for (const j of encerradosBrutos) {
+      const v = extrairFeatures(j);
+      if (!v) { descartados++; continue; }
+      treino.push({ jogo: j, features: v, real: j.real.totalGols });
+    }
+    log(`Treináveis: ${treino.length} (descartados ${descartados} por feature incompleto)`);
+
+    if (treino.length < 20) {
+      status('❌ poucos jogos pra treinar (mínimo 20)');
+      document.getElementById('btn-rodar').disabled = false;
+      return;
+    }
+
+    // Calcular médias e desvios, normalizar
+    const X = treino.map(t => t.features);
+    const y = treino.map(t => t.real);
+    const { mu, sd } = calcularEstatisticas(X);
+    const Xn = X.map(x => normalizar(x, mu, sd));
+    log(`Features normalizadas. Médias: ${mu.map(v=>v.toFixed(2)).join(', ')}`);
+
+    // Otimizar sigma
+    status('otimizando σ via leave-one-out...');
+    const { melhorSigma, melhorMAE, resultados } = buscarMelhorSigma(Xn, y);
+    log(`✅ σ ótimo = ${melhorSigma}, MAE LOO = ${melhorMAE.toFixed(3)}`);
+
+    // Treinar modelo final com sigma ótimo
+    status('treinando modelo final...');
+    const K = matrizKernel(Xn, melhorSigma);
+    const w = choleskySolve(K, y, 1e-4);
+    if (!w) {
+      log('❌ Cholesky falhou. Use ridge maior.');
+      status('❌ erro numérico');
+      return;
+    }
+    log(`Pesos calculados. |w| médio = ${media(w.map(Math.abs)).toFixed(3)}, máx = ${Math.max(...w.map(Math.abs)).toFixed(3)}`);
+
+    // MAE in-sample
+    const predTreino = Xn.map(xi => {
+      let s = 0;
+      for (let j=0; j<Xn.length; j++) s += w[j] * kernel(distEuclid(xi, Xn[j]), melhorSigma);
+      return s;
+    });
+    const maeInSample = media(predTreino.map((p,i) => Math.abs(p - y[i])));
+    log(`MAE in-sample: ${maeInSample.toFixed(4)}`);
+
+    // Comparar com Poisson v3 in-sample
+    const maePoisson = media(treino.map(t => Math.abs(t.features[0] - t.real)));
+    log(`MAE Poisson v3 (mesmos jogos): ${maePoisson.toFixed(3)}`);
+
+    ESTADO.modelo = { sigma: melhorSigma, w, mu, sd, Xn, y, treino };
+    ESTADO.encerrados = treino;
+    ESTADO.loo = { sigma: melhorSigma, mae: melhorMAE, todos: resultados, maePoisson };
+
+    // Pegar jogos abertos
+    const abertosBrutos = todos.filter(j =>
+      !(j.real && j.real.encerrado) || (j.real && !('totalGols' in j.real))
+    );
+    log(`Jogos abertos: ${abertosBrutos.length}`);
+
+    const abertosComFeat = [];
+    for (const j of abertosBrutos) {
+      const v = extrairFeatures(j);
+      if (!v) continue;
+      // Prever
+      const xn = normalizar(v, mu, sd);
+      let pred = 0;
+      const sems = [];
+      for (let k=0; k<Xn.length; k++) {
+        const d = distEuclid(xn, Xn[k]);
+        const s = kernel(d, melhorSigma);
+        sems.push({ idx: k, dist: d, sem: s, contrib: w[k] * s, peso: w[k], real: y[k], jogo: treino[k].jogo });
+        pred += w[k] * s;
+      }
+      sems.sort((a,b) => b.sem - a.sem);
+      abertosComFeat.push({ jogo: j, features: v, predRBF: pred, predPoisson: v[0], topVizinhos: sems.slice(0,5) });
+    }
+    ESTADO.abertos = abertosComFeat;
+    log(`✅ Pipeline concluída.`);
+
+    renderizar();
+    status('✅ pronto');
+    document.getElementById('btn-rodar').disabled = false;
+  } catch (e) {
+    log(`❌ Erro: ${e.message}`);
+    status('❌ ' + e.message);
+    console.error(e);
+    document.getElementById('btn-rodar').disabled = false;
+  }
+}
+
+// ============================================================================
+// UI
+// ============================================================================
+function renderizar() {
+  // Stats
+  const m = ESTADO.modelo;
+  const loo = ESTADO.loo;
+  const ganho = loo.maePoisson - loo.mae;
+  const cls = ganho > 0 ? 'green' : 'red';
+  document.getElementById('painel-stats').style.display = 'block';
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="stat-label">σ ótimo</div><div class="stat-val">${m.sigma}</div></div>
+    <div class="stat"><div class="stat-label">Jogos treino</div><div class="stat-val">${m.y.length}</div></div>
+    <div class="stat"><div class="stat-label">MAE RBF (LOO)</div><div class="stat-val">${loo.mae.toFixed(3)}</div></div>
+    <div class="stat"><div class="stat-label">MAE Poisson v3</div><div class="stat-val">${loo.maePoisson.toFixed(3)}</div></div>
+    <div class="stat"><div class="stat-label">Ganho RBF vs Poisson</div><div class="stat-val ${cls}">${ganho >= 0 ? '+' : ''}${ganho.toFixed(3)}</div></div>
+    <div class="stat"><div class="stat-label">Features</div><div class="stat-val">${NOMES_FEATURES.length}</div></div>
+  `;
+
+  renderAbertos();
+  renderEncerrados();
+  renderVizinhos();
+}
+
+function renderAbertos() {
+  const linhas = ESTADO.abertos.sort((a,b) => new Date(a.jogo.dataJogo) - new Date(b.jogo.dataJogo))
+    .map(a => {
+      const j = a.jogo;
+      const dt = new Date(j.dataJogo);
+      const dtStr = `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      const diff = a.predRBF - a.predPoisson;
+      const diffCls = Math.abs(diff) >= 0.5 ? (diff>0?'delta-pos':'delta-neg') : '';
+      const tag = a.predRBF < 0 ? '<span class="tag tag-warn">RBF<0</span>' : (Math.abs(diff) >= 0.7 ? '<span class="tag tag-warn">DIVERGÊNCIA</span>' : '');
+      return `<tr>
+        <td>${dtStr}</td>
+        <td>${j.liga?.nome || '?'}</td>
+        <td>${j.casa?.nome || '?'} × ${j.fora?.nome || '?'}</td>
+        <td class="num"><span class="tag tag-poisson">${a.predPoisson.toFixed(2)}</span></td>
+        <td class="num"><span class="tag tag-rbf">${a.predRBF.toFixed(2)}</span></td>
+        <td class="num ${diffCls}">${diff>=0?'+':''}${diff.toFixed(2)}</td>
+        <td>${tag}</td>
+      </tr>`;
+    }).join('');
+
+  document.getElementById('tabela-abertos').innerHTML = `
+    <table>
+      <thead><tr><th>Data</th><th>Liga</th><th>Jogo</th><th class="num">Poisson v3</th><th class="num">RBF</th><th class="num">Δ</th><th></th></tr></thead>
+      <tbody>${linhas || '<tr><td colspan="7" class="muted">nenhum jogo aberto</td></tr>'}</tbody>
+    </table>
+  `;
+}
+
+function renderEncerrados() {
+  // LOO real: pra cada jogo, quanto a RBF previu se ele tivesse sido excluído
+  const m = ESTADO.modelo;
+  const linhas = m.treino.map((t, i) => {
+    // LOO predição: refazer sem o ponto i é caro, vou usar in-sample como proxy
+    const xi = m.Xn[i];
+    let predIn = 0;
+    for (let j=0; j<m.Xn.length; j++) predIn += m.w[j] * kernel(distEuclid(xi, m.Xn[j]), m.sigma);
+    const predPoisson = t.features[0];
+    const real = t.real;
+    const errRBF = Math.abs(predIn - real);
+    const errPoisson = Math.abs(predPoisson - real);
+    const ganha = errRBF < errPoisson;
+    return { t, predIn, predPoisson, real, errRBF, errPoisson, ganha };
+  }).sort((a,b) => Math.abs(b.predIn - b.predPoisson) - Math.abs(a.predIn - a.predPoisson));
+
+  const html = `
+    <table>
+      <thead><tr><th>Jogo</th><th>Liga</th><th class="num">Poisson</th><th class="num">RBF</th><th class="num">Real</th><th class="num">Err Poisson</th><th class="num">Err RBF</th><th></th></tr></thead>
+      <tbody>${linhas.slice(0,40).map(r => `
+        <tr>
+          <td>${r.t.jogo.casa?.nome||'?'} × ${r.t.jogo.fora?.nome||'?'}</td>
+          <td>${r.t.jogo.liga?.nome||'?'}</td>
+          <td class="num">${r.predPoisson.toFixed(2)}</td>
+          <td class="num">${r.predIn.toFixed(2)}</td>
+          <td class="num"><span class="tag tag-real">${r.real}</span></td>
+          <td class="num">${r.errPoisson.toFixed(2)}</td>
+          <td class="num">${r.errRBF.toFixed(2)}</td>
+          <td>${r.ganha ? '<span class="ok">✓ RBF</span>' : '<span class="muted">Poisson</span>'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="small" style="margin-top: 8px;">⚠️ Esses números são in-sample. O σ foi escolhido por LOO real (header acima). Aqui só mostra distribuição.</div>
+  `;
+  document.getElementById('tabela-encerrados').innerHTML = html;
+}
+
+function renderVizinhos() {
+  const blocos = ESTADO.abertos.slice(0, 20).map(a => {
+    const j = a.jogo;
+    const vizs = a.topVizinhos.map((v, k) => `
+      <tr>
+        <td>${k+1}</td>
+        <td>${v.jogo.casa?.nome||'?'} × ${v.jogo.fora?.nome||'?'}</td>
+        <td class="num">${v.dist.toFixed(2)}</td>
+        <td class="num">${v.sem.toFixed(3)}</td>
+        <td class="num"><span class="tag tag-real">${v.real}</span></td>
+        <td class="num">${v.peso.toFixed(2)}</td>
+        <td class="num ${v.contrib>=0?'delta-pos':'delta-neg'}">${v.contrib>=0?'+':''}${v.contrib.toFixed(3)}</td>
+      </tr>
+    `).join('');
+    return `
+      <div class="panel" style="margin-bottom: 8px;">
+        <div style="margin-bottom: 6px;">
+          <strong>${j.casa?.nome||'?'} × ${j.fora?.nome||'?'}</strong>
+          <span class="small"> — ${j.liga?.nome||'?'}</span>
+          <span class="tag tag-poisson" style="margin-left:8px;">Poisson ${a.predPoisson.toFixed(2)}</span>
+          <span class="tag tag-rbf">RBF ${a.predRBF.toFixed(2)}</span>
+        </div>
+        <table>
+          <thead><tr><th>#</th><th>Vizinho</th><th class="num">dist</th><th class="num">sem</th><th class="num">real</th><th class="num">peso w</th><th class="num">contrib</th></tr></thead>
+          <tbody>${vizs}</tbody>
+        </table>
+      </div>
+    `;
+  }).join('');
+  document.getElementById('vizinhos-conteudo').innerHTML = blocos || '<div class="muted">sem dados</div>';
+}
+
+function trocarAba(qual) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('view-' + qual).classList.add('active');
+}
+
+function exportarFormula() {
+  if (!ESTADO.modelo) { alert('Treine primeiro'); return; }
+  const m = ESTADO.modelo;
+  const out = {
+    sigma: m.sigma,
+    features: NOMES_FEATURES,
+    mu: m.mu,
+    sd: m.sd,
+    pesos: m.w,
+    jogosTreino: m.treino.map(t => ({
+      casa: t.jogo.casa?.nome,
+      fora: t.jogo.fora?.nome,
+      liga: t.jogo.liga?.nome,
+      features: t.features,
+      real: t.real,
+    })),
+    looMAE: ESTADO.loo.mae,
+    poissonMAE: ESTADO.loo.maePoisson,
+  };
+  const blob = new Blob([JSON.stringify(out, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `rbf-modelo-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+}
+
+log('Pronto. Clique em "Treinar e prever" pra começar.');
+</script>
+</body>
+</html>
