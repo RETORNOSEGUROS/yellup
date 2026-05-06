@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Export Calibração · Yellup</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+:root{--bg:#0a0e1a;--s1:#0f1422;--s2:#141927;--s3:#1a2030;--b1:#1f2638;--b2:#2a3142;
+  --tx1:#e8ecf3;--tx2:#a0a8ba;--tx3:#5a6478;--gn:#0fe898;--rd:#ff5577;--yl:#facc15;--cy:#00d4ff;
+  --fS:'Inter',system-ui,sans-serif;--fM:'JetBrains Mono','SF Mono',Menlo,monospace;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx1);font-family:var(--fS);min-height:100vh;padding:24px;font-size:13px}
+.wrap{max-width:1100px;margin:0 auto}
+h1{font-size:20px;margin-bottom:6px}
+.sub{color:var(--tx3);font-size:12px;margin-bottom:20px}
+.btn{background:transparent;color:var(--tx2);border:1px solid var(--b2);border-radius:6px;
+  padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--fS)}
+.btn-pri{background:rgba(0,212,255,.1);color:var(--cy);border-color:rgba(0,212,255,.3)}
+.btn-pri:hover{background:rgba(0,212,255,.18)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 20px}
+.box{background:var(--s1);border:1px solid var(--b1);border-radius:8px;padding:16px;margin-bottom:14px}
+.muted{color:var(--tx3);font-family:var(--fM);font-size:11px}
+.stat{display:inline-block;background:var(--s3);padding:4px 10px;border-radius:4px;margin-right:8px;font-family:var(--fM);font-size:11px;font-weight:700}
+.ok{color:var(--gn)}.err{color:var(--rd)}.warn{color:var(--yl)}
+table{width:100%;border-collapse:collapse;font-family:var(--fM);font-size:11px;margin-top:10px}
+th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--b1)}
+th{background:var(--s2);color:var(--tx3);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+td.r{text-align:right}
+.acerto{color:var(--gn);font-weight:700}
+.miss{color:var(--rd);font-weight:700}
+.json-preview{max-height:240px;overflow:auto;background:#000;color:var(--gn);font-family:var(--fM);font-size:10px;padding:12px;border-radius:6px;white-space:pre}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Export de Calibração</h1>
+  <div class="sub">Cruza <code>previsoes-historico</code> com <code>jogos-admin</code> e gera JSON estruturado com previsão vs resultado real.</div>
+
+  <div class="row">
+    <button class="btn btn-pri" id="btnLoad" onclick="carregar()">📥 Carregar dados</button>
+    <button class="btn" id="btnDownload" onclick="baixar()" disabled>💾 Baixar JSON</button>
+    <button class="btn" id="btnCopy" onclick="copiar()" disabled>📋 Copiar pra clipboard</button>
+  </div>
+
+  <div id="status" class="box muted">Aguardando login...</div>
+  <div id="resumo"></div>
+  <div id="lista"></div>
+  <div id="preview"></div>
+</div>
+
+<script>
+const CFG_FB = {
+  apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain:"painel-yellup.firebaseapp.com",
+  projectId:"painel-yellup",
+  storageBucket:"painel-yellup.appspot.com",
+  messagingSenderId:"608347210297",
+  appId:"1:608347210297:web:75092713724e617c7203e8"
+};
+firebase.initializeApp(CFG_FB);
+const db = firebase.firestore();
+const auth = firebase.auth();
+let DATASET = null;
+
+const el = id => document.getElementById(id);
+const setSt = (cls, msg) => { el('status').className = 'box ' + cls; el('status').innerHTML = msg; };
+
+auth.onAuthStateChanged(u => {
+  if (!u || u.email !== 'admin@yellup.com') { window.location.href = 'login.html'; return; }
+  setSt('muted', 'Logado como ' + u.email + '. Clique em "Carregar dados".');
+});
+
+async function carregar() {
+  el('btnLoad').disabled = true;
+  setSt('muted', 'Carregando previsões e jogos do Firestore...');
+  try {
+    // 1. Previsões
+    const psnap = await db.collection('previsoes-historico').limit(1000).get();
+    const prevsArr = psnap.docs.map(d => ({ _id: d.id, ...d.data() }));
+    setSt('muted', `${prevsArr.length} previsões carregadas. Buscando jogos correspondentes...`);
+
+    // 2. Buscar jogos-admin pelos jogoIds (em chunks de 10 — limite do Firestore "in")
+    const jogoIds = [...new Set(prevsArr.map(p => p.jogoId).filter(Boolean))];
+    const jogosMap = {};
+    const chunks = [];
+    for (let i = 0; i < jogoIds.length; i += 10) chunks.push(jogoIds.slice(i, i+10));
+    for (const ch of chunks) {
+      const r = await db.collection('jogos-admin')
+        .where(firebase.firestore.FieldPath.documentId(), 'in', ch).get();
+      r.docs.forEach(d => jogosMap[d.id] = d.data());
+    }
+
+    // 3. Cruzar previsão + resultado
+    const dataset = {
+      exportadoEm: new Date().toISOString(),
+      versaoModelo: 'v1-poisson-cross-index-boost',
+      totalPrevisoes: prevsArr.length,
+      totalEncerradas: 0,
+      jogos: []
+    };
+
+    prevsArr.forEach(p => {
+      const j = jogosMap[p.jogoId];
+      const encerrado = j && j.status === 'encerrado' && j.placarCasa != null && j.placarFora != null;
+      const item = {
+        fixtureId: p.apiFixtureId,
+        jogoId: p.jogoId,
+        dataJogo: p.dataJogo?.toDate ? p.dataJogo.toDate().toISOString() : null,
+        liga: p.liga || null,
+        casa: { apiId: p.timeCasa?.apiId, nome: p.timeCasa?.nome },
+        fora: { apiId: p.timeFora?.apiId, nome: p.timeFora?.nome },
+        previsao: {
+          lambdaA: p.lambdaA,
+          lambdaB: p.lambdaB,
+          lambdaTotal: p.lambdaTotal,
+          probs: p.probs,           // [P(0), P(1), P(2), P(3), P(4), P(5+)]
+          boostHeur: p.boostHeur,
+          rawInputs: p.rawInputs,
+          forteA: p.forteA?.score,
+          forteB: p.forteB?.score,
+          forteCompA: p.forteA?.components,
+          forteCompB: p.forteB?.components,
+          janelasTop: (p.janelasTop || []).slice(0, 5)
+        },
+        real: encerrado ? {
+          golsCasa: j.placarCasa,
+          golsFora: j.placarFora,
+          totalGols: (j.placarCasa || 0) + (j.placarFora || 0),
+          encerrado: true,
+          status: j.status
+        } : { encerrado: false, status: j?.status || 'desconhecido' }
+      };
+      if (encerrado) dataset.totalEncerradas++;
+      dataset.jogos.push(item);
+    });
+
+    DATASET = dataset;
+    el('btnDownload').disabled = false;
+    el('btnCopy').disabled = false;
+    setSt('muted', `✓ Cruzamento concluído.`);
+    renderResumo();
+  } catch (e) {
+    console.error(e);
+    setSt('err', 'Erro: ' + e.message);
+    el('btnLoad').disabled = false;
+  }
+}
+
+function renderResumo() {
+  const d = DATASET;
+  const enc = d.jogos.filter(j => j.real.encerrado);
+
+  // Quick stats
+  let acertosBucket = 0, totalErroAbsoluto = 0, somaPrevisao = 0, somaReal = 0;
+  let previuOver35 = 0, deuOver35 = 0, previu_e_deu_over35 = 0;
+  let previuUnder15 = 0, deuUnder15 = 0, previu_e_deu_under15 = 0;
+  let errouProMais = 0, errouProMenos = 0;
+
+  enc.forEach(j => {
+    const p = j.previsao.probs || [];
+    const real = j.real.totalGols;
+    const realIdx = Math.min(5, real);
+    const peakIdx = p.indexOf(Math.max(...p));
+    if (peakIdx === realIdx) acertosBucket++;
+    const lambda = j.previsao.lambdaTotal;
+    totalErroAbsoluto += Math.abs(lambda - real);
+    somaPrevisao += lambda;
+    somaReal += real;
+    if (lambda > real + 0.5) errouProMais++;
+    else if (real > lambda + 0.5) errouProMenos++;
+
+    const pOver35 = (p[4] || 0) + (p[5] || 0);
+    const pUnder15 = (p[0] || 0) + (p[1] || 0);
+    const realOver35 = real >= 4;
+    const realUnder15 = real <= 1;
+
+    if (pOver35 >= 0.30) previuOver35++;
+    if (realOver35) deuOver35++;
+    if (pOver35 >= 0.30 && realOver35) previu_e_deu_over35++;
+    if (pUnder15 >= 0.30) previuUnder15++;
+    if (realUnder15) deuUnder15++;
+    if (pUnder15 >= 0.30 && realUnder15) previu_e_deu_under15++;
+  });
+
+  const taxa = enc.length ? (acertosBucket / enc.length * 100).toFixed(1) : 0;
+  const erroMedio = enc.length ? (totalErroAbsoluto / enc.length).toFixed(2) : 0;
+  const lambdaMedio = enc.length ? (somaPrevisao / enc.length).toFixed(2) : 0;
+  const realMedio = enc.length ? (somaReal / enc.length).toFixed(2) : 0;
+  const vies = enc.length ? (somaPrevisao - somaReal) / enc.length : 0;
+
+  el('resumo').innerHTML = `
+    <div class="box">
+      <div style="margin-bottom:14px">
+        <span class="stat">Total: ${d.totalPrevisoes}</span>
+        <span class="stat ok">Encerradas: ${enc.length}</span>
+        <span class="stat warn">Pendentes: ${d.totalPrevisoes - enc.length}</span>
+      </div>
+      <div style="margin-bottom:14px">
+        <span class="stat">Acerto bucket exato: ${acertosBucket}/${enc.length} (${taxa}%)</span>
+        <span class="stat">Erro médio absoluto: ${erroMedio} gols</span>
+      </div>
+      <div style="margin-bottom:14px">
+        <span class="stat">λ médio previsto: <span class="${vies>0?'err':'ok'}">${lambdaMedio}</span></span>
+        <span class="stat">Real médio: ${realMedio}</span>
+        <span class="stat ${vies>0.3?'err':vies<-0.3?'err':'ok'}">Viés: ${vies>0?'+':''}${vies.toFixed(2)} ${vies>0.3?'(prevê demais)':vies<-0.3?'(prevê de menos)':'(ok)'}</span>
+      </div>
+      <div style="margin-bottom:14px">
+        <span class="stat">Errou pra mais: ${errouProMais}</span>
+        <span class="stat">Errou pra menos: ${errouProMenos}</span>
+      </div>
+      <div style="font-size:10px;color:var(--tx3);margin-top:14px;font-family:var(--fM)">
+        Heurística rápida — Over 3.5: previu ${previuOver35} · saiu ${deuOver35} · acertou ambos ${previu_e_deu_over35}<br>
+        Heurística rápida — Under 1.5: previu ${previuUnder15} · saiu ${deuUnder15} · acertou ambos ${previu_e_deu_under15}
+      </div>
+    </div>`;
+
+  // Lista detalhada das encerradas
+  let html = `<div class="box"><div class="muted" style="margin-bottom:8px">Detalhe dos jogos encerrados</div>
+    <table><thead><tr>
+      <th>Liga</th><th>Casa</th><th>Fora</th><th class="r">λ prev</th><th class="r">Real</th><th class="r">Δ</th><th class="r">P(real)</th><th class="r">Bucket</th>
+    </tr></thead><tbody>`;
+  enc.forEach(j => {
+    const p = j.previsao.probs || [];
+    const real = j.real.totalGols;
+    const realIdx = Math.min(5, real);
+    const peakIdx = p.indexOf(Math.max(...p));
+    const acertou = peakIdx === realIdx;
+    const delta = (j.previsao.lambdaTotal - real).toFixed(1);
+    const pReal = ((p[realIdx] || 0) * 100).toFixed(0);
+    html += `<tr>
+      <td>${(j.liga?.nome || '?').slice(0,18)}</td>
+      <td>${(j.casa.nome || '').slice(0,16)}</td>
+      <td>${(j.fora.nome || '').slice(0,16)}</td>
+      <td class="r">${j.previsao.lambdaTotal?.toFixed(2)}</td>
+      <td class="r"><strong>${real}</strong> (${j.real.golsCasa}-${j.real.golsFora})</td>
+      <td class="r ${Math.abs(delta)>1.5?'err':''}">${delta>0?'+':''}${delta}</td>
+      <td class="r">${pReal}%</td>
+      <td class="r ${acertou?'acerto':'miss'}">${acertou?'✓':'✗'}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+
+  el('lista').innerHTML = html;
+  el('preview').innerHTML = `<div class="box"><div class="muted" style="margin-bottom:8px">Preview do JSON (primeiras linhas)</div>
+    <div class="json-preview">${JSON.stringify(DATASET, null, 2).slice(0, 2000)}...</div></div>`;
+}
+
+function baixar() {
+  const blob = new Blob([JSON.stringify(DATASET, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `yellup-calibracao-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function copiar() {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(DATASET, null, 2));
+    setSt('ok', '✓ Copiado pra clipboard. Cola pro Claude.');
+  } catch (e) { setSt('err', 'Falhou: ' + e.message); }
+}
+</script>
+</body>
+</html>
