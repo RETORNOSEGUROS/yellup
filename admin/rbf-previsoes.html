@@ -198,19 +198,52 @@
 
 <script>
 // ============================================================================
-// CONFIG — usa o mesmo Firebase do sistema (ajuste se necessário)
+// CONFIG — busca a config do Firebase direto do previsoes.html que já roda
 // ============================================================================
-const firebaseConfig = {
-  apiKey: "AIzaSyCxPMnFi5FYvlvCdNxnXpPmHUBeP0SGFfE",
-  authDomain: "painel-yellup.firebaseapp.com",
-  projectId: "painel-yellup",
-  storageBucket: "painel-yellup.firebasestorage.app",
-  messagingSenderId: "478556700918",
-  appId: "1:478556700918:web:dd5e44567a89d14d8d9e22"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const auth = firebase.auth();
+let db, auth;
+
+async function carregarFirebaseConfig() {
+  // Tenta buscar do previsoes.html que está hospedado no mesmo domínio
+  const candidatos = ['/admin/previsoes.html', './previsoes.html', '../previsoes.html', '/previsoes.html'];
+  for (const url of candidatos) {
+    try {
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) continue;
+      const txt = await r.text();
+      // Extrai o bloco firebaseConfig = { ... }
+      const m = txt.match(/firebaseConfig\s*=\s*\{[\s\S]*?\}/);
+      if (!m) continue;
+      // Avalia o objeto de forma segura
+      const cfg = (new Function(`return (${m[0].replace(/^firebaseConfig\s*=\s*/, '')})`))();
+      if (cfg && cfg.apiKey && cfg.projectId) {
+        log(`Config carregada de ${url} (project: ${cfg.projectId})`);
+        return cfg;
+      }
+    } catch (e) {
+      // tenta o próximo
+    }
+  }
+  return null;
+}
+
+async function inicializarFirebase() {
+  const cfg = await carregarFirebaseConfig();
+  if (!cfg) {
+    const apiKey = prompt('Não consegui ler o config do previsoes.html.\n\nCole aqui o apiKey do seu Firebase:');
+    const projectId = prompt('Cole o projectId:');
+    if (!apiKey || !projectId) throw new Error('Config Firebase não fornecido');
+    const cfg2 = {
+      apiKey, projectId,
+      authDomain: `${projectId}.firebaseapp.com`,
+      storageBucket: `${projectId}.firebasestorage.app`,
+    };
+    firebase.initializeApp(cfg2);
+  } else {
+    firebase.initializeApp(cfg);
+  }
+  db = firebase.firestore();
+  auth = firebase.auth();
+}
 
 // ============================================================================
 // FEATURE EXTRACTION — 14 features dos rawInputs
@@ -398,8 +431,12 @@ function status(msg) {
 
 async function treinarEPrever() {
   document.getElementById('btn-rodar').disabled = true;
-  status('autenticando...');
+  status('inicializando Firebase...');
   try {
+    if (!db) {
+      await inicializarFirebase();
+    }
+    status('autenticando...');
     if (!auth.currentUser) {
       const email = prompt('Email admin:');
       const senha = prompt('Senha:');
