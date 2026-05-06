@@ -183,6 +183,7 @@ let PREVS = {};           // fixtureId -> previsão salva
 let CACHE_TEAMS = {};     // apiId -> { last20, calcAt }
 let CACHE_EVENTS = {};    // fixtureId+'_'+teamId -> events parsed
 let CACHE_FORTE = {};     // apiId -> score
+let CACHE_STATS = {};     // fixtureId -> { home: {xg,shots,shotsOG,poss}, away: {...} }
 let SELECTED_DATE = null;
 
 const TTL_TEAM = 12 * 60 * 60 * 1000;  // 12h
@@ -208,6 +209,8 @@ function loadCachesFromLocalStorage() {
     if (f) CACHE_FORTE = JSON.parse(f);
     const e = localStorage.getItem('yellup_cache_events');
     if (e) CACHE_EVENTS = JSON.parse(e);
+    const s = localStorage.getItem('yellup_cache_stats');
+    if (s) CACHE_STATS = JSON.parse(s);
   } catch(_) {}
 }
 function persistCaches() {
@@ -215,6 +218,7 @@ function persistCaches() {
     localStorage.setItem('yellup_cache_teams', JSON.stringify(CACHE_TEAMS));
     localStorage.setItem('yellup_cache_forte', JSON.stringify(CACHE_FORTE));
     localStorage.setItem('yellup_cache_events', JSON.stringify(CACHE_EVENTS));
+    localStorage.setItem('yellup_cache_stats', JSON.stringify(CACHE_STATS));
   } catch(_) {}
 }
 
@@ -318,6 +322,43 @@ async function fetchFixtureEvents(fixtureId, teamId) {
     console.warn(`events fixture=${fixtureId} falhou:`, e.message);
     return [];
   }
+}
+
+async function fetchFixtureStats(fixtureId, homeId, awayId) {
+  if (CACHE_STATS[fixtureId] !== undefined) return CACHE_STATS[fixtureId];
+  try {
+    const r = await apiGet(`/fixtures/statistics?fixture=${fixtureId}`);
+    const parsed = parseFixtureStats(r.response || [], homeId, awayId);
+    CACHE_STATS[fixtureId] = parsed;
+    persistCaches();
+    return parsed;
+  } catch (e) {
+    CACHE_STATS[fixtureId] = null;
+    return null;
+  }
+}
+
+function parseFixtureStats(raw, homeId, awayId) {
+  // Retorna { home: {xg, shots, shotsOG, poss}, away: {xg, shots, shotsOG, poss} }
+  // Cada campo pode ser null se não disponível na liga
+  const r = { home: {xg:null, shots:null, shotsOG:null, poss:null},
+              away: {xg:null, shots:null, shotsOG:null, poss:null} };
+  if (!Array.isArray(raw) || !raw.length) return r;
+  for (const ts of raw) {
+    const side = ts.team?.id === homeId ? 'home' : (ts.team?.id === awayId ? 'away' : null);
+    if (!side) continue;
+    for (const stat of (ts.statistics || [])) {
+      const t = stat.type;
+      const v = stat.value;
+      const isXG = (t === 'expected_goals' || t === 'Expected Goals');
+      if (!isXG && (v === null || v === undefined)) continue;
+      if (t === 'Ball Possession')      r[side].poss    = parseInt(v) || 0;
+      else if (t === 'Total Shots')     r[side].shots   = parseInt(v) || 0;
+      else if (t === 'Shots on Goal')   r[side].shotsOG = parseInt(v) || 0;
+      else if (isXG && v !== null && v !== undefined) r[side].xg = parseFloat(v) || 0;
+    }
+  }
+  return r;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -437,55 +478,99 @@ function calcForteScore(enriched20) {
 // MOTOR DE PREVISÃO DE GOLS (POISSON)
 // ═══════════════════════════════════════════════════════════
 function calcPrevisao(rxA, rxB) {
-  // rxA, rxB: { team, enriched, forte, totalsByBucket } — saída de scanTeam
-  const gfA = rxA.enriched.reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, rxA.enriched.length);
-  const gcA = rxA.enriched.reduce((s,e)=>s+(e.oGoals||0),0) / Math.max(1, rxA.enriched.length);
-  const gfB = rxB.enriched.reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, rxB.enriched.length);
-  const gcB = rxB.enriched.reduce((s,e)=>s+(e.oGoals||0),0) / Math.max(1, rxB.enriched.length);
+  // rxA = time da casa, rxB = time de fora
+  // Cada enriched item agora pode ter: tXG, oXG, tShots, oShots, tShotsOG, oShotsOG, tPoss
+  const FATOR_CORRECAO = 0.80;  // calibrado em 37 jogos (v2)
 
-  // λ base: ataque de A cruzado com defesa de B (Dixon-Coles simplificado)
+  // ─── 1. Médias gerais (fallback / base) ───
+  const meanField = (arr, field) => {
+    const valid = arr.filter(e => e[field] != null);
+    return valid.length >= 5 ? valid.reduce((s,e)=>s+e[field],0) / valid.length : null;
+  };
+  const meanGoals = (arr, field) =>
+    arr.length ? arr.reduce((s,e)=>s+(e[field]||0),0) / arr.length : 0;
+
+  // gfX/gcX: prioriza xG, fallback gols. Conta como "fonte" do λ.
+  const gfA_xg = meanField(rxA.enriched, 'tXG');
+  const gcA_xg = meanField(rxA.enriched, 'oXG');
+  const gfB_xg = meanField(rxB.enriched, 'tXG');
+  const gcB_xg = meanField(rxB.enriched, 'oXG');
+
+  const gfA_g = meanGoals(rxA.enriched, 'tGoals');
+  const gcA_g = meanGoals(rxA.enriched, 'oGoals');
+  const gfB_g = meanGoals(rxB.enriched, 'tGoals');
+  const gcB_g = meanGoals(rxB.enriched, 'oGoals');
+
+  // Fonte: 'xg' se temos xG dos dois lados, 'gols' senão
+  const usaXG_A = gfA_xg !== null && gcA_xg !== null;
+  const usaXG_B = gfB_xg !== null && gcB_xg !== null;
+  const gfA_geral = usaXG_A ? gfA_xg : gfA_g;
+  const gcA_geral = usaXG_A ? gcA_xg : gcA_g;
+  const gfB_geral = usaXG_B ? gfB_xg : gfB_g;
+  const gcB_geral = usaXG_B ? gcB_xg : gcB_g;
+
+  // ─── 2. Filtro por mando (peso 40% no cálculo final) ───
+  // Time A é mandante (joga em casa) → usa jogos de A em casa
+  // Time B é visitante (joga fora)   → usa jogos de B fora
+  const mandoA = rxA.enriched.filter(e => e.home === true).slice(0, 10);
+  const mandoB = rxB.enriched.filter(e => e.home === false).slice(0, 10);
+
+  const calcStat = (arr, fieldXG, fieldGol) => {
+    if (arr.length < 4) return null;
+    const xg = meanField(arr, fieldXG);
+    if (xg !== null) return { val: xg, src: 'xg' };
+    return { val: meanGoals(arr, fieldGol), src: 'gols' };
+  };
+
+  const gfA_m = calcStat(mandoA, 'tXG', 'tGoals');
+  const gcA_m = calcStat(mandoA, 'oXG', 'oGoals');
+  const gfB_m = calcStat(mandoB, 'tXG', 'tGoals');
+  const gcB_m = calcStat(mandoB, 'oXG', 'oGoals');
+
+  // Mistura: 60% geral + 40% mando (se mando tem amostra suficiente)
+  const mix = (g, m) => m === null ? g : 0.6*g + 0.4*m.val;
+  const gfA = mix(gfA_geral, gfA_m);
+  const gcA = mix(gcA_geral, gcA_m);
+  const gfB = mix(gfB_geral, gfB_m);
+  const gcB = mix(gcB_geral, gcB_m);
+
+  // ─── 3. λ base (Dixon-Coles cruzado) ───
   let lambdaA = (gfA + gcB) / 2;
   let lambdaB = (gfB + gcA) / 2;
 
-  // Janelas — só pra exibição/sinalização (NÃO inflam mais o λ)
-  // Calibração com 37 jogos mostrou que boost ×1.2 piorava o erro (viés +1.17)
+  // ─── 4. Janelas — só sinalização (não inflam λ) ───
   const janelas = calcJanelas(rxA, rxB);
   const top1 = janelas[0]?.total || 0;
   const top2 = janelas[1]?.total || 0;
-  // Flag de matchup aberto: usado só pra UI, sem afetar matemática
-  const matchupAberto = (top1 >= 20 && top2 >= 14);
+  const matchupAberto  = (top1 >= 20 && top2 >= 14);
+  const jogoTrancado   = (top1 < 11);
 
-  // Ajuste de forma recente (últimos 5 vs últimos 20)
+  // ─── 5. Forma recente (últimos 5) ───
   const formA5 = rxA.enriched.slice(0,5).reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, Math.min(5, rxA.enriched.length));
   const formB5 = rxB.enriched.slice(0,5).reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, Math.min(5, rxB.enriched.length));
-  const adjA = gfA > 0 ? Math.max(0.7, Math.min(1.3, formA5 / gfA)) : 1;
-  const adjB = gfB > 0 ? Math.max(0.7, Math.min(1.3, formB5 / gfB)) : 1;
+  const adjA = gfA_g > 0 ? Math.max(0.7, Math.min(1.3, formA5 / gfA_g)) : 1;
+  const adjB = gfB_g > 0 ? Math.max(0.7, Math.min(1.3, formB5 / gfB_g)) : 1;
 
   lambdaA *= adjA;
   lambdaB *= adjB;
 
-  // Fator de correção empírico — calibrado em 37 jogos (modelo previa +0.76 a mais que real)
-  // Estratégia G: remover boost + ×0.80 → viés cai de +0.76 pra +0.06, erro abs cai de 1.61 pra 1.37
-  const FATOR_CORRECAO = 0.80;
+  // ─── 6. Calibração empírica (v2 → v3 com xG é menos enviesada, calibração ainda 0.80) ───
   lambdaA *= FATOR_CORRECAO;
   lambdaB *= FATOR_CORRECAO;
 
-  // Cap (jogos com λ > 4.5 são raríssimos no futebol real)
   lambdaA = Math.max(0.1, Math.min(4.5, lambdaA));
   lambdaB = Math.max(0.1, Math.min(4.5, lambdaB));
 
   const lambdaTotal = lambdaA + lambdaB;
-
-  // Distribuição Poisson
   const probs = poissonDistribution(lambdaTotal, 5);
-  // probs = [P(0), P(1), P(2), P(3), P(4), P(5+)]
 
-  // Tags de confiança baseadas na calibração:
-  // - UNDER 1.5 com P≥45% acertou 75% nos 37 jogos (vs base 46%) → tag forte
-  // - OVER 3.5 não tem threshold confiável ainda
+  // ─── 7. Tags de confiança ───
   const pUnder15 = probs[0] + probs[1];
-  const pOver35  = probs[4] + probs[5];
   const tagAltoConfiancaUnder = pUnder15 >= 0.45;
+
+  // F18 (formula linear validada): pred = (λ + t1/15) × 0.43, dispara over 2.5 quando >=2.5
+  const f18 = (lambdaTotal + top1/15) * 0.43;
+  const tagAltoConfiancaOver = f18 >= 2.5;
 
   return {
     lambdaA: round2(lambdaA),
@@ -493,10 +578,25 @@ function calcPrevisao(rxA, rxB) {
     lambdaTotal: round2(lambdaTotal),
     probs: probs.map(round3),
     janelasTop: janelas.slice(0, 5),
-    matchupAberto,                             // só UI
-    tagAltoConfiancaUnder,                     // só UI
-    fatorCorrecao: FATOR_CORRECAO,             // pra debug/auditoria
-    rawInputs: { gfA, gcA, gfB, gcB, formA5, formB5, adjA: round2(adjA), adjB: round2(adjB) }
+    matchupAberto,
+    jogoTrancado,                   // t1 < 11 → tendência under (~86% nos 37j)
+    tagAltoConfiancaUnder,           // P(under 1.5) >= 45%
+    tagAltoConfiancaOver,            // F18 >= 2.5 (75% precision nos 37j)
+    fatorCorrecao: FATOR_CORRECAO,
+    fonteLambda: {
+      usaXG_A, usaXG_B,
+      mandoA_n: mandoA.length, mandoA_src: gfA_m?.src || null,
+      mandoB_n: mandoB.length, mandoB_src: gfB_m?.src || null
+    },
+    rawInputs: {
+      gfA_geral: round2(gfA_geral), gcA_geral: round2(gcA_geral),
+      gfB_geral: round2(gfB_geral), gcB_geral: round2(gcB_geral),
+      gfA_final: round2(gfA), gcA_final: round2(gcA),
+      gfB_final: round2(gfB), gcB_final: round2(gcB),
+      formA5, formB5,
+      adjA: round2(adjA), adjB: round2(adjB),
+      f18: round2(f18)
+    }
   };
 }
 
@@ -555,6 +655,27 @@ async function scanTeam(apiId, teamMeta) {
     CACHE_FORTE[apiId] = { data: forte, calcAt: Date.now() };
     persistCaches();
   }
+
+  // Estatísticas detalhadas (xG, chutes, posse) — paralelo com cache
+  await Promise.allSettled(enriched.map(async e => {
+    const homeId = e.f.teams.home.id;
+    const awayId = e.f.teams.away.id;
+    const stats = await fetchFixtureStats(e.f.fixture.id, homeId, awayId);
+    if (!stats) return;
+    const my = e.home ? stats.home : stats.away;
+    const op = e.home ? stats.away : stats.home;
+    if (my) {
+      e.tXG      = my.xg;
+      e.tShots   = my.shots;
+      e.tShotsOG = my.shotsOG;
+      e.tPoss    = my.poss;
+    }
+    if (op) {
+      e.oXG      = op.xg;
+      e.oShots   = op.shots;
+      e.oShotsOG = op.shotsOG;
+    }
+  }));
 
   // Eventos por bucket
   const totalsByBucket = { sc: new Array(20).fill(0), cn: new Array(20).fill(0) };
@@ -764,9 +885,12 @@ function renderDetalhe(j, prev) {
         <div style="font-family:var(--fM);font-size:10px;color:var(--tx3);margin-top:12px;line-height:1.6">
           λ ${j.timeCasa.nome.slice(0,16)}: <span style="color:var(--tx2)">${prev.lambdaA?.toFixed(2)}</span><br>
           λ ${j.timeFora.nome.slice(0,16)}: <span style="color:var(--tx2)">${prev.lambdaB?.toFixed(2)}</span><br>
-          ${prev.fatorCorrecao ? `Fator de calibração aplicado: <span style="color:var(--tx2)">×${prev.fatorCorrecao}</span><br>` : ''}
-          ${prev.matchupAberto ? `<span style="color:var(--yl)">⚠ MATCHUP ABERTO</span> — sinal qualitativo, sem afetar λ<br>` : ''}
-          ${prev.tagAltoConfiancaUnder ? `<span style="color:var(--cy)">🎯 ALTA CONFIANÇA UNDER 1.5</span> — em 37 jogos, P≥45% acertou 75%` : ''}
+          ${prev.fatorCorrecao ? `Fator de calibração: <span style="color:var(--tx2)">×${prev.fatorCorrecao}</span><br>` : ''}
+          ${prev.fonteLambda ? `Fonte: <span style="color:var(--tx2)">${prev.fonteLambda.usaXG_A?'xG':'gols'}/${prev.fonteLambda.usaXG_B?'xG':'gols'}</span> · mando: <span style="color:var(--tx2)">${prev.fonteLambda.mandoA_n}/${prev.fonteLambda.mandoB_n} jogos</span><br>` : ''}
+          ${prev.matchupAberto ? `<span style="color:var(--yl)">⚠ MATCHUP ABERTO</span> (top1≥20 e top2≥14)<br>` : ''}
+          ${prev.jogoTrancado ? `<span style="color:#7fa8c9">🛡 JOGO TRANCADO</span> (t1<11 → 86% under 1.5 nos 37j)<br>` : ''}
+          ${prev.tagAltoConfiancaUnder ? `<span style="color:var(--cy)">🎯 ALTA CONFIANÇA UNDER 1.5</span> (P≥45%)<br>` : ''}
+          ${prev.tagAltoConfiancaOver ? `<span style="color:#ff8a4c">🔥 ALTA CONFIANÇA OVER 2.5</span> (F18 = ${prev.rawInputs?.f18?.toFixed(2)})` : ''}
         </div>
       </div>
 
@@ -876,9 +1000,12 @@ async function calcularJogo(j) {
       aSc: jn.aSc, aCn: jn.aCn, bSc: jn.bSc, bCn: jn.bCn
     })),
     matchupAberto: previsao.matchupAberto,
+    jogoTrancado: previsao.jogoTrancado,
     tagAltoConfiancaUnder: previsao.tagAltoConfiancaUnder,
+    tagAltoConfiancaOver: previsao.tagAltoConfiancaOver,
     fatorCorrecao: previsao.fatorCorrecao,
-    versaoModelo: 'v2-poisson-calibrado-37j',
+    fonteLambda: previsao.fonteLambda,
+    versaoModelo: 'v3-xg-mando',
     rawInputs: previsao.rawInputs,
     analisado: false,
     calculadoEm: firebase.firestore.FieldValue.serverTimestamp()
