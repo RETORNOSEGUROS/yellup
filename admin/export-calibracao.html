@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Export Calibração · Yellup</title>
+<title>Export Calibração v2 · Yellup</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
@@ -32,13 +32,16 @@ th{background:var(--s2);color:var(--tx3);font-weight:600;font-size:10px;text-tra
 td.r{text-align:right}
 .acerto{color:var(--gn);font-weight:700}
 .miss{color:var(--rd);font-weight:700}
-.json-preview{max-height:240px;overflow:auto;background:#000;color:var(--gn);font-family:var(--fM);font-size:10px;padding:12px;border-radius:6px;white-space:pre}
+.diag{font-family:var(--fM);font-size:10px;line-height:1.7;color:var(--tx2);background:var(--s3);padding:10px;border-radius:4px;margin-top:8px;white-space:pre-wrap}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Export de Calibração</h1>
-  <div class="sub">Cruza <code>previsoes-historico</code> com <code>jogos-admin</code> e gera JSON estruturado com previsão vs resultado real.</div>
+  <h1>Export de Calibração v2</h1>
+  <div class="sub">
+    Filtra apenas os documentos do nosso modelo (com <code>lambdaTotal</code>), ignorando os do sistema antigo.
+    Paginação automática para coleções grandes.
+  </div>
 
   <div class="row">
     <button class="btn btn-pri" id="btnLoad" onclick="carregar()">📥 Carregar dados</button>
@@ -47,9 +50,9 @@ td.r{text-align:right}
   </div>
 
   <div id="status" class="box muted">Aguardando login...</div>
+  <div id="diagnostico"></div>
   <div id="resumo"></div>
   <div id="lista"></div>
-  <div id="preview"></div>
 </div>
 
 <script>
@@ -76,15 +79,64 @@ auth.onAuthStateChanged(u => {
 
 async function carregar() {
   el('btnLoad').disabled = true;
-  setSt('muted', 'Carregando previsões e jogos do Firestore...');
-  try {
-    // 1. Previsões
-    const psnap = await db.collection('previsoes-historico').limit(1000).get();
-    const prevsArr = psnap.docs.map(d => ({ _id: d.id, ...d.data() }));
-    setSt('muted', `${prevsArr.length} previsões carregadas. Buscando jogos correspondentes...`);
+  setSt('muted', 'Carregando previsões do Firestore (pode levar uns segundos)...');
 
-    // 2. Buscar jogos-admin pelos jogoIds (em chunks de 10 — limite do Firestore "in")
-    const jogoIds = [...new Set(prevsArr.map(p => p.jogoId).filter(Boolean))];
+  try {
+    let allDocs = [];
+    let lastDoc = null;
+    const PAGE_SIZE = 1000;
+    let pages = 0;
+
+    while (true) {
+      let q = db.collection('previsoes-historico')
+        .orderBy(firebase.firestore.FieldPath.documentId())
+        .limit(PAGE_SIZE);
+      if (lastDoc) q = q.startAfter(lastDoc);
+      const snap = await q.get();
+      if (snap.empty) break;
+      allDocs = allDocs.concat(snap.docs);
+      lastDoc = snap.docs[snap.docs.length - 1];
+      pages++;
+      setSt('muted', `Página ${pages} carregada · ${allDocs.length} documentos no total...`);
+      if (snap.size < PAGE_SIZE) break;
+      if (pages >= 20) break;
+    }
+
+    const totalDocs = allDocs.length;
+    let comLambda = 0;
+    const exemplosOutros = [];
+    const nossosDocs = [];
+
+    allDocs.forEach(d => {
+      const data = d.data();
+      if (typeof data.lambdaTotal === 'number') {
+        comLambda++;
+        nossosDocs.push({ _id: d.id, ...data });
+      } else if (exemplosOutros.length < 3) {
+        exemplosOutros.push({ id: d.id, keys: Object.keys(data).slice(0, 12) });
+      }
+    });
+
+    el('diagnostico').innerHTML = `
+      <div class="box">
+        <div class="muted" style="margin-bottom:8px">DIAGNÓSTICO DA COLEÇÃO</div>
+        <div>
+          <span class="stat">Total: ${totalDocs}</span>
+          <span class="stat ok">Nossas (com lambdaTotal): ${comLambda}</span>
+          <span class="stat warn">Sistema antigo: ${totalDocs - comLambda}</span>
+        </div>
+        <div class="diag">Exemplos de docs do sistema antigo (campos):
+${exemplosOutros.map(e => `  ${e.id.slice(0,20)}: [${e.keys.join(', ')}]`).join('\n') || '  (nenhum)'}</div>
+      </div>`;
+
+    if (!comLambda) {
+      setSt('err', 'Nenhuma previsão do nosso modelo encontrada. Você já clicou em "Calcular previsões" no previsoes.html?');
+      el('btnLoad').disabled = false;
+      return;
+    }
+
+    setSt('muted', `Buscando ${comLambda} jogos correspondentes em jogos-admin...`);
+    const jogoIds = [...new Set(nossosDocs.map(p => p.jogoId).filter(Boolean))];
     const jogosMap = {};
     const chunks = [];
     for (let i = 0; i < jogoIds.length; i += 10) chunks.push(jogoIds.slice(i, i+10));
@@ -94,16 +146,15 @@ async function carregar() {
       r.docs.forEach(d => jogosMap[d.id] = d.data());
     }
 
-    // 3. Cruzar previsão + resultado
     const dataset = {
       exportadoEm: new Date().toISOString(),
       versaoModelo: 'v1-poisson-cross-index-boost',
-      totalPrevisoes: prevsArr.length,
+      totalPrevisoes: nossosDocs.length,
       totalEncerradas: 0,
       jogos: []
     };
 
-    prevsArr.forEach(p => {
+    nossosDocs.forEach(p => {
       const j = jogosMap[p.jogoId];
       const encerrado = j && j.status === 'encerrado' && j.placarCasa != null && j.placarFora != null;
       const item = {
@@ -117,13 +168,11 @@ async function carregar() {
           lambdaA: p.lambdaA,
           lambdaB: p.lambdaB,
           lambdaTotal: p.lambdaTotal,
-          probs: p.probs,           // [P(0), P(1), P(2), P(3), P(4), P(5+)]
+          probs: p.probs,
           boostHeur: p.boostHeur,
           rawInputs: p.rawInputs,
           forteA: p.forteA?.score,
           forteB: p.forteB?.score,
-          forteCompA: p.forteA?.components,
-          forteCompB: p.forteB?.components,
           janelasTop: (p.janelasTop || []).slice(0, 5)
         },
         real: encerrado ? {
@@ -132,7 +181,7 @@ async function carregar() {
           totalGols: (j.placarCasa || 0) + (j.placarFora || 0),
           encerrado: true,
           status: j.status
-        } : { encerrado: false, status: j?.status || 'desconhecido' }
+        } : { encerrado: false, status: j?.status || 'nao_encontrado_em_jogos_admin' }
       };
       if (encerrado) dataset.totalEncerradas++;
       dataset.jogos.push(item);
@@ -141,7 +190,7 @@ async function carregar() {
     DATASET = dataset;
     el('btnDownload').disabled = false;
     el('btnCopy').disabled = false;
-    setSt('muted', `✓ Cruzamento concluído.`);
+    setSt('ok', `✓ ${dataset.totalPrevisoes} previsões · ${dataset.totalEncerradas} com resultado.`);
     renderResumo();
   } catch (e) {
     console.error(e);
@@ -154,7 +203,6 @@ function renderResumo() {
   const d = DATASET;
   const enc = d.jogos.filter(j => j.real.encerrado);
 
-  // Quick stats
   let acertosBucket = 0, totalErroAbsoluto = 0, somaPrevisao = 0, somaReal = 0;
   let previuOver35 = 0, deuOver35 = 0, previu_e_deu_over35 = 0;
   let previuUnder15 = 0, deuUnder15 = 0, previu_e_deu_under15 = 0;
@@ -194,34 +242,38 @@ function renderResumo() {
 
   el('resumo').innerHTML = `
     <div class="box">
+      <div class="muted" style="margin-bottom:8px">RESUMO</div>
       <div style="margin-bottom:14px">
         <span class="stat">Total: ${d.totalPrevisoes}</span>
         <span class="stat ok">Encerradas: ${enc.length}</span>
         <span class="stat warn">Pendentes: ${d.totalPrevisoes - enc.length}</span>
       </div>
+      ${enc.length ? `
       <div style="margin-bottom:14px">
-        <span class="stat">Acerto bucket exato: ${acertosBucket}/${enc.length} (${taxa}%)</span>
-        <span class="stat">Erro médio absoluto: ${erroMedio} gols</span>
+        <span class="stat">Acerto bucket: ${acertosBucket}/${enc.length} (${taxa}%)</span>
+        <span class="stat">Erro médio: ${erroMedio} gols</span>
       </div>
       <div style="margin-bottom:14px">
-        <span class="stat">λ médio previsto: <span class="${vies>0?'err':'ok'}">${lambdaMedio}</span></span>
+        <span class="stat">λ médio: ${lambdaMedio}</span>
         <span class="stat">Real médio: ${realMedio}</span>
-        <span class="stat ${vies>0.3?'err':vies<-0.3?'err':'ok'}">Viés: ${vies>0?'+':''}${vies.toFixed(2)} ${vies>0.3?'(prevê demais)':vies<-0.3?'(prevê de menos)':'(ok)'}</span>
+        <span class="stat ${vies>0.3?'err':vies<-0.3?'err':'ok'}">Viés: ${vies>0?'+':''}${vies.toFixed(2)}</span>
       </div>
       <div style="margin-bottom:14px">
         <span class="stat">Errou pra mais: ${errouProMais}</span>
         <span class="stat">Errou pra menos: ${errouProMenos}</span>
       </div>
       <div style="font-size:10px;color:var(--tx3);margin-top:14px;font-family:var(--fM)">
-        Heurística rápida — Over 3.5: previu ${previuOver35} · saiu ${deuOver35} · acertou ambos ${previu_e_deu_over35}<br>
-        Heurística rápida — Under 1.5: previu ${previuUnder15} · saiu ${deuUnder15} · acertou ambos ${previu_e_deu_under15}
+        Over 3.5 (P≥30%): previu ${previuOver35} · saiu ${deuOver35} · acertou ${previu_e_deu_over35}<br>
+        Under 1.5 (P≥30%): previu ${previuUnder15} · saiu ${deuUnder15} · acertou ${previu_e_deu_under15}
       </div>
+      ` : '<div class="muted">Sem jogos encerrados — não dá pra calcular acurácia ainda.</div>'}
     </div>`;
 
-  // Lista detalhada das encerradas
+  if (!enc.length) return;
+
   let html = `<div class="box"><div class="muted" style="margin-bottom:8px">Detalhe dos jogos encerrados</div>
     <table><thead><tr>
-      <th>Liga</th><th>Casa</th><th>Fora</th><th class="r">λ prev</th><th class="r">Real</th><th class="r">Δ</th><th class="r">P(real)</th><th class="r">Bucket</th>
+      <th>Liga</th><th>Casa</th><th>Fora</th><th class="r">λ</th><th class="r">Real</th><th class="r">Δ</th><th class="r">P(real)</th><th class="r">✓/✗</th>
     </tr></thead><tbody>`;
   enc.forEach(j => {
     const p = j.previsao.probs || [];
@@ -231,10 +283,11 @@ function renderResumo() {
     const acertou = peakIdx === realIdx;
     const delta = (j.previsao.lambdaTotal - real).toFixed(1);
     const pReal = ((p[realIdx] || 0) * 100).toFixed(0);
+    const ligaNome = typeof j.liga === 'string' ? j.liga : j.liga?.nome || '?';
     html += `<tr>
-      <td>${(j.liga?.nome || '?').slice(0,18)}</td>
-      <td>${(j.casa.nome || '').slice(0,16)}</td>
-      <td>${(j.fora.nome || '').slice(0,16)}</td>
+      <td>${ligaNome.slice(0,20)}</td>
+      <td>${(j.casa.nome || '').slice(0,18)}</td>
+      <td>${(j.fora.nome || '').slice(0,18)}</td>
       <td class="r">${j.previsao.lambdaTotal?.toFixed(2)}</td>
       <td class="r"><strong>${real}</strong> (${j.real.golsCasa}-${j.real.golsFora})</td>
       <td class="r ${Math.abs(delta)>1.5?'err':''}">${delta>0?'+':''}${delta}</td>
@@ -243,10 +296,7 @@ function renderResumo() {
     </tr>`;
   });
   html += `</tbody></table></div>`;
-
   el('lista').innerHTML = html;
-  el('preview').innerHTML = `<div class="box"><div class="muted" style="margin-bottom:8px">Preview do JSON (primeiras linhas)</div>
-    <div class="json-preview">${JSON.stringify(DATASET, null, 2).slice(0, 2000)}...</div></div>`;
 }
 
 function baixar() {
@@ -262,7 +312,7 @@ function baixar() {
 async function copiar() {
   try {
     await navigator.clipboard.writeText(JSON.stringify(DATASET, null, 2));
-    setSt('ok', '✓ Copiado pra clipboard. Cola pro Claude.');
+    setSt('ok', '✓ Copiado pra clipboard. Cola no Claude.');
   } catch (e) { setSt('err', 'Falhou: ' + e.message); }
 }
 </script>
