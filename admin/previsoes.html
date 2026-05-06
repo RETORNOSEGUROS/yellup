@@ -443,43 +443,49 @@ function calcPrevisao(rxA, rxB) {
   const gfB = rxB.enriched.reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, rxB.enriched.length);
   const gcB = rxB.enriched.reduce((s,e)=>s+(e.oGoals||0),0) / Math.max(1, rxB.enriched.length);
 
-  // λ base: média entre (o que A faz) e (o que B sofre), e vice-versa
-  // Isso cruza ataque de A com defesa de B — princípio fundamental do modelo Dixon-Coles simplificado
+  // λ base: ataque de A cruzado com defesa de B (Dixon-Coles simplificado)
   let lambdaA = (gfA + gcB) / 2;
   let lambdaB = (gfB + gcA) / 2;
 
-  // Boost por janelas extremas (heurística validada do usuário)
-  // Se houver janela com cross_idx >= 20 (score 10) E outra >= 14 (score 7), dá um boost
+  // Janelas — só pra exibição/sinalização (NÃO inflam mais o λ)
+  // Calibração com 37 jogos mostrou que boost ×1.2 piorava o erro (viés +1.17)
   const janelas = calcJanelas(rxA, rxB);
   const top1 = janelas[0]?.total || 0;
   const top2 = janelas[1]?.total || 0;
-  let boostHeur = 1.0;
-  if (top1 >= 20 && top2 >= 14) {
-    // Padrão "matchup aberto" — boost de ~15-25%
-    boostHeur = 1.20;
-  } else if (top1 >= 20) {
-    boostHeur = 1.10;  // só uma janela extrema, boost menor
-  }
+  // Flag de matchup aberto: usado só pra UI, sem afetar matemática
+  const matchupAberto = (top1 >= 20 && top2 >= 14);
 
-  // Boost relativo da forma recente (últimos 5 vs últimos 20)
-  // Se A tá em forma melhor que sua média histórica, lambdaA sobe
+  // Ajuste de forma recente (últimos 5 vs últimos 20)
   const formA5 = rxA.enriched.slice(0,5).reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, Math.min(5, rxA.enriched.length));
   const formB5 = rxB.enriched.slice(0,5).reduce((s,e)=>s+(e.tGoals||0),0) / Math.max(1, Math.min(5, rxB.enriched.length));
   const adjA = gfA > 0 ? Math.max(0.7, Math.min(1.3, formA5 / gfA)) : 1;
   const adjB = gfB > 0 ? Math.max(0.7, Math.min(1.3, formB5 / gfB)) : 1;
 
-  lambdaA *= adjA * boostHeur;
-  lambdaB *= adjB * boostHeur;
+  lambdaA *= adjA;
+  lambdaB *= adjB;
 
-  // Cap razoável (jogos com λ > 5 são muito raros e provavelmente erro de dados)
-  lambdaA = Math.max(0.1, Math.min(5, lambdaA));
-  lambdaB = Math.max(0.1, Math.min(5, lambdaB));
+  // Fator de correção empírico — calibrado em 37 jogos (modelo previa +0.76 a mais que real)
+  // Estratégia G: remover boost + ×0.80 → viés cai de +0.76 pra +0.06, erro abs cai de 1.61 pra 1.37
+  const FATOR_CORRECAO = 0.80;
+  lambdaA *= FATOR_CORRECAO;
+  lambdaB *= FATOR_CORRECAO;
+
+  // Cap (jogos com λ > 4.5 são raríssimos no futebol real)
+  lambdaA = Math.max(0.1, Math.min(4.5, lambdaA));
+  lambdaB = Math.max(0.1, Math.min(4.5, lambdaB));
 
   const lambdaTotal = lambdaA + lambdaB;
 
-  // Distribuição Poisson de gols totais
+  // Distribuição Poisson
   const probs = poissonDistribution(lambdaTotal, 5);
   // probs = [P(0), P(1), P(2), P(3), P(4), P(5+)]
+
+  // Tags de confiança baseadas na calibração:
+  // - UNDER 1.5 com P≥45% acertou 75% nos 37 jogos (vs base 46%) → tag forte
+  // - OVER 3.5 não tem threshold confiável ainda
+  const pUnder15 = probs[0] + probs[1];
+  const pOver35  = probs[4] + probs[5];
+  const tagAltoConfiancaUnder = pUnder15 >= 0.45;
 
   return {
     lambdaA: round2(lambdaA),
@@ -487,7 +493,9 @@ function calcPrevisao(rxA, rxB) {
     lambdaTotal: round2(lambdaTotal),
     probs: probs.map(round3),
     janelasTop: janelas.slice(0, 5),
-    boostHeur: round2(boostHeur),
+    matchupAberto,                             // só UI
+    tagAltoConfiancaUnder,                     // só UI
+    fatorCorrecao: FATOR_CORRECAO,             // pra debug/auditoria
     rawInputs: { gfA, gcA, gfB, gcB, formA5, formB5, adjA: round2(adjA), adjB: round2(adjB) }
   };
 }
@@ -756,7 +764,9 @@ function renderDetalhe(j, prev) {
         <div style="font-family:var(--fM);font-size:10px;color:var(--tx3);margin-top:12px;line-height:1.6">
           λ ${j.timeCasa.nome.slice(0,16)}: <span style="color:var(--tx2)">${prev.lambdaA?.toFixed(2)}</span><br>
           λ ${j.timeFora.nome.slice(0,16)}: <span style="color:var(--tx2)">${prev.lambdaB?.toFixed(2)}</span><br>
-          ${prev.boostHeur > 1 ? `Boost matchup aberto: <span style="color:var(--cy)">×${prev.boostHeur}</span>` : ''}
+          ${prev.fatorCorrecao ? `Fator de calibração aplicado: <span style="color:var(--tx2)">×${prev.fatorCorrecao}</span><br>` : ''}
+          ${prev.matchupAberto ? `<span style="color:var(--yl)">⚠ MATCHUP ABERTO</span> — sinal qualitativo, sem afetar λ<br>` : ''}
+          ${prev.tagAltoConfiancaUnder ? `<span style="color:var(--cy)">🎯 ALTA CONFIANÇA UNDER 1.5</span> — em 37 jogos, P≥45% acertou 75%` : ''}
         </div>
       </div>
 
@@ -865,7 +875,10 @@ async function calcularJogo(j) {
       i: jn.i, label: jn.label, total: jn.total, fav: jn.fav,
       aSc: jn.aSc, aCn: jn.aCn, bSc: jn.bSc, bCn: jn.bCn
     })),
-    boostHeur: previsao.boostHeur,
+    matchupAberto: previsao.matchupAberto,
+    tagAltoConfiancaUnder: previsao.tagAltoConfiancaUnder,
+    fatorCorrecao: previsao.fatorCorrecao,
+    versaoModelo: 'v2-poisson-calibrado-37j',
     rawInputs: previsao.rawInputs,
     analisado: false,
     calculadoEm: firebase.firestore.FieldValue.serverTimestamp()
