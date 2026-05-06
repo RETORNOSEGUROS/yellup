@@ -299,11 +299,11 @@ async function fetchTeamLast20(apiId) {
   if (c && (Date.now() - c.calcAt < TTL_TEAM)) {
     return c.last20;
   }
-  const r = await apiGet(`/fixtures?team=${apiId}&last=20`);
+  const r = await apiGet(`/fixtures?team=${apiId}&last=30`);
   const fixes = (r.response || [])
     .filter(f => f.fixture.status.short === 'FT' || f.fixture.status.short === 'AET' || f.fixture.status.short === 'PEN')
     .sort((a,b) => new Date(b.fixture.date) - new Date(a.fixture.date))
-    .slice(0, 20);
+    .slice(0, 30);
   CACHE_TEAMS[ck] = { last20: fixes, calcAt: Date.now() };
   persistCaches();
   return fixes;
@@ -540,8 +540,8 @@ function calcPrevisao(rxA, rxB) {
   const jogosPondB = gfB_xg_w?.jogosPond ?? gfB_g_w?.jogosPond ?? 0;
 
   // ─── 2. Filtro por mando (peso 40% no cálculo final) ───
-  const mandoA = rxA.enriched.filter(e => e.home === true).slice(0, 10);
-  const mandoB = rxB.enriched.filter(e => e.home === false).slice(0, 10);
+  const mandoA = rxA.enriched.filter(e => e.home === true).slice(0, 15);
+  const mandoB = rxB.enriched.filter(e => e.home === false).slice(0, 15);
 
   const calcStat = (arr, fieldXG, fieldGol) => {
     if (arr.length < 4) return null;
@@ -669,6 +669,26 @@ function calcJanelas(rxA, rxB) {
     }
   }
   return out.sort((a,b) => b.total - a.total);
+}
+
+// Gols por tempo (1ºT vs 2ºT) — soma buckets 0-9 (0-45+AC1T) e 10-19 (46-90+AC2T)
+// Retorna média por jogo (totals já são somas dos N jogos)
+function calcGolsPorTempo(totalsByBucket, nJogos) {
+  if (!nJogos || nJogos < 1) nJogos = 1;
+  let sc1T = 0, sc2T = 0, cn1T = 0, cn2T = 0;
+  for (let i = 0; i < 10; i++) {
+    sc1T += totalsByBucket.sc[i];
+    cn1T += totalsByBucket.cn[i];
+  }
+  for (let i = 10; i < 20; i++) {
+    sc2T += totalsByBucket.sc[i];
+    cn2T += totalsByBucket.cn[i];
+  }
+  return {
+    sc1T_med: sc1T / nJogos, sc2T_med: sc2T / nJogos,
+    cn1T_med: cn1T / nJogos, cn2T_med: cn2T / nJogos,
+    sc1T, sc2T, cn1T, cn2T  // totais brutos pra debug
+  };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -944,6 +964,50 @@ function renderDetalhe(j, prev) {
         </div>
       </div>
 
+      ${prev.golsPorTempo ? `
+      <div class="det-block" style="grid-column:1/-1">
+        <div class="det-h">Gols por tempo — média por jogo (últimos ${prev.golsPorTempo.A.nJogos}/${prev.golsPorTempo.B.nJogos})</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;font-family:var(--fM);font-size:11px">
+          <div style="border-right:1px solid var(--b1);padding-right:14px">
+            <div style="color:${corA};font-weight:600;margin-bottom:6px">${j.timeCasa.nome}</div>
+            <table style="width:100%;color:var(--tx2);font-size:11px">
+              <tr style="color:var(--tx3);font-size:10px">
+                <td></td><td style="text-align:right;padding:2px 4px">1ºT</td>
+                <td style="text-align:right;padding:2px 4px">2ºT</td>
+                <td style="text-align:right;padding:2px 4px">total</td>
+              </tr>
+              <tr><td style="color:var(--tx3);font-size:10px">feitos</td>
+                <td style="text-align:right;padding:2px 4px">${prev.golsPorTempo.A.feitos1T.toFixed(2)}</td>
+                <td style="text-align:right;padding:2px 4px">${prev.golsPorTempo.A.feitos2T.toFixed(2)}</td>
+                <td style="text-align:right;padding:2px 4px;color:var(--cy)">${(prev.golsPorTempo.A.feitos1T+prev.golsPorTempo.A.feitos2T).toFixed(2)}</td></tr>
+              <tr><td style="color:var(--tx3);font-size:10px">tomados</td>
+                <td style="text-align:right;padding:2px 4px">${prev.golsPorTempo.A.tomados1T.toFixed(2)}</td>
+                <td style="text-align:right;padding:2px 4px">${prev.golsPorTempo.A.tomados2T.toFixed(2)}</td>
+                <td style="text-align:right;padding:2px 4px;color:var(--rd)">${(prev.golsPorTempo.A.tomados1T+prev.golsPorTempo.A.tomados2T).toFixed(2)}</td></tr>
+            </table>
+          </div>
+          <div>
+            <div style="color:${corB};font-weight:600;margin-bottom:6px">${j.timeFora.nome}</div>
+            <table style="width:100%;color:var(--tx2);font-size:11px">
+              <tr style="color:var(--tx3);font-size:10px">
+                <td></td><td style="text-align:right;padding:2px 4px">1ºT</td>
+                <td style="text-align:right;padding:2px 4px">2ºT</td>
+                <td style="text-align:right;padding:2px 4px">total</td>
+              </tr>
+              <tr><td style="color:var(--tx3);font-size:10px">feitos</td>
+                <td style="text-align:right;padding:2px 4px">${prev.golsPorTempo.B.feitos1T.toFixed(2)}</td>
+                <td style="text-align:right;padding:2px 4px">${prev.golsPorTempo.B.feitos2T.toFixed(2)}</td>
+                <td style="text-align:right;padding:2px 4px;color:var(--cy)">${(prev.golsPorTempo.B.feitos1T+prev.golsPorTempo.B.feitos2T).toFixed(2)}</td></tr>
+              <tr><td style="color:var(--tx3);font-size:10px">tomados</td>
+                <td style="text-align:right;padding:2px 4px">${prev.golsPorTempo.B.tomados1T.toFixed(2)}</td>
+                <td style="text-align:right;padding:2px 4px">${prev.golsPorTempo.B.tomados2T.toFixed(2)}</td>
+                <td style="text-align:right;padding:2px 4px;color:var(--rd)">${(prev.golsPorTempo.B.tomados1T+prev.golsPorTempo.B.tomados2T).toFixed(2)}</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      ` : ''}
+
       <div class="det-block" style="grid-column:1/-1">
         <div class="det-h">Janelas com indício de gol</div>
         ${janHtml ? `<div class="jan-list">${janHtml}</div>` :
@@ -1023,6 +1087,18 @@ async function calcularJogo(j) {
 
   const previsao = calcPrevisao(rxA, rxB);
 
+  // Gols por tempo (1ºT/2ºT) — usa totalsByBucket de cada time
+  const tempoA = calcGolsPorTempo(rxA.totalsByBucket, rxA.enriched.length);
+  const tempoB = calcGolsPorTempo(rxB.totalsByBucket, rxB.enriched.length);
+  const golsPorTempo = {
+    A: { feitos1T: round2(tempoA.sc1T_med), feitos2T: round2(tempoA.sc2T_med),
+         tomados1T: round2(tempoA.cn1T_med), tomados2T: round2(tempoA.cn2T_med),
+         nJogos: rxA.enriched.length },
+    B: { feitos1T: round2(tempoB.sc1T_med), feitos2T: round2(tempoB.sc2T_med),
+         tomados1T: round2(tempoB.cn1T_med), tomados2T: round2(tempoB.cn2T_med),
+         nJogos: rxB.enriched.length }
+  };
+
   // Snapshot pro Firestore — só o essencial
   const doc = {
     apiFixtureId: j.apiFixtureId,
@@ -1041,13 +1117,14 @@ async function calcularJogo(j) {
       i: jn.i, label: jn.label, total: jn.total, fav: jn.fav,
       aSc: jn.aSc, aCn: jn.aCn, bSc: jn.bSc, bCn: jn.bCn
     })),
+    golsPorTempo,
     matchupAberto: previsao.matchupAberto,
     jogoTrancado: previsao.jogoTrancado,
     tagAltoConfiancaUnder: previsao.tagAltoConfiancaUnder,
     tagAltoConfiancaOver: previsao.tagAltoConfiancaOver,
     fatorCorrecao: previsao.fatorCorrecao,
     fonteLambda: previsao.fonteLambda,
-    versaoModelo: 'v4-xg-mando-oponente',
+    versaoModelo: 'v5-30jogos-tempos',
     rawInputs: previsao.rawInputs,
     analisado: false,
     calculadoEm: firebase.firestore.FieldValue.serverTimestamp()
