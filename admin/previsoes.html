@@ -132,7 +132,7 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
   <span class="page-id">PREVISÕES · GOLS</span>
   <div class="spacer"></div>
   <button class="btn" onclick="window.location.href='jogos-admin.html'">← Jogos</button>
-  <button class="btn" onclick="abrirRBF()">🧮 RBF</button>
+  <button class="btn" onclick="aplicarRBFnoCards()" id="btnRBF">🧮 RBF nos jogos do dia</button>
   <button class="btn-pri btn" id="btnCalc" onclick="calcularTodos()">⚡ Calcular previsões do dia</button>
 </div>
 
@@ -154,55 +154,6 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
 
   <div id="banner"></div>
   <div id="lista"></div>
-
-  <!-- RBF SECTION -->
-  <div id="rbf-section" style="display:none; margin-top:20px;">
-    <div style="background:var(--s2); border:1px solid var(--b1); border-radius:10px; padding:18px; margin-bottom:16px;">
-      <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
-        <h2 style="font-size:16px; font-weight:600; color:var(--cy);">🧮 Modelo RBF — fórmula por similaridade</h2>
-        <span class="tag tag-info">EXPERIMENTAL</span>
-        <div style="flex:1;"></div>
-        <button class="btn btn-pri" onclick="rbfTreinarEPrever()" id="rbfBtnRun">▶️ Treinar e prever</button>
-        <button class="btn" onclick="rbfSalvarPrevisoesNoFirestore()" id="rbfBtnSave" style="display:none;">💾 Salvar RBF no Firestore</button>
-        <button class="btn" onclick="rbfFechar()">✕ Fechar</button>
-      </div>
-      <div id="rbf-status" style="font-size:11px; color:var(--tx2); font-family:var(--fM); margin-bottom:8px;">Aguardando...</div>
-      <div style="font-size:10px; color:var(--tx3); margin-top:6px;">
-        Treina apenas com jogos do schema novo (com forteScore + 14 features ricas).
-        Os 2339 jogos antigos não têm essas features e ficam de fora.
-      </div>
-    </div>
-
-    <div id="rbf-stats" style="display:none; margin-bottom:16px;">
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px;" id="rbf-stats-grid"></div>
-    </div>
-
-    <div style="display:flex; gap:4px; margin-bottom:8px; border-bottom:1px solid var(--b1); flex-wrap:wrap;">
-      <div class="rbf-tab" onclick="rbfTrocarAba('hoje', this)" style="padding:8px 16px; cursor:pointer; color:var(--cy); border-bottom:2px solid var(--cy); font-weight:600; font-size:12px;">⚡ Jogos de hoje</div>
-      <div class="rbf-tab" onclick="rbfTrocarAba('abertos', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">🔮 Outros abertos</div>
-      <div class="rbf-tab" onclick="rbfTrocarAba('encerrados', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">📊 Validação</div>
-      <div class="rbf-tab" onclick="rbfTrocarAba('vizinhos', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">🎯 Vizinhança</div>
-      <div class="rbf-tab" onclick="rbfTrocarAba('log', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">📝 Log</div>
-    </div>
-
-    <div class="rbf-view" id="rbf-view-hoje" style="display:block;">
-      <div style="background:var(--s2); border:1px solid var(--b1); border-radius:8px; padding:14px; overflow-x:auto;" id="rbf-tabela-hoje">
-        <div style="color:var(--tx3); font-size:12px;">Treine primeiro pra aplicar nos jogos de hoje.</div>
-      </div>
-    </div>
-    <div class="rbf-view" id="rbf-view-abertos" style="display:none;">
-      <div style="background:var(--s2); border:1px solid var(--b1); border-radius:8px; padding:14px; overflow-x:auto;" id="rbf-tabela-abertos"></div>
-    </div>
-    <div class="rbf-view" id="rbf-view-encerrados" style="display:none;">
-      <div style="background:var(--s2); border:1px solid var(--b1); border-radius:8px; padding:14px; overflow-x:auto;" id="rbf-tabela-encerrados"></div>
-    </div>
-    <div class="rbf-view" id="rbf-view-vizinhos" style="display:none;">
-      <div style="background:var(--s2); border:1px solid var(--b1); border-radius:8px; padding:14px;" id="rbf-vizinhos-conteudo"></div>
-    </div>
-    <div class="rbf-view" id="rbf-view-log" style="display:none;">
-      <pre id="rbf-log" style="background:var(--bg); border:1px solid var(--b1); border-radius:6px; padding:10px; font-size:10px; color:var(--tx2); max-height:400px; overflow:auto; font-family:var(--fM);"></pre>
-    </div>
-  </div>
 </div>
 
 <script>
@@ -880,10 +831,17 @@ function renderJogoCard(j) {
 
   let prevHtml = '';
   if (prev) {
+    const rbfPred = (typeof RBF_PREVS !== 'undefined') ? RBF_PREVS[String(id)] : null;
+    const rbfBlock = rbfPred ? `
+      <div style="border-left:2px solid var(--pu); padding-left:8px; margin-top:6px;">
+        <div style="font-size:18px; font-weight:600; color:var(--pu); font-family:var(--fM);">${rbfPred.pred.toFixed(2)}</div>
+        <div style="font-size:9px; color:var(--tx3); text-transform:uppercase; letter-spacing:.05em;">RBF (${rbfPred.delta>=0?'+':''}${rbfPred.delta.toFixed(2)})</div>
+      </div>` : '';
     prevHtml = `
       <div class="jc-prev">
         <div class="lambda">${prev.lambdaTotal?.toFixed(1) || '?'}</div>
         <div class="lbl">gols esperados</div>
+        ${rbfBlock}
       </div>`;
   } else {
     prevHtml = `<div class="jc-prev empty">sem previsão</div>`;
@@ -1197,68 +1155,48 @@ function hideProg() { el('progress').classList.remove('on'); }
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════
-     MÓDULO RBF — só schema novo, com features ricas
-     Foco: aplicar nos jogos de hoje e salvar previsão no Firestore
+     MÓDULO RBF — pragmático, treina com TUDO que tem
      ═══════════════════════════════════════════════════════════ -->
 <script>
-const RBF_NOMES_FEATURES = ['λ','λA','λB','A','B','gfA','gcA','gfB','gcB','formA','formB','f18','t1','|A-B|'];
-let RBF_ESTADO = { modelo:null, abertos:[], hoje:[], encerrados:[], loo:null, salvosCount:0 };
+let RBF_PREVS = {};   // fixtureId -> {pred, delta, viz}
+let RBF_MODELO = null;
 
-function rbfLog(msg) {
-  const el = document.getElementById('rbf-log');
-  if (!el) return;
-  const ts = new Date().toLocaleTimeString();
-  el.textContent += `[${ts}] ${msg}\n`;
-  el.scrollTop = el.scrollHeight;
-  console.log('[RBF]', msg);
-}
-function rbfStatus(msg) {
-  const el = document.getElementById('rbf-status');
-  if (el) el.textContent = msg;
-}
-function abrirRBF() {
-  document.getElementById('rbf-section').style.display = 'block';
-  document.getElementById('rbf-section').scrollIntoView({behavior:'smooth'});
-}
-function rbfFechar() { document.getElementById('rbf-section').style.display = 'none'; }
-function rbfTrocarAba(qual, btn) {
-  document.querySelectorAll('.rbf-tab').forEach(t => {
-    t.style.color = 'var(--tx2)';
-    t.style.borderBottomColor = 'transparent';
-  });
-  btn.style.color = 'var(--cy)';
-  btn.style.borderBottomColor = 'var(--cy)';
-  document.querySelectorAll('.rbf-view').forEach(v => v.style.display = 'none');
-  document.getElementById('rbf-view-' + qual).style.display = 'block';
-}
-
-// ─────────────────────────────────────────────────────────────
-// FEATURE EXTRACTION — 14 features ricas (só schema novo)
-// ─────────────────────────────────────────────────────────────
-function rbfExtrairFeatures(jogo) {
-  const p = jogo.previsao || {};
-  const r = p.rawInputs || {};
-  const gfA = r.gfA_final ?? r.gfA_geral ?? r.gfA ?? null;
-  const gcA = r.gcA_final ?? r.gcA_geral ?? r.gcA ?? null;
-  const gfB = r.gfB_final ?? r.gfB_geral ?? r.gfB ?? null;
-  const gcB = r.gcB_final ?? r.gcB_geral ?? r.gcB ?? null;
-  const formA = r.formA5 ?? null;
-  const formB = r.formB5 ?? null;
-  const f18 = r.f18 ?? null;
-  const t1 = (p.janelasTop && p.janelasTop[0]) ? (p.janelasTop[0].total || 0) : 0;
-  const lam = p.lambdaTotal ?? null;
-  const lamA = p.lambdaA ?? null;
-  const lamB = p.lambdaB ?? null;
-  const forteA = p.forteA ?? null;
-  const forteB = p.forteB ?? null;
-  const v = [lam, lamA, lamB, forteA, forteB, gfA, gcA, gfB, gcB, formA, formB, f18, t1, Math.abs((forteA||0)-(forteB||0))];
-  if (v.some(x => x === null || x === undefined || isNaN(x))) return null;
-  return v;
+// Features universais que existem nos dois schemas
+function rbfExtrair(j) {
+  // Tenta SCHEMA NOVO primeiro
+  const p = j.previsao;
+  if (p && p.lambdaTotal != null) {
+    const lam = Number(p.lambdaTotal);
+    const fA = p.forteA != null ? Number(p.forteA) : null;
+    const fB = p.forteB != null ? Number(p.forteB) : null;
+    if (fA != null && fB != null) {
+      // Schema novo rico: 5 features
+      return {
+        v: [lam, fA, fB, Math.abs(fA - fB), fA + fB],
+        rico: true
+      };
+    }
+    // Schema novo só com lambda (sem forte)
+    return {
+      v: [lam, lam/2, lam/2, 0, lam], // proxy
+      rico: false
+    };
+  }
+  // SCHEMA ANTIGO: usa ysF/ysC como proxy de forteScore
+  if (j.golsEstimado != null && j.ysF != null && j.ysC != null) {
+    const lam = Number(j.golsEstimado);
+    const fA = Number(j.ysF);
+    const fB = Number(j.ysC);
+    return {
+      v: [lam, fA, fB, Math.abs(fA - fB), fA + fB],
+      rico: true
+    };
+  }
+  return null;
 }
 
-function rbfExtrairReal(j) {
+function rbfRealDe(j) {
   if (j.real && typeof j.real.totalGols === 'number') return j.real.totalGols;
-  // fallback antigo
   if (typeof j.golsReais === 'number') return j.golsReais;
   if (typeof j.golsCasaReal === 'number' && typeof j.golsForaReal === 'number') {
     return j.golsCasaReal + j.golsForaReal;
@@ -1266,47 +1204,17 @@ function rbfExtrairReal(j) {
   return null;
 }
 
-function rbfFoiEncerrado(j) {
+function rbfTerminado(j) {
   if (j.real && j.real.encerrado === true) return true;
-  if (j.analisado === true && rbfExtrairReal(j) != null) return true;
-  return false;
+  if (j.analisado === true) return true;
+  return rbfRealDe(j) != null;
 }
 
-function rbfNomeJogo(j) {
-  if (j.casa && j.casa.nome) return `${j.casa.nome} × ${j.fora?.nome||'?'}`;
-  if (j.timeCasaNome) return `${j.timeCasaNome} × ${j.timeForaNome||'?'}`;
-  return j.fixtureId || '?';
-}
-function rbfNomeLiga(j) {
-  if (j.liga && typeof j.liga === 'object') return j.liga.nome || '?';
-  if (typeof j.liga === 'string') return j.liga;
-  return '?';
-}
-
-// ─────────────────────────────────────────────────────────────
-// MATEMÁTICA
-// ─────────────────────────────────────────────────────────────
+// MATEMÁTICA básica
 function rbfMedia(arr) { return arr.reduce((s,x)=>s+x,0) / arr.length; }
-function rbfDesvio(arr) {
-  const m = rbfMedia(arr);
-  return Math.sqrt(arr.reduce((s,x)=>s+(x-m)**2,0) / arr.length);
-}
-function rbfStats(X) {
-  const d = X[0].length;
-  const mu = new Array(d).fill(0), sd = new Array(d).fill(0);
-  for (let k=0; k<d; k++) {
-    const col = X.map(row => row[k]);
-    mu[k] = rbfMedia(col);
-    sd[k] = rbfDesvio(col) || 1;
-  }
-  return { mu, sd };
-}
-function rbfNorm(x, mu, sd) { return x.map((v, i) => (v - mu[i]) / sd[i]); }
-function rbfDist(a, b) {
-  let s = 0;
-  for (let i=0; i<a.length; i++) s += (a[i]-b[i])**2;
-  return Math.sqrt(s);
-}
+function rbfDesvio(arr) { const m = rbfMedia(arr); return Math.sqrt(arr.reduce((s,x)=>s+(x-m)**2,0) / arr.length); }
+function rbfNorm(x, mu, sd) { return x.map((v, i) => (v - mu[i]) / (sd[i]||1)); }
+function rbfDist(a, b) { let s = 0; for (let i=0; i<a.length; i++) s += (a[i]-b[i])**2; return Math.sqrt(s); }
 function rbfKernel(d, sigma) { return Math.exp(-(d*d) / (2*sigma*sigma)); }
 
 function rbfCholesky(A) {
@@ -1326,7 +1234,7 @@ function rbfCholesky(A) {
   return L;
 }
 function rbfSolve(K, y, ridge) {
-  ridge = ridge || 1e-4;
+  ridge = ridge || 1e-3;
   const n = K.length;
   const A = K.map((row, i) => row.map((v, j) => v + (i===j ? ridge : 0)));
   const L = rbfCholesky(A);
@@ -1345,405 +1253,126 @@ function rbfSolve(K, y, ridge) {
   }
   return w;
 }
-function rbfMatrizK(Xn, sigma) {
-  const n = Xn.length;
-  const K = Array.from({length:n}, () => new Array(n).fill(0));
-  for (let i=0; i<n; i++) {
-    for (let j=i; j<n; j++) {
-      const d = rbfDist(Xn[i], Xn[j]);
-      const k = rbfKernel(d, sigma);
-      K[i][j] = k; K[j][i] = k;
-    }
-  }
-  return K;
-}
 
-function rbfLooMAE(Xn, y, sigma) {
-  const n = y.length;
-  let soma = 0, cnt = 0;
-  for (let i=0; i<n; i++) {
-    const Xt = Xn.filter((_, j) => j !== i);
-    const yt = y.filter((_, j) => j !== i);
-    const Kt = rbfMatrizK(Xt, sigma);
-    const w = rbfSolve(Kt, yt, 1e-3);
-    if (!w) continue;
-    let pred = 0;
-    for (let j=0; j<Xt.length; j++) pred += w[j] * rbfKernel(rbfDist(Xn[i], Xt[j]), sigma);
-    soma += Math.abs(pred - y[i]);
-    cnt++;
-  }
-  return cnt ? soma/cnt : Infinity;
-}
-
-function rbfBuscarSigma(Xn, y) {
-  const sigmas = [0.7, 1.0, 1.3, 1.5, 1.8, 2.0, 2.5, 3.0];
-  let melhorMAE = Infinity, melhorSigma = 1.5;
-  const resultados = [];
-  rbfLog(`Buscando σ ótimo via leave-one-out (${y.length} jogos)...`);
-  for (const sigma of sigmas) {
-    const mae = rbfLooMAE(Xn, y, sigma);
-    resultados.push({sigma, mae});
-    rbfLog(`  σ=${sigma}  →  MAE=${mae.toFixed(3)}`);
-    if (mae < melhorMAE) { melhorMAE = mae; melhorSigma = sigma; }
-  }
-  return { melhorSigma, melhorMAE, resultados };
-}
-
-// Função que prevê um jogo dado o modelo treinado
-function rbfPrever(jogoOuFeatures, modelo) {
-  const v = Array.isArray(jogoOuFeatures) ? jogoOuFeatures : rbfExtrairFeatures(jogoOuFeatures);
-  if (!v) return null;
-  const xn = rbfNorm(v, modelo.mu, modelo.sd);
-  let pred = 0;
-  const sems = [];
-  for (let k=0; k<modelo.Xn.length; k++) {
-    const d = rbfDist(xn, modelo.Xn[k]);
-    const s = rbfKernel(d, modelo.sigma);
-    sems.push({ idx:k, dist:d, sem:s, contrib:modelo.w[k]*s, peso:modelo.w[k], real:modelo.y[k], jogo:modelo.treino[k].jogo });
-    pred += modelo.w[k] * s;
-  }
-  sems.sort((a,b) => b.sem - a.sem);
-  return { features: v, predRBF: pred, predBaseline: v[0], topVizinhos: sems.slice(0,5) };
-}
-
-// ─────────────────────────────────────────────────────────────
-// PIPELINE
-// ─────────────────────────────────────────────────────────────
-async function rbfTreinarEPrever() {
-  const btn = document.getElementById('rbfBtnRun');
+// PIPELINE PRINCIPAL
+async function aplicarRBFnoCards() {
+  const btn = document.getElementById('btnRBF');
   btn.disabled = true;
-  rbfStatus('lendo Firestore...');
+  btn.textContent = '⏳ treinando...';
+  showBanner('info', '🧮 Treinando RBF com histórico do Firestore...');
   try {
-    rbfLog('==== Iniciando pipeline RBF (schema novo) ====');
+    // 1. Lê todos os jogos do histórico
     const snap = await db.collection('previsoes-historico').get();
-    const todos = [];
-    snap.forEach(doc => todos.push({ docId: doc.id, ...doc.data() }));
-    rbfLog(`${todos.length} jogos no histórico.`);
+    const treino = [];
+    snap.forEach(doc => {
+      const j = { docId: doc.id, ...doc.data() };
+      if (!rbfTerminado(j)) return;
+      const real = rbfRealDe(j);
+      if (real == null) return;
+      const ext = rbfExtrair(j);
+      if (!ext) return;
+      treino.push({ jogo: j, features: ext.v, real });
+    });
 
-    // FILTRO ESTRITO: só jogos com schema NOVO completo (forteScore + rawInputs ricos)
-    const novosEncerrados = [];
-    for (const j of todos) {
-      if (!rbfFoiEncerrado(j)) continue;
-      const v = rbfExtrairFeatures(j);
-      if (!v) continue;
-      const real = rbfExtrairReal(j);
-      if (real == null) continue;
-      novosEncerrados.push({ jogo: j, features: v, real });
-    }
-    rbfLog(`Encerrados com schema novo COMPLETO: ${novosEncerrados.length}`);
-
-    if (novosEncerrados.length < 15) {
-      rbfStatus(`⚠️ apenas ${novosEncerrados.length} jogos com features ricas — precisa esperar mais jogos serem encerrados`);
-      rbfLog(`Mínimo recomendado: 30 jogos. Atual: ${novosEncerrados.length}.`);
-      rbfLog(`Os 2339 jogos antigos não têm forteScore/t1/rawInputs ricos, então ficam de fora.`);
+    if (treino.length < 30) {
+      showBanner('warn', `RBF: apenas ${treino.length} jogos treináveis (mínimo 30)`);
       btn.disabled = false;
+      btn.textContent = '🧮 RBF nos jogos do dia';
       return;
     }
 
-    const treino = novosEncerrados;
-    const X = treino.map(t => t.features);
-    const y = treino.map(t => t.real);
-    const { mu, sd } = rbfStats(X);
+    // 2. Limita a amostra a 800 mais recentes (velocidade)
+    treino.sort((a,b) => {
+      const da = new Date(a.jogo.dataJogo || a.jogo.savedAt || 0);
+      const dbb = new Date(b.jogo.dataJogo || b.jogo.savedAt || 0);
+      return dbb - da;
+    });
+    const amostra = treino.slice(0, 800);
+    console.log(`[RBF] Treinando com ${amostra.length} jogos (de ${treino.length} disponíveis)`);
+
+    // 3. Normaliza
+    const X = amostra.map(t => t.features);
+    const y = amostra.map(t => t.real);
+    const d = X[0].length;
+    const mu = new Array(d).fill(0), sd = new Array(d).fill(0);
+    for (let k=0; k<d; k++) {
+      const col = X.map(row => row[k]);
+      mu[k] = rbfMedia(col);
+      sd[k] = rbfDesvio(col) || 1;
+    }
     const Xn = X.map(x => rbfNorm(x, mu, sd));
-    rbfLog(`Médias normalizadoras: ${mu.map(v=>v.toFixed(2)).join(', ')}`);
 
-    rbfStatus('otimizando σ via leave-one-out...');
-    await new Promise(r => setTimeout(r, 50));
-    const { melhorSigma, melhorMAE, resultados } = rbfBuscarSigma(Xn, y);
-    rbfLog(`✅ σ ótimo = ${melhorSigma}, MAE LOO = ${melhorMAE.toFixed(3)}`);
-
-    rbfStatus('treinando modelo final...');
-    const K = rbfMatrizK(Xn, melhorSigma);
-    const w = rbfSolve(K, y, 1e-4);
-    if (!w) { rbfLog('❌ Cholesky falhou.'); btn.disabled = false; return; }
-    rbfLog(`Pesos calculados. |w| médio=${rbfMedia(w.map(Math.abs)).toFixed(2)}`);
-
-    const maeBaseline = rbfMedia(treino.map(t => Math.abs(t.features[0] - t.real)));
-    rbfLog(`MAE baseline (λ Poisson direto): ${maeBaseline.toFixed(3)}`);
-    rbfLog(`Diferença RBF-Poisson: ${(melhorMAE - maeBaseline >= 0 ? '+' : '')}${(melhorMAE - maeBaseline).toFixed(3)} (negativo = RBF melhor)`);
-
-    const modelo = { sigma: melhorSigma, w, mu, sd, Xn, y, treino };
-    RBF_ESTADO.modelo = modelo;
-    RBF_ESTADO.encerrados = treino;
-    RBF_ESTADO.loo = { sigma: melhorSigma, mae: melhorMAE, todos: resultados, maeBaseline };
-
-    // ── PREVÊ JOGOS DE HOJE (que estão na tela com previsão calculada) ──
-    rbfStatus('aplicando nos jogos de hoje...');
-    const previsoesDeHoje = [];
-    if (typeof JOGOS !== 'undefined' && Array.isArray(JOGOS) && typeof PREVS !== 'undefined') {
-      rbfLog(`Aplicando em jogos do dia (${JOGOS.length} jogos visíveis)...`);
-      for (const j of JOGOS) {
-        const fid = j.apiFixtureId || j.fixtureId;
-        const prevSalva = PREVS[fid];
-        if (!prevSalva) continue; // só prevê quem já tem Poisson calculado
-        const jogoComPrev = { ...j, previsao: prevSalva, fixtureId: fid };
-        const r = rbfPrever(jogoComPrev, modelo);
-        if (!r) continue;
-        previsoesDeHoje.push({ jogo: jogoComPrev, ...r, docId: String(fid) });
+    // 4. Sigma fixo razoável (1.5) — sem otimizar pra ser rápido
+    const sigma = 1.5;
+    const n = Xn.length;
+    const K = Array.from({length:n}, () => new Array(n).fill(0));
+    for (let i=0; i<n; i++) {
+      for (let j=i; j<n; j++) {
+        const dd = rbfDist(Xn[i], Xn[j]);
+        const kk = rbfKernel(dd, sigma);
+        K[i][j] = kk; K[j][i] = kk;
       }
     }
-    RBF_ESTADO.hoje = previsoesDeHoje;
-    rbfLog(`✅ ${previsoesDeHoje.length} previsões aplicadas nos jogos de hoje`);
-
-    // ── PREVÊ TODOS OS OUTROS ABERTOS NO HISTÓRICO ──
-    const abertosBrutos = todos.filter(j => !rbfFoiEncerrado(j));
-    const abertos = [];
-    for (const j of abertosBrutos) {
-      const r = rbfPrever(j, modelo);
-      if (!r) continue;
-      // já incluí no "hoje"?
-      const fid = j.fixtureId || j.docId;
-      if (previsoesDeHoje.find(p => p.docId === String(fid))) continue;
-      abertos.push({ jogo: j, ...r, docId: j.docId });
+    const w = rbfSolve(K, y, 1e-3);
+    if (!w) {
+      showBanner('warn', 'RBF: erro numérico no treino');
+      btn.disabled = false;
+      btn.textContent = '🧮 RBF nos jogos do dia';
+      return;
     }
-    RBF_ESTADO.abertos = abertos;
-    rbfLog(`${abertos.length} outros jogos abertos previstos`);
+    console.log(`[RBF] Pesos calculados. |w| médio = ${rbfMedia(w.map(Math.abs)).toFixed(2)}`);
 
-    rbfRender();
-    document.getElementById('rbfBtnSave').style.display = 'inline-block';
-    rbfStatus('✅ pronto. Confira os jogos de hoje e clique 💾 Salvar pra gravar no Firestore.');
+    RBF_MODELO = { sigma, w, mu, sd, Xn, y, treino: amostra };
+
+    // 5. Aplica em cada jogo VISÍVEL (que tem PREVS calculado)
+    let aplicados = 0;
+    for (const j of JOGOS) {
+      const fid = j.apiFixtureId;
+      const prev = PREVS[String(fid)];
+      if (!prev) continue; // só aplica se Poisson já foi calculado
+      // Monta jogo no schema novo pra extrair features
+      const fakeJ = { previsao: prev };
+      const ext = rbfExtrair(fakeJ);
+      if (!ext) continue;
+      const xn = rbfNorm(ext.v, mu, sd);
+      let pred = 0;
+      const sems = [];
+      for (let k=0; k<n; k++) {
+        const dd = rbfDist(xn, Xn[k]);
+        const ss = rbfKernel(dd, sigma);
+        sems.push({sem: ss, real: y[k], peso: w[k], jogo: amostra[k].jogo, contrib: w[k]*ss});
+        pred += w[k] * ss;
+      }
+      sems.sort((a,b) => b.sem - a.sem);
+      RBF_PREVS[String(fid)] = {
+        pred,
+        delta: pred - ext.v[0],
+        viz: sems.slice(0, 3)
+      };
+      aplicados++;
+    }
+
+    // 6. Re-renderiza os cards pra mostrar o RBF
+    if (typeof renderLista === 'function') {
+      renderLista();
+    } else {
+      const lista = document.getElementById('lista');
+      if (lista && typeof renderJogoCard === 'function') {
+        lista.innerHTML = JOGOS.map(renderJogoCard).join('');
+      }
+    }
+
+    showBanner('info', `✓ RBF aplicado em ${aplicados} jogos (treino: ${amostra.length} jogos passados, σ=${sigma})`);
     btn.disabled = false;
+    btn.textContent = '🔄 Reaplicar RBF';
+
   } catch (e) {
-    rbfLog(`❌ Erro: ${e.message}`);
-    rbfStatus('❌ ' + e.message);
-    console.error(e);
+    console.error('[RBF]', e);
+    showBanner('err', `RBF: erro - ${e.message}`);
     btn.disabled = false;
+    btn.textContent = '🧮 RBF nos jogos do dia';
   }
 }
-
-// ─────────────────────────────────────────────────────────────
-// SALVAR PREVISÕES NO FIRESTORE
-// ─────────────────────────────────────────────────────────────
-async function rbfSalvarPrevisoesNoFirestore() {
-  if (!RBF_ESTADO.modelo) { alert('Treine primeiro'); return; }
-  const total = RBF_ESTADO.hoje.length + RBF_ESTADO.abertos.length;
-  if (total === 0) { alert('Nada pra salvar'); return; }
-  if (!confirm(`Vai salvar ${total} previsões RBF no Firestore (${RBF_ESTADO.hoje.length} de hoje + ${RBF_ESTADO.abertos.length} outros). Confirma?`)) return;
-
-  const btn = document.getElementById('rbfBtnSave');
-  btn.disabled = true;
-  rbfStatus(`salvando 0/${total}...`);
-  let ok = 0, fail = 0;
-  const todos = [...RBF_ESTADO.hoje, ...RBF_ESTADO.abertos];
-  for (let i=0; i<todos.length; i++) {
-    const a = todos[i];
-    const docId = a.docId || String(a.jogo.fixtureId || a.jogo.apiFixtureId);
-    if (!docId || docId === 'undefined') { fail++; continue; }
-    try {
-      await db.collection('previsoes-historico').doc(docId).set({
-        rbf: {
-          predicao: a.predRBF,
-          predicaoPoisson: a.predBaseline,
-          delta: a.predRBF - a.predBaseline,
-          sigma: RBF_ESTADO.modelo.sigma,
-          maeLOO: RBF_ESTADO.loo.mae,
-          jogosTreino: RBF_ESTADO.modelo.y.length,
-          versaoFeatures: 14,
-          calculadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-          topVizinhos: a.topVizinhos.slice(0,3).map(v => ({
-            casa: v.jogo.casa?.nome || '?',
-            fora: v.jogo.fora?.nome || '?',
-            real: v.real,
-            sem: v.sem,
-            contrib: v.contrib
-          }))
-        }
-      }, { merge: true });
-      ok++;
-    } catch (e) {
-      fail++;
-      rbfLog(`❌ falha ao salvar ${docId}: ${e.message}`);
-    }
-    if ((i+1) % 5 === 0) rbfStatus(`salvando ${i+1}/${total}...`);
-  }
-  rbfStatus(`✅ ${ok} salvas no Firestore${fail ? ` (${fail} falharam)` : ''}`);
-  rbfLog(`✅ Salvamento concluído: ${ok} ok, ${fail} falharam.`);
-  RBF_ESTADO.salvosCount = ok;
-  btn.disabled = false;
-}
-
-// ─────────────────────────────────────────────────────────────
-// RENDER
-// ─────────────────────────────────────────────────────────────
-function rbfRender() {
-  const m = RBF_ESTADO.modelo, loo = RBF_ESTADO.loo;
-  const ganho = loo.maeBaseline - loo.mae;
-  const cor = ganho > 0.05 ? 'var(--gn)' : (ganho < -0.05 ? 'var(--rd)' : 'var(--yl)');
-  document.getElementById('rbf-stats').style.display = 'block';
-  document.getElementById('rbf-stats-grid').innerHTML = `
-    <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px;">
-      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">σ ótimo</div>
-      <div style="font-size:18px; font-weight:600; font-family:var(--fM);">${m.sigma}</div>
-    </div>
-    <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px;">
-      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">jogos treino (rico)</div>
-      <div style="font-size:18px; font-weight:600; font-family:var(--fM);">${m.y.length}</div>
-    </div>
-    <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px;">
-      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">MAE RBF (LOO)</div>
-      <div style="font-size:18px; font-weight:600; font-family:var(--fM);">${loo.mae.toFixed(3)}</div>
-    </div>
-    <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px;">
-      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">MAE λ Poisson</div>
-      <div style="font-size:18px; font-weight:600; font-family:var(--fM);">${loo.maeBaseline.toFixed(3)}</div>
-    </div>
-    <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px;">
-      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">ganho RBF</div>
-      <div style="font-size:18px; font-weight:600; font-family:var(--fM); color:${cor};">${ganho>=0?'+':''}${ganho.toFixed(3)}</div>
-    </div>
-    <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px;">
-      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">jogos hoje (com prev)</div>
-      <div style="font-size:18px; font-weight:600; font-family:var(--fM); color:var(--cy);">${RBF_ESTADO.hoje.length}</div>
-    </div>
-  `;
-  rbfRenderHoje();
-  rbfRenderAbertos();
-  rbfRenderEncerrados();
-  rbfRenderVizinhos();
-}
-
-function rbfRenderTabela(linhas, titulo) {
-  return `
-    ${titulo ? `<div style="font-size:11px; color:var(--tx2); margin-bottom:8px;">${titulo}</div>` : ''}
-    <table style="width:100%; border-collapse:collapse; font-size:12px;">
-      <thead><tr style="background:var(--s3); color:var(--tx2);">
-        <th style="padding:8px; text-align:left; font-size:10px;">Data</th>
-        <th style="padding:8px; text-align:left; font-size:10px;">Liga</th>
-        <th style="padding:8px; text-align:left; font-size:10px;">Jogo</th>
-        <th style="padding:8px; text-align:right; font-size:10px;">Poisson</th>
-        <th style="padding:8px; text-align:right; font-size:10px;">RBF</th>
-        <th style="padding:8px; text-align:right; font-size:10px;">Δ</th>
-        <th style="padding:8px; text-align:left; font-size:10px;">Top vizinho</th>
-      </tr></thead>
-      <tbody>${linhas || `<tr><td colspan="7" style="padding:14px; color:var(--tx3); text-align:center;">vazio</td></tr>`}</tbody>
-    </table>
-  `;
-}
-
-function rbfLinhaPrevisao(a) {
-  const j = a.jogo;
-  const dt = j.dataJogo ? new Date(j.dataJogo) : null;
-  const dtStr = dt ? `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}` : '?';
-  const diff = a.predRBF - a.predBaseline;
-  const cor = diff > 0.5 ? 'var(--rd)' : (diff < -0.5 ? 'var(--gn)' : 'var(--tx2)');
-  const tag = a.predRBF < 0 ? '<span class="tag" style="background:var(--rd-d); color:var(--rd); border:1px solid var(--rd-b);">RBF&lt;0</span>'
-            : Math.abs(diff) >= 0.7 ? '<span class="tag" style="background:var(--yl-d); color:var(--yl); border:1px solid var(--yl-b);">DIVERG</span>' : '';
-  const v0 = a.topVizinhos && a.topVizinhos[0];
-  const vizText = v0 ? `<span style="font-size:10px; color:var(--tx3);">${rbfNomeJogo(v0.jogo)} (${v0.real}g, sem=${v0.sem.toFixed(2)})</span>` : '';
-  return `<tr style="border-bottom:1px solid var(--b1);">
-    <td style="padding:6px 8px; font-family:var(--fM); font-size:11px;">${dtStr}</td>
-    <td style="padding:6px 8px; font-size:11px; color:var(--tx2);">${rbfNomeLiga(j)}</td>
-    <td style="padding:6px 8px; font-size:12px;">${rbfNomeJogo(j)}</td>
-    <td style="padding:6px 8px; text-align:right; font-family:var(--fM);"><span style="background:var(--cy-d); color:var(--cy); padding:2px 6px; border-radius:3px;">${a.predBaseline.toFixed(2)}</span></td>
-    <td style="padding:6px 8px; text-align:right; font-family:var(--fM);"><span style="background:rgba(167,139,250,.18); color:var(--pu); padding:2px 6px; border-radius:3px;">${a.predRBF.toFixed(2)}</span></td>
-    <td style="padding:6px 8px; text-align:right; font-family:var(--fM); color:${cor};">${diff>=0?'+':''}${diff.toFixed(2)} ${tag}</td>
-    <td style="padding:6px 8px;">${vizText}</td>
-  </tr>`;
-}
-
-function rbfRenderHoje() {
-  const linhas = RBF_ESTADO.hoje
-    .sort((a,b) => new Date(a.jogo.dataJogo || 0) - new Date(b.jogo.dataJogo || 0))
-    .map(rbfLinhaPrevisao).join('');
-  document.getElementById('rbf-tabela-hoje').innerHTML = rbfRenderTabela(
-    linhas,
-    `${RBF_ESTADO.hoje.length} jogos do dia previstos. Clique <strong>💾 Salvar RBF no Firestore</strong> pra gravar e poder comparar com o resultado real depois.`
-  );
-}
-
-function rbfRenderAbertos() {
-  const linhas = RBF_ESTADO.abertos
-    .sort((a,b) => new Date(a.jogo.dataJogo || 0) - new Date(b.jogo.dataJogo || 0))
-    .slice(0, 200).map(rbfLinhaPrevisao).join('');
-  const tot = RBF_ESTADO.abertos.length;
-  const txt = tot > 200 ? `Mostrando 200 de ${tot} abertos (futuros).` : `${tot} abertos no histórico.`;
-  document.getElementById('rbf-tabela-abertos').innerHTML = rbfRenderTabela(linhas, txt);
-}
-
-function rbfRenderEncerrados() {
-  const m = RBF_ESTADO.modelo;
-  const linhas = m.treino.map((t, i) => {
-    const xi = m.Xn[i];
-    let predIn = 0;
-    for (let j=0; j<m.Xn.length; j++) predIn += m.w[j] * rbfKernel(rbfDist(xi, m.Xn[j]), m.sigma);
-    const predBaseline = t.features[0];
-    const real = t.real;
-    return { t, predIn, predBaseline, real,
-      errRBF: Math.abs(predIn - real),
-      errBaseline: Math.abs(predBaseline - real),
-      ganha: Math.abs(predIn - real) < Math.abs(predBaseline - real) };
-  }).sort((a,b) => Math.abs(b.predIn - b.predBaseline) - Math.abs(a.predIn - a.predBaseline));
-
-  document.getElementById('rbf-tabela-encerrados').innerHTML = `
-    <div style="font-size:10px; color:var(--tx3); margin-bottom:8px;">
-      ⚠️ Erro in-sample (treino). Esses jogos foram USADOS no treino, então RBF "decora" eles.
-      O número honesto é o MAE LOO acima (que separa treino e teste corretamente).
-    </div>
-    <table style="width:100%; border-collapse:collapse; font-size:11px;">
-      <thead><tr style="background:var(--s3); color:var(--tx2);">
-        <th style="padding:8px; text-align:left; font-size:10px;">Jogo</th>
-        <th style="padding:8px; text-align:left; font-size:10px;">Liga</th>
-        <th style="padding:8px; text-align:right; font-size:10px;">Poisson</th>
-        <th style="padding:8px; text-align:right; font-size:10px;">RBF in-sample</th>
-        <th style="padding:8px; text-align:right; font-size:10px;">Real</th>
-      </tr></thead>
-      <tbody>${linhas.slice(0,80).map(r => `
-        <tr style="border-bottom:1px solid var(--b1);">
-          <td style="padding:5px 8px;">${rbfNomeJogo(r.t.jogo)}</td>
-          <td style="padding:5px 8px; color:var(--tx2);">${rbfNomeLiga(r.t.jogo)}</td>
-          <td style="padding:5px 8px; text-align:right; font-family:var(--fM);">${r.predBaseline.toFixed(2)}</td>
-          <td style="padding:5px 8px; text-align:right; font-family:var(--fM);">${r.predIn.toFixed(2)}</td>
-          <td style="padding:5px 8px; text-align:right;"><span style="background:var(--gn-d); color:var(--gn); padding:1px 5px; border-radius:3px; font-family:var(--fM);">${r.real}</span></td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-function rbfRenderVizinhos() {
-  const todos = [...RBF_ESTADO.hoje, ...RBF_ESTADO.abertos.slice(0,20)];
-  const blocos = todos.slice(0, 30).map(a => {
-    const j = a.jogo;
-    const vizs = a.topVizinhos.map((v, k) => `
-      <tr style="border-bottom:1px solid var(--b1);">
-        <td style="padding:4px 8px; font-family:var(--fM);">${k+1}</td>
-        <td style="padding:4px 8px;">${rbfNomeJogo(v.jogo)}</td>
-        <td style="padding:4px 8px; color:var(--tx2); font-size:10px;">${rbfNomeLiga(v.jogo)}</td>
-        <td style="padding:4px 8px; text-align:right; font-family:var(--fM);">${v.dist.toFixed(2)}</td>
-        <td style="padding:4px 8px; text-align:right; font-family:var(--fM);">${v.sem.toFixed(3)}</td>
-        <td style="padding:4px 8px; text-align:right;"><span style="background:var(--gn-d); color:var(--gn); padding:1px 5px; border-radius:3px; font-family:var(--fM);">${v.real}</span></td>
-        <td style="padding:4px 8px; text-align:right; font-family:var(--fM);">${v.peso.toFixed(2)}</td>
-        <td style="padding:4px 8px; text-align:right; font-family:var(--fM); color:${v.contrib>=0?'var(--rd)':'var(--gn)'};">${v.contrib>=0?'+':''}${v.contrib.toFixed(3)}</td>
-      </tr>
-    `).join('');
-    return `
-      <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px; margin-bottom:8px;">
-        <div style="margin-bottom:6px; font-size:12px;">
-          <strong>${rbfNomeJogo(j)}</strong>
-          <span style="color:var(--tx3); font-size:10px;"> — ${rbfNomeLiga(j)}</span>
-          <span class="tag" style="background:var(--cy-d); color:var(--cy); margin-left:8px;">Po ${a.predBaseline.toFixed(2)}</span>
-          <span class="tag" style="background:rgba(167,139,250,.18); color:var(--pu);">RBF ${a.predRBF.toFixed(2)}</span>
-        </div>
-        <table style="width:100%; border-collapse:collapse; font-size:11px;">
-          <thead><tr style="background:var(--s2); color:var(--tx2);">
-            <th style="padding:5px 8px; text-align:left; font-size:9px;">#</th>
-            <th style="padding:5px 8px; text-align:left; font-size:9px;">Vizinho</th>
-            <th style="padding:5px 8px; text-align:left; font-size:9px;">Liga</th>
-            <th style="padding:5px 8px; text-align:right; font-size:9px;">dist</th>
-            <th style="padding:5px 8px; text-align:right; font-size:9px;">sem</th>
-            <th style="padding:5px 8px; text-align:right; font-size:9px;">real</th>
-            <th style="padding:5px 8px; text-align:right; font-size:9px;">peso</th>
-            <th style="padding:5px 8px; text-align:right; font-size:9px;">contrib</th>
-          </tr></thead>
-          <tbody>${vizs}</tbody>
-        </table>
-      </div>
-    `;
-  }).join('');
-  document.getElementById('rbf-vizinhos-conteudo').innerHTML = blocos || '<div style="color:var(--tx3); padding:10px;">treine primeiro</div>';
-}
-
-rbfLog('Módulo RBF carregado. Clique em "🧮 RBF" no topo pra abrir.');
 </script>
 
 </body>
