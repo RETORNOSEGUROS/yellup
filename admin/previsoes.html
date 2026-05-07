@@ -1163,34 +1163,35 @@ let RBF_MODELO = null;
 
 // Features universais que existem nos dois schemas
 function rbfExtrair(j) {
+  // forteA/B pode ser número OU objeto {score: x}
+  const numForte = (x) => {
+    if (x == null) return null;
+    if (typeof x === 'number') return x;
+    if (typeof x === 'object' && typeof x.score === 'number') return x.score;
+    const n = Number(x);
+    return isNaN(n) ? null : n;
+  };
+
   // Tenta SCHEMA NOVO primeiro
   const p = j.previsao;
   if (p && p.lambdaTotal != null) {
     const lam = Number(p.lambdaTotal);
-    const fA = p.forteA != null ? Number(p.forteA) : null;
-    const fB = p.forteB != null ? Number(p.forteB) : null;
+    if (isNaN(lam)) return null;
+    const fA = numForte(p.forteA);
+    const fB = numForte(p.forteB);
     if (fA != null && fB != null) {
-      // Schema novo rico: 5 features
-      return {
-        v: [lam, fA, fB, Math.abs(fA - fB), fA + fB],
-        rico: true
-      };
+      return { v: [lam, fA, fB, Math.abs(fA - fB), fA + fB], rico: true };
     }
-    // Schema novo só com lambda (sem forte)
-    return {
-      v: [lam, lam/2, lam/2, 0, lam], // proxy
-      rico: false
-    };
+    // Schema novo só com lambda (sem forte) — proxy
+    return { v: [lam, lam/2, lam/2, 0, lam], rico: false };
   }
   // SCHEMA ANTIGO: usa ysF/ysC como proxy de forteScore
   if (j.golsEstimado != null && j.ysF != null && j.ysC != null) {
     const lam = Number(j.golsEstimado);
     const fA = Number(j.ysF);
     const fB = Number(j.ysC);
-    return {
-      v: [lam, fA, fB, Math.abs(fA - fB), fA + fB],
-      rico: true
-    };
+    if (isNaN(lam) || isNaN(fA) || isNaN(fB)) return null;
+    return { v: [lam, fA, fB, Math.abs(fA - fB), fA + fB], rico: true };
   }
   return null;
 }
