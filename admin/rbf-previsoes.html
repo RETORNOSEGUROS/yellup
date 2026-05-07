@@ -203,26 +203,33 @@
 let db, auth;
 
 async function carregarFirebaseConfig() {
-  // Tenta caminhos comuns onde o previsoes.html pode estar
-  const candidatos = ['/admin/previsoes.html', './previsoes.html', '../previsoes.html', '/previsoes.html', '/previsoes'];
+  // Como rbf-previsoes.html e previsoes.html estão na mesma pasta /admin/,
+  // o caminho relativo correto é simplesmente 'previsoes.html'
+  const candidatos = [
+    'previsoes.html',
+    './previsoes.html',
+    '/admin/previsoes.html',
+    '../admin/previsoes.html',
+  ];
   for (const url of candidatos) {
     try {
+      log(`tentando: ${url}`);
       const r = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
-      if (!r.ok) continue;
+      if (!r.ok) { log(`  → ${r.status}`); continue; }
       const txt = await r.text();
-      // Procura o objeto firebaseConfig de várias formas (const/var/let/=)
+      // Procura o objeto firebaseConfig de várias formas
       let m = txt.match(/firebaseConfig\s*=\s*(\{[\s\S]*?\})/);
       if (!m) m = txt.match(/initializeApp\s*\(\s*(\{[\s\S]*?\})\s*\)/);
-      if (!m) continue;
+      if (!m) { log(`  → arquivo lido mas sem firebaseConfig`); continue; }
       try {
         const cfg = (new Function(`return (${m[1]})`))();
         if (cfg && cfg.apiKey && cfg.projectId) {
           log(`✅ Config carregada de ${url} (project: ${cfg.projectId})`);
           return cfg;
         }
-      } catch(e) { continue; }
+      } catch(e) { log(`  → erro parseando: ${e.message}`); continue; }
     } catch (e) {
-      // tenta próximo
+      log(`  → falha fetch: ${e.message}`);
     }
   }
   return null;
@@ -237,13 +244,28 @@ async function inicializarFirebase() {
     return;
   }
 
-  const cfg = await carregarFirebaseConfig();
+  let cfg = await carregarFirebaseConfig();
+
+  // Plano B: pedir pra colar o objeto inteiro
   if (!cfg) {
-    throw new Error('Não foi possível carregar o config do Firebase do previsoes.html. Verifique se o arquivo está acessível.');
+    const txt = prompt(
+      'Não consegui carregar o config automaticamente.\n\n' +
+      'Abre o previsoes.html no DevTools (Sources), copia o objeto firebaseConfig inteiro\n' +
+      'e cola aqui (incluindo as chaves { e }):\n\n' +
+      'Exemplo:\n{ apiKey: "AIza...", authDomain: "...", projectId: "...", ... }'
+    );
+    if (!txt) throw new Error('Config Firebase não fornecido');
+    try {
+      cfg = (new Function(`return (${txt})`))();
+    } catch(e) {
+      throw new Error('Config inválido: ' + e.message);
+    }
   }
+
   firebase.initializeApp(cfg);
   db = firebase.firestore();
   auth = firebase.auth();
+  log(`Firebase inicializado para projeto: ${cfg.projectId}`);
 }
 
 // Espera a sessão de autenticação carregar (ela é persistida no domínio)
