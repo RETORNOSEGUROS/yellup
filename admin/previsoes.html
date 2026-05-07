@@ -132,7 +132,7 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
   <span class="page-id">PREVISÕES · GOLS</span>
   <div class="spacer"></div>
   <button class="btn" onclick="window.location.href='jogos-admin.html'">← Jogos</button>
-  <button class="btn" onclick="aplicarRBFnoCards()" id="btnRBF">🧮 RBF nos jogos do dia</button>
+  <button class="btn" onclick="aplicarFormulaNova()" id="btnFormula">🎯 Aplicar fórmula nos cards</button>
   <button class="btn-pri btn" id="btnCalc" onclick="calcularTodos()">⚡ Calcular previsões do dia</button>
 </div>
 
@@ -831,17 +831,17 @@ function renderJogoCard(j) {
 
   let prevHtml = '';
   if (prev) {
-    const rbfPred = (typeof RBF_PREVS !== 'undefined') ? RBF_PREVS[String(id)] : null;
-    const rbfBlock = rbfPred ? `
-      <div style="border-left:2px solid var(--pu); padding-left:8px; margin-top:6px;">
-        <div style="font-size:18px; font-weight:600; color:var(--pu); font-family:var(--fM);">${rbfPred.pred.toFixed(2)}</div>
-        <div style="font-size:9px; color:var(--tx3); text-transform:uppercase; letter-spacing:.05em;">RBF (${rbfPred.delta>=0?'+':''}${rbfPred.delta.toFixed(2)})</div>
+    const f = (typeof FORMULA_PREVS !== 'undefined') ? FORMULA_PREVS[String(id)] : null;
+    const fBlock = f ? `
+      <div style="border-left:2px solid var(--or, #ff9800); padding-left:8px; margin-top:6px;">
+        <div style="font-size:18px; font-weight:600; color:var(--or, #ff9800); font-family:var(--fM);">${f.pred.toFixed(2)}</div>
+        <div style="font-size:9px; color:var(--tx3); text-transform:uppercase; letter-spacing:.05em;">F+W (${f.nQ}Q+${f.nM}M) ${f.delta>=0?'+':''}${f.delta.toFixed(2)}</div>
       </div>` : '';
     prevHtml = `
       <div class="jc-prev">
         <div class="lambda">${prev.lambdaTotal?.toFixed(1) || '?'}</div>
         <div class="lbl">gols esperados</div>
-        ${rbfBlock}
+        ${fBlock}
       </div>`;
   } else {
     prevHtml = `<div class="jc-prev empty">sem previsão</div>`;
@@ -1155,205 +1155,147 @@ function hideProg() { el('progress').classList.remove('on'); }
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════
-     MÓDULO RBF — pragmático, treina com TUDO que tem
+     MÓDULO FÓRMULA — única equação fechada, baseada em:
+     - λ Poisson (base)
+     - Penalty grandes (fA+fB > 14)
+     - Penalty desbalanço (|fA-fB|)
+     - Bônus forma
+     - Bônus janelas QUENTES/MORNAS (10min agrupadas, últimos 20 jogos)
+     - Multiplicador de força em janelas (forteScore amplifica)
      ═══════════════════════════════════════════════════════════ -->
 <script>
-let RBF_PREVS = {};   // fixtureId -> {pred, delta, viz}
-let RBF_MODELO = null;
+let FORMULA_PREVS = {};   // fixtureId -> {pred, nQ, nM, delta, debug}
 
-// Features universais que existem nos dois schemas
-function rbfExtrair(j) {
-  // forteA/B pode ser número OU objeto {score: x}
-  const numForte = (x) => {
-    if (x == null) return null;
-    if (typeof x === 'number') return x;
-    if (typeof x === 'object' && typeof x.score === 'number') return x.score;
-    const n = Number(x);
-    return isNaN(n) ? null : n;
+// Pega forteA/B independente de ser número ou objeto {score:x}
+function fNum(x) {
+  if (x == null) return null;
+  if (typeof x === 'number') return x;
+  if (typeof x === 'object' && typeof x.score === 'number') return x.score;
+  const n = Number(x); return isNaN(n) ? null : n;
+}
+
+/**
+ * Calcula janelas quentes/mornas a partir das janelasTop salvas pelo Poisson.
+ * Cada janela top tem aSc, bSc, aCn, bCn (gols feitos/tomados nas últimas 20 partidas).
+ * Agrupa em 10min combinando os pares de 5min adjacentes.
+ *
+ * Janela "quente"  = max(aSc+bCn, bSc+aCn) >= 10
+ * Janela "morna"   = entre 6 e 9
+ * Janela "fria"    = abaixo de 6
+ */
+function calcularJanelas10min(prev) {
+  if (!prev || !prev.janelasTop || !Array.isArray(prev.janelasTop)) {
+    return { nQ: 0, nM: 0, vazia: true };
+  }
+  // Mapa de janelas 5min -> dados (label, aSc, bSc, aCn, bCn)
+  const map5 = {};
+  for (const j of prev.janelasTop) {
+    if (!j.label) continue;
+    map5[j.label] = j;
+  }
+
+  // Pares 10min: 0-5+6-10, 11-15+16-20, etc
+  const pares = [
+    ['0-5','6-10'], ['11-15','16-20'], ['21-25','26-30'],
+    ['31-35','36-40'], ['41-45','46-50'], ['51-55','56-60'],
+    ['61-65','66-70'], ['71-75','76-80'], ['81-85','86-90']
+  ];
+
+  let nQ = 0, nM = 0, maxValor = 0;
+  const detalhes = [];
+  for (const [a,b] of pares) {
+    const ja = map5[a], jb = map5[b];
+    const aSc = (ja?.aSc || 0) + (jb?.aSc || 0);
+    const bSc = (ja?.bSc || 0) + (jb?.bSc || 0);
+    const aCn = (ja?.aCn || 0) + (jb?.aCn || 0);
+    const bCn = (ja?.bCn || 0) + (jb?.bCn || 0);
+    const valor = Math.max(aSc + bCn, bSc + aCn);
+    maxValor = Math.max(maxValor, valor);
+    if (valor >= 10) nQ++;
+    else if (valor >= 6) nM++;
+    if (valor > 0) detalhes.push({ janela: `${a.split('-')[0]}-${b.split('-')[1]}`, valor });
+  }
+
+  return { nQ, nM, maxValor, vazia: maxValor < 6, detalhes };
+}
+
+/**
+ * FÓRMULA PRINCIPAL — calcula G previsto pra um jogo dado a previsão Poisson
+ *
+ * G = 1.4·√λ
+ *   - 0.40 · max(0, (fA+fB)/2 - 7)             [penalty TIMES GRANDES]
+ *   - 0.10 · |fA-fB|                            [penalty desbalanço]
+ *   + 0.15 · max(0, (formA+formB) - 2.5)        [bônus forma]
+ *   + 0.60·(1 + (fA+fB)/20) · n_quentes         [JANELAS QUENTES amplificadas por força]
+ *   + 0.20·(1 + (fA+fB)/20) · n_mornas          [JANELAS MORNAS amplificadas]
+ *   - 0.40 · (1 se nenhuma janela ≥6, senão 0)  [penalty jogo morno total]
+ *
+ * Resultado: max(G, 0.5) — sem negativos, sem zero técnico
+ */
+function aplicarFormula(prev) {
+  if (!prev || prev.lambdaTotal == null) return null;
+
+  const lam = Number(prev.lambdaTotal);
+  const fA  = fNum(prev.forteA);
+  const fB  = fNum(prev.forteB);
+  if (isNaN(lam) || fA == null || fB == null) return null;
+
+  const r = prev.rawInputs || {};
+  const formA = Number(r.formA5 ?? 1.0);
+  const formB = Number(r.formB5 ?? 1.0);
+
+  const j = calcularJanelas10min(prev);
+  const fSoma = fA + fB;
+  const fAvg = fSoma / 2;
+  const fDif = Math.abs(fA - fB);
+  const multForca = 1 + (fSoma / 20);  // 1.0 a 1.86
+
+  const base = 1.4 * Math.sqrt(lam);
+  const penGrandes = 0.40 * Math.max(0, fAvg - 7);
+  const penDif = 0.10 * fDif;
+  const bonusForma = 0.15 * Math.max(0, (formA + formB) - 2.5);
+  const bonusQuente = 0.60 * multForca * j.nQ;
+  const bonusMorno = 0.20 * multForca * j.nM;
+  const penMorno = j.vazia ? 0.40 : 0;
+
+  const G = base - penGrandes - penDif + bonusForma + bonusQuente + bonusMorno - penMorno;
+  const pred = Math.max(G, 0.5);
+
+  return {
+    pred,
+    delta: pred - lam,
+    nQ: j.nQ,
+    nM: j.nM,
+    debug: {
+      base: base.toFixed(2),
+      penGrandes: (-penGrandes).toFixed(2),
+      penDif: (-penDif).toFixed(2),
+      bonusForma: (+bonusForma).toFixed(2),
+      bonusQuente: (+bonusQuente).toFixed(2),
+      bonusMorno: (+bonusMorno).toFixed(2),
+      penMorno: (-penMorno).toFixed(2),
+      multForca: multForca.toFixed(2),
+      janelas: j.detalhes
+    }
   };
-
-  // Tenta SCHEMA NOVO primeiro
-  const p = j.previsao;
-  if (p && p.lambdaTotal != null) {
-    const lam = Number(p.lambdaTotal);
-    if (isNaN(lam)) return null;
-    const fA = numForte(p.forteA);
-    const fB = numForte(p.forteB);
-    if (fA != null && fB != null) {
-      return { v: [lam, fA, fB, Math.abs(fA - fB), fA + fB], rico: true };
-    }
-    // Schema novo só com lambda (sem forte) — proxy
-    return { v: [lam, lam/2, lam/2, 0, lam], rico: false };
-  }
-  // SCHEMA ANTIGO: usa ysF/ysC como proxy de forteScore
-  if (j.golsEstimado != null && j.ysF != null && j.ysC != null) {
-    const lam = Number(j.golsEstimado);
-    const fA = Number(j.ysF);
-    const fB = Number(j.ysC);
-    if (isNaN(lam) || isNaN(fA) || isNaN(fB)) return null;
-    return { v: [lam, fA, fB, Math.abs(fA - fB), fA + fB], rico: true };
-  }
-  return null;
 }
 
-function rbfRealDe(j) {
-  if (j.real && typeof j.real.totalGols === 'number') return j.real.totalGols;
-  if (typeof j.golsReais === 'number') return j.golsReais;
-  if (typeof j.golsCasaReal === 'number' && typeof j.golsForaReal === 'number') {
-    return j.golsCasaReal + j.golsForaReal;
-  }
-  return null;
-}
-
-function rbfTerminado(j) {
-  if (j.real && j.real.encerrado === true) return true;
-  if (j.analisado === true) return true;
-  return rbfRealDe(j) != null;
-}
-
-// MATEMÁTICA básica
-function rbfMedia(arr) { return arr.reduce((s,x)=>s+x,0) / arr.length; }
-function rbfDesvio(arr) { const m = rbfMedia(arr); return Math.sqrt(arr.reduce((s,x)=>s+(x-m)**2,0) / arr.length); }
-function rbfNorm(x, mu, sd) { return x.map((v, i) => (v - mu[i]) / (sd[i]||1)); }
-function rbfDist(a, b) { let s = 0; for (let i=0; i<a.length; i++) s += (a[i]-b[i])**2; return Math.sqrt(s); }
-function rbfKernel(d, sigma) { return Math.exp(-(d*d) / (2*sigma*sigma)); }
-
-function rbfCholesky(A) {
-  const n = A.length;
-  const L = Array.from({length:n}, () => new Array(n).fill(0));
-  for (let i=0; i<n; i++) {
-    for (let j=0; j<=i; j++) {
-      let sum = 0;
-      for (let k=0; k<j; k++) sum += L[i][k] * L[j][k];
-      if (i === j) {
-        const diag = A[i][i] - sum;
-        if (diag <= 0) return null;
-        L[i][j] = Math.sqrt(diag);
-      } else { L[i][j] = (A[i][j] - sum) / L[j][j]; }
-    }
-  }
-  return L;
-}
-function rbfSolve(K, y, ridge) {
-  ridge = ridge || 1e-3;
-  const n = K.length;
-  const A = K.map((row, i) => row.map((v, j) => v + (i===j ? ridge : 0)));
-  const L = rbfCholesky(A);
-  if (!L) return null;
-  const z = new Array(n).fill(0);
-  for (let i=0; i<n; i++) {
-    let s = y[i];
-    for (let k=0; k<i; k++) s -= L[i][k] * z[k];
-    z[i] = s / L[i][i];
-  }
-  const w = new Array(n).fill(0);
-  for (let i=n-1; i>=0; i--) {
-    let s = z[i];
-    for (let k=i+1; k<n; k++) s -= L[k][i] * w[k];
-    w[i] = s / L[i][i];
-  }
-  return w;
-}
-
-// PIPELINE PRINCIPAL
-async function aplicarRBFnoCards() {
-  const btn = document.getElementById('btnRBF');
+async function aplicarFormulaNova() {
+  const btn = document.getElementById('btnFormula');
   btn.disabled = true;
-  btn.textContent = '⏳ treinando...';
-  showBanner('info', '🧮 Treinando RBF com histórico do Firestore...');
+  btn.textContent = '⏳ aplicando...';
   try {
-    // 1. Lê todos os jogos do histórico
-    const snap = await db.collection('previsoes-historico').get();
-    const treino = [];
-    snap.forEach(doc => {
-      const j = { docId: doc.id, ...doc.data() };
-      if (!rbfTerminado(j)) return;
-      const real = rbfRealDe(j);
-      if (real == null) return;
-      const ext = rbfExtrair(j);
-      if (!ext) return;
-      treino.push({ jogo: j, features: ext.v, real });
-    });
-
-    if (treino.length < 30) {
-      showBanner('warn', `RBF: apenas ${treino.length} jogos treináveis (mínimo 30)`);
-      btn.disabled = false;
-      btn.textContent = '🧮 RBF nos jogos do dia';
-      return;
-    }
-
-    // 2. Limita a amostra a 800 mais recentes (velocidade)
-    treino.sort((a,b) => {
-      const da = new Date(a.jogo.dataJogo || a.jogo.savedAt || 0);
-      const dbb = new Date(b.jogo.dataJogo || b.jogo.savedAt || 0);
-      return dbb - da;
-    });
-    const amostra = treino.slice(0, 800);
-    console.log(`[RBF] Treinando com ${amostra.length} jogos (de ${treino.length} disponíveis)`);
-
-    // 3. Normaliza
-    const X = amostra.map(t => t.features);
-    const y = amostra.map(t => t.real);
-    const d = X[0].length;
-    const mu = new Array(d).fill(0), sd = new Array(d).fill(0);
-    for (let k=0; k<d; k++) {
-      const col = X.map(row => row[k]);
-      mu[k] = rbfMedia(col);
-      sd[k] = rbfDesvio(col) || 1;
-    }
-    const Xn = X.map(x => rbfNorm(x, mu, sd));
-
-    // 4. Sigma fixo razoável (1.5) — sem otimizar pra ser rápido
-    const sigma = 1.5;
-    const n = Xn.length;
-    const K = Array.from({length:n}, () => new Array(n).fill(0));
-    for (let i=0; i<n; i++) {
-      for (let j=i; j<n; j++) {
-        const dd = rbfDist(Xn[i], Xn[j]);
-        const kk = rbfKernel(dd, sigma);
-        K[i][j] = kk; K[j][i] = kk;
-      }
-    }
-    const w = rbfSolve(K, y, 1e-3);
-    if (!w) {
-      showBanner('warn', 'RBF: erro numérico no treino');
-      btn.disabled = false;
-      btn.textContent = '🧮 RBF nos jogos do dia';
-      return;
-    }
-    console.log(`[RBF] Pesos calculados. |w| médio = ${rbfMedia(w.map(Math.abs)).toFixed(2)}`);
-
-    RBF_MODELO = { sigma, w, mu, sd, Xn, y, treino: amostra };
-
-    // 5. Aplica em cada jogo VISÍVEL (que tem PREVS calculado)
-    let aplicados = 0;
+    let aplicados = 0, semPrev = 0, semDados = 0;
     for (const j of JOGOS) {
       const fid = j.apiFixtureId;
       const prev = PREVS[String(fid)];
-      if (!prev) continue; // só aplica se Poisson já foi calculado
-      // Monta jogo no schema novo pra extrair features
-      const fakeJ = { previsao: prev };
-      const ext = rbfExtrair(fakeJ);
-      if (!ext) continue;
-      const xn = rbfNorm(ext.v, mu, sd);
-      let pred = 0;
-      const sems = [];
-      for (let k=0; k<n; k++) {
-        const dd = rbfDist(xn, Xn[k]);
-        const ss = rbfKernel(dd, sigma);
-        sems.push({sem: ss, real: y[k], peso: w[k], jogo: amostra[k].jogo, contrib: w[k]*ss});
-        pred += w[k] * ss;
-      }
-      sems.sort((a,b) => b.sem - a.sem);
-      RBF_PREVS[String(fid)] = {
-        pred,
-        delta: pred - ext.v[0],
-        viz: sems.slice(0, 3)
-      };
+      if (!prev) { semPrev++; continue; }
+      const r = aplicarFormula(prev);
+      if (!r) { semDados++; continue; }
+      FORMULA_PREVS[String(fid)] = r;
       aplicados++;
     }
 
-    // 6. Re-renderiza os cards pra mostrar o RBF
     if (typeof renderLista === 'function') {
       renderLista();
     } else {
@@ -1363,15 +1305,22 @@ async function aplicarRBFnoCards() {
       }
     }
 
-    showBanner('info', `✓ RBF aplicado em ${aplicados} jogos (treino: ${amostra.length} jogos passados, σ=${sigma})`);
+    showBanner('info', `🎯 Fórmula aplicada em ${aplicados} jogos${semPrev?` · ${semPrev} sem Poisson`:''}${semDados?` · ${semDados} sem features`:''}`);
     btn.disabled = false;
-    btn.textContent = '🔄 Reaplicar RBF';
+    btn.textContent = '🔄 Reaplicar fórmula';
 
+    console.log('[FORMULA] Detalhes por jogo:');
+    for (const fid in FORMULA_PREVS) {
+      const f = FORMULA_PREVS[fid];
+      const j = JOGOS.find(x => String(x.apiFixtureId) === fid);
+      const nome = j ? `${j.timeCasa.nome} × ${j.timeFora.nome}` : fid;
+      console.log(`  ${nome}: pred=${f.pred.toFixed(2)} (delta=${f.delta>=0?'+':''}${f.delta.toFixed(2)}, ${f.nQ}Q+${f.nM}M)`, f.debug);
+    }
   } catch (e) {
-    console.error('[RBF]', e);
-    showBanner('err', `RBF: erro - ${e.message}`);
+    console.error('[FORMULA]', e);
+    showBanner('err', `Fórmula: erro - ${e.message}`);
     btn.disabled = false;
-    btn.textContent = '🧮 RBF nos jogos do dia';
+    btn.textContent = '🎯 Aplicar fórmula nos cards';
   }
 }
 </script>
