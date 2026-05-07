@@ -155,9 +155,7 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
   <div id="banner"></div>
   <div id="lista"></div>
 
-  <!-- ═══════════════════════════════════════════════════════════
-       MÓDULO RBF — Modelo experimental de função base radial
-       ═══════════════════════════════════════════════════════════ -->
+  <!-- RBF SECTION -->
   <div id="rbf-section" style="display:none; margin-top:20px;">
     <div style="background:var(--s2); border:1px solid var(--b1); border-radius:10px; padding:18px; margin-bottom:16px;">
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
@@ -174,11 +172,11 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
       <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px;" id="rbf-stats-grid"></div>
     </div>
 
-    <div style="display:flex; gap:4px; margin-bottom:8px; border-bottom:1px solid var(--b1);">
-      <div class="rbf-tab" data-view="abertos" onclick="rbfTrocarAba('abertos', this)" style="padding:8px 16px; cursor:pointer; color:var(--cy); border-bottom:2px solid var(--cy); font-weight:600; font-size:12px;">🔮 Abertos</div>
-      <div class="rbf-tab" data-view="encerrados" onclick="rbfTrocarAba('encerrados', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">📊 Validação</div>
-      <div class="rbf-tab" data-view="vizinhos" onclick="rbfTrocarAba('vizinhos', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">🎯 Vizinhança</div>
-      <div class="rbf-tab" data-view="log" onclick="rbfTrocarAba('log', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">📝 Log</div>
+    <div style="display:flex; gap:4px; margin-bottom:8px; border-bottom:1px solid var(--b1); flex-wrap:wrap;">
+      <div class="rbf-tab" onclick="rbfTrocarAba('abertos', this)" style="padding:8px 16px; cursor:pointer; color:var(--cy); border-bottom:2px solid var(--cy); font-weight:600; font-size:12px;">🔮 Abertos</div>
+      <div class="rbf-tab" onclick="rbfTrocarAba('encerrados', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">📊 Validação</div>
+      <div class="rbf-tab" onclick="rbfTrocarAba('vizinhos', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">🎯 Vizinhança</div>
+      <div class="rbf-tab" onclick="rbfTrocarAba('log', this)" style="padding:8px 16px; cursor:pointer; color:var(--tx2); border-bottom:2px solid transparent; font-weight:600; font-size:12px;">📝 Log</div>
     </div>
 
     <div class="rbf-view" id="rbf-view-abertos" style="display:block;">
@@ -1190,12 +1188,14 @@ function hideProg() { el('progress').classList.remove('on'); }
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════
-     MÓDULO RBF — Função base radial gaussiana
-     Treina com previsoes-historico, prevê os abertos.
-     Reutiliza db, auth, JOGOS, PREVS já carregados acima.
+     MÓDULO RBF — Função base radial gaussiana com dual-schema
+     Trata jogos antigos (golsEstimado, ysF, ysC, probCasa...) E novos
+     (lambdaTotal, forteScore, rawInputs).
      ═══════════════════════════════════════════════════════════ -->
 <script>
-const RBF_NOMES_FEATURES = ['λ','λA','λB','A','B','gfA','gcA','gfB','gcB','formA','formB','f18','t1','|A-B|'];
+// 8 features comuns aos dois schemas, todas pré-jogo:
+// [golsEstimado, ysF, ysC, probCasa, probEmpate, probFora, |ysF-ysC|, confiancaNum]
+const RBF_NOMES_FEATURES = ['λ','ysF','ysC','pCasa','pEmp','pFora','|ysF-ysC|','conf'];
 let RBF_ESTADO = { modelo:null, abertos:[], encerrados:[], loo:null };
 
 function rbfLog(msg) {
@@ -1210,14 +1210,11 @@ function rbfStatus(msg) {
   const el = document.getElementById('rbf-status');
   if (el) el.textContent = msg;
 }
-
 function abrirRBF() {
   document.getElementById('rbf-section').style.display = 'block';
   document.getElementById('rbf-section').scrollIntoView({behavior:'smooth'});
 }
-function rbfFechar() {
-  document.getElementById('rbf-section').style.display = 'none';
-}
+function rbfFechar() { document.getElementById('rbf-section').style.display = 'none'; }
 function rbfTrocarAba(qual, btn) {
   document.querySelectorAll('.rbf-tab').forEach(t => {
     t.style.color = 'var(--tx2)';
@@ -1230,27 +1227,71 @@ function rbfTrocarAba(qual, btn) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// FEATURE EXTRACTION — 14 features dos rawInputs
+// EXTRAÇÃO DUAL-SCHEMA (antigo + novo)
 // ─────────────────────────────────────────────────────────────
-function rbfExtrairFeatures(jogo) {
-  const p = jogo.previsao || {};
-  const r = p.rawInputs || {};
-  const gfA = r.gfA_final ?? r.gfA_geral ?? r.gfA ?? null;
-  const gcA = r.gcA_final ?? r.gcA_geral ?? r.gcA ?? null;
-  const gfB = r.gfB_final ?? r.gfB_geral ?? r.gfB ?? null;
-  const gcB = r.gcB_final ?? r.gcB_geral ?? r.gcB ?? null;
-  const formA = r.formA5 ?? null;
-  const formB = r.formB5 ?? null;
-  const f18 = r.f18 ?? null;
-  const t1 = (p.janelasTop && p.janelasTop[0]) ? (p.janelasTop[0].total || 0) : 0;
-  const lam = p.lambdaTotal ?? null;
-  const lamA = p.lambdaA ?? null;
-  const lamB = p.lambdaB ?? null;
-  const forteA = p.forteA ?? null;
-  const forteB = p.forteB ?? null;
-  const v = [lam, lamA, lamB, forteA, forteB, gfA, gcA, gfB, gcB, formA, formB, f18, t1, Math.abs((forteA||0)-(forteB||0))];
-  if (v.some(x => x === null || x === undefined || isNaN(x))) return null;
-  return v;
+const CONF_MAP = { 'baixa': 0.3, 'media': 0.6, 'média': 0.6, 'alta': 0.9, 'muito alta': 1.0 };
+
+function rbfExtrairFeatures(j) {
+  // SCHEMA ANTIGO (2339 jogos): golsEstimado, ysF, ysC, probCasa/Emp/Fora, confianca
+  if (j.golsEstimado != null && j.ysF != null && j.ysC != null) {
+    const lam = Number(j.golsEstimado);
+    const ysF = Number(j.ysF);
+    const ysC = Number(j.ysC);
+    const pC = j.probCasa != null ? Number(j.probCasa)/100 : 0.4;
+    const pE = j.probEmpate != null ? Number(j.probEmpate)/100 : 0.25;
+    const pF = j.probFora != null ? Number(j.probFora)/100 : 0.35;
+    const conf = CONF_MAP[(j.confianca||'').toLowerCase().trim()] ?? 0.5;
+    const v = [lam, ysF, ysC, pC, pE, pF, Math.abs(ysF-ysC), conf];
+    if (v.some(x => x === null || x === undefined || isNaN(x))) return null;
+    return v;
+  }
+  // SCHEMA NOVO: previsao.lambdaTotal + previsao.forteA/B
+  const p = j.previsao;
+  if (p && p.lambdaTotal != null && p.forteA != null && p.forteB != null) {
+    const lam = Number(p.lambdaTotal);
+    const ysF = Number(p.forteA);     // proxy: forteScore casa = ysF
+    const ysC = Number(p.forteB);     // proxy: forteScore visitante = ysC
+    // probabilidades aproximadas a partir do λ via Poisson
+    const probs = p.probs || [0,0,0,0,0,0];
+    const pUnder15 = (probs[0]||0) + (probs[1]||0);
+    const pOver25 = (probs[3]||0) + (probs[4]||0) + (probs[5]||0);
+    const pMid = (probs[2]||0);
+    const conf = 0.5;
+    const v = [lam, ysF, ysC, pUnder15, pMid, pOver25, Math.abs(ysF-ysC), conf];
+    if (v.some(x => x === null || x === undefined || isNaN(x))) return null;
+    return v;
+  }
+  return null;
+}
+
+function rbfExtrairReal(j) {
+  // schema antigo
+  if (typeof j.golsReais === 'number') return j.golsReais;
+  if (typeof j.golsCasaReal === 'number' && typeof j.golsForaReal === 'number') {
+    return j.golsCasaReal + j.golsForaReal;
+  }
+  // schema novo
+  if (j.real && typeof j.real.totalGols === 'number') return j.real.totalGols;
+  return null;
+}
+
+function rbfFoiEncerrado(j) {
+  if (j.analisado === true) return true;
+  if (j.real && j.real.encerrado === true) return true;
+  return rbfExtrairReal(j) != null;
+}
+
+function rbfNomeJogo(j) {
+  // antigo
+  if (j.timeCasaNome) return `${j.timeCasaNome} × ${j.timeForaNome||'?'}`;
+  // novo
+  if (j.casa) return `${j.casa.nome||'?'} × ${j.fora?.nome||'?'}`;
+  return j.fixtureId || '?';
+}
+function rbfNomeLiga(j) {
+  if (j.liga && typeof j.liga === 'object') return j.liga.nome || '?';
+  if (typeof j.liga === 'string') return j.liga;
+  return '?';
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1290,9 +1331,7 @@ function rbfCholesky(A) {
         const diag = A[i][i] - sum;
         if (diag <= 0) return null;
         L[i][j] = Math.sqrt(diag);
-      } else {
-        L[i][j] = (A[i][j] - sum) / L[j][j];
-      }
+      } else { L[i][j] = (A[i][j] - sum) / L[j][j]; }
     }
   }
   return L;
@@ -1330,30 +1369,41 @@ function rbfMatrizK(Xn, sigma) {
   return K;
 }
 
-function rbfLooMAE(Xn, y, sigma) {
+// Para datasets grandes (>500), LOO completo é caro (O(n^4)).
+// Faço holdout aleatório 80/20 repetido 3x ou subsample LOO em 200 jogos.
+function rbfHoldoutMAE(Xn, y, sigma, runs) {
+  runs = runs || 3;
   const n = y.length;
-  let soma = 0, cnt = 0;
-  for (let i=0; i<n; i++) {
-    const Xt = Xn.filter((_, j) => j !== i);
-    const yt = y.filter((_, j) => j !== i);
+  const tamHold = Math.max(20, Math.floor(n * 0.2));
+  let totalErr = 0, totalCnt = 0;
+  for (let r=0; r<runs; r++) {
+    // shuffle
+    const idx = Array.from({length:n}, (_,i)=>i);
+    for (let i=n-1; i>0; i--) { const j=Math.floor(Math.random()*(i+1)); [idx[i],idx[j]]=[idx[j],idx[i]]; }
+    const idxTeste = idx.slice(0, tamHold);
+    const idxTreino = idx.slice(tamHold);
+    const Xt = idxTreino.map(i => Xn[i]);
+    const yt = idxTreino.map(i => y[i]);
     const Kt = rbfMatrizK(Xt, sigma);
     const w = rbfSolve(Kt, yt, 1e-3);
     if (!w) continue;
-    let pred = 0;
-    for (let j=0; j<Xt.length; j++) pred += w[j] * rbfKernel(rbfDist(Xn[i], Xt[j]), sigma);
-    soma += Math.abs(pred - y[i]);
-    cnt++;
+    for (const i of idxTeste) {
+      let pred = 0;
+      for (let j=0; j<Xt.length; j++) pred += w[j] * rbfKernel(rbfDist(Xn[i], Xt[j]), sigma);
+      totalErr += Math.abs(pred - y[i]);
+      totalCnt++;
+    }
   }
-  return cnt ? soma/cnt : Infinity;
+  return totalCnt ? totalErr/totalCnt : Infinity;
 }
 
 function rbfBuscarSigma(Xn, y) {
-  const sigmas = [0.5, 0.7, 1.0, 1.3, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0];
+  const sigmas = [0.7, 1.0, 1.3, 1.5, 1.8, 2.0, 2.5, 3.0];
   let melhorMAE = Infinity, melhorSigma = 1.0;
   const resultados = [];
-  rbfLog(`Buscando σ ótimo via leave-one-out (${y.length} jogos, ${sigmas.length} candidatos)...`);
+  rbfLog(`Buscando σ ótimo via holdout 80/20 (3x) — ${y.length} jogos, ${sigmas.length} candidatos...`);
   for (const sigma of sigmas) {
-    const mae = rbfLooMAE(Xn, y, sigma);
+    const mae = rbfHoldoutMAE(Xn, y, sigma, 3);
     resultados.push({sigma, mae});
     rbfLog(`  σ=${sigma}  →  MAE=${mae.toFixed(3)}`);
     if (mae < melhorMAE) { melhorMAE = mae; melhorSigma = sigma; }
@@ -1362,51 +1412,78 @@ function rbfBuscarSigma(Xn, y) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// PIPELINE PRINCIPAL — usa db já inicializado lá em cima
+// PIPELINE PRINCIPAL
 // ─────────────────────────────────────────────────────────────
 async function rbfTreinarEPrever() {
   const btn = document.getElementById('rbfBtnRun');
   btn.disabled = true;
-  rbfStatus('lendo histórico do Firestore...');
+  rbfStatus('lendo Firestore...');
   try {
-    rbfLog('Iniciando pipeline RBF...');
+    rbfLog('==== Iniciando pipeline RBF ====');
+    rbfLog('Lendo previsoes-historico (pode demorar)...');
     const snap = await db.collection('previsoes-historico').get();
     const todos = [];
     snap.forEach(doc => todos.push({ id: doc.id, ...doc.data() }));
     rbfLog(`${todos.length} jogos no histórico.`);
 
-    const encerradosBrutos = todos.filter(j =>
-      j.real && j.real.encerrado && typeof j.real.totalGols === 'number'
-    );
-    rbfLog(`Encerrados com gols válidos: ${encerradosBrutos.length}`);
+    // Estatísticas de schema
+    let schAntigo = 0, schNovo = 0, schAmbos = 0;
+    for (const j of todos) {
+      const ant = (j.golsEstimado != null);
+      const nov = (j.previsao && j.previsao.lambdaTotal != null);
+      if (ant && !nov) schAntigo++;
+      else if (nov && !ant) schNovo++;
+      else if (ant && nov) schAmbos++;
+    }
+    rbfLog(`Schemas: antigo=${schAntigo}, novo=${schNovo}, ambos=${schAmbos}`);
 
+    // Filtra encerrados com gols reais
+    const encerradosBrutos = todos.filter(j => rbfFoiEncerrado(j) && rbfExtrairReal(j) != null);
+    rbfLog(`Encerrados com gols: ${encerradosBrutos.length}`);
+
+    // Extrai features
     const treino = [];
     let descartados = 0;
     for (const j of encerradosBrutos) {
       const v = rbfExtrairFeatures(j);
       if (!v) { descartados++; continue; }
-      treino.push({ jogo: j, features: v, real: j.real.totalGols });
+      const real = rbfExtrairReal(j);
+      treino.push({ jogo: j, features: v, real });
     }
-    rbfLog(`Treináveis: ${treino.length} (descartados ${descartados})`);
+    rbfLog(`Treináveis: ${treino.length} (descartados ${descartados} por feature incompleto)`);
 
     if (treino.length < 20) {
-      rbfStatus('❌ poucos jogos pra treinar (mínimo 20)');
+      rbfStatus(`❌ apenas ${treino.length} jogos treináveis`);
       btn.disabled = false;
       return;
     }
 
-    const X = treino.map(t => t.features);
-    const y = treino.map(t => t.real);
+    // Limita amostra a 500 pra velocidade (escolhe os mais recentes)
+    const TAM_MAX = 500;
+    let amostraTreino = treino;
+    if (treino.length > TAM_MAX) {
+      // ordena por data desc se houver
+      treino.sort((a,b) => {
+        const da = new Date(a.jogo.dataJogo || a.jogo.savedAt || 0);
+        const dbb = new Date(b.jogo.dataJogo || b.jogo.savedAt || 0);
+        return dbb - da;
+      });
+      amostraTreino = treino.slice(0, TAM_MAX);
+      rbfLog(`Amostra reduzida pra ${TAM_MAX} jogos mais recentes (otimização velocidade).`);
+    }
+
+    const X = amostraTreino.map(t => t.features);
+    const y = amostraTreino.map(t => t.real);
     const { mu, sd } = rbfStats(X);
     const Xn = X.map(x => rbfNorm(x, mu, sd));
-    rbfLog(`Médias normalizadoras: ${mu.map(v=>v.toFixed(2)).join(', ')}`);
 
-    rbfStatus('otimizando σ via leave-one-out (pode demorar 30-90s)...');
+    rbfStatus('otimizando σ via holdout 80/20 (1-2 min)...');
     await new Promise(r => setTimeout(r, 50));
     const { melhorSigma, melhorMAE, resultados } = rbfBuscarSigma(Xn, y);
-    rbfLog(`✅ σ ótimo = ${melhorSigma}, MAE LOO = ${melhorMAE.toFixed(3)}`);
+    rbfLog(`✅ σ ótimo = ${melhorSigma}, MAE holdout = ${melhorMAE.toFixed(3)}`);
 
     rbfStatus('treinando modelo final...');
+    await new Promise(r => setTimeout(r, 50));
     const K = rbfMatrizK(Xn, melhorSigma);
     const w = rbfSolve(K, y, 1e-4);
     if (!w) {
@@ -1415,27 +1492,28 @@ async function rbfTreinarEPrever() {
       btn.disabled = false;
       return;
     }
-    rbfLog(`Pesos calculados. |w| médio=${rbfMedia(w.map(Math.abs)).toFixed(3)}, máx=${Math.max(...w.map(Math.abs)).toFixed(3)}`);
+    rbfLog(`Pesos calculados. |w| médio=${rbfMedia(w.map(Math.abs)).toFixed(2)}, máx=${Math.max(...w.map(Math.abs)).toFixed(2)}`);
 
+    // MAE in-sample (rápido)
     const predTreino = Xn.map(xi => {
       let s = 0;
       for (let j=0; j<Xn.length; j++) s += w[j] * rbfKernel(rbfDist(xi, Xn[j]), melhorSigma);
       return s;
     });
     const maeIn = rbfMedia(predTreino.map((p,i) => Math.abs(p - y[i])));
-    rbfLog(`MAE in-sample: ${maeIn.toFixed(4)}`);
+    rbfLog(`MAE in-sample: ${maeIn.toFixed(3)}`);
 
-    const maePoisson = rbfMedia(treino.map(t => Math.abs(t.features[0] - t.real)));
-    rbfLog(`MAE Poisson v3 (mesmos jogos): ${maePoisson.toFixed(3)}`);
+    // Baseline: usar o golsEstimado como previsão (sem fórmula)
+    const maeBaseline = rbfMedia(amostraTreino.map(t => Math.abs(t.features[0] - t.real)));
+    rbfLog(`MAE Baseline (λ original direto): ${maeBaseline.toFixed(3)}`);
 
-    RBF_ESTADO.modelo = { sigma: melhorSigma, w, mu, sd, Xn, y, treino };
-    RBF_ESTADO.encerrados = treino;
-    RBF_ESTADO.loo = { sigma: melhorSigma, mae: melhorMAE, todos: resultados, maePoisson };
+    RBF_ESTADO.modelo = { sigma: melhorSigma, w, mu, sd, Xn, y, treino: amostraTreino };
+    RBF_ESTADO.encerrados = amostraTreino;
+    RBF_ESTADO.loo = { sigma: melhorSigma, mae: melhorMAE, todos: resultados, maeBaseline };
 
-    const abertosBrutos = todos.filter(j =>
-      !(j.real && j.real.encerrado) || (j.real && !('totalGols' in j.real))
-    );
-    rbfLog(`Jogos abertos: ${abertosBrutos.length}`);
+    // PREVÊ ABERTOS (jogos não-analisados)
+    const abertosBrutos = todos.filter(j => !rbfFoiEncerrado(j));
+    rbfLog(`Jogos abertos no histórico: ${abertosBrutos.length}`);
 
     const abertos = [];
     for (const j of abertosBrutos) {
@@ -1447,14 +1525,45 @@ async function rbfTreinarEPrever() {
       for (let k=0; k<Xn.length; k++) {
         const d = rbfDist(xn, Xn[k]);
         const s = rbfKernel(d, melhorSigma);
-        sems.push({ idx:k, dist:d, sem:s, contrib:w[k]*s, peso:w[k], real:y[k], jogo:treino[k].jogo });
+        sems.push({ idx:k, dist:d, sem:s, contrib:w[k]*s, peso:w[k], real:y[k], jogo:amostraTreino[k].jogo });
         pred += w[k] * s;
       }
       sems.sort((a,b) => b.sem - a.sem);
-      abertos.push({ jogo:j, features:v, predRBF:pred, predPoisson:v[0], topVizinhos:sems.slice(0,5) });
+      abertos.push({ jogo:j, features:v, predRBF:pred, predBaseline:v[0], topVizinhos:sems.slice(0,5) });
     }
+
+    // TAMBÉM prevê os JOGOS DE HOJE que estão visíveis (variável JOGOS já carregada)
+    if (typeof JOGOS !== 'undefined' && Array.isArray(JOGOS)) {
+      rbfLog(`Procurando jogos do dia em JOGOS (${JOGOS.length})...`);
+      for (const j of JOGOS) {
+        // tenta extrair via PREVS se houver previsão calculada
+        const fid = j.fixtureId || j.fixture?.id;
+        const prevSalva = (typeof PREVS !== 'undefined') ? PREVS[fid] : null;
+        let jogoPraExtrair = j;
+        if (prevSalva) {
+          // monta um "jogo no schema novo" com previsao injetada
+          jogoPraExtrair = { ...j, previsao: prevSalva };
+        }
+        const v = rbfExtrairFeatures(jogoPraExtrair);
+        if (!v) continue;
+        // verifica se já não está em abertos
+        if (abertos.find(a => (a.jogo.fixtureId || a.jogo.fixture?.id) === fid)) continue;
+        const xn = rbfNorm(v, mu, sd);
+        let pred = 0;
+        const sems = [];
+        for (let k=0; k<Xn.length; k++) {
+          const d = rbfDist(xn, Xn[k]);
+          const s = rbfKernel(d, melhorSigma);
+          sems.push({ idx:k, dist:d, sem:s, contrib:w[k]*s, peso:w[k], real:y[k], jogo:amostraTreino[k].jogo });
+          pred += w[k] * s;
+        }
+        sems.sort((a,b) => b.sem - a.sem);
+        abertos.push({ jogo:jogoPraExtrair, features:v, predRBF:pred, predBaseline:v[0], topVizinhos:sems.slice(0,5), doDia: true });
+      }
+    }
+
     RBF_ESTADO.abertos = abertos;
-    rbfLog(`✅ Pipeline concluída. ${abertos.length} previsões geradas.`);
+    rbfLog(`✅ ${abertos.length} previsões geradas. Pipeline concluída.`);
 
     rbfRender();
     rbfStatus('✅ pronto');
@@ -1472,7 +1581,7 @@ async function rbfTreinarEPrever() {
 // ─────────────────────────────────────────────────────────────
 function rbfRender() {
   const m = RBF_ESTADO.modelo, loo = RBF_ESTADO.loo;
-  const ganho = loo.maePoisson - loo.mae;
+  const ganho = loo.maeBaseline - loo.mae;
   const cor = ganho > 0.05 ? 'var(--gn)' : (ganho < -0.05 ? 'var(--rd)' : 'var(--yl)');
   document.getElementById('rbf-stats').style.display = 'block';
   document.getElementById('rbf-stats-grid').innerHTML = `
@@ -1485,12 +1594,12 @@ function rbfRender() {
       <div style="font-size:18px; font-weight:600; font-family:var(--fM);">${m.y.length}</div>
     </div>
     <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px;">
-      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">MAE RBF (LOO)</div>
+      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">MAE RBF (holdout)</div>
       <div style="font-size:18px; font-weight:600; font-family:var(--fM);">${loo.mae.toFixed(3)}</div>
     </div>
     <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px;">
-      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">MAE Poisson v3</div>
-      <div style="font-size:18px; font-weight:600; font-family:var(--fM);">${loo.maePoisson.toFixed(3)}</div>
+      <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">MAE λ original</div>
+      <div style="font-size:18px; font-weight:600; font-family:var(--fM);">${loo.maeBaseline.toFixed(3)}</div>
     </div>
     <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px;">
       <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">ganho RBF</div>
@@ -1508,38 +1617,43 @@ function rbfRender() {
 
 function rbfRenderAbertos() {
   const linhas = RBF_ESTADO.abertos
-    .sort((a,b) => new Date(a.jogo.dataJogo) - new Date(b.jogo.dataJogo))
+    .sort((a,b) => new Date(a.jogo.dataJogo || 0) - new Date(b.jogo.dataJogo || 0))
+    .slice(0, 200)
     .map(a => {
       const j = a.jogo;
-      const dt = new Date(j.dataJogo);
-      const dtStr = `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
-      const diff = a.predRBF - a.predPoisson;
+      const dt = j.dataJogo ? new Date(j.dataJogo) : null;
+      const dtStr = dt ? `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}` : '?';
+      const diff = a.predRBF - a.predBaseline;
       const cor = diff > 0.5 ? 'var(--rd)' : (diff < -0.5 ? 'var(--gn)' : 'var(--tx2)');
       const tag = a.predRBF < 0 ? '<span class="tag" style="background:var(--rd-d); color:var(--rd); border:1px solid var(--rd-b);">RBF&lt;0</span>'
                 : Math.abs(diff) >= 0.7 ? '<span class="tag" style="background:var(--yl-d); color:var(--yl); border:1px solid var(--yl-b);">DIVERG</span>' : '';
+      const tagDoDia = a.doDia ? '<span class="tag" style="background:var(--gn-d); color:var(--gn); border:1px solid var(--gn-b); margin-right:4px;">HOJE</span>' : '';
       return `<tr style="border-bottom:1px solid var(--b1);">
         <td style="padding:6px 8px; font-family:var(--fM); font-size:11px;">${dtStr}</td>
-        <td style="padding:6px 8px; font-size:11px; color:var(--tx2);">${j.liga?.nome || '?'}</td>
-        <td style="padding:6px 8px; font-size:12px;">${j.casa?.nome || '?'} × ${j.fora?.nome || '?'}</td>
-        <td style="padding:6px 8px; text-align:right; font-family:var(--fM);"><span style="background:var(--cy-d); color:var(--cy); padding:2px 6px; border-radius:3px;">${a.predPoisson.toFixed(2)}</span></td>
-        <td style="padding:6px 8px; text-align:right; font-family:var(--fM);"><span style="background:var(--pu)20; color:var(--pu); padding:2px 6px; border-radius:3px;">${a.predRBF.toFixed(2)}</span></td>
+        <td style="padding:6px 8px; font-size:11px; color:var(--tx2);">${rbfNomeLiga(j)}</td>
+        <td style="padding:6px 8px; font-size:12px;">${tagDoDia}${rbfNomeJogo(j)}</td>
+        <td style="padding:6px 8px; text-align:right; font-family:var(--fM);"><span style="background:var(--cy-d); color:var(--cy); padding:2px 6px; border-radius:3px;">${a.predBaseline.toFixed(2)}</span></td>
+        <td style="padding:6px 8px; text-align:right; font-family:var(--fM);"><span style="background:rgba(167,139,250,.18); color:var(--pu); padding:2px 6px; border-radius:3px;">${a.predRBF.toFixed(2)}</span></td>
         <td style="padding:6px 8px; text-align:right; font-family:var(--fM); color:${cor};">${diff>=0?'+':''}${diff.toFixed(2)}</td>
         <td style="padding:6px 8px;">${tag}</td>
       </tr>`;
     }).join('');
 
+  const totAbertos = RBF_ESTADO.abertos.length;
+  const txt = totAbertos > 200 ? `<div style="color:var(--tx3); font-size:10px; margin-bottom:6px;">Mostrando 200 de ${totAbertos} abertos.</div>` : '';
   document.getElementById('rbf-tabela-abertos').innerHTML = `
+    ${txt}
     <table style="width:100%; border-collapse:collapse; font-size:12px;">
       <thead><tr style="background:var(--s3); color:var(--tx2);">
-        <th style="padding:8px; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.05em;">Data</th>
-        <th style="padding:8px; text-align:left; font-size:10px; text-transform:uppercase;">Liga</th>
-        <th style="padding:8px; text-align:left; font-size:10px; text-transform:uppercase;">Jogo</th>
-        <th style="padding:8px; text-align:right; font-size:10px; text-transform:uppercase;">Poisson</th>
-        <th style="padding:8px; text-align:right; font-size:10px; text-transform:uppercase;">RBF</th>
-        <th style="padding:8px; text-align:right; font-size:10px; text-transform:uppercase;">Δ</th>
+        <th style="padding:8px; text-align:left; font-size:10px;">Data</th>
+        <th style="padding:8px; text-align:left; font-size:10px;">Liga</th>
+        <th style="padding:8px; text-align:left; font-size:10px;">Jogo</th>
+        <th style="padding:8px; text-align:right; font-size:10px;">λ orig</th>
+        <th style="padding:8px; text-align:right; font-size:10px;">RBF</th>
+        <th style="padding:8px; text-align:right; font-size:10px;">Δ</th>
         <th></th>
       </tr></thead>
-      <tbody>${linhas || `<tr><td colspan="7" style="padding:14px; color:var(--tx3); text-align:center;">nenhum jogo aberto com features completas</td></tr>`}</tbody>
+      <tbody>${linhas || `<tr><td colspan="7" style="padding:14px; color:var(--tx3); text-align:center;">nenhum jogo aberto encontrado</td></tr>`}</tbody>
     </table>
   `;
 }
@@ -1550,41 +1664,41 @@ function rbfRenderEncerrados() {
     const xi = m.Xn[i];
     let predIn = 0;
     for (let j=0; j<m.Xn.length; j++) predIn += m.w[j] * rbfKernel(rbfDist(xi, m.Xn[j]), m.sigma);
-    const predPoisson = t.features[0];
+    const predBaseline = t.features[0];
     const real = t.real;
-    const errRBF = Math.abs(predIn - real);
-    const errPoisson = Math.abs(predPoisson - real);
-    return { t, predIn, predPoisson, real, errRBF, errPoisson, ganha: errRBF < errPoisson };
-  }).sort((a,b) => Math.abs(b.predIn - b.predPoisson) - Math.abs(a.predIn - a.predPoisson));
+    return { t, predIn, predBaseline, real,
+      errRBF: Math.abs(predIn - real),
+      errBaseline: Math.abs(predBaseline - real),
+      ganha: Math.abs(predIn - real) < Math.abs(predBaseline - real) };
+  }).sort((a,b) => Math.abs(b.predIn - b.predBaseline) - Math.abs(a.predIn - a.predBaseline));
 
-  const html = `
-    <div style="font-size:10px; color:var(--tx3); margin-bottom:8px;">⚠️ Erros in-sample (treino). O σ foi escolhido por LOO real (header). Top 50 ordenados por divergência.</div>
+  document.getElementById('rbf-tabela-encerrados').innerHTML = `
+    <div style="font-size:10px; color:var(--tx3); margin-bottom:8px;">Top 100 ordenados por divergência RBF vs λ original. Erro in-sample do treino.</div>
     <table style="width:100%; border-collapse:collapse; font-size:11px;">
       <thead><tr style="background:var(--s3); color:var(--tx2);">
         <th style="padding:8px; text-align:left; font-size:10px;">Jogo</th>
         <th style="padding:8px; text-align:left; font-size:10px;">Liga</th>
-        <th style="padding:8px; text-align:right; font-size:10px;">Poisson</th>
+        <th style="padding:8px; text-align:right; font-size:10px;">λ orig</th>
         <th style="padding:8px; text-align:right; font-size:10px;">RBF</th>
         <th style="padding:8px; text-align:right; font-size:10px;">Real</th>
-        <th style="padding:8px; text-align:right; font-size:10px;">Err Po</th>
+        <th style="padding:8px; text-align:right; font-size:10px;">Err λ</th>
         <th style="padding:8px; text-align:right; font-size:10px;">Err RBF</th>
         <th></th>
       </tr></thead>
-      <tbody>${linhas.slice(0,50).map(r => `
+      <tbody>${linhas.slice(0,100).map(r => `
         <tr style="border-bottom:1px solid var(--b1);">
-          <td style="padding:5px 8px;">${r.t.jogo.casa?.nome||'?'} × ${r.t.jogo.fora?.nome||'?'}</td>
-          <td style="padding:5px 8px; color:var(--tx2);">${r.t.jogo.liga?.nome||'?'}</td>
-          <td style="padding:5px 8px; text-align:right; font-family:var(--fM);">${r.predPoisson.toFixed(2)}</td>
+          <td style="padding:5px 8px;">${rbfNomeJogo(r.t.jogo)}</td>
+          <td style="padding:5px 8px; color:var(--tx2);">${rbfNomeLiga(r.t.jogo)}</td>
+          <td style="padding:5px 8px; text-align:right; font-family:var(--fM);">${r.predBaseline.toFixed(2)}</td>
           <td style="padding:5px 8px; text-align:right; font-family:var(--fM);">${r.predIn.toFixed(2)}</td>
-          <td style="padding:5px 8px; text-align:right; font-family:var(--fM);"><span style="background:var(--gn-d); color:var(--gn); padding:1px 5px; border-radius:3px;">${r.real}</span></td>
-          <td style="padding:5px 8px; text-align:right; font-family:var(--fM); color:var(--tx2);">${r.errPoisson.toFixed(2)}</td>
+          <td style="padding:5px 8px; text-align:right;"><span style="background:var(--gn-d); color:var(--gn); padding:1px 5px; border-radius:3px; font-family:var(--fM);">${r.real}</span></td>
+          <td style="padding:5px 8px; text-align:right; font-family:var(--fM); color:var(--tx2);">${r.errBaseline.toFixed(2)}</td>
           <td style="padding:5px 8px; text-align:right; font-family:var(--fM); color:var(--tx2);">${r.errRBF.toFixed(2)}</td>
-          <td style="padding:5px 8px; font-size:10px;">${r.ganha ? '<span style="color:var(--gn);">✓ RBF</span>' : '<span style="color:var(--tx3);">Po</span>'}</td>
+          <td style="padding:5px 8px; font-size:10px;">${r.ganha ? '<span style="color:var(--gn);">✓ RBF</span>' : '<span style="color:var(--tx3);">λ</span>'}</td>
         </tr>`).join('')}
       </tbody>
     </table>
   `;
-  document.getElementById('rbf-tabela-encerrados').innerHTML = html;
 }
 
 function rbfRenderVizinhos() {
@@ -1593,7 +1707,8 @@ function rbfRenderVizinhos() {
     const vizs = a.topVizinhos.map((v, k) => `
       <tr style="border-bottom:1px solid var(--b1);">
         <td style="padding:4px 8px; font-family:var(--fM);">${k+1}</td>
-        <td style="padding:4px 8px;">${v.jogo.casa?.nome||'?'} × ${v.jogo.fora?.nome||'?'}</td>
+        <td style="padding:4px 8px;">${rbfNomeJogo(v.jogo)}</td>
+        <td style="padding:4px 8px; color:var(--tx2); font-size:10px;">${rbfNomeLiga(v.jogo)}</td>
         <td style="padding:4px 8px; text-align:right; font-family:var(--fM);">${v.dist.toFixed(2)}</td>
         <td style="padding:4px 8px; text-align:right; font-family:var(--fM);">${v.sem.toFixed(3)}</td>
         <td style="padding:4px 8px; text-align:right;"><span style="background:var(--gn-d); color:var(--gn); padding:1px 5px; border-radius:3px; font-family:var(--fM);">${v.real}</span></td>
@@ -1604,15 +1719,16 @@ function rbfRenderVizinhos() {
     return `
       <div style="background:var(--s3); border:1px solid var(--b2); border-radius:6px; padding:10px; margin-bottom:8px;">
         <div style="margin-bottom:6px; font-size:12px;">
-          <strong>${j.casa?.nome||'?'} × ${j.fora?.nome||'?'}</strong>
-          <span style="color:var(--tx3); font-size:10px;"> — ${j.liga?.nome||'?'}</span>
-          <span class="tag" style="background:var(--cy-d); color:var(--cy); margin-left:8px;">Po ${a.predPoisson.toFixed(2)}</span>
-          <span class="tag" style="background:var(--pu)20; color:var(--pu);">RBF ${a.predRBF.toFixed(2)}</span>
+          <strong>${rbfNomeJogo(j)}</strong>
+          <span style="color:var(--tx3); font-size:10px;"> — ${rbfNomeLiga(j)}</span>
+          <span class="tag" style="background:var(--cy-d); color:var(--cy); margin-left:8px;">λ ${a.predBaseline.toFixed(2)}</span>
+          <span class="tag" style="background:rgba(167,139,250,.18); color:var(--pu);">RBF ${a.predRBF.toFixed(2)}</span>
         </div>
         <table style="width:100%; border-collapse:collapse; font-size:11px;">
           <thead><tr style="background:var(--s2); color:var(--tx2);">
             <th style="padding:5px 8px; text-align:left; font-size:9px;">#</th>
             <th style="padding:5px 8px; text-align:left; font-size:9px;">Vizinho</th>
+            <th style="padding:5px 8px; text-align:left; font-size:9px;">Liga</th>
             <th style="padding:5px 8px; text-align:right; font-size:9px;">dist</th>
             <th style="padding:5px 8px; text-align:right; font-size:9px;">sem</th>
             <th style="padding:5px 8px; text-align:right; font-size:9px;">real</th>
