@@ -198,51 +198,65 @@
 
 <script>
 // ============================================================================
-// CONFIG — busca a config do Firebase direto do previsoes.html que já roda
+// CONFIG — extrai config do previsoes.html (mesmo domínio) e reusa sessão
 // ============================================================================
 let db, auth;
 
 async function carregarFirebaseConfig() {
-  // Tenta buscar do previsoes.html que está hospedado no mesmo domínio
-  const candidatos = ['/admin/previsoes.html', './previsoes.html', '../previsoes.html', '/previsoes.html'];
+  // Tenta caminhos comuns onde o previsoes.html pode estar
+  const candidatos = ['/admin/previsoes.html', './previsoes.html', '../previsoes.html', '/previsoes.html', '/previsoes'];
   for (const url of candidatos) {
     try {
-      const r = await fetch(url, { cache: 'no-store' });
+      const r = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
       if (!r.ok) continue;
       const txt = await r.text();
-      // Extrai o bloco firebaseConfig = { ... }
-      const m = txt.match(/firebaseConfig\s*=\s*\{[\s\S]*?\}/);
+      // Procura o objeto firebaseConfig de várias formas (const/var/let/=)
+      let m = txt.match(/firebaseConfig\s*=\s*(\{[\s\S]*?\})/);
+      if (!m) m = txt.match(/initializeApp\s*\(\s*(\{[\s\S]*?\})\s*\)/);
       if (!m) continue;
-      // Avalia o objeto de forma segura
-      const cfg = (new Function(`return (${m[0].replace(/^firebaseConfig\s*=\s*/, '')})`))();
-      if (cfg && cfg.apiKey && cfg.projectId) {
-        log(`Config carregada de ${url} (project: ${cfg.projectId})`);
-        return cfg;
-      }
+      try {
+        const cfg = (new Function(`return (${m[1]})`))();
+        if (cfg && cfg.apiKey && cfg.projectId) {
+          log(`✅ Config carregada de ${url} (project: ${cfg.projectId})`);
+          return cfg;
+        }
+      } catch(e) { continue; }
     } catch (e) {
-      // tenta o próximo
+      // tenta próximo
     }
   }
   return null;
 }
 
 async function inicializarFirebase() {
+  // Se já existe app inicializado no escopo global, reusa
+  if (firebase.apps && firebase.apps.length > 0) {
+    log('Reutilizando app Firebase já inicializado');
+    db = firebase.firestore();
+    auth = firebase.auth();
+    return;
+  }
+
   const cfg = await carregarFirebaseConfig();
   if (!cfg) {
-    const apiKey = prompt('Não consegui ler o config do previsoes.html.\n\nCole aqui o apiKey do seu Firebase:');
-    const projectId = prompt('Cole o projectId:');
-    if (!apiKey || !projectId) throw new Error('Config Firebase não fornecido');
-    const cfg2 = {
-      apiKey, projectId,
-      authDomain: `${projectId}.firebaseapp.com`,
-      storageBucket: `${projectId}.firebasestorage.app`,
-    };
-    firebase.initializeApp(cfg2);
-  } else {
-    firebase.initializeApp(cfg);
+    throw new Error('Não foi possível carregar o config do Firebase do previsoes.html. Verifique se o arquivo está acessível.');
   }
+  firebase.initializeApp(cfg);
   db = firebase.firestore();
   auth = firebase.auth();
+}
+
+// Espera a sessão de autenticação carregar (ela é persistida no domínio)
+function aguardarSessao(timeout = 3000) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const unsub = auth.onAuthStateChanged(user => {
+      unsub();
+      resolve(user);
+    });
+    // fallback timeout
+    setTimeout(() => resolve(auth.currentUser), timeout);
+  });
 }
 
 // ============================================================================
@@ -436,12 +450,15 @@ async function treinarEPrever() {
     if (!db) {
       await inicializarFirebase();
     }
-    status('autenticando...');
-    if (!auth.currentUser) {
-      const email = prompt('Email admin:');
-      const senha = prompt('Senha:');
-      await auth.signInWithEmailAndPassword(email, senha);
+    status('verificando sessão...');
+    let user = auth.currentUser;
+    if (!user) {
+      user = await aguardarSessao(3000);
     }
+    if (!user) {
+      throw new Error('Você precisa estar logado no /admin/. Faça login lá primeiro e volte.');
+    }
+    log(`✅ Logado como ${user.email}`);
     status('lendo Firestore...');
     log('Iniciando pipeline RBF...');
 
