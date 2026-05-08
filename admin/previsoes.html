@@ -132,7 +132,7 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
   <span class="page-id">PREVISÕES · GOLS</span>
   <div class="spacer"></div>
   <button class="btn" onclick="window.location.href='jogos-admin.html'">← Jogos</button>
-  <button class="btn" onclick="aplicarFormulaNova()" id="btnFormula">🎯 Aplicar fórmula nos cards</button>
+  <button class="btn" onclick="aplicar15Formulas()" id="btn15F">🎯 Aplicar 15 fórmulas</button>
   <button class="btn-pri btn" id="btnCalc" onclick="calcularTodos()">⚡ Calcular previsões do dia</button>
 </div>
 
@@ -831,17 +831,22 @@ function renderJogoCard(j) {
 
   let prevHtml = '';
   if (prev) {
-    const f = (typeof FORMULA_PREVS !== 'undefined') ? FORMULA_PREVS[String(id)] : null;
-    const fBlock = f ? `
-      <div style="border-left:2px solid var(--or, #ff9800); padding-left:8px; margin-top:6px;">
-        <div style="font-size:18px; font-weight:600; color:var(--or, #ff9800); font-family:var(--fM);">${f.pred.toFixed(2)}</div>
-        <div style="font-size:9px; color:var(--tx3); text-transform:uppercase; letter-spacing:.05em;">F+W (${f.nQ}Q+${f.nM}M) ${f.delta>=0?'+':''}${f.delta.toFixed(2)}</div>
-      </div>` : '';
+    const f15 = (typeof FORMULAS_15 !== 'undefined') ? FORMULAS_15[String(id)] : null;
+    let consHtml = '';
+    if (f15) {
+      const corCons = f15.spread <= 0.5 ? 'var(--gn)' : (f15.spread <= 1.0 ? 'var(--yl)' : 'var(--rd)');
+      const txtCons = f15.spread <= 0.5 ? 'CONVERGE' : (f15.spread <= 1.0 ? 'meio' : 'DIVERGE');
+      consHtml = `
+        <div style="border-left:2px solid ${corCons}; padding-left:8px; margin-top:6px;">
+          <div style="font-size:18px; font-weight:600; color:${corCons}; font-family:var(--fM);">${f15.mediana.toFixed(2)}</div>
+          <div style="font-size:9px; color:var(--tx3); text-transform:uppercase; letter-spacing:.05em;">15F med · ${txtCons} ±${f15.spread.toFixed(2)}</div>
+        </div>`;
+    }
     prevHtml = `
       <div class="jc-prev">
         <div class="lambda">${prev.lambdaTotal?.toFixed(1) || '?'}</div>
         <div class="lbl">gols esperados</div>
-        ${fBlock}
+        ${consHtml}
       </div>`;
   } else {
     prevHtml = `<div class="jc-prev empty">sem previsão</div>`;
@@ -886,6 +891,10 @@ function renderDetalhe(j, prev) {
       Clique em "Calcular previsão" para gerar análise deste jogo.
     </div>`;
   }
+
+  const f15 = (typeof FORMULAS_15 !== 'undefined') ? FORMULAS_15[String(j.apiFixtureId)] : null;
+  let painel15Html = '';
+  if (f15) painel15Html = render15FormulasPainel(f15);
 
   const fA = prev.forteA?.score?.toFixed(1) || '?';
   const fB = prev.forteB?.score?.toFixed(1) || '?';
@@ -938,6 +947,7 @@ function renderDetalhe(j, prev) {
   }
 
   return `
+    ${painel15Html}
     <div class="det-grid">
       <div class="det-block">
         <div class="det-h">ForteScore — comparação</div>
@@ -1155,18 +1165,12 @@ function hideProg() { el('progress').classList.remove('on'); }
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════
-     MÓDULO FÓRMULA — única equação fechada, baseada em:
-     - λ Poisson (base)
-     - Penalty grandes (fA+fB > 14)
-     - Penalty desbalanço (|fA-fB|)
-     - Bônus forma
-     - Bônus janelas QUENTES/MORNAS (10min agrupadas, últimos 20 jogos)
-     - Multiplicador de força em janelas (forteScore amplifica)
+     15 FÓRMULAS — câmara de votação por jogo
+     Cada fórmula é uma lógica independente; mostra todas no card.
      ═══════════════════════════════════════════════════════════ -->
 <script>
-let FORMULA_PREVS = {};   // fixtureId -> {pred, nQ, nM, delta, debug}
+let FORMULAS_15 = {};   // fixtureId -> {resultados[], mediana, media, spread, vencedoras_idx}
 
-// Pega forteA/B independente de ser número ou objeto {score:x}
 function fNum(x) {
   if (x == null) return null;
   if (typeof x === 'number') return x;
@@ -1174,114 +1178,272 @@ function fNum(x) {
   const n = Number(x); return isNaN(n) ? null : n;
 }
 
-/**
- * Calcula janelas quentes/mornas a partir das janelasTop salvas pelo Poisson.
- * Cada janela top tem aSc, bSc, aCn, bCn (gols feitos/tomados nas últimas 20 partidas).
- * Agrupa em 10min combinando os pares de 5min adjacentes.
- *
- * Janela "quente"  = max(aSc+bCn, bSc+aCn) >= 10
- * Janela "morna"   = entre 6 e 9
- * Janela "fria"    = abaixo de 6
- */
-function calcularJanelas10min(prev) {
-  if (!prev || !prev.janelasTop || !Array.isArray(prev.janelasTop)) {
-    return { nQ: 0, nM: 0, vazia: true };
-  }
-  // Mapa de janelas 5min -> dados (label, aSc, bSc, aCn, bCn)
-  const map5 = {};
+// Calcula o índice cruzado total das janelas top (sinal de "janela quente")
+function janelasQuentesCount(prev) {
+  if (!prev?.janelasTop) return 0;
+  let q = 0;
   for (const j of prev.janelasTop) {
-    if (!j.label) continue;
-    map5[j.label] = j;
+    const valor = Math.max((j.aSc||0)+(j.bCn||0), (j.bSc||0)+(j.aCn||0));
+    if (valor >= 10) q++;
   }
-
-  // Pares 10min: 0-5+6-10, 11-15+16-20, etc
-  const pares = [
-    ['0-5','6-10'], ['11-15','16-20'], ['21-25','26-30'],
-    ['31-35','36-40'], ['41-45','46-50'], ['51-55','56-60'],
-    ['61-65','66-70'], ['71-75','76-80'], ['81-85','86-90']
-  ];
-
-  let nQ = 0, nM = 0, maxValor = 0;
-  const detalhes = [];
-  for (const [a,b] of pares) {
-    const ja = map5[a], jb = map5[b];
-    const aSc = (ja?.aSc || 0) + (jb?.aSc || 0);
-    const bSc = (ja?.bSc || 0) + (jb?.bSc || 0);
-    const aCn = (ja?.aCn || 0) + (jb?.aCn || 0);
-    const bCn = (ja?.bCn || 0) + (jb?.bCn || 0);
-    const valor = Math.max(aSc + bCn, bSc + aCn);
-    maxValor = Math.max(maxValor, valor);
-    if (valor >= 10) nQ++;
-    else if (valor >= 6) nM++;
-    if (valor > 0) detalhes.push({ janela: `${a.split('-')[0]}-${b.split('-')[1]}`, valor });
+  return q;
+}
+function maxIndiceCruzado(prev) {
+  if (!prev?.janelasTop) return 0;
+  let max = 0;
+  for (const j of prev.janelasTop) {
+    const valor = Math.max((j.aSc||0)+(j.bCn||0), (j.bSc||0)+(j.aCn||0));
+    if (valor > max) max = valor;
   }
-
-  return { nQ, nM, maxValor, vazia: maxValor < 6, detalhes };
+  return max;
 }
 
-/**
- * FÓRMULA PRINCIPAL — calcula G previsto pra um jogo dado a previsão Poisson
- *
- * G = 1.4·√λ
- *   - 0.40 · max(0, (fA+fB)/2 - 7)             [penalty TIMES GRANDES]
- *   - 0.10 · |fA-fB|                            [penalty desbalanço]
- *   + 0.15 · max(0, (formA+formB) - 2.5)        [bônus forma]
- *   + 0.60·(1 + (fA+fB)/20) · n_quentes         [JANELAS QUENTES amplificadas por força]
- *   + 0.20·(1 + (fA+fB)/20) · n_mornas          [JANELAS MORNAS amplificadas]
- *   - 0.40 · (1 se nenhuma janela ≥6, senão 0)  [penalty jogo morno total]
- *
- * Resultado: max(G, 0.5) — sem negativos, sem zero técnico
- */
-function aplicarFormula(prev) {
+// As 15 fórmulas — todas retornam um número >= 0
+function calcular15(prev) {
   if (!prev || prev.lambdaTotal == null) return null;
-
-  const lam = Number(prev.lambdaTotal);
-  const fA  = fNum(prev.forteA);
-  const fB  = fNum(prev.forteB);
-  if (isNaN(lam) || fA == null || fB == null) return null;
-
   const r = prev.rawInputs || {};
+  const lam = Number(prev.lambdaTotal);
+  const fA = fNum(prev.forteA) || 5;
+  const fB = fNum(prev.forteB) || 5;
+  const gfA = Number(r.gfA_final ?? r.gfA_geral ?? r.gfA ?? 1.0);
+  const gcA = Number(r.gcA_final ?? r.gcA_geral ?? r.gcA ?? 1.0);
+  const gfB = Number(r.gfB_final ?? r.gfB_geral ?? r.gfB ?? 1.0);
+  const gcB = Number(r.gcB_final ?? r.gcB_geral ?? r.gcB ?? 1.0);
   const formA = Number(r.formA5 ?? 1.0);
   const formB = Number(r.formB5 ?? 1.0);
+  // xG por minuto não está no rawInputs do schema atual; uso gf/min como proxy
+  const xgA = gfA;  // proxy: GF/jogo ≈ xG/jogo
+  const xgB = gfB;
+  const f18 = Number(r.f18 ?? 1.0);
 
-  const j = calcularJanelas10min(prev);
+  const nQuentes = janelasQuentesCount(prev);
+  const maxIC = maxIndiceCruzado(prev);
   const fSoma = fA + fB;
   const fAvg = fSoma / 2;
   const fDif = Math.abs(fA - fB);
-  const multForca = 1 + (fSoma / 20);  // 1.0 a 1.86
+  const formAvg = (formA + formB) / 2;
 
-  const base = 1.4 * Math.sqrt(lam);
-  const penGrandes = 0.40 * Math.max(0, fAvg - 7);
-  const penDif = 0.10 * fDif;
-  const bonusForma = 0.15 * Math.max(0, (formA + formB) - 2.5);
-  const bonusQuente = 0.60 * multForca * j.nQ;
-  const bonusMorno = 0.20 * multForca * j.nM;
-  const penMorno = j.vazia ? 0.40 : 0;
+  const formulas = [];
 
-  const G = base - penGrandes - penDif + bonusForma + bonusQuente + bonusMorno - penMorno;
-  const pred = Math.max(G, 0.5);
+  // F1 — Soma xG simples
+  formulas.push({
+    nome: 'Soma xG simples',
+    formula: 'gfA + gfB',
+    valor: Math.max(0, gfA + gfB)
+  });
+
+  // F2 — GF+GC cruzado médio
+  formulas.push({
+    nome: 'GF+GC cruzado médio',
+    formula: '(gfA+gcB)/2 + (gfB+gcA)/2',
+    valor: Math.max(0, (gfA+gcB)/2 + (gfB+gcA)/2)
+  });
+
+  // F3 — Poisson cruzado clássico
+  formulas.push({
+    nome: 'Poisson cruzado',
+    formula: 'gfA·gcB + gfB·gcA',
+    valor: Math.max(0, gfA*gcB + gfB*gcA)
+  });
+
+  // F4 — λ Poisson original
+  formulas.push({
+    nome: 'λ Poisson v3 original',
+    formula: 'lambdaTotal',
+    valor: lam
+  });
+
+  // F5 — Forma pondera xG
+  formulas.push({
+    nome: 'xG ponderado por forma',
+    formula: 'gfA·formA + gfB·formB',
+    valor: Math.max(0, gfA*Math.max(0.4,formA) + gfB*Math.max(0.4,formB))
+  });
+
+  // F6 — ForteScore inflaciona
+  formulas.push({
+    nome: 'ForteScore amplificado',
+    formula: '(gfA+gfB)·(1+fSoma/30)',
+    valor: Math.max(0, (gfA+gfB) * (1 + fSoma/30))
+  });
+
+  // F7 — Janela quente decisiva
+  formulas.push({
+    nome: 'Base + janelas quentes',
+    formula: '(gfA+gfB)/2 + 1·nQuentes',
+    valor: Math.max(0, (gfA+gfB)/2 + nQuentes)
+  });
+
+  // F8 — Bônus equilíbrio
+  formulas.push({
+    nome: 'Base + bônus equilíbrio',
+    formula: 'lam + (1-fDif/3)·0.5',
+    valor: Math.max(0, lam + (1 - fDif/3) * 0.5)
+  });
+
+  // F9 — Multiplicativo ataque×defesa expandido
+  formulas.push({
+    nome: 'Ataque×Defesa amplificado',
+    formula: 'gfA·gcB·1.2 + gfB·gcA·1.2',
+    valor: Math.max(0, gfA*gcB*1.2 + gfB*gcA*1.2)
+  });
+
+  // F10 — Janela deslizante topo (proxy via maxIC)
+  formulas.push({
+    nome: 'Janela top deslizante',
+    formula: 'maxIC/4 + (gfA+gfB)/2',
+    valor: Math.max(0, maxIC/4 + (gfA+gfB)/2)
+  });
+
+  // F11 — Raiz amaciada (nossa fórmula refinada)
+  formulas.push({
+    nome: 'Raiz amaciada (refinada)',
+    formula: '1.4·√λ + bônus janelas - penalty grandes/dif',
+    valor: Math.max(0,
+      1.4 * Math.sqrt(lam)
+      - 0.40 * Math.max(0, fAvg - 7)
+      - 0.10 * fDif
+      + 0.15 * Math.max(0, formA + formB - 2.5)
+      + 0.60 * nQuentes
+    )
+  });
+
+  // F12 — Pythagoras
+  formulas.push({
+    nome: 'Pythagoras simples',
+    formula: '√(xgA²+xgB²) + (gcA+gcB)/4',
+    valor: Math.max(0, Math.sqrt(xgA*xgA + xgB*xgB) + (gcA+gcB)/4)
+  });
+
+  // F13 — Soma harmônica
+  formulas.push({
+    nome: 'Média harmônica + base',
+    formula: '2·xgA·xgB/(xgA+xgB) + base',
+    valor: Math.max(0, (xgA+xgB > 0 ? 2*xgA*xgB/(xgA+xgB) : 0) + (gcA+gcB)/2)
+  });
+
+  // F14 — Max ataque + max defesa
+  formulas.push({
+    nome: 'Max GF + Max GC',
+    formula: 'max(gfA,gfB) + max(gcA,gcB)',
+    valor: Math.max(0, Math.max(gfA, gfB) + Math.max(gcA, gcB))
+  });
+
+  // F15 — Esperança Poisson cortada (log)
+  formulas.push({
+    nome: 'Log esmagada',
+    formula: 'ln(1+λ) + (gfA+gfB)/2',
+    valor: Math.max(0, Math.log(1 + lam) + (gfA + gfB)/2)
+  });
+
+  // Estatísticas agregadas
+  const valores = formulas.map(f => f.valor).slice().sort((a,b) => a-b);
+  const mediana = valores.length % 2 === 0
+    ? (valores[valores.length/2-1] + valores[valores.length/2])/2
+    : valores[Math.floor(valores.length/2)];
+  const media = valores.reduce((s,x)=>s+x,0) / valores.length;
+  const min = valores[0];
+  const max = valores[valores.length-1];
+  const spread = max - min;
+
+  // Distribuição em buckets de 1 gol pra detectar consenso
+  const buckets = { 0:0, 1:0, 2:0, 3:0, 4:0, '5+':0 };
+  for (const v of valores) {
+    const k = v < 0.5 ? 0 : v < 1.5 ? 1 : v < 2.5 ? 2 : v < 3.5 ? 3 : v < 4.5 ? 4 : '5+';
+    buckets[k]++;
+  }
+  // Bucket dominante
+  let dominante = 0, maxBucket = 0;
+  for (const k in buckets) {
+    if (buckets[k] > maxBucket) { maxBucket = buckets[k]; dominante = k; }
+  }
 
   return {
-    pred,
-    delta: pred - lam,
-    nQ: j.nQ,
-    nM: j.nM,
-    debug: {
-      base: base.toFixed(2),
-      penGrandes: (-penGrandes).toFixed(2),
-      penDif: (-penDif).toFixed(2),
-      bonusForma: (+bonusForma).toFixed(2),
-      bonusQuente: (+bonusQuente).toFixed(2),
-      bonusMorno: (+bonusMorno).toFixed(2),
-      penMorno: (-penMorno).toFixed(2),
-      multForca: multForca.toFixed(2),
-      janelas: j.detalhes
-    }
+    formulas,         // todas as 15 com nome/formula/valor
+    valores,          // valores ordenados
+    mediana,
+    media,
+    min, max, spread,
+    buckets,
+    dominante: String(dominante),
+    consensoForca: maxBucket  // quantas das 15 caíram no bucket dominante
   };
 }
 
-async function aplicarFormulaNova() {
-  const btn = document.getElementById('btnFormula');
+// Renderiza painel das 15 fórmulas no card (interno do detalhe)
+function render15FormulasPainel(f15) {
+  if (!f15) return '';
+
+  const corCons = f15.spread <= 0.5 ? 'var(--gn)' :
+                  f15.spread <= 1.0 ? 'var(--yl)' : 'var(--rd)';
+  const txtCons = f15.spread <= 0.5 ? 'CONVERGENTE' :
+                  f15.spread <= 1.0 ? 'meio convergente' : 'DIVERGENTE';
+
+  // Histograma
+  const histogramaHtml = ['0','1','2','3','4','5+'].map(k => {
+    const cnt = f15.buckets[k] || 0;
+    const pct = cnt > 0 ? (cnt / 15 * 100) : 0;
+    const dest = String(k) === f15.dominante ? 'var(--cy)' : 'var(--tx3)';
+    return `<div style="text-align:center; flex:1;">
+      <div style="font-size:10px; color:${dest}; font-family:var(--fM);">${cnt}</div>
+      <div style="background:${dest}; width:80%; margin:0 auto; height:${Math.max(2, pct*0.4)}px; border-radius:1px;"></div>
+      <div style="font-size:9px; color:var(--tx3); margin-top:2px;">${k}g</div>
+    </div>`;
+  }).join('');
+
+  // Ranking ordenado por proximidade da mediana (vencedoras destacadas)
+  const ordenadas = f15.formulas.slice().map((f, i) => ({...f, idx:i, distMed: Math.abs(f.valor - f15.mediana)}))
+                                .sort((a,b) => a.distMed - b.distMed);
+
+  const linhas = ordenadas.map((f, rank) => {
+    const top5 = rank < 5;
+    const cor = top5 ? 'var(--cy)' : 'var(--tx2)';
+    const bg = top5 ? 'rgba(0,212,255,0.08)' : 'transparent';
+    const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : top5 ? '⭐' : '';
+    return `<tr style="background:${bg}; border-bottom:1px solid var(--b1);">
+      <td style="padding:4px 6px; font-family:var(--fM); font-size:10px; color:var(--tx3); text-align:right;">${f.idx+1}</td>
+      <td style="padding:4px 6px; font-size:11px; color:${cor};">${medal} ${f.nome}</td>
+      <td style="padding:4px 6px; font-family:var(--fM); font-size:10px; color:var(--tx3);">${f.formula}</td>
+      <td style="padding:4px 6px; text-align:right; font-family:var(--fM); font-size:13px; font-weight:${top5?'600':'400'}; color:${top5?'var(--cy)':'var(--tx2)'};">${f.valor.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div style="background:var(--s2); border:1px solid var(--b1); border-radius:8px; padding:14px; margin-bottom:14px;">
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:10px;">
+        <div>
+          <div style="font-size:10px; color:var(--tx3); text-transform:uppercase; letter-spacing:.05em;">🎯 Câmara das 15 fórmulas</div>
+          <div style="font-size:24px; font-weight:600; color:${corCons}; font-family:var(--fM);">${f15.mediana.toFixed(2)}</div>
+          <div style="font-size:10px; color:var(--tx3);">mediana · ${txtCons} · spread ±${f15.spread.toFixed(2)}</div>
+        </div>
+        <div style="flex:1; min-width:200px;">
+          <div style="font-size:10px; color:var(--tx3); text-transform:uppercase; margin-bottom:4px;">Distribuição (${f15.consensoForca}/15 votam em ${f15.dominante}g)</div>
+          <div style="display:flex; gap:4px; align-items:flex-end; height:50px;">${histogramaHtml}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:10px; color:var(--tx3); text-transform:uppercase;">média</div>
+          <div style="font-size:14px; font-family:var(--fM); color:var(--tx2);">${f15.media.toFixed(2)}</div>
+          <div style="font-size:10px; color:var(--tx3); margin-top:4px;">min: ${f15.min.toFixed(2)} · max: ${f15.max.toFixed(2)}</div>
+        </div>
+      </div>
+      <table style="width:100%; border-collapse:collapse; font-size:11px;">
+        <thead><tr style="color:var(--tx3); font-size:10px; text-transform:uppercase;">
+          <th style="padding:4px 6px; text-align:right;">#</th>
+          <th style="padding:4px 6px; text-align:left;">Fórmula</th>
+          <th style="padding:4px 6px; text-align:left;">Lógica</th>
+          <th style="padding:4px 6px; text-align:right;">Gols</th>
+        </tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+      <div style="font-size:10px; color:var(--tx3); margin-top:8px; line-height:1.4;">
+        🥇🥈🥉 = mais próximas da mediana · ⭐ = top 5 · As 5 destacadas tendem a representar o consenso.
+      </div>
+    </div>
+  `;
+}
+
+async function aplicar15Formulas() {
+  const btn = document.getElementById('btn15F');
   btn.disabled = true;
   btn.textContent = '⏳ aplicando...';
   try {
@@ -1290,9 +1452,9 @@ async function aplicarFormulaNova() {
       const fid = j.apiFixtureId;
       const prev = PREVS[String(fid)];
       if (!prev) { semPrev++; continue; }
-      const r = aplicarFormula(prev);
+      const r = calcular15(prev);
       if (!r) { semDados++; continue; }
-      FORMULA_PREVS[String(fid)] = r;
+      FORMULAS_15[String(fid)] = r;
       aplicados++;
     }
 
@@ -1305,22 +1467,14 @@ async function aplicarFormulaNova() {
       }
     }
 
-    showBanner('info', `🎯 Fórmula aplicada em ${aplicados} jogos${semPrev?` · ${semPrev} sem Poisson`:''}${semDados?` · ${semDados} sem features`:''}`);
+    showBanner('info', `🎯 15 fórmulas aplicadas em ${aplicados} jogos${semPrev?` · ${semPrev} sem Poisson`:''}${semDados?` · ${semDados} sem features`:''}. Clique no card pra ver as 15.`);
     btn.disabled = false;
-    btn.textContent = '🔄 Reaplicar fórmula';
-
-    console.log('[FORMULA] Detalhes por jogo:');
-    for (const fid in FORMULA_PREVS) {
-      const f = FORMULA_PREVS[fid];
-      const j = JOGOS.find(x => String(x.apiFixtureId) === fid);
-      const nome = j ? `${j.timeCasa.nome} × ${j.timeFora.nome}` : fid;
-      console.log(`  ${nome}: pred=${f.pred.toFixed(2)} (delta=${f.delta>=0?'+':''}${f.delta.toFixed(2)}, ${f.nQ}Q+${f.nM}M)`, f.debug);
-    }
+    btn.textContent = '🔄 Reaplicar 15 fórmulas';
   } catch (e) {
-    console.error('[FORMULA]', e);
-    showBanner('err', `Fórmula: erro - ${e.message}`);
+    console.error('[15F]', e);
+    showBanner('err', `15 Fórmulas: erro - ${e.message}`);
     btn.disabled = false;
-    btn.textContent = '🎯 Aplicar fórmula nos cards';
+    btn.textContent = '🎯 Aplicar 15 fórmulas';
   }
 }
 </script>
