@@ -129,7 +129,7 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
 
 <div class="topbar">
   <span class="logo">YELL<em>UP</em></span>
-  <span class="page-id">PREVISÕES · GOLS</span>
+  <span class="page-id">PREVISÕES · GOLS · V6</span>
   <div class="spacer"></div>
   <button class="btn" onclick="window.location.href='jogos-admin.html'">← Jogos</button>
   <button class="btn" onclick="aplicar15Formulas()" id="btn15F">🎯 Aplicar 15 fórmulas</button>
@@ -433,6 +433,29 @@ const LC = {
 function getLC(leagueId) { return LC[leagueId] || 0.60; }
 
 // ═══════════════════════════════════════════════════════════
+// AJUSTE RESIDUAL POR LIGA (v6) — aplicado APÓS calibração afim
+// Baseado em 269 jogos do histórico (rel. 10/05/2026).
+// Ligas onde mesmo após calibração global o bias permanece forte.
+// Critério: n≥3 jogos, |bias_residual| ≥ 0.6.
+// Reavaliar quando tiver 500+ jogos.
+// ═══════════════════════════════════════════════════════════
+const LIGA_AJUSTE = {
+  // Subestima muito (boost para CIMA):
+  71:  1.30,  // Brasileirão Série A (n=10, bias -2.02)
+  813: 1.30,  // Cameroon Elite Two (n=7, bias -2.10)
+  186: 1.20,  // Algeria Ligue 1 (n=4, bias -2.27)
+  307: 1.20,  // Saudi Pro League (n=3, bias -2.80, low-conf)
+  301: 1.20,  // UAE Pro League (n=3, bias -1.77, low-conf)
+  405: 1.20,  // Rwanda National Soccer League (n=3, bias -1.80)
+  542: 1.15,  // Iraqi League (n=5, bias -1.26)
+  570: 1.15,  // Ghana Premier League (n=8, bias -1.15)
+  425: 1.12,  // Saudi Premier League (n=10, bias -0.93)
+  140: 1.08,  // La Liga (n=5, bias -0.99) — leve, n baixo
+  128: 1.08,  // Liga Profesional Argentina (n=4, bias -0.90)
+};
+function getLigaAjuste(leagueId) { return LIGA_AJUSTE[leagueId] || 1.0; }
+
+// ═══════════════════════════════════════════════════════════
 // FORTESCORE simplificado (com LC + forma recente)
 // Componentes: WRS·0.45 + IO·0.20 + ID·0.20 + LCS·0.15
 // ═══════════════════════════════════════════════════════════
@@ -479,10 +502,17 @@ function calcForteScore(enriched20) {
 // ═══════════════════════════════════════════════════════════
 // MOTOR DE PREVISÃO DE GOLS (POISSON)
 // ═══════════════════════════════════════════════════════════
-function calcPrevisao(rxA, rxB) {
+function calcPrevisao(rxA, rxB, leagueId = null) {
   // rxA = time da casa, rxB = time de fora
   // Cada enriched item agora pode ter: tXG, oXG, tShots, oShots, tShotsOG, oShotsOG, tPoss, oForte
-  const FATOR_CORRECAO = 0.80;
+  // ─── CALIBRAÇÃO v6 ───
+  // Substituiu o FATOR_CORRECAO=0.80 (multiplicativo) por uma transformação afim:
+  //   λ_calibrado = CAL_A + CAL_B × λ_bruto
+  // Coeficientes derivados de regressão linear sobre 269 jogos encerrados (rel. de 10/05/2026).
+  // Captura mean reversion: prevê pouco → soma; prevê muito → desconta.
+  // Recalcular quando tiver 400+ jogos no histórico.
+  const CAL_A = 1.69;
+  const CAL_B = 0.395;
 
   // ─── 1. Médias gerais (fallback / base) ───
   const meanField = (arr, field) => {
@@ -585,9 +615,30 @@ function calcPrevisao(rxA, rxB) {
   lambdaA *= adjA;
   lambdaB *= adjB;
 
-  // ─── 6. Calibração empírica ───
-  lambdaA *= FATOR_CORRECAO;
-  lambdaB *= FATOR_CORRECAO;
+  // ─── 6. Calibração v6 ───
+  // Bônus fraco × fraco: defesas ruins fazem jogo aberto (cenário detectado no histórico).
+  // 2 jogos só no treino, mas mecânica clara — testar com mais dados.
+  let bonusFracoFraco = 1.0;
+  if (forteA <= 5 && forteB <= 5) {
+    bonusFracoFraco = 1.15;
+    lambdaA *= bonusFracoFraco;
+    lambdaB *= bonusFracoFraco;
+  }
+
+  // Calibração afim: λ_total_calibrado = CAL_A + CAL_B × λ_total_bruto
+  // Rescala lambdaA e lambdaB pela razão pra preservar split casa/fora.
+  const lambdaTotal_bruto = lambdaA + lambdaB;
+  const lambdaTotal_calibrado = CAL_A + CAL_B * lambdaTotal_bruto;
+  const ratio = lambdaTotal_calibrado / Math.max(0.01, lambdaTotal_bruto);
+  lambdaA *= ratio;
+  lambdaB *= ratio;
+
+  // Ajuste residual por liga (corrige onde liga desvia muito do global)
+  const ligaAjuste = getLigaAjuste(leagueId);
+  if (ligaAjuste !== 1.0) {
+    lambdaA *= ligaAjuste;
+    lambdaB *= ligaAjuste;
+  }
 
   lambdaA = Math.max(0.1, Math.min(4.5, lambdaA));
   lambdaB = Math.max(0.1, Math.min(4.5, lambdaB));
@@ -607,13 +658,17 @@ function calcPrevisao(rxA, rxB) {
     lambdaA: round2(lambdaA),
     lambdaB: round2(lambdaB),
     lambdaTotal: round2(lambdaTotal),
+    lambdaTotal_bruto: round2(lambdaTotal_bruto),  // v6: λ pré-calibração
+    calibracao: { a: CAL_A, b: CAL_B, ratio: round2(ratio) },
+    bonusFracoFraco,
+    ligaAjuste,
     probs: probs.map(round3),
     janelasTop: janelas.slice(0, 5),
     matchupAberto,
     jogoTrancado,
     tagAltoConfiancaUnder,
     tagAltoConfiancaOver,
-    fatorCorrecao: FATOR_CORRECAO,
+    fatorCorrecao: null,  // v6: removido em favor de calibração afim
     fonteLambda: {
       usaXG_A, usaXG_B,
       mandoA_n: mandoA.length, mandoA_src: gfA_m?.src || null,
@@ -965,7 +1020,24 @@ function renderDetalhe(j, prev) {
         <div style="font-family:var(--fM);font-size:10px;color:var(--tx3);margin-top:12px;line-height:1.6">
           λ ${j.timeCasa.nome.slice(0,16)}: <span style="color:var(--tx2)">${prev.lambdaA?.toFixed(2)}</span><br>
           λ ${j.timeFora.nome.slice(0,16)}: <span style="color:var(--tx2)">${prev.lambdaB?.toFixed(2)}</span><br>
-          ${prev.fatorCorrecao ? `Fator de calibração: <span style="color:var(--tx2)">×${prev.fatorCorrecao}</span><br>` : ''}
+          ${prev.lambdaTotal_bruto != null ? `
+          <div style="background:var(--s3);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;margin:8px 0;display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;">
+            <div style="text-align:center">
+              <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px">λ bruto</div>
+              <div style="font-size:14px;color:var(--tx2);font-weight:700">${prev.lambdaTotal_bruto.toFixed(2)}</div>
+            </div>
+            <div style="font-size:14px;color:var(--cy)">→</div>
+            <div style="text-align:center">
+              <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px">λ calibrado</div>
+              <div style="font-size:14px;color:var(--cy);font-weight:700">${prev.lambdaTotal?.toFixed(2)}</div>
+            </div>
+          </div>
+          <div style="font-size:9px;color:var(--tx3)">
+            calib afim: ${prev.calibracao?.a} + ${prev.calibracao?.b} × λ_bruto
+            ${prev.bonusFracoFraco > 1 ? ` · <span style="color:var(--yl)">×${prev.bonusFracoFraco} fraco-fraco</span>` : ''}
+            ${prev.ligaAjuste && prev.ligaAjuste !== 1 ? ` · <span style="color:var(--yl)">×${prev.ligaAjuste} liga#${j.liga?.apiId}</span>` : ''}
+          </div>
+          ` : (prev.fatorCorrecao ? `Fator de calibração (legado): <span style="color:var(--tx2)">×${prev.fatorCorrecao}</span><br>` : '')}
           ${prev.fonteLambda ? `Fonte: <span style="color:var(--tx2)">${prev.fonteLambda.usaXG_A?'xG':'gols'}/${prev.fonteLambda.usaXG_B?'xG':'gols'}</span> · mando: <span style="color:var(--tx2)">${prev.fonteLambda.mandoA_n}/${prev.fonteLambda.mandoB_n}</span> · oponente pesado: <span style="color:var(--tx2)">${prev.fonteLambda.jogosPondA||0}/${prev.fonteLambda.jogosPondB||0}</span><br>` : ''}
           ${prev.matchupAberto ? `<span style="color:var(--yl)">⚠ MATCHUP ABERTO</span> (top1≥20 e top2≥14)<br>` : ''}
           ${prev.jogoTrancado ? `<span style="color:#7fa8c9">🛡 JOGO TRANCADO</span> (t1<11 → 86% under 1.5 nos 37j)<br>` : ''}
@@ -1103,7 +1175,7 @@ async function calcularJogo(j) {
     scanTeam(j.timeFora.apiId, j.timeFora)
   ]);
 
-  const previsao = calcPrevisao(rxA, rxB);
+  const previsao = calcPrevisao(rxA, rxB, j.liga?.apiId);
 
   // Gols por tempo (1ºT/2ºT) — usa totalsByBucket de cada time
   const tempoA = calcGolsPorTempo(rxA.totalsByBucket, rxA.enriched.length);
@@ -1130,6 +1202,10 @@ async function calcularJogo(j) {
     lambdaA: previsao.lambdaA,
     lambdaB: previsao.lambdaB,
     lambdaTotal: previsao.lambdaTotal,
+    lambdaTotal_bruto: previsao.lambdaTotal_bruto,  // v6
+    calibracao: previsao.calibracao,                 // v6
+    bonusFracoFraco: previsao.bonusFracoFraco,       // v6
+    ligaAjuste: previsao.ligaAjuste,                 // v6
     probs: previsao.probs,
     janelasTop: previsao.janelasTop.map(jn => ({
       i: jn.i, label: jn.label, total: jn.total, fav: jn.fav,
@@ -1142,7 +1218,7 @@ async function calcularJogo(j) {
     tagAltoConfiancaOver: previsao.tagAltoConfiancaOver,
     fatorCorrecao: previsao.fatorCorrecao,
     fonteLambda: previsao.fonteLambda,
-    versaoModelo: 'v5-30jogos-tempos',
+    versaoModelo: 'v6-calibracao-afim',
     rawInputs: previsao.rawInputs,
     analisado: false,
     calculadoEm: firebase.firestore.FieldValue.serverTimestamp()
