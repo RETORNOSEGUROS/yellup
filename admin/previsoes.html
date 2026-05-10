@@ -129,7 +129,7 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
 
 <div class="topbar">
   <span class="logo">YELL<em>UP</em></span>
-  <span class="page-id">PREVISÕES · GOLS · V6</span>
+  <span class="page-id">PREVISÕES · GOLS · V7</span>
   <div class="spacer"></div>
   <button class="btn" onclick="window.location.href='jogos-admin.html'">← Jogos</button>
   <button class="btn" onclick="aplicar15Formulas()" id="btn15F">🎯 Aplicar 15 fórmulas</button>
@@ -516,6 +516,31 @@ function calcPrevisao(rxA, rxB, leagueId = null) {
   const CAL_A = 1.69;
   const CAL_B = 0.316;
 
+  // ─── v7: agregar stats detalhadas (xG, chutes, posse) p/ persistência e ajustes ───
+  const aggStats = (arr) => {
+    const A = { xg:[], shots:[], shotsOG:[], poss:[], oXG:[], oShots:[], oShotsOG:[] };
+    arr.forEach(e => {
+      if (e.tXG != null)      A.xg.push(e.tXG);
+      if (e.tShots != null)   A.shots.push(e.tShots);
+      if (e.tShotsOG != null) A.shotsOG.push(e.tShotsOG);
+      if (e.tPoss != null)    A.poss.push(e.tPoss);
+      if (e.oXG != null)      A.oXG.push(e.oXG);
+      if (e.oShots != null)   A.oShots.push(e.oShots);
+      if (e.oShotsOG != null) A.oShotsOG.push(e.oShotsOG);
+    });
+    const med = (a) => a.length ? a.reduce((s,x)=>s+x,0)/a.length : null;
+    return {
+      xg:       med(A.xg),       n_xg:       A.xg.length,
+      shots:    med(A.shots),    n_shots:    A.shots.length,
+      shotsOG:  med(A.shotsOG),  n_shotsOG:  A.shotsOG.length,
+      poss:     med(A.poss),     n_poss:     A.poss.length,
+      oXG:      med(A.oXG),      oShots:     med(A.oShots),
+      oShotsOG: med(A.oShotsOG)
+    };
+  };
+  const aggA = aggStats(rxA.enriched.slice(0, 20));
+  const aggB = aggStats(rxB.enriched.slice(0, 20));
+
   // ─── 1. Médias gerais (fallback / base) ───
   const meanField = (arr, field) => {
     const valid = arr.filter(e => e[field] != null);
@@ -617,15 +642,60 @@ function calcPrevisao(rxA, rxB, leagueId = null) {
   lambdaA *= adjA;
   lambdaB *= adjB;
 
-  // ─── 6. Calibração v6 ───
-  // Bônus fraco × fraco: defesas ruins fazem jogo aberto (cenário detectado no histórico).
-  // 2 jogos só no treino, mas mecânica clara — testar com mais dados.
-  let bonusFracoFraco = 1.0;
-  if (forteA <= 5 && forteB <= 5) {
-    bonusFracoFraco = 1.15;
-    lambdaA *= bonusFracoFraco;
-    lambdaB *= bonusFracoFraco;
+  // ─── v7: AJUSTE POR CENÁRIO FORTESCORE ───
+  // Tabela derivada de 269 jogos do histórico:
+  //   7×7 (n=41) → 1.98 gols (vs média geral 2.31)  — fortes equilibrados travam
+  //   6×6 (n=38) → 1.84 gols                         — médios equilibrados travam mais ainda
+  //   ≤5 envolvido (n=39) → 3.56 gols               — fraco no jogo abre pra os dois lados
+  //   |dif| ≥ 3 (n=17) → 3.41 gols                  — massacre claro abre o jogo
+  // Multiplicadores calibrados por validação (refinamento iterativo):
+  //   fortes_equil 0.70, medios_equil 0.74, fraco 1.45, desnivel 1.20
+  // Capturando o que Poisson não vê: dinâmica psicológica/tática do confronto.
+  let cenarioForte = 'neutro';
+  let cenarioMult = 1.0;
+  const dif = Math.abs(forteA - forteB);
+
+  if (forteA >= 7 && forteB >= 7 && dif <= 1) {
+    // Fortes equilibrados → trava
+    cenarioMult = 0.70;
+    cenarioForte = 'fortes_equilibrados_trava';
+  } else if (forteA >= 6 && forteB >= 6 && forteA <= 7 && forteB <= 7 && dif <= 1) {
+    // Médios equilibrados → trava ainda mais
+    cenarioMult = 0.74;
+    cenarioForte = 'medios_equilibrados_trava';
+  } else if (forteA <= 5 || forteB <= 5) {
+    // Pelo menos um time fraco envolvido → jogo abre (média 3.56 vs 2.31)
+    cenarioMult = 1.45;
+    cenarioForte = 'fraco_envolvido_abre';
+  } else if (dif >= 3) {
+    // Desnível claro → massacre
+    cenarioMult = 1.20;
+    cenarioForte = 'desnivel_massacre';
   }
+
+  lambdaA *= cenarioMult;
+  lambdaB *= cenarioMult;
+
+  // ─── v7: MEAN REVERSION VIA xG ───
+  // Se time vem fazendo MENOS gols que o xG sugere → vai voltar à média (boost)
+  // Se time vem fazendo MAIS gols que o xG sugere → corrige pra baixo
+  // Sinal claro de regressão à média. xG ≈ "quanto deveria ter feito".
+  // Só aplica quando há ≥ 8 jogos com xG disponível (confiabilidade do sample).
+  let xgBoost_A = 1.0, xgBoost_B = 1.0;
+  if (aggA.n_xg >= 8 && aggA.xg != null && gfA_geral > 0) {
+    const ratio_xg_A = aggA.xg / gfA_geral;
+    // Limite ±20% pra não criar oscilações grandes
+    xgBoost_A = Math.max(0.85, Math.min(1.15, Math.pow(ratio_xg_A, 0.5)));
+    lambdaA *= xgBoost_A;
+  }
+  if (aggB.n_xg >= 8 && aggB.xg != null && gfB_geral > 0) {
+    const ratio_xg_B = aggB.xg / gfB_geral;
+    xgBoost_B = Math.max(0.85, Math.min(1.15, Math.pow(ratio_xg_B, 0.5)));
+    lambdaB *= xgBoost_B;
+  }
+
+  // ─── Calibração v6 (mantida) ───
+  // Bônus fraco × fraco: REMOVIDO em v7 (já capturado no cenárioForte 'fraco_envolvido_abre')
 
   // Calibração afim: λ_total_calibrado = CAL_A + CAL_B × λ_total_bruto
   // Rescala lambdaA e lambdaB pela razão pra preservar split casa/fora.
@@ -662,7 +732,11 @@ function calcPrevisao(rxA, rxB, leagueId = null) {
     lambdaTotal: round2(lambdaTotal),
     lambdaTotal_bruto: round2(lambdaTotal_bruto),  // v6: λ pré-calibração
     calibracao: { a: CAL_A, b: CAL_B, ratio: round2(ratio) },
-    bonusFracoFraco,
+    cenarioForte,                  // v7: nome do cenário detectado
+    cenarioMult: round3(cenarioMult), // v7: multiplicador do cenário
+    xgBoost_A: round3(xgBoost_A),   // v7: ajuste mean reversion casa
+    xgBoost_B: round3(xgBoost_B),   // v7: ajuste mean reversion fora
+    aggA, aggB,                     // v7: stats agregadas pra persistência
     ligaAjuste,
     probs: probs.map(round3),
     janelasTop: janelas.slice(0, 5),
@@ -1030,13 +1104,41 @@ function renderDetalhe(j, prev) {
             </div>
             <div style="font-size:14px;color:var(--cy)">→</div>
             <div style="text-align:center">
-              <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px">λ calibrado</div>
+              <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px">λ final</div>
               <div style="font-size:14px;color:var(--cy);font-weight:700">${prev.lambdaTotal?.toFixed(2)}</div>
             </div>
           </div>
+          ${prev.cenarioForte && prev.cenarioForte !== 'neutro' ? `
+          <div style="background:var(--s2);border-left:3px solid var(--yl);padding:6px 10px;margin:6px 0;font-size:10px;color:var(--tx2)">
+            <strong style="color:var(--yl)">📊 Cenário ${prev.cenarioForte.replace(/_/g,' ')}</strong>
+            · multiplicador ×${prev.cenarioMult}
+            · ${prev.cenarioForte.includes('trava') ? 'jogo equilibrado entre fortes/médios → menos gols esperados' : prev.cenarioForte.includes('fraco') ? 'time fraco no jogo → defesas frágeis abrem o jogo' : prev.cenarioForte.includes('massacre') ? 'desnível claro → jogo aberto pelo time superior' : ''}
+          </div>` : ''}
+          ${(prev.xgBoost_A && prev.xgBoost_A !== 1) || (prev.xgBoost_B && prev.xgBoost_B !== 1) ? `
+          <div style="background:var(--s2);border-left:3px solid var(--gn);padding:6px 10px;margin:6px 0;font-size:10px;color:var(--tx2)">
+            <strong style="color:var(--gn)">🎯 Mean reversion via xG</strong>
+            ${prev.xgBoost_A !== 1 ? ` · ${j.timeCasa.nome.slice(0,12)}: ×${prev.xgBoost_A} (${prev.xgBoost_A>1?'fazendo menos que o xG':'fazendo mais que o xG'})` : ''}
+            ${prev.xgBoost_B !== 1 ? ` · ${j.timeFora.nome.slice(0,12)}: ×${prev.xgBoost_B}` : ''}
+          </div>` : ''}
+          ${prev.aggA && prev.aggA.xg != null ? `
+          <div style="background:var(--s2);border-radius:5px;padding:8px 10px;margin:6px 0;font-size:10px;font-family:var(--fM)">
+            <div style="color:var(--tx3);font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Stats agregadas (últ. 20j)</div>
+            <table style="width:100%;color:var(--tx2)">
+              <tr style="color:var(--tx3);font-size:9px"><td></td><td style="text-align:right">xG</td><td style="text-align:right">chutes</td><td style="text-align:right">no alvo</td><td style="text-align:right">posse</td></tr>
+              <tr><td style="color:var(--tx2)">${j.timeCasa.nome.slice(0,18)}</td>
+                <td style="text-align:right">${prev.aggA.xg?.toFixed(2) || '—'}</td>
+                <td style="text-align:right">${prev.aggA.shots?.toFixed(1) || '—'}</td>
+                <td style="text-align:right">${prev.aggA.shotsOG?.toFixed(1) || '—'}</td>
+                <td style="text-align:right">${prev.aggA.poss?.toFixed(0) || '—'}%</td></tr>
+              <tr><td style="color:var(--tx2)">${j.timeFora.nome.slice(0,18)}</td>
+                <td style="text-align:right">${prev.aggB.xg?.toFixed(2) || '—'}</td>
+                <td style="text-align:right">${prev.aggB.shots?.toFixed(1) || '—'}</td>
+                <td style="text-align:right">${prev.aggB.shotsOG?.toFixed(1) || '—'}</td>
+                <td style="text-align:right">${prev.aggB.poss?.toFixed(0) || '—'}%</td></tr>
+            </table>
+          </div>` : ''}
           <div style="font-size:9px;color:var(--tx3)">
             calib afim: ${prev.calibracao?.a} + ${prev.calibracao?.b} × λ_bruto
-            ${prev.bonusFracoFraco > 1 ? ` · <span style="color:var(--yl)">×${prev.bonusFracoFraco} fraco-fraco</span>` : ''}
             ${prev.ligaAjuste && prev.ligaAjuste !== 1 ? ` · <span style="color:var(--yl)">×${prev.ligaAjuste} liga#${j.liga?.apiId}</span>` : ''}
           </div>
           ` : (prev.fatorCorrecao ? `Fator de calibração (legado): <span style="color:var(--tx2)">×${prev.fatorCorrecao}</span><br>` : '')}
@@ -1206,7 +1308,12 @@ async function calcularJogo(j) {
     lambdaTotal: previsao.lambdaTotal,
     lambdaTotal_bruto: previsao.lambdaTotal_bruto,  // v6
     calibracao: previsao.calibracao,                 // v6
-    bonusFracoFraco: previsao.bonusFracoFraco,       // v6
+    cenarioForte: previsao.cenarioForte,             // v7
+    cenarioMult: previsao.cenarioMult,               // v7
+    xgBoost_A: previsao.xgBoost_A,                   // v7
+    xgBoost_B: previsao.xgBoost_B,                   // v7
+    aggA: previsao.aggA,                             // v7: xG/posse/chutes time A
+    aggB: previsao.aggB,                             // v7: xG/posse/chutes time B
     ligaAjuste: previsao.ligaAjuste,                 // v6
     probs: previsao.probs,
     janelasTop: previsao.janelasTop.map(jn => ({
@@ -1220,7 +1327,7 @@ async function calcularJogo(j) {
     tagAltoConfiancaOver: previsao.tagAltoConfiancaOver,
     fatorCorrecao: previsao.fatorCorrecao,
     fonteLambda: previsao.fonteLambda,
-    versaoModelo: 'v6-calibracao-afim',
+    versaoModelo: 'v7-cenario-forte-xg',
     rawInputs: previsao.rawInputs,
     analisado: false,
     calculadoEm: firebase.firestore.FieldValue.serverTimestamp()
