@@ -162,6 +162,7 @@
 
 <div class="panel">
   <button onclick="treinarEPrever()" id="btn-rodar">▶️ Treinar e prever (Firestore)</button>
+  <button class="alt" onclick="diagnosticarFirestore()" id="btn-diag">🔍 Diagnosticar dados</button>
   <button class="alt" onclick="document.getElementById('file-import').click()">📁 Importar JSON local</button>
   <input type="file" id="file-import" class="file-input" accept=".json" onchange="importarJSON(event)">
   <button class="export" onclick="exportarRelatorio()" id="btn-export" disabled>📤 Exportar Relatório p/ Claude</button>
@@ -260,29 +261,106 @@ function aguardarSessao(timeout = 3000) {
 }
 
 // ============================================================================
-// FEATURE EXTRACTION — 14 features dos rawInputs
+// FEATURE EXTRACTION — 14 features, TOLERANTE (deriva o que falta)
+// Retorna { features, falhas: [campos que precisaram de fallback] }
 // ============================================================================
-function extrairFeatures(jogo) {
+function extrairFeaturesDetalhado(jogo) {
   const p = jogo.previsao || jogo;
   const r = p.rawInputs || {};
+  const falhas = [];
 
-  const gfA = r.gfA_final ?? r.gfA_geral ?? r.gfA ?? null;
-  const gcA = r.gcA_final ?? r.gcA_geral ?? r.gcA ?? null;
-  const gfB = r.gfB_final ?? r.gfB_geral ?? r.gfB ?? null;
-  const gcB = r.gcB_final ?? r.gcB_geral ?? r.gcB ?? null;
-  const formA = r.formA5 ?? null;
-  const formB = r.formB5 ?? null;
-  const f18 = r.f18 ?? null;
+  // Forte score (objeto ou número)
+  let forteA = (typeof p.forteA === 'object' ? p.forteA?.score : p.forteA);
+  let forteB = (typeof p.forteB === 'object' ? p.forteB?.score : p.forteB);
+  if (forteA == null || isNaN(forteA)) { forteA = 5.0; falhas.push('forteA'); }
+  if (forteB == null || isNaN(forteB)) { forteB = 5.0; falhas.push('forteB'); }
+
+  // GF/GC: tenta final → geral → genérico → fallback derivado de lambda
+  let gfA = r.gfA_final ?? r.gfA_geral ?? r.gfA;
+  let gcA = r.gcA_final ?? r.gcA_geral ?? r.gcA;
+  let gfB = r.gfB_final ?? r.gfB_geral ?? r.gfB;
+  let gcB = r.gcB_final ?? r.gcB_geral ?? r.gcB;
+
+  // Lambda: total, individuais
+  let lam = p.lambdaTotal;
+  let lamA = p.lambdaA;
+  let lamB = p.lambdaB;
+
+  // Se tem só lambdaTotal mas não A/B, divide igual
+  if (lam != null && (lamA == null || lamB == null)) {
+    if (lamA == null) { lamA = lam / 2; falhas.push('lambdaA(deriv)'); }
+    if (lamB == null) { lamB = lam / 2; falhas.push('lambdaB(deriv)'); }
+  }
+  // Se tem A/B mas não total
+  if (lam == null && lamA != null && lamB != null) {
+    lam = lamA + lamB;
+    falhas.push('lambdaTotal(deriv)');
+  }
+
+  // Se não tem GF/GC mas tem lambdas, deriva (Dixon-Coles inverso aproximado)
+  if (gfA == null && lamA != null) { gfA = lamA / 0.80; falhas.push('gfA(deriv)'); }
+  if (gcA == null && lamB != null) { gcA = lamB / 0.80; falhas.push('gcA(deriv)'); }
+  if (gfB == null && lamB != null) { gfB = lamB / 0.80; falhas.push('gfB(deriv)'); }
+  if (gcB == null && lamA != null) { gcB = lamA / 0.80; falhas.push('gcB(deriv)'); }
+
+  // Form: usa GF como fallback (assume "manteve a média")
+  let formA = r.formA5;
+  let formB = r.formB5;
+  if (formA == null && gfA != null) { formA = gfA; falhas.push('formA5(=gfA)'); }
+  if (formB == null && gfB != null) { formB = gfB; falhas.push('formB5(=gfB)'); }
+
+  // t1: primeira janela top
   const t1 = (p.janelasTop && p.janelasTop[0]) ? (p.janelasTop[0].total || 0) : 0;
-  const lam = p.lambdaTotal ?? null;
-  const lamA = p.lambdaA ?? null;
-  const lamB = p.lambdaB ?? null;
-  const forteA = (typeof p.forteA === 'object' ? p.forteA?.score : p.forteA) ?? null;
-  const forteB = (typeof p.forteB === 'object' ? p.forteB?.score : p.forteB) ?? null;
+  if (!p.janelasTop || !p.janelasTop.length) falhas.push('t1(=0)');
 
-  const v = [lam, lamA, lamB, forteA, forteB, gfA, gcA, gfB, gcB, formA, formB, f18, t1, Math.abs((forteA||0)-(forteB||0))];
-  if (v.some(x => x === null || x === undefined || isNaN(x))) return null;
-  return v;
+  // f18: derivado se faltar — fórmula linear validada
+  let f18 = r.f18;
+  if (f18 == null && lam != null) {
+    f18 = (lam + t1/15) * 0.43;
+    falhas.push('f18(deriv)');
+  }
+
+  // Última checagem: se lambda total ainda é null, perdemos o jogo
+  if (lam == null || isNaN(lam)) return { features: null, falhas: ['lambdaTotal'], motivo: 'sem lambda' };
+  if (gfA == null || gcA == null || gfB == null || gcB == null) {
+    return { features: null, falhas, motivo: 'gf/gc ausentes' };
+  }
+
+  const v = [lam, lamA, lamB, forteA, forteB, gfA, gcA, gfB, gcB, formA, formB, f18, t1, Math.abs(forteA-forteB)];
+  if (v.some(x => x === null || x === undefined || isNaN(x))) {
+    return { features: null, falhas, motivo: 'NaN/null residual' };
+  }
+  return { features: v, falhas };
+}
+
+function extrairFeatures(jogo) {
+  const r = extrairFeaturesDetalhado(jogo);
+  return r.features;
+}
+
+// Detecta gols reais de várias formas
+function extrairGolsReais(jogo) {
+  // Forma canônica
+  if (jogo.real && typeof jogo.real.totalGols === 'number') return jogo.real.totalGols;
+  // Soma placares no .real
+  if (jogo.real && typeof jogo.real.placarCasa === 'number' && typeof jogo.real.placarFora === 'number') {
+    return jogo.real.placarCasa + jogo.real.placarFora;
+  }
+  // Placares na raiz (vem de jogos-admin merged)
+  if (typeof jogo.placarCasa === 'number' && typeof jogo.placarFora === 'number') {
+    return jogo.placarCasa + jogo.placarFora;
+  }
+  // Status="encerrado" mas só tem placares como string?
+  if (jogo.status === 'encerrado' || jogo.status === 'FT') {
+    const pc = parseInt(jogo.placarCasa);
+    const pf = parseInt(jogo.placarFora);
+    if (!isNaN(pc) && !isNaN(pf)) return pc + pf;
+  }
+  return null;
+}
+
+function jogoEstaEncerrado(jogo) {
+  return extrairGolsReais(jogo) !== null;
 }
 
 const NOMES_FEATURES = ['λ','λA','λB','A','B','gfA','gcA','gfB','gcB','formA','formB','f18','t1','|A-B|'];
@@ -481,22 +559,80 @@ async function importarJSON(event) {
 async function processarTodos(todos) {
   ESTADO.todos = todos;
 
-  const encerradosBrutos = todos.filter(j =>
-    j.real && j.real.encerrado && typeof j.real.totalGols === 'number'
-  );
-  log(`Encerrados com gols válidos: ${encerradosBrutos.length}`);
+  // ─── Diagnóstico em tempo real ───
+  const stats = {
+    total: todos.length,
+    semReal: 0, comReal: 0,
+    encerradosCanonico: 0,    // real.encerrado === true
+    comTotalGols: 0,           // real.totalGols numérico
+    comPlacarReal: 0,          // real.placarCasa+placarFora
+    comPlacarRaiz: 0,          // placarCasa+placarFora na raiz
+    statusEncerrado: 0,        // status==='encerrado'
+    detectadosComoEncerrados: 0, // soma de qualquer forma acima
+    semPrevisao: 0, comPrevisao: 0, comRawInputs: 0,
+    versoes: {}
+  };
 
-  const treino = [];
-  let descartados = 0;
-  for (const j of encerradosBrutos) {
-    const v = extrairFeatures(j);
-    if (!v) { descartados++; continue; }
-    treino.push({ jogo: j, features: v, real: j.real.totalGols });
+  for (const j of todos) {
+    if (j.real) stats.comReal++; else stats.semReal++;
+    if (j.real?.encerrado === true) stats.encerradosCanonico++;
+    if (typeof j.real?.totalGols === 'number') stats.comTotalGols++;
+    if (typeof j.real?.placarCasa === 'number' && typeof j.real?.placarFora === 'number') stats.comPlacarReal++;
+    if (typeof j.placarCasa === 'number' && typeof j.placarFora === 'number') stats.comPlacarRaiz++;
+    if (j.status === 'encerrado' || j.status === 'FT') stats.statusEncerrado++;
+    if (jogoEstaEncerrado(j)) stats.detectadosComoEncerrados++;
+    if (j.previsao || j.lambdaTotal != null) stats.comPrevisao++; else stats.semPrevisao++;
+    if (j.rawInputs || j.previsao?.rawInputs) stats.comRawInputs++;
+    const v = j.versaoModelo || j.previsao?.versaoModelo || '(sem)';
+    stats.versoes[v] = (stats.versoes[v] || 0) + 1;
   }
-  log(`Treináveis: ${treino.length} (descartados ${descartados})`);
+
+  log(`📊 DIAGNÓSTICO:`);
+  log(`   Total: ${stats.total}`);
+  log(`   Com objeto .real: ${stats.comReal} (sem: ${stats.semReal})`);
+  log(`   .real.encerrado===true: ${stats.encerradosCanonico}`);
+  log(`   .real.totalGols numérico: ${stats.comTotalGols}`);
+  log(`   .real.placarCasa+Fora: ${stats.comPlacarReal}`);
+  log(`   placarCasa+Fora na raiz: ${stats.comPlacarRaiz}`);
+  log(`   status==='encerrado'/FT: ${stats.statusEncerrado}`);
+  log(`   ✅ Detectados como encerrados (qualquer forma): ${stats.detectadosComoEncerrados}`);
+  log(`   Com previsão (lambdaTotal ou previsao): ${stats.comPrevisao}`);
+  log(`   Com rawInputs: ${stats.comRawInputs}`);
+  log(`   Versões: ${JSON.stringify(stats.versoes)}`);
+
+  // ─── Filtrar encerrados ───
+  const encerradosBrutos = todos.filter(jogoEstaEncerrado);
+  log(`Encerrados (filtro tolerante): ${encerradosBrutos.length}`);
+
+  // ─── Extrair features com diagnóstico de falha ───
+  const treino = [];
+  const motivosDescarte = {};
+  const falhasFreq = {};
+  for (const j of encerradosBrutos) {
+    const r = extrairFeaturesDetalhado(j);
+    if (!r.features) {
+      motivosDescarte[r.motivo] = (motivosDescarte[r.motivo] || 0) + 1;
+      continue;
+    }
+    r.falhas.forEach(f => { falhasFreq[f] = (falhasFreq[f] || 0) + 1; });
+    const real = extrairGolsReais(j);
+    treino.push({ jogo: j, features: r.features, real });
+  }
+
+  log(`Treináveis: ${treino.length}`);
+  if (Object.keys(motivosDescarte).length) {
+    log(`   Descartes: ${JSON.stringify(motivosDescarte)}`);
+  }
+  if (Object.keys(falhasFreq).length) {
+    log(`   Features derivadas (fallback usado): ${JSON.stringify(falhasFreq)}`);
+  }
 
   if (treino.length < 20) {
     status('❌ poucos jogos pra treinar (mínimo 20)');
+    log(`❌ Para entender: olhe o diagnóstico acima. Provavelmente`);
+    log(`   (a) jogos sem .real populado pelo job de resultados`);
+    log(`   (b) jogos antigos sem rawInputs/lambdaTotal`);
+    log(`   Use o botão "🔍 Diagnosticar dados" para ver detalhes por jogo.`);
     document.getElementById('btn-rodar').disabled = false;
     return;
   }
@@ -533,15 +669,16 @@ async function processarTodos(todos) {
   ESTADO.encerrados = treino;
   ESTADO.loo = { sigma: melhorSigma, mae: melhorMAE, todos: resultados, maePoisson };
 
-  const abertosBrutos = todos.filter(j =>
-    !(j.real && j.real.encerrado) || (j.real && !('totalGols' in j.real))
-  );
+  // ─── Jogos abertos: NÃO encerrados ───
+  const abertosBrutos = todos.filter(j => !jogoEstaEncerrado(j));
   log(`Jogos abertos: ${abertosBrutos.length}`);
 
   const abertosComFeat = [];
+  let abertosDescartados = 0;
   for (const j of abertosBrutos) {
-    const v = extrairFeatures(j);
-    if (!v) continue;
+    const r = extrairFeaturesDetalhado(j);
+    if (!r.features) { abertosDescartados++; continue; }
+    const v = r.features;
     const xn = normalizar(v, mu, sd);
     let pred = 0;
     const sems = [];
@@ -554,6 +691,7 @@ async function processarTodos(todos) {
     sems.sort((a,b) => b.sem - a.sem);
     abertosComFeat.push({ jogo: j, features: v, predRBF: pred, predPoisson: v[0], topVizinhos: sems.slice(0,5) });
   }
+  if (abertosDescartados) log(`   (${abertosDescartados} jogos abertos sem features extraíveis)`);
   ESTADO.abertos = abertosComFeat;
   log(`✅ Pipeline concluída.`);
 
@@ -563,6 +701,128 @@ async function processarTodos(todos) {
   document.getElementById('btn-export').disabled = false;
   document.getElementById('btn-pesos').disabled = false;
   document.getElementById('btn-brutos').disabled = false;
+}
+
+// ============================================================================
+// DIAGNÓSTICO PURO — só lê e mostra, sem treinar
+// ============================================================================
+async function diagnosticarFirestore() {
+  document.getElementById('btn-diag').disabled = true;
+  status('lendo Firestore para diagnóstico...');
+  try {
+    inicializarFirebase();
+    let user = auth.currentUser || await aguardarSessao(3000);
+    if (!user) throw new Error('Faça login no /admin/ primeiro.');
+    log(`✅ Logado como ${user.email}`);
+
+    const snap = await db.collection('previsoes-historico').get();
+    const todos = [];
+    snap.forEach(doc => todos.push({ id: doc.id, ...doc.data() }));
+    log(`📊 ${todos.length} jogos lidos do Firestore.`);
+
+    setBadgeFonte('firestore');
+    diagnosticarLista(todos);
+    document.getElementById('btn-diag').disabled = false;
+    status('✅ diagnóstico pronto — veja log');
+  } catch (e) {
+    log(`❌ Erro: ${e.message}`);
+    status('❌ ' + e.message);
+    document.getElementById('btn-diag').disabled = false;
+  }
+}
+
+function diagnosticarLista(todos) {
+  // Roda diagnóstico mas SEM treinar
+  ESTADO.todos = todos;
+  const stats = {
+    total: todos.length,
+    semReal: 0, comReal: 0,
+    encerradosCanonico: 0, comTotalGols: 0, comPlacarReal: 0, comPlacarRaiz: 0,
+    statusEncerrado: 0, detectadosComoEncerrados: 0,
+    semPrevisao: 0, comPrevisao: 0, comRawInputs: 0,
+    versoes: {}, ligas: {}
+  };
+
+  // Histograma de campos faltando
+  const camposFaltando = {};
+  // Amostras de cada categoria
+  const amostras = { semReal: [], semPrevisao: [], encerradoSemFeatures: [] };
+
+  for (const j of todos) {
+    if (j.real) stats.comReal++; else { stats.semReal++; if (amostras.semReal.length<3) amostras.semReal.push(j.id); }
+    if (j.real?.encerrado === true) stats.encerradosCanonico++;
+    if (typeof j.real?.totalGols === 'number') stats.comTotalGols++;
+    if (typeof j.real?.placarCasa === 'number' && typeof j.real?.placarFora === 'number') stats.comPlacarReal++;
+    if (typeof j.placarCasa === 'number' && typeof j.placarFora === 'number') stats.comPlacarRaiz++;
+    if (j.status === 'encerrado' || j.status === 'FT') stats.statusEncerrado++;
+    const enc = jogoEstaEncerrado(j);
+    if (enc) stats.detectadosComoEncerrados++;
+    if (j.previsao || j.lambdaTotal != null) stats.comPrevisao++; else { stats.semPrevisao++; if (amostras.semPrevisao.length<3) amostras.semPrevisao.push(j.id); }
+    if (j.rawInputs || j.previsao?.rawInputs) stats.comRawInputs++;
+    const v = j.versaoModelo || j.previsao?.versaoModelo || '(sem)';
+    stats.versoes[v] = (stats.versoes[v] || 0) + 1;
+    const lig = j.liga?.nome || '(sem liga)';
+    stats.ligas[lig] = (stats.ligas[lig] || 0) + 1;
+
+    // Para os encerrados detectados, ver se features existem
+    if (enc) {
+      const r = extrairFeaturesDetalhado(j);
+      if (!r.features) {
+        if (amostras.encerradoSemFeatures.length < 5) {
+          amostras.encerradoSemFeatures.push({ id: j.id, motivo: r.motivo, falhas: r.falhas });
+        }
+        const motivo = `encerrado_sem_features:${r.motivo}`;
+        camposFaltando[motivo] = (camposFaltando[motivo] || 0) + 1;
+      }
+    }
+  }
+
+  log(`═══════════════════════════════════════════`);
+  log(`📋 DIAGNÓSTICO COMPLETO`);
+  log(`═══════════════════════════════════════════`);
+  log(`Total de docs em previsoes-historico: ${stats.total}`);
+  log(``);
+  log(`▸ Detecção de "encerrado" (qualquer forma): ${stats.detectadosComoEncerrados}`);
+  log(`  • .real.encerrado===true:       ${stats.encerradosCanonico}`);
+  log(`  • .real.totalGols numérico:     ${stats.comTotalGols}`);
+  log(`  • .real.placarCasa+Fora:        ${stats.comPlacarReal}`);
+  log(`  • placarCasa+Fora na raiz:      ${stats.comPlacarRaiz}`);
+  log(`  • status=encerrado/FT:          ${stats.statusEncerrado}`);
+  log(``);
+  log(`▸ Estrutura de previsão:`);
+  log(`  • Com previsão (lambdaTotal):   ${stats.comPrevisao}`);
+  log(`  • Sem previsão:                 ${stats.semPrevisao}`);
+  log(`  • Com rawInputs:                ${stats.comRawInputs}`);
+  log(``);
+  log(`▸ Versões do modelo:`);
+  Object.entries(stats.versoes).sort((a,b) => b[1]-a[1]).forEach(([v,n]) => log(`  • ${v}: ${n}`));
+  log(``);
+  log(`▸ Ligas (top 10):`);
+  Object.entries(stats.ligas).sort((a,b) => b[1]-a[1]).slice(0,10).forEach(([l,n]) => log(`  • ${l}: ${n}`));
+  log(``);
+  log(`▸ Falhas em encerrados (por motivo):`);
+  if (Object.keys(camposFaltando).length === 0) {
+    log(`  ✅ Nenhuma falha — todos os encerrados têm features extraíveis`);
+  } else {
+    Object.entries(camposFaltando).sort((a,b) => b[1]-a[1]).forEach(([k,n]) => log(`  • ${k}: ${n}`));
+  }
+  log(``);
+  log(`▸ Amostras (IDs):`);
+  if (amostras.semReal.length) log(`  Sem .real: ${amostras.semReal.join(', ')}`);
+  if (amostras.semPrevisao.length) log(`  Sem previsão: ${amostras.semPrevisao.join(', ')}`);
+  if (amostras.encerradoSemFeatures.length) {
+    log(`  Encerrados sem features (até 5):`);
+    amostras.encerradoSemFeatures.forEach(a => log(`    - ${a.id}: motivo=${a.motivo}, faltam=[${a.falhas.join(',')}]`));
+  }
+  log(`═══════════════════════════════════════════`);
+  log(`💡 PROJEÇÃO: ${stats.detectadosComoEncerrados - (camposFaltando_total(camposFaltando))} jogos disponíveis para treino`);
+
+  // Mostrar log
+  trocarAba('log', { target: document.querySelectorAll('.tab')[4] });
+}
+
+function camposFaltando_total(obj) {
+  return Object.values(obj).reduce((s,n) => s+n, 0);
 }
 
 // ============================================================================
