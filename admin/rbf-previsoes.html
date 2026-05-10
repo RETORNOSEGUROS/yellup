@@ -163,6 +163,7 @@
 <div class="panel">
   <button onclick="treinarEPrever()" id="btn-rodar">▶️ Treinar e prever (Firestore)</button>
   <button class="alt" onclick="diagnosticarFirestore()" id="btn-diag">🔍 Diagnosticar dados</button>
+  <button onclick="atualizarResultados()" id="btn-atualizar" style="background:#bf8700;">🔄 Atualizar resultados (API)</button>
   <button class="alt" onclick="document.getElementById('file-import').click()">📁 Importar JSON local</button>
   <input type="file" id="file-import" class="file-input" accept=".json" onchange="importarJSON(event)">
   <button class="export" onclick="exportarRelatorio()" id="btn-export" disabled>📤 Exportar Relatório p/ Claude</button>
@@ -740,13 +741,14 @@ function diagnosticarLista(todos) {
     encerradosCanonico: 0, comTotalGols: 0, comPlacarReal: 0, comPlacarRaiz: 0,
     statusEncerrado: 0, detectadosComoEncerrados: 0,
     semPrevisao: 0, comPrevisao: 0, comRawInputs: 0,
+    intersecao: 0,                  // tem previsão E está encerrado
+    candidatosAtualizar: 0,         // tem previsão, NÃO encerrado, dataJogo > 3h atrás
+    semPrevisaoEncerrados: 0,       // NÃO tem previsão E está encerrado (perdidos pra treinar)
     versoes: {}, ligas: {}
   };
-
-  // Histograma de campos faltando
   const camposFaltando = {};
-  // Amostras de cada categoria
   const amostras = { semReal: [], semPrevisao: [], encerradoSemFeatures: [] };
+  const agora = Date.now(), limite3h = agora - 3*60*60*1000;
 
   for (const j of todos) {
     if (j.real) stats.comReal++; else { stats.semReal++; if (amostras.semReal.length<3) amostras.semReal.push(j.id); }
@@ -757,14 +759,25 @@ function diagnosticarLista(todos) {
     if (j.status === 'encerrado' || j.status === 'FT') stats.statusEncerrado++;
     const enc = jogoEstaEncerrado(j);
     if (enc) stats.detectadosComoEncerrados++;
-    if (j.previsao || j.lambdaTotal != null) stats.comPrevisao++; else { stats.semPrevisao++; if (amostras.semPrevisao.length<3) amostras.semPrevisao.push(j.id); }
+    const temPrev = (j.previsao || j.lambdaTotal != null);
+    if (temPrev) stats.comPrevisao++; else { stats.semPrevisao++; if (amostras.semPrevisao.length<3) amostras.semPrevisao.push(j.id); }
     if (j.rawInputs || j.previsao?.rawInputs) stats.comRawInputs++;
+
+    // Interseção
+    if (temPrev && enc) stats.intersecao++;
+    if (!temPrev && enc) stats.semPrevisaoEncerrados++;
+
+    // Candidatos a atualizar (com previsão, não encerrado, data passada)
+    if (temPrev && !enc) {
+      const dt = j.dataJogo?.toDate ? j.dataJogo.toDate() : (j.dataJogo ? new Date(j.dataJogo) : null);
+      if (dt && !isNaN(dt) && dt.getTime() < limite3h) stats.candidatosAtualizar++;
+    }
+
     const v = j.versaoModelo || j.previsao?.versaoModelo || '(sem)';
     stats.versoes[v] = (stats.versoes[v] || 0) + 1;
     const lig = j.liga?.nome || '(sem liga)';
     stats.ligas[lig] = (stats.ligas[lig] || 0) + 1;
 
-    // Para os encerrados detectados, ver se features existem
     if (enc) {
       const r = extrairFeaturesDetalhado(j);
       if (!r.features) {
@@ -794,6 +807,11 @@ function diagnosticarLista(todos) {
   log(`  • Sem previsão:                 ${stats.semPrevisao}`);
   log(`  • Com rawInputs:                ${stats.comRawInputs}`);
   log(``);
+  log(`▸ ⭐ INTERSEÇÃO (chave do treino):`);
+  log(`  • Com previsão E encerrados:    ${stats.intersecao}  ← TREINÁVEIS`);
+  log(`  • Com previsão, NÃO encerrados, data passada: ${stats.candidatosAtualizar}  ← clique "🔄 Atualizar resultados"`);
+  log(`  • Encerrados SEM previsão:      ${stats.semPrevisaoEncerrados}  (perdidos, recalcular tem data leakage)`);
+  log(``);
   log(`▸ Versões do modelo:`);
   Object.entries(stats.versoes).sort((a,b) => b[1]-a[1]).forEach(([v,n]) => log(`  • ${v}: ${n}`));
   log(``);
@@ -815,14 +833,149 @@ function diagnosticarLista(todos) {
     amostras.encerradoSemFeatures.forEach(a => log(`    - ${a.id}: motivo=${a.motivo}, faltam=[${a.falhas.join(',')}]`));
   }
   log(`═══════════════════════════════════════════`);
-  log(`💡 PROJEÇÃO: ${stats.detectadosComoEncerrados - (camposFaltando_total(camposFaltando))} jogos disponíveis para treino`);
+  log(`💡 ROADMAP:`);
+  if (stats.candidatosAtualizar > 0) {
+    log(`   1. Clique "🔄 Atualizar resultados" → ${stats.candidatosAtualizar} jogos novos pra treinar`);
+  }
+  if (stats.intersecao >= 20) {
+    log(`   2. Você JÁ pode treinar com ${stats.intersecao} jogos. Clique "▶️ Treinar".`);
+  } else {
+    log(`   2. Mínimo 20 jogos. Hoje você tem ${stats.intersecao}. Falta ${Math.max(0, 20-stats.intersecao)}.`);
+  }
+  log(`   3. Daqui pra frente, calcule previsão de TODOS os jogos do dia, e atualize resultados após.`);
+  log(`═══════════════════════════════════════════`);
 
-  // Mostrar log
   trocarAba('log', { target: document.querySelectorAll('.tab')[4] });
 }
 
 function camposFaltando_total(obj) {
   return Object.values(obj).reduce((s,n) => s+n, 0);
+}
+
+// ============================================================================
+// ATUALIZAR RESULTADOS — busca placar real na API-football
+// para jogos com previsão mas sem .real populado
+// ============================================================================
+const API_FB = {
+  key: '35647fb22d9fa6e5ab4397cb1a0d27a3',
+  base: 'https://v3.football.api-sports.io'
+};
+
+async function apiGet(path, retries = 2) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(API_FB.base + path, { headers: { 'x-apisports-key': API_FB.key }});
+      if (res.status === 429) { await new Promise(r => setTimeout(r, 1500*(attempt+1))); continue; }
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      const json = await res.json();
+      if (json.errors && Object.keys(json.errors).length) {
+        const msg = Object.values(json.errors)[0];
+        if (/rate|limit|quota/i.test(msg) && attempt < retries-1) {
+          await new Promise(r => setTimeout(r, 1500*(attempt+1))); continue;
+        }
+        throw new Error(msg);
+      }
+      return json;
+    } catch (e) {
+      if (attempt === retries-1) throw e;
+      await new Promise(r => setTimeout(r, 800*(attempt+1)));
+    }
+  }
+}
+
+async function atualizarResultados() {
+  document.getElementById('btn-atualizar').disabled = true;
+  status('lendo Firestore...');
+  try {
+    inicializarFirebase();
+    let user = auth.currentUser || await aguardarSessao(3000);
+    if (!user) throw new Error('Faça login no /admin/ primeiro.');
+
+    const snap = await db.collection('previsoes-historico').get();
+    const todos = [];
+    snap.forEach(doc => todos.push({ _docId: doc.id, ...doc.data() }));
+    log(`📊 ${todos.length} jogos lidos.`);
+
+    // Candidatos: têm previsão (lambdaTotal) E NÃO têm placar real ainda
+    const agora = Date.now();
+    const limite3h = agora - 3*60*60*1000;
+    const candidatos = todos.filter(j => {
+      // tem previsão?
+      const temPrev = (j.lambdaTotal != null) || (j.previsao && j.previsao.lambdaTotal != null);
+      if (!temPrev) return false;
+      // já tem placar real?
+      if (jogoEstaEncerrado(j)) return false;
+      // dataJogo já passou (>3h)?
+      const dt = j.dataJogo?.toDate ? j.dataJogo.toDate() : (j.dataJogo ? new Date(j.dataJogo) : null);
+      if (!dt || isNaN(dt)) return false;
+      return dt.getTime() < limite3h;
+    });
+
+    log(`🎯 Candidatos a atualizar: ${candidatos.length}`);
+    if (!candidatos.length) {
+      status('nada pra atualizar');
+      document.getElementById('btn-atualizar').disabled = false;
+      return;
+    }
+
+    // Confirmar antes de gastar API quota
+    const ok = confirm(`Vou consultar a API-football para ${candidatos.length} jogos.\nIsso usa quota da sua API. Continuar?`);
+    if (!ok) {
+      document.getElementById('btn-atualizar').disabled = false;
+      status('cancelado');
+      return;
+    }
+
+    let atualizados = 0, naoEncontrados = 0, naoEncerrados = 0, falhas = 0;
+    for (let i = 0; i < candidatos.length; i++) {
+      const j = candidatos[i];
+      const fid = j.apiFixtureId || j._docId;
+      status(`atualizando ${i+1}/${candidatos.length}...`);
+      try {
+        const r = await apiGet(`/fixtures?id=${fid}`);
+        const fix = (r.response || [])[0];
+        if (!fix) { naoEncontrados++; continue; }
+        const st = fix.fixture?.status?.short;
+        const ENC = ['FT', 'AET', 'PEN'];
+        if (!ENC.includes(st)) { naoEncerrados++; continue; }
+        const ph = fix.goals?.home;
+        const pf = fix.goals?.away;
+        if (typeof ph !== 'number' || typeof pf !== 'number') { falhas++; continue; }
+        const totalGols = ph + pf;
+        await db.collection('previsoes-historico').doc(j._docId).set({
+          real: {
+            encerrado: true,
+            totalGols,
+            placarCasa: ph,
+            placarFora: pf,
+            atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+            statusAPI: st
+          }
+        }, { merge: true });
+        atualizados++;
+        // Pequeno delay pra não estourar rate-limit (API-football ~10/min no plano free, 300/min no pago)
+        if (i % 30 === 29) await new Promise(r => setTimeout(r, 1000));
+      } catch (e) {
+        falhas++;
+        log(`  ⚠️ fixture ${fid}: ${e.message}`);
+      }
+    }
+
+    log(`✅ Atualizados: ${atualizados}`);
+    log(`   Ainda não encerrados: ${naoEncerrados}`);
+    log(`   Não encontrados na API: ${naoEncontrados}`);
+    log(`   Falhas: ${falhas}`);
+    status(`✅ ${atualizados} atualizados`);
+    document.getElementById('btn-atualizar').disabled = false;
+
+    if (atualizados > 0) {
+      log('💡 Agora clique "Treinar e prever" — esses jogos já podem treinar o RBF.');
+    }
+  } catch (e) {
+    log(`❌ Erro: ${e.message}`);
+    status('❌ ' + e.message);
+    document.getElementById('btn-atualizar').disabled = false;
+  }
 }
 
 // ============================================================================
