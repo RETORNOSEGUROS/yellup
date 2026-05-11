@@ -129,7 +129,7 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
 
 <div class="topbar">
   <span class="logo">YELL<em>UP</em></span>
-  <span class="page-id">PREVISÕES · GOLS · V7</span>
+  <span class="page-id">PREVISÕES · GOLS · V8</span>
   <div class="spacer"></div>
   <button class="btn" onclick="window.location.href='jogos-admin.html'">← Jogos</button>
   <button class="btn" onclick="aplicar15Formulas()" id="btn15F">🎯 Aplicar 15 fórmulas</button>
@@ -676,6 +676,39 @@ function calcPrevisao(rxA, rxB, leagueId = null) {
   lambdaA *= cenarioMult;
   lambdaB *= cenarioMult;
 
+  // ─── v8: AJUSTE POR INTENSIDADE DE JANELA ───
+  // Insight do João: quando o lambda Poisson é BAIXO mas as janelas históricas mostram
+  // movimentação alta (muitos eventos em algum bucket de 5min), o jogo SEMPRE abre.
+  // O Poisson não captura isso porque trabalha com médias estáticas de gols.
+  // Tabela validada em 302 jogos:
+  //   λ<1.8 + top1≥40  →  jogo abre forte (boost ×1.70)
+  //   λ<2.0 + top1≥25  →  boost leve ×1.10
+  //   λ≥2.8 + top1<15  →  superestimação (corte ×0.85)
+  // Boosts otimizados via grid search (não os primeiros chutes — esses davam over-boost
+  // no meio da faixa). O sinal real está nos EXTREMOS.
+  let janelaBoost = 1.0;
+  let janelaTipo = 'neutro';
+  const lamSoma = lambdaA + lambdaB;
+  if (lamSoma <= 2.2) {
+    if (top1 >= 40) {
+      janelaBoost = 1.70;
+      janelaTipo = 'lambda_baixo_janela_muito_quente';
+    } else if (top1 >= 25) {
+      janelaBoost = 1.10;
+      janelaTipo = 'lambda_baixo_janela_quente';
+    }
+    // top1<25 e lambda baixo: trancado real, sem boost
+  } else if (lamSoma >= 2.8 && top1 < 15) {
+    // Caso oposto: λ alto mas janelas frias → corrigir pra baixo
+    janelaBoost = 0.85;
+    janelaTipo = 'lambda_alto_janela_fria';
+  }
+
+  if (janelaBoost !== 1.0) {
+    lambdaA *= janelaBoost;
+    lambdaB *= janelaBoost;
+  }
+
   // ─── v7: MEAN REVERSION VIA xG ───
   // Se time vem fazendo MENOS gols que o xG sugere → vai voltar à média (boost)
   // Se time vem fazendo MAIS gols que o xG sugere → corrige pra baixo
@@ -734,6 +767,8 @@ function calcPrevisao(rxA, rxB, leagueId = null) {
     calibracao: { a: CAL_A, b: CAL_B, ratio: round2(ratio) },
     cenarioForte,                  // v7: nome do cenário detectado
     cenarioMult: round3(cenarioMult), // v7: multiplicador do cenário
+    janelaTipo,                       // v8: tipo de ajuste de janela
+    janelaBoost: round3(janelaBoost), // v8: multiplicador de janela
     xgBoost_A: round3(xgBoost_A),   // v7: ajuste mean reversion casa
     xgBoost_B: round3(xgBoost_B),   // v7: ajuste mean reversion fora
     aggA, aggB,                     // v7: stats agregadas pra persistência
@@ -1108,6 +1143,12 @@ function renderDetalhe(j, prev) {
               <div style="font-size:14px;color:var(--cy);font-weight:700">${prev.lambdaTotal?.toFixed(2)}</div>
             </div>
           </div>
+          ${prev.janelaTipo && prev.janelaTipo !== 'neutro' ? `
+          <div style="background:var(--s2);border-left:3px solid #ff8a4c;padding:6px 10px;margin:6px 0;font-size:10px;color:var(--tx2)">
+            <strong style="color:#ff8a4c">🪟 Intensidade de janela</strong>
+            · ×${prev.janelaBoost}
+            · ${prev.janelaTipo === 'lambda_baixo_janela_muito_quente' ? 'Poisson previu pouco mas janelas históricas mostram movimentação MUITO alta — jogo deve abrir' : prev.janelaTipo === 'lambda_baixo_janela_quente' ? 'Poisson previu pouco mas janelas têm atividade alta — jogo deve abrir mais que esperado' : prev.janelaTipo === 'lambda_baixo_janela_morna' ? 'Poisson previu pouco e janelas têm atividade moderada — leve boost' : prev.janelaTipo === 'lambda_alto_janela_fria' ? 'Poisson previu muito mas janelas são frias — correção pra baixo' : ''}
+          </div>` : ''}
           ${prev.cenarioForte && prev.cenarioForte !== 'neutro' ? `
           <div style="background:var(--s2);border-left:3px solid var(--yl);padding:6px 10px;margin:6px 0;font-size:10px;color:var(--tx2)">
             <strong style="color:var(--yl)">📊 Cenário ${prev.cenarioForte.replace(/_/g,' ')}</strong>
@@ -1310,6 +1351,8 @@ async function calcularJogo(j) {
     calibracao: previsao.calibracao,                 // v6
     cenarioForte: previsao.cenarioForte,             // v7
     cenarioMult: previsao.cenarioMult,               // v7
+    janelaTipo: previsao.janelaTipo,                 // v8
+    janelaBoost: previsao.janelaBoost,               // v8
     xgBoost_A: previsao.xgBoost_A,                   // v7
     xgBoost_B: previsao.xgBoost_B,                   // v7
     aggA: previsao.aggA,                             // v7: xG/posse/chutes time A
@@ -1327,7 +1370,7 @@ async function calcularJogo(j) {
     tagAltoConfiancaOver: previsao.tagAltoConfiancaOver,
     fatorCorrecao: previsao.fatorCorrecao,
     fonteLambda: previsao.fonteLambda,
-    versaoModelo: 'v7-cenario-forte-xg',
+    versaoModelo: 'v8-janela-intensidade',
     rawInputs: previsao.rawInputs,
     analisado: false,
     calculadoEm: firebase.firestore.FieldValue.serverTimestamp()
