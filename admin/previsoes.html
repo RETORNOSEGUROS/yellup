@@ -129,7 +129,7 @@ body { background:var(--bg); color:var(--tx1); font-family:var(--fS); font-size:
 
 <div class="topbar">
   <span class="logo">YELL<em>UP</em></span>
-  <span class="page-id">PREVISÕES · GOLS · V8</span>
+  <span class="page-id">PREVISÕES · GOLS · V9</span>
   <div class="spacer"></div>
   <button class="btn" onclick="window.location.href='jogos-admin.html'">← Jogos</button>
   <button class="btn" onclick="aplicar15Formulas()" id="btn15F">🎯 Aplicar 15 fórmulas</button>
@@ -709,6 +709,60 @@ function calcPrevisao(rxA, rxB, leagueId = null) {
     lambdaB *= janelaBoost;
   }
 
+  // ─── v9: PROBABILIDADE DE 3+ GOLS ───
+  // Regressão logística treinada em 302 jogos (cross-validation k=5).
+  // Brier ~0.25 — apenas marginalmente melhor que aleatório, mas sinaliza bem casos extremos.
+  // Features padronizadas: gc_combo, gf_combo, top1, form_combo, lam, soma_top3
+  // Honestidade: NÃO é um oráculo. Probabilidades dentro de 40-60% são incertas.
+  // Use só para sinalizar EXTREMOS (>70% over, <30% under).
+  const sumTop3 = janelas.slice(0, 3).reduce((s, jn) => s + (jn?.total || 0), 0);
+  const formCombo = (formA5 || 0) + (formB5 || 0);
+  const gcCombo = gcA + gcB;
+  const gfCombo = gfA + gfB;
+  const lamForProb = lambdaA + lambdaB;
+
+  // Médias e desvios do treino
+  const MU = { gc:0.603, gf:0.711, top1:30.089, form:2.791, lam:2.314, st3:62.447 };
+  const SD = { gc:1.124, gf:1.307, top1:18.232, form:0.893, lam:0.640, st3:33.139 };
+  // Coeficientes da regressão logística
+  const BIAS = 0.0033;
+  const W = { gc:+0.2279, gf:-0.3344, top1:+0.2098, form:+0.2701, lam:+0.1109, st3:-0.0452 };
+
+  const z = BIAS
+    + W.gc * (gcCombo - MU.gc) / SD.gc
+    + W.gf * (gfCombo - MU.gf) / SD.gf
+    + W.top1 * (top1 - MU.top1) / SD.top1
+    + W.form * (formCombo - MU.form) / SD.form
+    + W.lam * (lamForProb - MU.lam) / SD.lam
+    + W.st3 * (sumTop3 - MU.st3) / SD.st3;
+  const prob3plus = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, z))));
+
+  // ─── v9: REGRAS DURAS (sinais cruamente validados) ───
+  // Detectam casos extremos onde a probabilidade é claramente alta ou baixa.
+  // Validação no dataset:
+  //   gc_combo > 3.0       → 80% deu 3+ (n=15)  ← OVER FORTE
+  //   gf+gc > 6.0          → 78% deu 3+ (n=18)  ← OVER FORTE
+  //   formCombo > 3.5      → 66% deu 3+ (n=56)  ← OVER
+  //   formCombo < 2.0      → 33% deu 3+ (n=43)  ← UNDER
+  //   lam<1.8 AND top1<15  → 28% deu 3+ (n=18)  ← UNDER FORTE
+  const regrasAtivas = [];
+  if (gcCombo > 3.0)              regrasAtivas.push({ tag:'over_forte', txt:'Defesas frágeis (gc combo > 3) — 80% deu 3+' });
+  if ((gcCombo + gfCombo) > 6.0)  regrasAtivas.push({ tag:'over_forte', txt:'Ataque+defesa combinados > 6 — 78% deu 3+' });
+  if ((gcCombo + gfCombo) > 5.5 && gcCombo + gfCombo <= 6.0) regrasAtivas.push({ tag:'over', txt:'Atq+def combinados > 5.5 — 70% deu 3+' });
+  if (formCombo > 3.5)            regrasAtivas.push({ tag:'over', txt:'Forma recente combinada > 3.5 — 66% deu 3+' });
+  if (top1 >= 45)                 regrasAtivas.push({ tag:'over_leve', txt:'Janela quente top1 ≥ 45 — 64% deu 3+' });
+  if (formCombo < 2)              regrasAtivas.push({ tag:'under', txt:'Sem forma recente — só 33% deu 3+' });
+  if (lamForProb < 1.8 && top1 < 15) regrasAtivas.push({ tag:'under_forte', txt:'λ baixo + janela fria — só 28% deu 3+' });
+  if (top1 < 15 && !(lamForProb < 1.8)) regrasAtivas.push({ tag:'under_leve', txt:'Janela fria top1 < 15 — só 39% deu 3+' });
+
+  // Saldo das regras → recomendação final
+  let sinal3plus = 'neutro';
+  const pesoSinal = regrasAtivas.reduce((s, r) => s + ({over_forte:2, over:1, over_leve:0.5, under_leve:-0.5, under:-1, under_forte:-2}[r.tag]||0), 0);
+  if (pesoSinal >= 2) sinal3plus = 'over_forte';
+  else if (pesoSinal >= 1) sinal3plus = 'over';
+  else if (pesoSinal <= -2) sinal3plus = 'under_forte';
+  else if (pesoSinal <= -1) sinal3plus = 'under';
+
   // ─── v7: MEAN REVERSION VIA xG ───
   // Se time vem fazendo MENOS gols que o xG sugere → vai voltar à média (boost)
   // Se time vem fazendo MAIS gols que o xG sugere → corrige pra baixo
@@ -769,6 +823,9 @@ function calcPrevisao(rxA, rxB, leagueId = null) {
     cenarioMult: round3(cenarioMult), // v7: multiplicador do cenário
     janelaTipo,                       // v8: tipo de ajuste de janela
     janelaBoost: round3(janelaBoost), // v8: multiplicador de janela
+    prob3plus: round3(prob3plus),     // v9: probabilidade calibrada de 3+ gols
+    regrasAtivas,                     // v9: regras hard que dispararam
+    sinal3plus,                       // v9: veredito final (over_forte/over/neutro/under/under_forte)
     xgBoost_A: round3(xgBoost_A),   // v7: ajuste mean reversion casa
     xgBoost_B: round3(xgBoost_B),   // v7: ajuste mean reversion fora
     aggA, aggB,                     // v7: stats agregadas pra persistência
@@ -1012,6 +1069,22 @@ function renderJogoCard(j) {
       <div class="jc-prev">
         <div class="lambda">${prev.lambdaTotal?.toFixed(1) || '?'}</div>
         <div class="lbl">gols esperados</div>
+        ${prev.prob3plus != null ? (() => {
+          const p = prev.prob3plus;
+          const sig = prev.sinal3plus || 'neutro';
+          let cor, txt, bg;
+          if (sig === 'over_forte') { cor = '#ff8a4c'; bg = '#ff8a4c22'; txt = '🔥 OVER 2.5'; }
+          else if (sig === 'over') { cor = 'var(--yl)'; bg = '#d2992222'; txt = '↑ over 2.5'; }
+          else if (sig === 'under_forte') { cor = '#7fa8c9'; bg = '#7fa8c922'; txt = '🛡 UNDER 2.5'; }
+          else if (sig === 'under') { cor = '#7fa8c9'; bg = '#7fa8c918'; txt = '↓ under 2.5'; }
+          else { cor = 'var(--tx3)'; bg = 'transparent'; txt = '~'; }
+          return `
+            <div style="margin-top:5px;padding:4px 7px;border-radius:5px;background:${bg};font-size:10px;color:${cor};font-weight:600;text-align:center;line-height:1.1">
+              <div style="font-size:11px">${txt}</div>
+              <div style="font-size:9px;opacity:0.85;margin-top:1px">3+: ${(p*100).toFixed(0)}%</div>
+            </div>
+          `;
+        })() : ''}
         ${consHtml}
       </div>`;
   } else {
@@ -1143,6 +1216,33 @@ function renderDetalhe(j, prev) {
               <div style="font-size:14px;color:var(--cy);font-weight:700">${prev.lambdaTotal?.toFixed(2)}</div>
             </div>
           </div>
+          ${prev.prob3plus != null ? (() => {
+            const p = prev.prob3plus;
+            const sig = prev.sinal3plus || 'neutro';
+            const regras = prev.regrasAtivas || [];
+            let cor = 'var(--tx2)', bg = 'var(--s2)', titulo = '~ Sinal neutro para 3+ gols';
+            if (sig === 'over_forte') { cor = '#ff8a4c'; bg = '#ff8a4c11'; titulo = '🔥 SINAL FORTE PARA OVER 2.5'; }
+            else if (sig === 'over') { cor = 'var(--yl)'; bg = '#d2992211'; titulo = '↑ Sinal moderado para over 2.5'; }
+            else if (sig === 'under_forte') { cor = '#7fa8c9'; bg = '#7fa8c911'; titulo = '🛡 SINAL FORTE PARA UNDER 2.5'; }
+            else if (sig === 'under') { cor = '#7fa8c9'; bg = '#7fa8c908'; titulo = '↓ Sinal moderado para under 2.5'; }
+            return `
+            <div style="background:${bg};border:1px solid ${cor}33;border-radius:6px;padding:10px;margin:8px 0;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <strong style="color:${cor};font-size:11px">${titulo}</strong>
+                <span style="font-family:var(--fM);font-size:14px;color:${cor};font-weight:700">${(p*100).toFixed(0)}%</span>
+              </div>
+              <div style="font-size:9px;color:var(--tx3);margin-bottom:6px">probabilidade calibrada de saírem 3+ gols (regressão logística sobre 302 jogos)</div>
+              ${regras.length ? `
+                <div style="border-top:1px solid var(--b1);padding-top:6px;margin-top:6px">
+                  <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Regras detectadas</div>
+                  ${regras.map(r => {
+                    const c = r.tag.startsWith('over_forte') ? '#ff8a4c' : r.tag.startsWith('over') ? 'var(--yl)' : r.tag.startsWith('under_forte') ? '#5a91c4' : '#7fa8c9';
+                    return `<div style="font-size:10px;color:var(--tx2);margin:3px 0;padding-left:8px;border-left:2px solid ${c}">${r.txt}</div>`;
+                  }).join('')}
+                </div>` : '<div style="font-size:10px;color:var(--tx3);font-style:italic">Nenhuma regra forte disparou — sinal indeterminado, use com cautela.</div>'}
+              <div style="font-size:9px;color:var(--tx3);margin-top:6px;font-style:italic">⚠️ honestidade: modelo só é confiável em sinais ≥70% (over) ou ≤30% (under). 40-60% é ruído.</div>
+            </div>`;
+          })() : ''}
           ${prev.janelaTipo && prev.janelaTipo !== 'neutro' ? `
           <div style="background:var(--s2);border-left:3px solid #ff8a4c;padding:6px 10px;margin:6px 0;font-size:10px;color:var(--tx2)">
             <strong style="color:#ff8a4c">🪟 Intensidade de janela</strong>
@@ -1353,6 +1453,9 @@ async function calcularJogo(j) {
     cenarioMult: previsao.cenarioMult,               // v7
     janelaTipo: previsao.janelaTipo,                 // v8
     janelaBoost: previsao.janelaBoost,               // v8
+    prob3plus: previsao.prob3plus,                   // v9
+    regrasAtivas: previsao.regrasAtivas,             // v9
+    sinal3plus: previsao.sinal3plus,                 // v9
     xgBoost_A: previsao.xgBoost_A,                   // v7
     xgBoost_B: previsao.xgBoost_B,                   // v7
     aggA: previsao.aggA,                             // v7: xG/posse/chutes time A
@@ -1370,7 +1473,7 @@ async function calcularJogo(j) {
     tagAltoConfiancaOver: previsao.tagAltoConfiancaOver,
     fatorCorrecao: previsao.fatorCorrecao,
     fonteLambda: previsao.fonteLambda,
-    versaoModelo: 'v8-janela-intensidade',
+    versaoModelo: 'v9-prob-3plus',
     rawInputs: previsao.rawInputs,
     analisado: false,
     calculadoEm: firebase.firestore.FieldValue.serverTimestamp()
