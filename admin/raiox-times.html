@@ -3110,27 +3110,28 @@ async function registrarSnapshot() {
     const snap = {
       ...window.SNAPSHOT_DATA,
       dataJogoTimestamp: dataJogoTS,
-      registradoEm: firebase.firestore.FieldValue.serverTimestamp(),
       registradoTS: Date.now(),
       _docId: `${window.SNAPSHOT_DATA.teamA.apiId}_${window.SNAPSHOT_DATA.teamB.apiId}_${Math.floor(dataJogoTS/60000)}`,
       resultado: null,
       analise: null
     };
 
+    // Sanitizar: remove campos undefined que o Firestore rejeita
+    // JSON.parse(JSON.stringify(x)) descarta undefined automaticamente
+    const cleanSnap = JSON.parse(JSON.stringify(snap, (k, v) => v === undefined ? null : v));
+
     // localStorage
-    const lsKey = `yellup_snap_${snap._docId}`;
+    const lsKey = `yellup_snap_${cleanSnap._docId}`;
     try {
-      localStorage.setItem(lsKey, JSON.stringify(snap));
+      localStorage.setItem(lsKey, JSON.stringify(cleanSnap));
     } catch(e) {
       Object.keys(localStorage).filter(k => k.startsWith('yellup_snap_')).slice(0, 5).forEach(k => localStorage.removeItem(k));
-      localStorage.setItem(lsKey, JSON.stringify(snap));
+      localStorage.setItem(lsKey, JSON.stringify(cleanSnap));
     }
 
     // Firestore
-    const snapFirestore = { ...snap };
-    delete snapFirestore.registradoEm;
-    await db.collection('raiox-snapshots').doc(snap._docId).set({
-      ...snapFirestore,
+    await db.collection('raiox-snapshots').doc(cleanSnap._docId).set({
+      ...cleanSnap,
       registradoEm: firebase.firestore.FieldValue.serverTimestamp()
     });
 
