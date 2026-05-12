@@ -2264,6 +2264,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
   // v13: armazenar TUDO no estado global para o botão "Registrar Snapshot"
   // Captura o momento ANTES do jogo (forte score, agg, janelas brutas, h2h)
   // — quando o jogo encerrar, completa com gols + minutos e analisa retrospectivamente
+  // IMPORTANTE: tamanho enxuto pra caber no localStorage (5MB) e ser barato no Firestore
   window.SNAPSHOT_DATA = {
     capturedAt: Date.now(),
     teamA: { apiId: H2H_A.apiId, nome: H2H_A.nome, escudo: H2H_A.escudo || null },
@@ -2273,51 +2274,98 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
       B: FORTE_CACHE[H2H_B.apiId] || null,
     },
     agg: { A: aggA, B: aggB },
-    enrichedSummary: {
-      // Resumo dos 20 últimos jogos (sem o objeto fixture cru, pra não explodir tamanho)
-      A: eA.map(e => ({
-        date: e.f?.fixture?.date,
-        home: e.home,
-        oppId: e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
-        oppName: e.home ? e.f?.teams?.away?.name : e.f?.teams?.home?.name,
-        tGoals: e.tGoals, oGoals: e.oGoals,
-        tXG: e.tXG, oXG: e.oXG,
-        tShots: e.tShots, oShots: e.oShots,
-        tShotsOG: e.tShotsOG, oShotsOG: e.oShotsOG,
-        tPoss: e.tPoss,
-        res: e.res
-      })),
-      B: eB.map(e => ({
-        date: e.f?.fixture?.date,
-        home: e.home,
-        oppId: e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
-        oppName: e.home ? e.f?.teams?.away?.name : e.f?.teams?.home?.name,
-        tGoals: e.tGoals, oGoals: e.oGoals,
-        tXG: e.tXG, oXG: e.oXG,
-        tShots: e.tShots, oShots: e.oShots,
-        tShotsOG: e.tShotsOG, oShotsOG: e.oShotsOG,
-        tPoss: e.tPoss,
-        res: e.res
-      }))
+    // Resumo COMPACTO dos 20 últimos jogos: cada jogo vira 1 string CSV-like
+    // formato: "data|home|oppId|oppName|tG|oG|tXG|tShots|tShotsOG|tPoss|res"
+    enrichedCompact: {
+      A: eA.map(e => [
+        (e.f?.fixture?.date || '').slice(0, 10),
+        e.home ? 1 : 0,
+        e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
+        e.tGoals ?? null, e.oGoals ?? null,
+        e.tXG ?? null, e.tShots ?? null, e.tShotsOG ?? null, e.tPoss ?? null,
+        e.res || ''
+      ].join('|')),
+      B: eB.map(e => [
+        (e.f?.fixture?.date || '').slice(0, 10),
+        e.home ? 1 : 0,
+        e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
+        e.tGoals ?? null, e.oGoals ?? null,
+        e.tXG ?? null, e.tShots ?? null, e.tShotsOG ?? null, e.tPoss ?? null,
+        e.res || ''
+      ].join('|'))
     },
-    // Buckets brutos (eventos por minuto) para reanálise posterior
-    eventsByFixture: {
-      A: Object.fromEntries(Object.entries(evA).map(([fid, evs]) => [fid, evs.map(e => ({elapsed: e.elapsed, extra: e.extra, sc: e.sc}))])),
-      B: Object.fromEntries(Object.entries(evB).map(([fid, evs]) => [fid, evs.map(e => ({elapsed: e.elapsed, extra: e.extra, sc: e.sc}))]))
-    },
-    // IDs dos fixtures usados (pra reconstruir 20j vs 10j)
-    fixIdsA: (fixA || []).map(f => f.fixture.id),
-    fixIdsB: (fixB || []).map(f => f.fixture.id),
-    // H2H recente
-    h2h: (fixH || []).slice(0, 10).map(f => ({
-      fixtureId: f.fixture.id,
-      date: f.fixture.date,
-      homeId: f.teams.home.id, homeName: f.teams.home.name,
-      awayId: f.teams.away.id, awayName: f.teams.away.name,
-      homeGoals: f.goals.home, awayGoals: f.goals.away,
-      league: f.league?.name
+    // Buckets 5min agregados (não eventos brutos — economiza ~80% do tamanho)
+    // E é tudo que precisamos pra análise pós-jogo
+    bucketsA: (() => {
+      const sc = new Array(20).fill(0), cn = new Array(20).fill(0);
+      Object.values(evA).forEach(evs => evs.forEach(ev => {
+        const bi = getBucket(ev.elapsed, ev.extra);
+        if (bi < 0) return;
+        ev.sc ? sc[bi]++ : cn[bi]++;
+      }));
+      return { sc, cn };
+    })(),
+    bucketsB: (() => {
+      const sc = new Array(20).fill(0), cn = new Array(20).fill(0);
+      Object.values(evB).forEach(evs => evs.forEach(ev => {
+        const bi = getBucket(ev.elapsed, ev.extra);
+        if (bi < 0) return;
+        ev.sc ? sc[bi]++ : cn[bi]++;
+      }));
+      return { sc, cn };
+    })(),
+    // Buckets dos últimos 10 jogos só (pra detectar "drift")
+    buckets10A: (() => {
+      const sc = new Array(20).fill(0), cn = new Array(20).fill(0);
+      const ids10 = (fixA || []).slice(0, 10).map(f => f.fixture.id);
+      ids10.forEach(fid => {
+        const evs = evA[fid] || [];
+        evs.forEach(ev => {
+          const bi = getBucket(ev.elapsed, ev.extra);
+          if (bi < 0) return;
+          ev.sc ? sc[bi]++ : cn[bi]++;
+        });
+      });
+      return { sc, cn };
+    })(),
+    buckets10B: (() => {
+      const sc = new Array(20).fill(0), cn = new Array(20).fill(0);
+      const ids10 = (fixB || []).slice(0, 10).map(f => f.fixture.id);
+      ids10.forEach(fid => {
+        const evs = evB[fid] || [];
+        evs.forEach(ev => {
+          const bi = getBucket(ev.elapsed, ev.extra);
+          if (bi < 0) return;
+          ev.sc ? sc[bi]++ : cn[bi]++;
+        });
+      });
+      return { sc, cn };
+    })(),
+    // Gols por minuto (1-95) — array compacto, ~95 ints por time × 2 = pequeno
+    minutosA: (() => {
+      const m = new Array(95).fill(0);
+      Object.values(evA).forEach(evs => evs.forEach(ev => {
+        const min = Math.min(94, ev.elapsed || 0);
+        if (ev.sc) m[min]++;
+      }));
+      return m;
+    })(),
+    minutosB: (() => {
+      const m = new Array(95).fill(0);
+      Object.values(evB).forEach(evs => evs.forEach(ev => {
+        const min = Math.min(94, ev.elapsed || 0);
+        if (ev.sc) m[min]++;
+      }));
+      return m;
+    })(),
+    // H2H últimos 5 (não 10 — pra reduzir mais)
+    h2h: (fixH || []).slice(0, 5).map(f => ({
+      date: (f.fixture.date || '').slice(0, 10),
+      h: f.teams.home.id, hN: f.teams.home.name,
+      a: f.teams.away.id, aN: f.teams.away.name,
+      hG: f.goals.home, aG: f.goals.away,
+      lg: f.league?.name
     })),
-    // Versão do raio-x que gerou esse snapshot
     versaoRaiox: 'v13-snapshot'
   };
 
