@@ -3104,53 +3104,32 @@ async function registrarSnapshot() {
   btn.disabled = true; btn.textContent = '⏳ salvando...';
 
   try {
-    // Pegar data/hora do jogo se usuário quiser informar
-    const matchDate = prompt(
-      `Snapshot: ${window.SNAPSHOT_DATA.teamA.nome} × ${window.SNAPSHOT_DATA.teamB.nome}\n\n` +
-      `Data do jogo (YYYY-MM-DD HH:MM ou ENTER pra "agora"):`,
-      ''
-    );
-    if (matchDate === null) {  // cancelou
-      btn.disabled = false; btn.textContent = '📌 REGISTRAR';
-      return;
-    }
-
-    let dataJogoTS = Date.now();
-    if (matchDate.trim()) {
-      const d = new Date(matchDate.replace(' ', 'T'));
-      if (!isNaN(d)) dataJogoTS = d.getTime();
-    }
+    // Data do jogo = timestamp do registro (você registra antes do jogo)
+    const dataJogoTS = Date.now();
 
     const snap = {
       ...window.SNAPSHOT_DATA,
       dataJogoTimestamp: dataJogoTS,
       registradoEm: firebase.firestore.FieldValue.serverTimestamp(),
       registradoTS: Date.now(),
-      // ID determinístico: idA_idB_dataJogo
       _docId: `${window.SNAPSHOT_DATA.teamA.apiId}_${window.SNAPSHOT_DATA.teamB.apiId}_${Math.floor(dataJogoTS/60000)}`,
-      // Resultado fica null inicialmente
       resultado: null,
-      // Análise pós-jogo fica null
       analise: null
     };
 
-    // Salvar no localStorage primeiro (fallback)
+    // localStorage
     const lsKey = `yellup_snap_${snap._docId}`;
     try {
       localStorage.setItem(lsKey, JSON.stringify(snap));
     } catch(e) {
-      // Se localStorage estourar (>5MB), limpa snapshots velhos
-      console.warn('localStorage cheio, limpando antigos');
       Object.keys(localStorage).filter(k => k.startsWith('yellup_snap_')).slice(0, 5).forEach(k => localStorage.removeItem(k));
       localStorage.setItem(lsKey, JSON.stringify(snap));
     }
 
-    // Salvar no Firestore
-    const docRef = db.collection('raiox-snapshots').doc(snap._docId);
-    // Remover field do firestore Timestamp do objeto que vai pro Firestore (Firestore lida com ele)
+    // Firestore
     const snapFirestore = { ...snap };
-    delete snapFirestore.registradoEm; // será readded como serverTimestamp
-    await docRef.set({
+    delete snapFirestore.registradoEm;
+    await db.collection('raiox-snapshots').doc(snap._docId).set({
       ...snapFirestore,
       registradoEm: firebase.firestore.FieldValue.serverTimestamp()
     });
