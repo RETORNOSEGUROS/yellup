@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snapshots Raio-X — Yellup</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --s1: #161b22; --s2: #1c2128; --s3: #21262d;
+  --b1: #30363d; --b2: #444c56;
+  --tx1: #f0f6fc; --tx2: #c9d1d9; --tx3: #8b949e;
+  --cy: #00d4ff; --gn: #3fb950; --rd: #f85149; --yl: #d29922; --or: #ff8a4c;
+  --fM: 'SF Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, sans-serif; background: var(--bg); color: var(--tx1); padding: 16px; font-size: 13px; }
+h1 { font-size: 18px; color: var(--cy); margin-bottom: 4px; }
+.sub { color: var(--tx3); font-size: 11px; margin-bottom: 16px; font-family: var(--fM); }
+
+.toolbar {
+  background: var(--s1); border: 1px solid var(--b1); border-radius: 6px;
+  padding: 12px; margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;
+  align-items: center;
+}
+button {
+  background: var(--s3); color: var(--tx1); border: 1px solid var(--b1);
+  padding: 7px 14px; border-radius: 5px; cursor: pointer; font-size: 11px;
+  font-family: var(--fM); font-weight: 600;
+}
+button:hover { background: var(--b2); }
+button.primary { background: var(--cy); color: #000; border-color: var(--cy); }
+button.danger { background: transparent; color: var(--rd); border-color: var(--rd); }
+button.success { background: var(--gn); color: #000; border-color: var(--gn); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.stat-pill {
+  background: var(--s3); border-radius: 4px; padding: 4px 10px; font-family: var(--fM);
+  font-size: 11px; color: var(--tx2);
+}
+.stat-pill strong { color: var(--cy); }
+
+.snap-list { display: flex; flex-direction: column; gap: 8px; }
+.snap-card {
+  background: var(--s1); border: 1px solid var(--b1); border-radius: 6px;
+  padding: 12px; transition: border-color 0.15s;
+}
+.snap-card.completo { border-left: 3px solid var(--gn); }
+.snap-card.pendente { border-left: 3px solid var(--yl); }
+.snap-card.expirado { border-left: 3px solid var(--rd); }
+.snap-card:hover { border-color: var(--cy); }
+.snap-hd { display: flex; justify-content: space-between; align-items: flex-start; }
+.snap-titulo { font-size: 13px; font-weight: 700; color: var(--tx1); }
+.snap-meta { font-size: 10px; color: var(--tx3); font-family: var(--fM); margin-top: 3px; }
+.snap-status {
+  font-size: 9px; padding: 3px 8px; border-radius: 3px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .5px; font-family: var(--fM);
+}
+.snap-status.completo { background: rgba(63,185,80,.15); color: var(--gn); }
+.snap-status.pendente { background: rgba(210,153,34,.15); color: var(--yl); }
+.snap-status.expirado { background: rgba(248,81,73,.15); color: var(--rd); }
+.snap-body {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px;
+  padding-top: 10px; border-top: 1px solid var(--b1); font-size: 11px;
+}
+.snap-col-titulo { font-size: 9px; color: var(--tx3); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+.snap-num { font-family: var(--fM); color: var(--tx2); }
+.snap-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: var(--s1); border: 1px solid var(--b1); border-radius: 8px;
+  padding: 20px; max-width: 600px; width: 92%; max-height: 90vh; overflow-y: auto;
+}
+.modal h2 { color: var(--cy); margin-bottom: 12px; font-size: 16px; }
+.modal label { display: block; font-size: 11px; color: var(--tx3); margin-top: 10px; font-family: var(--fM); text-transform: uppercase; letter-spacing: .5px; }
+.modal input, .modal textarea {
+  width: 100%; background: var(--s3); border: 1px solid var(--b1); color: var(--tx1);
+  padding: 8px; border-radius: 4px; font-family: var(--fM); font-size: 12px;
+  margin-top: 4px;
+}
+.modal textarea { min-height: 80px; resize: vertical; }
+.modal .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.modal-actions { margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; }
+
+.help {
+  background: rgba(0,212,255,.05); border-left: 3px solid var(--cy);
+  padding: 10px 14px; font-size: 11px; color: var(--tx2); margin-bottom: 16px;
+  border-radius: 0 4px 4px 0; line-height: 1.5;
+}
+
+.empty {
+  text-align: center; padding: 40px; color: var(--tx3); font-size: 12px;
+  background: var(--s1); border-radius: 6px; border: 1px dashed var(--b1);
+}
+
+#statusBadge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--tx3); font-family: var(--fM);
+  margin-left: auto;
+}
+#statusDot { width: 8px; height: 8px; border-radius: 50%; background: var(--yl); }
+
+input[type="text"].minutos-input { letter-spacing: 1px; }
+</style>
+</head>
+<body>
+
+<h1>📋 Snapshots Raio-X</h1>
+<div class="sub">Registre o estado pré-jogo, adicione o resultado depois, exporte pro Claude analisar.</div>
+
+<div class="help">
+  <strong>Fluxo:</strong> 1) No raio-x v13 você clica em "📌 REGISTRAR" antes do jogo. 2) Aqui você adiciona o placar + minutos dos gols depois. 3) Exporta tudo num JSON pra eu analisar e calibrar.
+</div>
+
+<div class="toolbar">
+  <button class="primary" onclick="carregar()">🔄 Recarregar</button>
+  <button onclick="exportarTodos()" id="btnExp">📤 Exportar TODOS p/ Claude</button>
+  <button onclick="exportarCompletos()" id="btnExpC">📤 Só completos</button>
+  <button class="danger" onclick="limparExpirados()">🗑 Limpar expirados (&gt;7d sem resultado)</button>
+  <div id="statusBadge"><span id="statusDot"></span><span id="statusTxt">aguardando</span></div>
+</div>
+
+<div id="stats" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"></div>
+<div id="snapList" class="snap-list"></div>
+
+<!-- Firebase compat -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
+const FB_CFG = {
+  apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+  authDomain: "painel-yellup.firebaseapp.com",
+  projectId: "painel-yellup",
+  storageBucket: "painel-yellup.appspot.com",
+  messagingSenderId: "608347210297",
+  appId: "1:608347210297:web:75092713724e617c7203e8"
+};
+
+let db, auth;
+let SNAPS = [];
+
+function setStatus(txt, cor) {
+  document.getElementById('statusTxt').textContent = txt;
+  document.getElementById('statusDot').style.background = cor || 'var(--yl)';
+}
+
+async function init() {
+  if (firebase.apps && firebase.apps.length > 0) {
+    // já inicializado
+  } else {
+    firebase.initializeApp(FB_CFG);
+  }
+  db = firebase.firestore();
+  auth = firebase.auth();
+  setStatus('verificando login...', 'var(--yl)');
+  let user = auth.currentUser;
+  if (!user) {
+    user = await new Promise((resolve) => {
+      const unsub = auth.onAuthStateChanged(u => { unsub(); resolve(u); });
+      setTimeout(() => resolve(auth.currentUser), 3000);
+    });
+  }
+  if (!user) {
+    setStatus('faça login no /admin/', 'var(--rd)');
+    document.getElementById('snapList').innerHTML = '<div class="empty">⚠ Você precisa estar logado. Acesse /admin/ primeiro.</div>';
+    return;
+  }
+  setStatus(`logado: ${user.email}`, 'var(--gn)');
+  await carregar();
+}
+
+async function carregar() {
+  setStatus('lendo snapshots...', 'var(--yl)');
+  try {
+    const snap = await db.collection('raiox-snapshots').orderBy('dataJogoTimestamp', 'desc').limit(200).get();
+    SNAPS = [];
+    snap.forEach(doc => SNAPS.push({ _id: doc.id, ...doc.data() }));
+
+    // Complementar com localStorage (caso firestore tenha falhado em algum registro)
+    const lsKeys = Object.keys(localStorage).filter(k => k.startsWith('yellup_snap_'));
+    for (const k of lsKeys) {
+      try {
+        const lsSnap = JSON.parse(localStorage.getItem(k));
+        if (!SNAPS.find(s => s._docId === lsSnap._docId)) {
+          SNAPS.push({ _id: lsSnap._docId, ...lsSnap, _fromLS: true });
+        }
+      } catch(e) {}
+    }
+
+    SNAPS.sort((a,b) => (b.dataJogoTimestamp || 0) - (a.dataJogoTimestamp || 0));
+
+    renderStats();
+    renderLista();
+    setStatus(`${SNAPS.length} snapshots`, 'var(--gn)');
+  } catch (e) {
+    console.error(e);
+    setStatus('erro: ' + e.message, 'var(--rd)');
+  }
+}
+
+function renderStats() {
+  const total = SNAPS.length;
+  const completos = SNAPS.filter(s => s.resultado).length;
+  const pendentes = SNAPS.filter(s => !s.resultado && (Date.now() - (s.dataJogoTimestamp || 0)) < 7*86400000).length;
+  const expirados = SNAPS.filter(s => !s.resultado && (Date.now() - (s.dataJogoTimestamp || 0)) >= 7*86400000).length;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat-pill">Total: <strong>${total}</strong></div>
+    <div class="stat-pill" style="color:var(--gn)">✓ Completos: <strong>${completos}</strong></div>
+    <div class="stat-pill" style="color:var(--yl)">⏳ Pendentes: <strong>${pendentes}</strong></div>
+    <div class="stat-pill" style="color:var(--rd)">⚠ Expirados: <strong>${expirados}</strong></div>
+  `;
+}
+
+function fmtData(ts) {
+  if (!ts) return '?';
+  const d = new Date(ts);
+  return d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+
+function renderLista() {
+  if (!SNAPS.length) {
+    document.getElementById('snapList').innerHTML = '<div class="empty">Nenhum snapshot ainda. Vá no raio-x v13 e clique em "📌 REGISTRAR" durante um comparativo.</div>';
+    return;
+  }
+  const html = SNAPS.map(s => {
+    const completo = !!s.resultado;
+    const idade = Date.now() - (s.dataJogoTimestamp || 0);
+    const expirado = !completo && idade >= 7*86400000;
+    const cls = completo ? 'completo' : (expirado ? 'expirado' : 'pendente');
+    const tagTxt = completo ? '✓ COMPLETO' : (expirado ? 'EXPIRADO' : '⏳ AGUARDANDO RESULTADO');
+
+    const fA = s.forteScore?.A, fB = s.forteScore?.B;
+    const xgA = s.agg?.A?.xg, xgB = s.agg?.B?.xg;
+    const gfA = s.agg?.A?.gfJ, gfB = s.agg?.B?.gfJ;
+    const gcA = s.agg?.A?.gcJ, gcB = s.agg?.B?.gcJ;
+
+    let resultadoHtml = '';
+    if (completo) {
+      const r = s.resultado;
+      const minStr = (r.minutosGols || []).join(', ');
+      resultadoHtml = `
+        <div style="margin-top:10px;padding:8px;background:var(--s2);border-radius:4px">
+          <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
+            <div style="font-size:18px;font-weight:700;color:var(--gn);font-family:var(--fM)">${r.placarA}–${r.placarB}</div>
+            <div style="font-size:11px;color:var(--tx2)">total <strong>${(r.placarA||0)+(r.placarB||0)}</strong> gols</div>
+            ${r.minutosGols && r.minutosGols.length ? `<div style="font-size:10px;color:var(--tx3);font-family:var(--fM)">minutos: ${minStr}</div>` : ''}
+          </div>
+          ${r.observacoes ? `<div style="font-size:10px;color:var(--tx3);margin-top:4px;font-style:italic">"${r.observacoes}"</div>` : ''}
+        </div>`;
+    }
+
+    return `
+      <div class="snap-card ${cls}">
+        <div class="snap-hd">
+          <div>
+            <div class="snap-titulo">${s.teamA?.nome || '?'} × ${s.teamB?.nome || '?'}</div>
+            <div class="snap-meta">${fmtData(s.dataJogoTimestamp)} · ${s._fromLS ? 'localStorage' : 'firestore'} · ${s._docId}</div>
+          </div>
+          <span class="snap-status ${cls}">${tagTxt}</span>
+        </div>
+        <div class="snap-body">
+          <div>
+            <div class="snap-col-titulo">${s.teamA?.nome}</div>
+            <div class="snap-num">Forte: <strong style="color:var(--cy)">${fA?.toFixed?.(2) ?? '?'}</strong></div>
+            <div class="snap-num">xG: ${xgA ?? '—'} · GF/j: ${gfA ?? '—'} · GC/j: ${gcA ?? '—'}</div>
+          </div>
+          <div>
+            <div class="snap-col-titulo">${s.teamB?.nome}</div>
+            <div class="snap-num">Forte: <strong style="color:var(--cy)">${fB?.toFixed?.(2) ?? '?'}</strong></div>
+            <div class="snap-num">xG: ${xgB ?? '—'} · GF/j: ${gfB ?? '—'} · GC/j: ${gcB ?? '—'}</div>
+          </div>
+        </div>
+        ${resultadoHtml}
+        <div class="snap-actions">
+          ${completo
+            ? `<button onclick="abrirModal('${s._id}')">✎ Editar resultado</button>`
+            : `<button class="success" onclick="abrirModal('${s._id}')">📝 Adicionar resultado</button>`}
+          <button onclick="exportarUm('${s._id}')">📤 Exportar este</button>
+          <button class="danger" onclick="excluir('${s._id}')">🗑 Excluir</button>
+        </div>
+      </div>`;
+  }).join('');
+  document.getElementById('snapList').innerHTML = html;
+}
+
+function abrirModal(id) {
+  const s = SNAPS.find(x => x._id === id);
+  if (!s) return;
+  const r = s.resultado || {};
+  const html = `
+    <div class="modal-bg" id="modalBg" onclick="if(event.target===this)fechar()">
+      <div class="modal">
+        <h2>${s.teamA?.nome} × ${s.teamB?.nome}</h2>
+        <div style="color:var(--tx3);font-size:11px;font-family:var(--fM)">${fmtData(s.dataJogoTimestamp)}</div>
+
+        <div class="row" style="margin-top:14px">
+          <div>
+            <label>Placar ${s.teamA?.nome}</label>
+            <input type="number" id="placarA" value="${r.placarA ?? ''}" min="0" max="20">
+          </div>
+          <div>
+            <label>Placar ${s.teamB?.nome}</label>
+            <input type="number" id="placarB" value="${r.placarB ?? ''}" min="0" max="20">
+          </div>
+        </div>
+
+        <label>Minutos dos gols (separados por vírgula — ex: 12, 34, 67, 89)</label>
+        <input type="text" id="minutos" class="minutos-input" value="${(r.minutosGols||[]).join(', ')}" placeholder="12, 34, 67, 89">
+        <div style="font-size:9px;color:var(--tx3);margin-top:3px;font-family:var(--fM)">use o número total: ex 45+2 = 47, 90+3 = 93</div>
+
+        <label>Quem fez (opcional, mesma ordem dos minutos: A ou B, separados por vírgula)</label>
+        <input type="text" id="autores" value="${(r.autores||[]).join(', ')}" placeholder="A, B, A, A">
+
+        <label>Observações livres (lance bizarro? vermelho? gol no fim?)</label>
+        <textarea id="obs" placeholder="ex: PSG estava com time misto, expulsão aos 23min, gol no 90+3...">${r.observacoes || ''}</textarea>
+
+        <div class="modal-actions">
+          <button onclick="fechar()">Cancelar</button>
+          <button class="primary" onclick="salvar('${id}')">💾 Salvar resultado</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function fechar() {
+  document.getElementById('modalBg')?.remove();
+}
+
+async function salvar(id) {
+  const placarA = parseInt(document.getElementById('placarA').value);
+  const placarB = parseInt(document.getElementById('placarB').value);
+  const minStr = document.getElementById('minutos').value;
+  const autStr = document.getElementById('autores').value;
+  const obs = document.getElementById('obs').value;
+
+  if (isNaN(placarA) || isNaN(placarB)) {
+    alert('Informe placar válido');
+    return;
+  }
+
+  const minutosGols = minStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n>=0 && n<=130);
+  const autores = autStr.split(',').map(s => s.trim().toUpperCase()).filter(s => s === 'A' || s === 'B');
+
+  const resultado = {
+    placarA, placarB,
+    totalGols: placarA + placarB,
+    minutosGols,
+    autores,
+    observacoes: obs.trim(),
+    registradoEm: Date.now()
+  };
+
+  const s = SNAPS.find(x => x._id === id);
+  if (!s) return;
+
+  try {
+    await db.collection('raiox-snapshots').doc(s._docId || id).set({ resultado }, { merge: true });
+    // Atualiza localStorage também
+    const lsKey = `yellup_snap_${s._docId || id}`;
+    const lsCopy = localStorage.getItem(lsKey);
+    if (lsCopy) {
+      try {
+        const obj = JSON.parse(lsCopy);
+        obj.resultado = resultado;
+        localStorage.setItem(lsKey, JSON.stringify(obj));
+      } catch(e) {}
+    }
+    fechar();
+    await carregar();
+  } catch (e) {
+    alert('Erro: ' + e.message);
+  }
+}
+
+async function excluir(id) {
+  const s = SNAPS.find(x => x._id === id);
+  if (!s) return;
+  if (!confirm(`Excluir snapshot ${s.teamA?.nome} × ${s.teamB?.nome}?`)) return;
+  try {
+    await db.collection('raiox-snapshots').doc(s._docId || id).delete();
+    localStorage.removeItem(`yellup_snap_${s._docId || id}`);
+    await carregar();
+  } catch (e) {
+    alert('Erro: ' + e.message);
+  }
+}
+
+function downloadJSON(name, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportarTodos() {
+  if (!SNAPS.length) { alert('Sem snapshots'); return; }
+  downloadJSON(`yellup-snapshots-${new Date().toISOString().slice(0,10)}.json`, {
+    exportadoEm: new Date().toISOString(),
+    total: SNAPS.length,
+    completos: SNAPS.filter(s => s.resultado).length,
+    snapshots: SNAPS
+  });
+}
+
+function exportarCompletos() {
+  const comp = SNAPS.filter(s => s.resultado);
+  if (!comp.length) { alert('Nenhum snapshot completo ainda'); return; }
+  downloadJSON(`yellup-snapshots-completos-${new Date().toISOString().slice(0,10)}.json`, {
+    exportadoEm: new Date().toISOString(),
+    total: comp.length,
+    snapshots: comp
+  });
+}
+
+function exportarUm(id) {
+  const s = SNAPS.find(x => x._id === id);
+  if (!s) return;
+  downloadJSON(`yellup-snap-${(s.teamA?.nome||'').replace(/\s+/g,'')}-vs-${(s.teamB?.nome||'').replace(/\s+/g,'')}.json`, s);
+}
+
+async function limparExpirados() {
+  const exp = SNAPS.filter(s => !s.resultado && (Date.now() - (s.dataJogoTimestamp || 0)) >= 7*86400000);
+  if (!exp.length) { alert('Nenhum expirado'); return; }
+  if (!confirm(`Excluir ${exp.length} snapshot(s) sem resultado há mais de 7 dias?`)) return;
+  for (const s of exp) {
+    try {
+      await db.collection('raiox-snapshots').doc(s._docId || s._id).delete();
+      localStorage.removeItem(`yellup_snap_${s._docId || s._id}`);
+    } catch(e) { console.warn(e); }
+  }
+  await carregar();
+}
+
+init();
+</script>
+</body>
+</html>
