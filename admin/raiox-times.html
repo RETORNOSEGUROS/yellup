@@ -2220,7 +2220,7 @@ async function runH2H() {
     setStatus('Buscando eventos do time B...');
     await fetchEvs(fixB, evB, H2H_B.apiId);
 
-    renderH2H(eA, eB, smA, smB, evA, evB, fixH);
+    renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB);
   } catch(e) {
     body.innerHTML = `<div class="err">Erro: ${e.message}</div>`;
   }
@@ -2235,7 +2235,7 @@ function enrichedFind(fixes, fid, tid) {
 }
 
 // ── Render full H2H ────────────────────────────────────────────
-function renderH2H(eA, eB, smA, smB, evA, evB, fixH) {
+function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
   const body  = document.getElementById('h2hBody');
   const aggA  = calcAgg(eA, smA, H2H_A.apiId);
   const aggB  = calcAgg(eB, smB, H2H_B.apiId);
@@ -2294,6 +2294,9 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH) {
     ${renderPerMinute(aggA, aggB)}
     ${renderDualIntervals(evA, evB)}
     ${renderSlidingWindows(evA, evB)}
+    ${(fixA && fixB) ? renderJanelaJogosCompare(evA, evB, fixA, fixB) : ''}
+    ${renderSliding3min(evA, evB)}
+    ${(fixA && fixB) ? renderConsistenciaJanela(evA, evB, fixA, fixB) : ''}
     ${renderTiers(eA, 'A')}
     ${renderTiers(eB, 'B')}
     ${renderH2HMatches(fixH)}
@@ -2631,7 +2634,290 @@ function renderSlidingWindows(evA, evB) {
   </div>`;
 }
 
-// ── Block 5 — ForteScore Tiers ─────────────────────────────────
+// ── Block 4c (v12) — Comparativo 20j vs 10j ─────────────────────
+// Mostra se o time MUDOU recentemente. Médias estáveis (20j) vs momento (10j).
+// Divergência grande = momento atípico, modelo de gols pode estar errado.
+function renderJanelaJogosCompare(evA, evB, fixA, fixB) {
+  // Reconstruir buckets considerando só os primeiros N jogos (mais recentes)
+  function bucketsFor(evMap, fixIds, N) {
+    const sc = new Array(20).fill(0), cn = new Array(20).fill(0);
+    const subset = fixIds.slice(0, N);  // primeiros N (mais recentes)
+    subset.forEach(fid => {
+      const evs = evMap[fid] || [];
+      evs.forEach(ev => {
+        const bi = getBucket(ev.elapsed, ev.extra);
+        if (bi < 0) return;
+        ev.sc ? sc[bi]++ : cn[bi]++;
+      });
+    });
+    return { sc, cn };
+  }
+
+  const idsA = fixA.map(f => f.fixture.id);
+  const idsB = fixB.map(f => f.fixture.id);
+  const a20 = bucketsFor(evA, idsA, 20);
+  const a10 = bucketsFor(evA, idsA, 10);
+  const b20 = bucketsFor(evB, idsB, 20);
+  const b10 = bucketsFor(evB, idsB, 10);
+
+  const LBL = ['0–5','6–10','11–15','16–20','21–25','26–30','31–35','36–40','41–45','AC1T',
+               '46–50','51–55','56–60','61–65','66–70','71–75','76–80','81–85','86–90','AC2T'];
+
+  // Top 3 buckets em movimentação total (sc+cn de A+B) para cada janela
+  function rank(scA, cnA, scB, cnB) {
+    return scA.map((_, i) => ({
+      i, lbl: LBL[i],
+      totA: scA[i]+cnA[i],
+      totB: scB[i]+cnB[i],
+      total: scA[i]+cnA[i]+scB[i]+cnB[i],
+      asc: scA[i], acn: cnA[i], bsc: scB[i], bcn: cnB[i]
+    })).sort((x,y) => y.total - x.total);
+  }
+
+  const r20 = rank(a20.sc, a20.cn, b20.sc, b20.cn);
+  const r10 = rank(a10.sc, a10.cn, b10.sc, b10.cn);
+
+  // Detectar divergência: top1 dos últimos 10 está no top3 dos últimos 20?
+  const top10 = r10.slice(0, 3).map(r => r.i);
+  const top20 = r20.slice(0, 3).map(r => r.i);
+  const novosNoTop10 = top10.filter(i => !top20.includes(i));
+  const divergencia = novosNoTop10.length;
+
+  function topRow(rankings, sufixo) {
+    return rankings.slice(0, 5).map(r => `
+      <tr>
+        <td style="color:var(--cy);font-weight:600">${r.lbl}</td>
+        <td style="color:var(--tx3);text-align:right">${r.total}</td>
+        <td style="text-align:right">
+          ${r.asc?`<span style="color:var(--gn)">${r.asc}</span>`:''}
+          ${r.acn?` <span style="color:var(--rd)">${r.acn}</span>`:''}
+        </td>
+        <td style="text-align:right">
+          ${r.bsc?`<span style="color:rgba(15,232,152,.7)">${r.bsc}</span>`:''}
+          ${r.bcn?` <span style="color:rgba(244,63,94,.7)">${r.bcn}</span>`:''}
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  const corDiv = divergencia >= 2 ? 'var(--rd)' : divergencia === 1 ? 'var(--yl)' : 'var(--gn)';
+  const txtDiv = divergencia >= 2 ? 'time MUDOU recentemente — janelas estáveis não valem'
+                : divergencia === 1 ? 'leve mudança — atenção'
+                : 'time consistente — janelas confiáveis';
+
+  return `
+  <div class="h2h-section">
+    <div class="h2h-sec-title">
+      Comparativo Últimos 20j × Últimos 10j
+      <span style="font-family:var(--fM);font-size:9px;color:${corDiv};margin-left:8px;font-weight:600">
+        ${divergencia >= 2 ? '⚠ DIVERGÊNCIA' : divergencia === 1 ? '~ leve drift' : '✓ estável'}
+      </span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:10px;font-family:var(--fM)">
+      <div>
+        <div style="color:var(--tx3);font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Top 5 janelas — últimos 20 jogos</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="color:var(--tx3);font-size:9px">
+              <th style="text-align:left">bucket</th>
+              <th style="text-align:right">total</th>
+              <th style="text-align:right">${H2H_A.nome.slice(0,12)}</th>
+              <th style="text-align:right">${H2H_B.nome.slice(0,12)}</th>
+            </tr>
+          </thead>
+          <tbody style="color:var(--tx2)">${topRow(r20)}</tbody>
+        </table>
+      </div>
+      <div>
+        <div style="color:var(--cy);font-size:9px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Top 5 janelas — últimos 10 jogos (AGORA)</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="color:var(--tx3);font-size:9px">
+              <th style="text-align:left">bucket</th>
+              <th style="text-align:right">total</th>
+              <th style="text-align:right">${H2H_A.nome.slice(0,12)}</th>
+              <th style="text-align:right">${H2H_B.nome.slice(0,12)}</th>
+            </tr>
+          </thead>
+          <tbody style="color:var(--tx2)">${topRow(r10)}</tbody>
+        </table>
+      </div>
+    </div>
+    <div style="font-size:9px;color:${corDiv};margin-top:8px;font-family:var(--fM);line-height:1.5">
+      ${txtDiv}
+      ${divergencia >= 1 ? ` · ${novosNoTop10.length} bucket(s) novo(s) no top 10j: <strong>${novosNoTop10.map(i=>LBL[i]).join(', ')}</strong>` : ''}
+    </div>
+    <div style="font-size:8px;color:var(--tx3);margin-top:4px;font-family:var(--fM)">
+      Quando os top buckets dos últimos 10 jogos divergem dos últimos 20, o time mudou de momento (técnico, lesão, calendário). Use as janelas dos 10 jogos.
+    </div>
+  </div>`;
+}
+
+// ── Block 4d (v12) — Sliding Windows 3min (passo 1) ─────────────
+// Janelas finas pra detectar PICOS específicos que 5min dilui.
+// Não substitui as outras — complementa: revela se a janela quente está
+// no meio do bucket ou na borda.
+function renderSliding3min(evA, evB) {
+  const goalsA = new Array(95).fill(0), concA = new Array(95).fill(0);
+  const goalsB = new Array(95).fill(0), concB = new Array(95).fill(0);
+
+  Object.values(evA).forEach(evs => evs.forEach(ev => {
+    const m = Math.min(94, ev.elapsed); ev.sc ? goalsA[m]++ : concA[m]++;
+  }));
+  Object.values(evB).forEach(evs => evs.forEach(ev => {
+    const m = Math.min(94, ev.elapsed); ev.sc ? goalsB[m]++ : concB[m]++;
+  }));
+
+  // Janelas de 3 minutos, passo 1 (sobrepostas)
+  const wins = [];
+  for (let s = 1; s <= 91; s++) {
+    const e = Math.min(94, s + 3);
+    let sumA = 0, sumB = 0, gA = 0, cA = 0, gB = 0, cB = 0;
+    for (let m = s; m < e; m++) {
+      gA += goalsA[m]; cA += concA[m]; gB += goalsB[m]; cB += concB[m];
+    }
+    sumA = gA + cA; sumB = gB + cB;
+    wins.push({ start: s, end: e, sumA, sumB, gA, cA, gB, cB, total: sumA + sumB });
+  }
+
+  // Top 5 picos finos (não-sobrepostos: se dois picos estão a < 3min, mantém só o maior)
+  const sorted = [...wins].sort((a,b) => b.total - a.total);
+  const peaks = [];
+  for (const w of sorted) {
+    if (peaks.every(p => Math.abs(p.start - w.start) >= 3)) {
+      peaks.push(w);
+      if (peaks.length === 5) break;
+    }
+  }
+
+  const maxW = Math.max(...wins.map(w=>w.total), 1);
+  const MAX_H = 60;
+  const cols = wins.map(w => {
+    const h = Math.max(1, Math.round((w.total/maxW)*MAX_H));
+    const isPeak = peaks.some(p => p.start === w.start);
+    const col = isPeak ? 'var(--cy)' : w.total > maxW*0.5 ? 'var(--gn)' : 'var(--tx3)';
+    return `<div style="width:8px;height:${h}px;background:${col};opacity:${isPeak?1:0.65};border-radius:1px"
+      title="min ${w.start}-${w.end}: A=${w.gA}f/${w.cA}t · B=${w.gB}f/${w.cB}t"></div>`;
+  }).join('');
+
+  const peaksHtml = peaks.map(p => `
+    <div style="background:var(--s2);border-left:2px solid var(--cy);padding:4px 8px;font-family:var(--fM);font-size:10px;border-radius:3px">
+      <strong style="color:var(--cy)">min ${p.start}–${p.end}</strong> · ${H2H_A.nome.slice(0,10)}: ${p.gA}f/${p.cA}t · ${H2H_B.nome.slice(0,10)}: ${p.gB}f/${p.cB}t · total <strong>${p.total}</strong>
+    </div>
+  `).join('');
+
+  return `
+  <div class="h2h-section">
+    <div class="h2h-sec-title">Picos Finos 3min · sliding window</div>
+    <div style="display:flex;align-items:flex-end;gap:1px;height:${MAX_H+4}px;padding:4px 0;background:var(--s2);border-radius:4px;overflow-x:auto">
+      ${cols}
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--tx3);font-family:var(--fM);margin-top:2px">
+      <span>min 1</span><span>30</span><span>HT</span><span>60</span><span>80</span><span>FT</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px;margin-top:10px">${peaksHtml}</div>
+    <div style="font-size:8px;color:var(--tx3);margin-top:6px;font-family:var(--fM)">
+      Janelas de 3 minutos com passo 1 · top 5 picos (separados em ao menos 3min). Detecta concentrações finas que 5min dilui no bucket vizinho.
+    </div>
+  </div>`;
+}
+
+// ── Block 4e (v12) — Consistência da janela quente ──────────────
+// MUITO importante: 9 gols em 1 jogo isolado ≠ 1 gol em 9 jogos diferentes.
+// Esta análise mostra em QUANTOS jogos distintos cada bucket teve evento.
+function renderConsistenciaJanela(evA, evB, fixA, fixB) {
+  function consistencia(evMap, fixIds) {
+    // jogosComEvento[bucket] = quantos fixtures distintos tiveram pelo menos 1 evento ali
+    const totalEv = new Array(20).fill(0);   // total de eventos (= o que já existe)
+    const fixComEvento = new Array(20).fill(null).map(() => new Set());
+    fixIds.forEach(fid => {
+      const evs = evMap[fid] || [];
+      evs.forEach(ev => {
+        const bi = getBucket(ev.elapsed, ev.extra);
+        if (bi < 0) return;
+        totalEv[bi]++;
+        fixComEvento[bi].add(fid);
+      });
+    });
+    const N = fixIds.length;
+    return totalEv.map((tot, i) => ({
+      i,
+      total: tot,
+      nJogos: fixComEvento[i].size,
+      pctJogos: N ? Math.round((fixComEvento[i].size / N) * 100) : 0,
+      densidade: fixComEvento[i].size ? +(tot / fixComEvento[i].size).toFixed(2) : 0
+    }));
+  }
+
+  const idsA = fixA.map(f => f.fixture.id);
+  const idsB = fixB.map(f => f.fixture.id);
+  const cA = consistencia(evA, idsA);
+  const cB = consistencia(evB, idsB);
+
+  const LBL = ['0–5','6–10','11–15','16–20','21–25','26–30','31–35','36–40','41–45','AC1T',
+               '46–50','51–55','56–60','61–65','66–70','71–75','76–80','81–85','86–90','AC2T'];
+
+  // Combinado: bucket "perfeito" = aparece em muitos jogos de ambos os times
+  const combinado = cA.map((a, i) => {
+    const b = cB[i];
+    // Score: produto das %s de aparição → captura mútua
+    const conf = a.pctJogos * b.pctJogos / 100;  // 0-100
+    return {
+      i, lbl: LBL[i],
+      pctA: a.pctJogos, pctB: b.pctJogos,
+      totA: a.total, totB: b.total,
+      densA: a.densidade, densB: b.densidade,
+      conf
+    };
+  }).sort((x,y) => y.conf - x.conf);
+
+  const topN = combinado.slice(0, 5);
+
+  const linhas = topN.map(r => {
+    // Cor baseado na confiança mútua
+    const corConf = r.conf >= 50 ? 'var(--cy)' : r.conf >= 35 ? 'var(--yl)' : 'var(--tx3)';
+    const aviso = (r.densA >= 2 && r.pctA <= 20) ? '⚠ A: concentrado em poucos jogos' :
+                  (r.densB >= 2 && r.pctB <= 20) ? '⚠ B: concentrado em poucos jogos' : '';
+    return `
+      <tr>
+        <td style="color:${corConf};font-weight:600">${r.lbl}</td>
+        <td style="text-align:right;font-family:var(--fM);color:${corConf}">${r.conf.toFixed(0)}</td>
+        <td style="text-align:right">
+          <span style="color:var(--tx2)">${r.pctA}%</span>
+          <span style="color:var(--tx3);font-size:9px"> (${r.totA}ev / dens ${r.densA})</span>
+        </td>
+        <td style="text-align:right">
+          <span style="color:var(--tx2)">${r.pctB}%</span>
+          <span style="color:var(--tx3);font-size:9px"> (${r.totB}ev / dens ${r.densB})</span>
+        </td>
+        <td style="font-size:9px;color:var(--rd)">${aviso}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+  <div class="h2h-section">
+    <div class="h2h-sec-title">Consistência da Janela · em quantos jogos cada bucket teve evento</div>
+    <table style="width:100%;border-collapse:collapse;font-size:10px;font-family:var(--fM)">
+      <thead>
+        <tr style="color:var(--tx3);font-size:9px;text-transform:uppercase;letter-spacing:.5px">
+          <th style="text-align:left">bucket</th>
+          <th style="text-align:right">conf</th>
+          <th style="text-align:right">${H2H_A.nome.slice(0,18)}</th>
+          <th style="text-align:right">${H2H_B.nome.slice(0,18)}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody style="color:var(--tx2)">${linhas}</tbody>
+    </table>
+    <div style="font-size:8px;color:var(--tx3);margin-top:6px;font-family:var(--fM);line-height:1.5">
+      <strong>conf</strong> = (% jogos com evento de A) × (% jogos com evento de B) / 100. Mede se a janela é mutuamente consistente, não só "alta no agregado".<br>
+      <strong>dens</strong> = eventos por jogo onde houve evento. Densidade ≥ 2 com % baixa = bucket inflado por 1-2 jogos atípicos (não confiável).
+    </div>
+  </div>`;
+}
+
+
 function renderTiers(enriched, side) {
   const team = side==='A' ? H2H_A : H2H_B;
   const TIERS = [
