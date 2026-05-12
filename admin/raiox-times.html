@@ -2261,6 +2261,66 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
   saveRef(H2H_A.apiId, aggA, H2H_A);
   saveRef(H2H_B.apiId, aggB, H2H_B);
 
+  // v13: armazenar TUDO no estado global para o botão "Registrar Snapshot"
+  // Captura o momento ANTES do jogo (forte score, agg, janelas brutas, h2h)
+  // — quando o jogo encerrar, completa com gols + minutos e analisa retrospectivamente
+  window.SNAPSHOT_DATA = {
+    capturedAt: Date.now(),
+    teamA: { apiId: H2H_A.apiId, nome: H2H_A.nome, escudo: H2H_A.escudo || null },
+    teamB: { apiId: H2H_B.apiId, nome: H2H_B.nome, escudo: H2H_B.escudo || null },
+    forteScore: {
+      A: FORTE_CACHE[H2H_A.apiId] || null,
+      B: FORTE_CACHE[H2H_B.apiId] || null,
+    },
+    agg: { A: aggA, B: aggB },
+    enrichedSummary: {
+      // Resumo dos 20 últimos jogos (sem o objeto fixture cru, pra não explodir tamanho)
+      A: eA.map(e => ({
+        date: e.f?.fixture?.date,
+        home: e.home,
+        oppId: e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
+        oppName: e.home ? e.f?.teams?.away?.name : e.f?.teams?.home?.name,
+        tGoals: e.tGoals, oGoals: e.oGoals,
+        tXG: e.tXG, oXG: e.oXG,
+        tShots: e.tShots, oShots: e.oShots,
+        tShotsOG: e.tShotsOG, oShotsOG: e.oShotsOG,
+        tPoss: e.tPoss,
+        res: e.res
+      })),
+      B: eB.map(e => ({
+        date: e.f?.fixture?.date,
+        home: e.home,
+        oppId: e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
+        oppName: e.home ? e.f?.teams?.away?.name : e.f?.teams?.home?.name,
+        tGoals: e.tGoals, oGoals: e.oGoals,
+        tXG: e.tXG, oXG: e.oXG,
+        tShots: e.tShots, oShots: e.oShots,
+        tShotsOG: e.tShotsOG, oShotsOG: e.oShotsOG,
+        tPoss: e.tPoss,
+        res: e.res
+      }))
+    },
+    // Buckets brutos (eventos por minuto) para reanálise posterior
+    eventsByFixture: {
+      A: Object.fromEntries(Object.entries(evA).map(([fid, evs]) => [fid, evs.map(e => ({elapsed: e.elapsed, extra: e.extra, sc: e.sc}))])),
+      B: Object.fromEntries(Object.entries(evB).map(([fid, evs]) => [fid, evs.map(e => ({elapsed: e.elapsed, extra: e.extra, sc: e.sc}))]))
+    },
+    // IDs dos fixtures usados (pra reconstruir 20j vs 10j)
+    fixIdsA: (fixA || []).map(f => f.fixture.id),
+    fixIdsB: (fixB || []).map(f => f.fixture.id),
+    // H2H recente
+    h2h: (fixH || []).slice(0, 10).map(f => ({
+      fixtureId: f.fixture.id,
+      date: f.fixture.date,
+      homeId: f.teams.home.id, homeName: f.teams.home.name,
+      awayId: f.teams.away.id, awayName: f.teams.away.name,
+      homeGoals: f.goals.home, awayGoals: f.goals.away,
+      league: f.league?.name
+    })),
+    // Versão do raio-x que gerou esse snapshot
+    versaoRaiox: 'v13-snapshot'
+  };
+
   // ── Salva buckets de intervalos para o gráfico no jogo-live ──────────
   // yellup_intervalos_{idA}_{idB} = { asc, acn, bsc, bcn, nomeA, nomeB }
   // Calculado inline aqui para não depender do renderDualIntervals
@@ -2289,6 +2349,16 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
   const sumAB = scA + scB || 1;
 
   body.innerHTML = `
+    <div class="h2h-section" style="display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg, rgba(0,212,255,.08), transparent);border-left:3px solid var(--cy)">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--cy);text-transform:uppercase;letter-spacing:.5px">📌 Snapshot pré-jogo</div>
+        <div style="font-size:10px;color:var(--tx3);margin-top:2px;font-family:var(--fM)">Salva o raio-x atual. Após o jogo, registre o resultado + minutos dos gols pra calibrar o modelo.</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button id="snapBtn" onclick="registrarSnapshot()" style="background:var(--cy);color:#000;border:none;padding:8px 14px;border-radius:5px;cursor:pointer;font-weight:700;font-size:11px;font-family:var(--fM)">📌 REGISTRAR</button>
+        <button onclick="window.open('snapshots.html','_blank')" style="background:transparent;color:var(--tx2);border:1px solid var(--b1);padding:8px 14px;border-radius:5px;cursor:pointer;font-size:11px;font-family:var(--fM)">📋 ver snapshots</button>
+      </div>
+    </div>
     ${renderForteCompare(scA, scB, colA, colB, sumAB)}
     ${renderStatsCompare(aggA, aggB, eA, eB)}
     ${renderPerMinute(aggA, aggB)}
@@ -3019,6 +3089,87 @@ function st(state, msg) {
   const c = state==='ok' ? 'var(--gn)' : state==='err' ? 'var(--rd)' : 'var(--yl)';
   dot.style.background = c;
   dot.style.boxShadow  = `0 0 5px ${c}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// v13: SISTEMA DE SNAPSHOTS PARA CALIBRAÇÃO
+// ═══════════════════════════════════════════════════════════════
+async function registrarSnapshot() {
+  const btn = document.getElementById('snapBtn');
+  if (!btn) return;
+  if (!window.SNAPSHOT_DATA) {
+    alert('Rode o comparativo primeiro (clique em Analisar).');
+    return;
+  }
+  btn.disabled = true; btn.textContent = '⏳ salvando...';
+
+  try {
+    // Pegar data/hora do jogo se usuário quiser informar
+    const matchDate = prompt(
+      `Snapshot: ${window.SNAPSHOT_DATA.teamA.nome} × ${window.SNAPSHOT_DATA.teamB.nome}\n\n` +
+      `Data do jogo (YYYY-MM-DD HH:MM ou ENTER pra "agora"):`,
+      ''
+    );
+    if (matchDate === null) {  // cancelou
+      btn.disabled = false; btn.textContent = '📌 REGISTRAR';
+      return;
+    }
+
+    let dataJogoTS = Date.now();
+    if (matchDate.trim()) {
+      const d = new Date(matchDate.replace(' ', 'T'));
+      if (!isNaN(d)) dataJogoTS = d.getTime();
+    }
+
+    const snap = {
+      ...window.SNAPSHOT_DATA,
+      dataJogoTimestamp: dataJogoTS,
+      registradoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      registradoTS: Date.now(),
+      // ID determinístico: idA_idB_dataJogo
+      _docId: `${window.SNAPSHOT_DATA.teamA.apiId}_${window.SNAPSHOT_DATA.teamB.apiId}_${Math.floor(dataJogoTS/60000)}`,
+      // Resultado fica null inicialmente
+      resultado: null,
+      // Análise pós-jogo fica null
+      analise: null
+    };
+
+    // Salvar no localStorage primeiro (fallback)
+    const lsKey = `yellup_snap_${snap._docId}`;
+    try {
+      localStorage.setItem(lsKey, JSON.stringify(snap));
+    } catch(e) {
+      // Se localStorage estourar (>5MB), limpa snapshots velhos
+      console.warn('localStorage cheio, limpando antigos');
+      Object.keys(localStorage).filter(k => k.startsWith('yellup_snap_')).slice(0, 5).forEach(k => localStorage.removeItem(k));
+      localStorage.setItem(lsKey, JSON.stringify(snap));
+    }
+
+    // Salvar no Firestore
+    const docRef = db.collection('raiox-snapshots').doc(snap._docId);
+    // Remover field do firestore Timestamp do objeto que vai pro Firestore (Firestore lida com ele)
+    const snapFirestore = { ...snap };
+    delete snapFirestore.registradoEm; // será readded como serverTimestamp
+    await docRef.set({
+      ...snapFirestore,
+      registradoEm: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    btn.textContent = '✓ SALVO';
+    btn.style.background = 'var(--gn)';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '📌 REGISTRAR';
+      btn.style.background = 'var(--cy)';
+    }, 2500);
+  } catch (e) {
+    console.error(e);
+    btn.disabled = false;
+    btn.textContent = '✗ ERRO';
+    btn.style.background = 'var(--rd)';
+    alert('Erro: ' + e.message);
+    setTimeout(() => { btn.textContent = '📌 REGISTRAR'; btn.style.background = 'var(--cy)'; }, 2500);
+  }
 }
 </script>
 </body>
