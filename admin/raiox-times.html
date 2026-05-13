@@ -677,6 +677,7 @@ let FORTE_TEAM   = null;
 let FORTE_E20    = [];
 let FORTE_SM20   = {};
 let FORTE_CACHE  = {};   // apiId → score  (persiste entre seleções para ordenar sidebar)
+let FORTE_FULL_CACHE = {};   // v16: apiId → {score, wrs, io, id, idom, lcs} — para snapshot rico
 
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -1485,7 +1486,7 @@ function parseStats(raw, homeId, awayId) {
 
 // ── Aggregate Calculation ──────────────────────────────────────
 function calcAgg(enriched, statsMap, tid) {
-  const T = {poss:0,xg:0,shots:0,pass:0,passTotal:0}, C = {poss:0,xg:0,shots:0,pass:0,passTotal:0};
+  const T = {poss:0,xg:0,shots:0,shotsOG:0,pass:0,passTotal:0}, C = {poss:0,xg:0,shots:0,shotsOG:0,pass:0,passTotal:0};
   let GF=0, GC=0, N=enriched.length;
 
   enriched.forEach(e => {
@@ -1497,6 +1498,7 @@ function calcAgg(enriched, statsMap, tid) {
     if (s.poss[sd]      !== null) { T.poss      += s.poss[sd];      C.poss++;      }
     if (s.xg[sd]        !== null) { T.xg        += s.xg[sd];        C.xg++;        }
     if (s.shots[sd]     !== null) { T.shots     += s.shots[sd];     C.shots++;     }
+    if (s.shotsOG[sd]   !== null) { T.shotsOG   += s.shotsOG[sd];   C.shotsOG++;   }
     if (s.passAcc[sd]   !== null) { T.pass      += s.passAcc[sd];   C.pass++;      }
     if (s.passTotal[sd] !== null) { T.passTotal += s.passTotal[sd]; C.passTotal++; }
   });
@@ -1505,6 +1507,7 @@ function calcAgg(enriched, statsMap, tid) {
     poss:      C.poss      ? Math.round(T.poss/C.poss)          : '—',
     xg:        C.xg        ? (T.xg/C.xg).toFixed(2)             : '—',
     shots:     C.shots     ? Math.round(T.shots/C.shots)         : '—',
+    shotsOG:   C.shotsOG   ? Math.round(T.shotsOG/C.shotsOG)     : '—',
     pass:      C.pass      ? Math.round(T.pass/C.pass)           : '—',
     passTotal: C.passTotal ? Math.round(T.passTotal/C.passTotal) : '—',
     gfJ:       N           ? (GF/N).toFixed(2)                   : '—',
@@ -1661,6 +1664,14 @@ async function calcForteScore(team, enriched20, statsMap20) {
     FORTE_RESULT = { score, wrs, io, id, idom, lcs, raw, gamesUsed: fix50.length, season, mainLeague };
     FORTE_STATE  = 'done';
     FORTE_CACHE[team.apiId] = score;
+    // v16: cache rico com components
+    FORTE_FULL_CACHE[team.apiId] = {
+      score,
+      wrs: typeof wrs === 'object' ? wrs.combined : wrs,
+      io, id, idom, lcs,
+      gamesUsed: fix50.length,
+      calcAt: Date.now()
+    };
     lsSaveScore(String(team.apiId), score);
 
     // Firestore — score completo
@@ -2303,6 +2314,29 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
 
   console.log(`[snapshot v14] removidos ${(fixA||[]).length - fixA_limpo.length} fixtures de A e ${(fixB||[]).length - fixB_limpo.length} de B (>= ${HOJE_STR})`);
 
+  // v16: HIDRATAR enriched com stats por jogo (pra ter xG/chutes/posse POR JOGO, não só agregado)
+  // smA/smB são statsMap (fixtureId -> rawStats da API)
+  function hidratarEnriched(enr, statsMap) {
+    return enr.map(e => {
+      const st = statsMap[e.f.fixture.id];
+      if (!st) return e;
+      const s = parseStats(st, e.f.teams.home.id, e.f.teams.away.id);
+      const sd = e.home ? 'home' : 'away';
+      return {
+        ...e,
+        tXG:       s.xg[sd],
+        tShots:    s.shots[sd],
+        tShotsOG:  s.shotsOG[sd],
+        tPoss:     s.poss[sd],
+        oXG:       s.xg[e.home?'away':'home'],
+        oShots:    s.shots[e.home?'away':'home'],
+        oShotsOG:  s.shotsOG[e.home?'away':'home']
+      };
+    });
+  }
+  const eA_hidrat = hidratarEnriched(eA_limpo, smA);
+  const eB_hidrat = hidratarEnriched(eB_limpo, smB);
+
   window.SNAPSHOT_DATA = {
     capturedAt: Date.now(),
     teamA: { apiId: H2H_A.apiId, nome: H2H_A.nome, escudo: H2H_A.escudo || null },
@@ -2311,11 +2345,16 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
       A: FORTE_CACHE[H2H_A.apiId] || null,
       B: FORTE_CACHE[H2H_B.apiId] || null,
     },
+    // v16: components completos do ForteScore (io=ataque, id=defesa, idom=domínio, lcs=calendário, wrs=winrate)
+    forteFull: {
+      A: FORTE_FULL_CACHE[H2H_A.apiId] || null,
+      B: FORTE_FULL_CACHE[H2H_B.apiId] || null,
+    },
     agg: { A: aggA, B: aggB },
     // Resumo COMPACTO dos 20 últimos jogos: cada jogo vira 1 string CSV-like
-    // formato: "data|home|oppId|oppName|tG|oG|tXG|tShots|tShotsOG|tPoss|res"
+    // formato: "data|home|oppId|tG|oG|tXG|tShots|tShotsOG|tPoss|res"
     enrichedCompact: {
-      A: eA_limpo.map(e => [
+      A: eA_hidrat.map(e => [
         (e.f?.fixture?.date || '').slice(0, 10),
         e.home ? 1 : 0,
         e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
@@ -2323,7 +2362,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
         e.tXG ?? null, e.tShots ?? null, e.tShotsOG ?? null, e.tPoss ?? null,
         e.res || ''
       ].join('|')),
-      B: eB_limpo.map(e => [
+      B: eB_hidrat.map(e => [
         (e.f?.fixture?.date || '').slice(0, 10),
         e.home ? 1 : 0,
         e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
@@ -2444,14 +2483,102 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
       });
       return out;
     })(),
+    // v16+: REFERÊNCIA POR MINUTO (igual ao que aparece na tela)
+    // xG/min, fin/min, GF/min, GC/min, xG esperado em 15'/45'/90'
+    referenciaMin: (() => {
+      function ref(agg, eHidrat) {
+        const N = eHidrat.length || 1;
+        const totalMin = N * 90;  // ~90 min por jogo
+        // Acumular totais brutos
+        let totXG = 0, totShots = 0, totPasses = 0, totGF = 0, totGC = 0;
+        let nXG = 0, nShots = 0, nPasses = 0;
+        eHidrat.forEach(e => {
+          if (e.tXG != null) { totXG += +e.tXG; nXG++; }
+          if (e.tShots != null) { totShots += +e.tShots; nShots++; }
+          if (e.tPoss != null) { totPasses += 1; nPasses++; }  // proxy
+          totGF += e.tGoals || 0;
+          totGC += e.oGoals || 0;
+        });
+        const xgPorMin = nXG ? totXG / (nXG * 90) : null;
+        const finPorMin = nShots ? totShots / (nShots * 90) : null;
+        const gfPorMin = totGF / totalMin;
+        const gcPorMin = totGC / totalMin;
+        const xgEsperado15 = xgPorMin != null ? xgPorMin * 15 : null;
+        const xgEsperado45 = xgPorMin != null ? xgPorMin * 45 : null;
+        const xgEsperado90 = xgPorMin != null ? xgPorMin * 90 : null;
+        return {
+          xgPorMin: xgPorMin != null ? +xgPorMin.toFixed(4) : null,
+          finPorMin: finPorMin != null ? +finPorMin.toFixed(3) : null,
+          gfPorMin: +gfPorMin.toFixed(4),
+          gcPorMin: +gcPorMin.toFixed(4),
+          xgEsperado15: xgEsperado15 != null ? +xgEsperado15.toFixed(3) : null,
+          xgEsperado45: xgEsperado45 != null ? +xgEsperado45.toFixed(3) : null,
+          xgEsperado90: xgEsperado90 != null ? +xgEsperado90.toFixed(3) : null
+        };
+      }
+      return { A: ref(aggA, eA_hidrat), B: ref(aggB, eB_hidrat) };
+    })(),
+    // v16+: JANELAS DESLIZANTES 15min com step 5min (igual ao gráfico colorido na tela)
+    // Soma de A+B: vetor de 14 valores cobrindo 0-90min
+    janelas15min: (() => {
+      // Eventos de A e B juntos por minuto
+      const minTotal = new Array(95).fill(0);
+      const minA = new Array(95).fill(0);
+      const minB = new Array(95).fill(0);
+      Object.entries(evA).forEach(([fid, evs]) => {
+        if (fidContamA.has(Number(fid)) || fidContamA.has(fid)) return;
+        evs.forEach(ev => {
+          const m = Math.min(94, ev.elapsed || 0);
+          if (ev.sc) minA[m]++;
+        });
+      });
+      Object.entries(evB).forEach(([fid, evs]) => {
+        if (fidContamB.has(Number(fid)) || fidContamB.has(fid)) return;
+        evs.forEach(ev => {
+          const m = Math.min(94, ev.elapsed || 0);
+          if (ev.sc) minB[m]++;
+        });
+      });
+      // Janelas 15min com step 5
+      const out = [];
+      for (let s = 0; s <= 75; s += 5) {
+        let somaA = 0, somaB = 0;
+        for (let i = s; i < s + 15 && i < 95; i++) {
+          somaA += minA[i];
+          somaB += minB[i];
+        }
+        out.push({ inicio: s, fim: s + 15, somaA, somaB, total: somaA + somaB });
+      }
+      return out;
+    })(),
+    // v16+: FORTE SCORE TIERS — performance contra adversários por nível
+    // Categoriza últimos 20 jogos pelo ForteScore do oponente
+    forteTiers: (() => {
+      function tier(eHidrat) {
+        const tiers = { elite: [], forte: [], medio: [], fraco: [] };
+        eHidrat.forEach(e => {
+          const oppId = e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id;
+          const oppForte = FORTE_CACHE[oppId];
+          if (oppForte == null) return;
+          const tg = e.tGoals || 0, og = e.oGoals || 0;
+          const entry = { oppId, oppForte: +oppForte.toFixed(2), tG: tg, oG: og, res: e.res };
+          if (oppForte >= 8) tiers.elite.push(entry);
+          else if (oppForte >= 6.5) tiers.forte.push(entry);
+          else if (oppForte >= 4.5) tiers.medio.push(entry);
+          else tiers.fraco.push(entry);
+        });
+        return tiers;
+      }
+      return { A: tier(eA_hidrat), B: tier(eB_hidrat) };
+    })(),
     // Metadata do expurgo (transparência total)
     expurgo: {
       dataCorte: HOJE_STR,
       fixturesRemovidosA: (fixA || []).length - fixA_limpo.length,
       fixturesRemovidosB: (fixB || []).length - fixB_limpo.length,
-      versao: 'v15-densidade-picos'
+      versao: 'v16-snapshot-completo'
     },
-    versaoRaiox: 'v15-densidade-picos'
+    versaoRaiox: 'v16-snapshot-completo'
   };
 
   // ── Salva buckets de intervalos para o gráfico no jogo-live ──────────
