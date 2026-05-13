@@ -2276,6 +2276,33 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
   // Captura o momento ANTES do jogo (forte score, agg, janelas brutas, h2h)
   // — quando o jogo encerrar, completa com gols + minutos e analisa retrospectivamente
   // IMPORTANTE: tamanho enxuto pra caber no localStorage (5MB) e ser barato no Firestore
+  // v14: filtrar fixtures do MESMO DIA OU FUTUROS para evitar viço
+  // (snapshot capturado de manhã pega jogo que rolou cedo no mesmo dia)
+  // Linha de corte: HOJE 00:00 local (qualquer fixture >= hoje 00:00 é removido)
+  const HOJE = new Date();
+  HOJE.setHours(0, 0, 0, 0);
+  const HOJE_TS = HOJE.getTime();
+  const HOJE_STR = HOJE.toISOString().slice(0, 10);
+
+  function isFixtureValido(fixture) {
+    if (!fixture?.fixture?.date) return false;
+    return new Date(fixture.fixture.date).getTime() < HOJE_TS;
+  }
+
+  // Filtrar fixtures
+  const fixA_limpo = (fixA || []).filter(isFixtureValido);
+  const fixB_limpo = (fixB || []).filter(isFixtureValido);
+
+  // IDs dos fixtures contaminantes (mesmo dia/futuro) — pra remover do evA/evB
+  const fidContamA = new Set((fixA || []).filter(f => !isFixtureValido(f)).map(f => f.fixture.id));
+  const fidContamB = new Set((fixB || []).filter(f => !isFixtureValido(f)).map(f => f.fixture.id));
+
+  // Filtrar enriched também
+  const eA_limpo = eA.filter(e => isFixtureValido(e.f));
+  const eB_limpo = eB.filter(e => isFixtureValido(e.f));
+
+  console.log(`[snapshot v14] removidos ${(fixA||[]).length - fixA_limpo.length} fixtures de A e ${(fixB||[]).length - fixB_limpo.length} de B (>= ${HOJE_STR})`);
+
   window.SNAPSHOT_DATA = {
     capturedAt: Date.now(),
     teamA: { apiId: H2H_A.apiId, nome: H2H_A.nome, escudo: H2H_A.escudo || null },
@@ -2288,7 +2315,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
     // Resumo COMPACTO dos 20 últimos jogos: cada jogo vira 1 string CSV-like
     // formato: "data|home|oppId|oppName|tG|oG|tXG|tShots|tShotsOG|tPoss|res"
     enrichedCompact: {
-      A: eA.map(e => [
+      A: eA_limpo.map(e => [
         (e.f?.fixture?.date || '').slice(0, 10),
         e.home ? 1 : 0,
         e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
@@ -2296,7 +2323,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
         e.tXG ?? null, e.tShots ?? null, e.tShotsOG ?? null, e.tPoss ?? null,
         e.res || ''
       ].join('|')),
-      B: eB.map(e => [
+      B: eB_limpo.map(e => [
         (e.f?.fixture?.date || '').slice(0, 10),
         e.home ? 1 : 0,
         e.home ? e.f?.teams?.away?.id : e.f?.teams?.home?.id,
@@ -2305,30 +2332,35 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
         e.res || ''
       ].join('|'))
     },
-    // Buckets 5min agregados (não eventos brutos — economiza ~80% do tamanho)
-    // E é tudo que precisamos pra análise pós-jogo
+    // Buckets 5min agregados — APENAS fixtures válidos (< hoje)
     bucketsA: (() => {
       const sc = new Array(20).fill(0), cn = new Array(20).fill(0);
-      Object.values(evA).forEach(evs => evs.forEach(ev => {
-        const bi = getBucket(ev.elapsed, ev.extra);
-        if (bi < 0) return;
-        ev.sc ? sc[bi]++ : cn[bi]++;
-      }));
+      Object.entries(evA).forEach(([fid, evs]) => {
+        if (fidContamA.has(Number(fid)) || fidContamA.has(fid)) return;
+        evs.forEach(ev => {
+          const bi = getBucket(ev.elapsed, ev.extra);
+          if (bi < 0) return;
+          ev.sc ? sc[bi]++ : cn[bi]++;
+        });
+      });
       return { sc, cn };
     })(),
     bucketsB: (() => {
       const sc = new Array(20).fill(0), cn = new Array(20).fill(0);
-      Object.values(evB).forEach(evs => evs.forEach(ev => {
-        const bi = getBucket(ev.elapsed, ev.extra);
-        if (bi < 0) return;
-        ev.sc ? sc[bi]++ : cn[bi]++;
-      }));
+      Object.entries(evB).forEach(([fid, evs]) => {
+        if (fidContamB.has(Number(fid)) || fidContamB.has(fid)) return;
+        evs.forEach(ev => {
+          const bi = getBucket(ev.elapsed, ev.extra);
+          if (bi < 0) return;
+          ev.sc ? sc[bi]++ : cn[bi]++;
+        });
+      });
       return { sc, cn };
     })(),
-    // Buckets dos últimos 10 jogos só (pra detectar "drift")
+    // Buckets dos últimos 10 jogos VÁLIDOS
     buckets10A: (() => {
       const sc = new Array(20).fill(0), cn = new Array(20).fill(0);
-      const ids10 = (fixA || []).slice(0, 10).map(f => f.fixture.id);
+      const ids10 = fixA_limpo.slice(0, 10).map(f => f.fixture.id);
       ids10.forEach(fid => {
         const evs = evA[fid] || [];
         evs.forEach(ev => {
@@ -2341,7 +2373,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
     })(),
     buckets10B: (() => {
       const sc = new Array(20).fill(0), cn = new Array(20).fill(0);
-      const ids10 = (fixB || []).slice(0, 10).map(f => f.fixture.id);
+      const ids10 = fixB_limpo.slice(0, 10).map(f => f.fixture.id);
       ids10.forEach(fid => {
         const evs = evB[fid] || [];
         evs.forEach(ev => {
@@ -2352,32 +2384,74 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
       });
       return { sc, cn };
     })(),
-    // Gols por minuto (1-95) — array compacto, ~95 ints por time × 2 = pequeno
+    // Gols por minuto SEM os fixtures contaminantes
     minutosA: (() => {
       const m = new Array(95).fill(0);
-      Object.values(evA).forEach(evs => evs.forEach(ev => {
-        const min = Math.min(94, ev.elapsed || 0);
-        if (ev.sc) m[min]++;
-      }));
+      Object.entries(evA).forEach(([fid, evs]) => {
+        if (fidContamA.has(Number(fid)) || fidContamA.has(fid)) return;
+        evs.forEach(ev => {
+          const min = Math.min(94, ev.elapsed || 0);
+          if (ev.sc) m[min]++;
+        });
+      });
       return m;
     })(),
     minutosB: (() => {
       const m = new Array(95).fill(0);
-      Object.values(evB).forEach(evs => evs.forEach(ev => {
-        const min = Math.min(94, ev.elapsed || 0);
-        if (ev.sc) m[min]++;
-      }));
+      Object.entries(evB).forEach(([fid, evs]) => {
+        if (fidContamB.has(Number(fid)) || fidContamB.has(fid)) return;
+        evs.forEach(ev => {
+          const min = Math.min(94, ev.elapsed || 0);
+          if (ev.sc) m[min]++;
+        });
+      });
       return m;
     })(),
-    // H2H últimos 5 (não 10 — pra reduzir mais)
-    h2h: (fixH || []).slice(0, 5).map(f => ({
+    // H2H últimos 5 (também filtrados)
+    h2h: (fixH || []).filter(isFixtureValido).slice(0, 5).map(f => ({
       date: (f.fixture.date || '').slice(0, 10),
       h: f.teams.home.id, hN: f.teams.home.name,
       a: f.teams.away.id, aN: f.teams.away.name,
       hG: f.goals.home, aG: f.goals.away,
       lg: f.league?.name
     })),
-    versaoRaiox: 'v13-snapshot'
+    // v15: gols por minuto POR FIXTURE (não agregado) — pra filtrar outliers depois
+    // Cada chave é "fid": array de 95 ints com gols feitos pelo time naquele minuto
+    minutosPorJogoA: (() => {
+      const out = {};
+      Object.entries(evA).forEach(([fid, evs]) => {
+        if (fidContamA.has(Number(fid)) || fidContamA.has(fid)) return;
+        const arr = new Array(95).fill(0);
+        evs.forEach(ev => {
+          if (!ev.sc) return;  // só gols feitos
+          arr[Math.min(94, ev.elapsed || 0)]++;
+        });
+        // Só guarda se houve algum gol (economia de espaço)
+        if (arr.some(v => v > 0)) out[fid] = arr;
+      });
+      return out;
+    })(),
+    minutosPorJogoB: (() => {
+      const out = {};
+      Object.entries(evB).forEach(([fid, evs]) => {
+        if (fidContamB.has(Number(fid)) || fidContamB.has(fid)) return;
+        const arr = new Array(95).fill(0);
+        evs.forEach(ev => {
+          if (!ev.sc) return;
+          arr[Math.min(94, ev.elapsed || 0)]++;
+        });
+        if (arr.some(v => v > 0)) out[fid] = arr;
+      });
+      return out;
+    })(),
+    // Metadata do expurgo (transparência total)
+    expurgo: {
+      dataCorte: HOJE_STR,
+      fixturesRemovidosA: (fixA || []).length - fixA_limpo.length,
+      fixturesRemovidosB: (fixB || []).length - fixB_limpo.length,
+      versao: 'v15-densidade-picos'
+    },
+    versaoRaiox: 'v15-densidade-picos'
   };
 
   // ── Salva buckets de intervalos para o gráfico no jogo-live ──────────
@@ -2426,6 +2500,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
     ${(fixA && fixB) ? renderJanelaJogosCompare(evA, evB, fixA, fixB) : ''}
     ${renderSliding3min(evA, evB)}
     ${(fixA && fixB) ? renderConsistenciaJanela(evA, evB, fixA, fixB) : ''}
+    ${(fixA && fixB) ? renderPrevisaoDensidade(evA, evB, fixA, fixB) : ''}
     ${renderTiers(eA, 'A')}
     ${renderTiers(eB, 'B')}
     ${renderH2HMatches(fixH)}
@@ -3046,6 +3121,173 @@ function renderConsistenciaJanela(evA, evB, fixA, fixB) {
   </div>`;
 }
 
+
+// ── Block 4f (v15) — Previsão de gols por densidade de picos ─────
+// Hipótese (Joao): número de picos finos densos com contribuição de múltiplos
+// jogos ≈ número de gols esperado no jogo.
+// Validado preliminarmente em 3 jogos:
+//   Inter×Ath: 5 picos válidos → real 5 gols
+//   Flu×Ope:   2 picos válidos → real 3 gols
+//   Cru×Goi:   1 pico válido   → real 1 gol
+// Sinal modesto — precisa de mais snapshots pra confirmar.
+function renderPrevisaoDensidade(evA, evB, fixA, fixB) {
+  const HOJE = new Date();
+  HOJE.setHours(0, 0, 0, 0);
+  const HOJE_TS = HOJE.getTime();
+  const isFixOK = (f) => f?.fixture?.date && new Date(f.fixture.date).getTime() < HOJE_TS;
+  const fidContamA = new Set((fixA || []).filter(f => !isFixOK(f)).map(f => f.fixture.id));
+  const fidContamB = new Set((fixB || []).filter(f => !isFixOK(f)).map(f => f.fixture.id));
+
+  // Construir minutosPorJogo localmente
+  const porJogoA = {};
+  Object.entries(evA).forEach(([fid, evs]) => {
+    if (fidContamA.has(Number(fid)) || fidContamA.has(fid)) return;
+    const arr = new Array(95).fill(0);
+    evs.forEach(ev => { if (ev.sc) arr[Math.min(94, ev.elapsed || 0)]++; });
+    if (arr.some(v => v > 0)) porJogoA[fid] = arr;
+  });
+  const porJogoB = {};
+  Object.entries(evB).forEach(([fid, evs]) => {
+    if (fidContamB.has(Number(fid)) || fidContamB.has(fid)) return;
+    const arr = new Array(95).fill(0);
+    evs.forEach(ev => { if (ev.sc) arr[Math.min(94, ev.elapsed || 0)]++; });
+    if (arr.some(v => v > 0)) porJogoB[fid] = arr;
+  });
+
+  // Agregar minutosA/B totais
+  const minA = new Array(95).fill(0);
+  const minB = new Array(95).fill(0);
+  Object.values(porJogoA).forEach(arr => arr.forEach((v, i) => minA[i] += v));
+  Object.values(porJogoB).forEach(arr => arr.forEach((v, i) => minB[i] += v));
+
+  // Encontrar picos 3min sliding (top 10 espaçados em >= 3min)
+  const allPicos = [];
+  for (let i = 0; i < 91; i++) {
+    const sa = minA[i] + minA[i+1] + minA[i+2];
+    const sb = minB[i] + minB[i+1] + minB[i+2];
+    allPicos.push({ start: i, end: i + 3, a: sa, b: sb, total: sa + sb });
+  }
+  const sorted = [...allPicos].sort((x, y) => y.total - x.total);
+  const seen = new Set();
+  const topPicos = [];
+  for (const p of sorted) {
+    if ([...seen].some(s => Math.abs(s - p.start) < 3)) continue;
+    seen.add(p.start);
+    topPicos.push(p);
+    if (topPicos.length === 10) break;
+  }
+
+  function jogosContribuintes(start, end) {
+    const setA = new Set();
+    const setB = new Set();
+    for (const [fid, arr] of Object.entries(porJogoA)) {
+      let s = 0;
+      for (let i = start; i < end; i++) s += arr[i];
+      if (s > 0) setA.add(fid);
+    }
+    for (const [fid, arr] of Object.entries(porJogoB)) {
+      let s = 0;
+      for (let i = start; i < end; i++) s += arr[i];
+      if (s > 0) setB.add(fid);
+    }
+    return { nA: setA.size, nB: setB.size, total: setA.size + setB.size };
+  }
+
+  const TH_TOTAL = 4;
+  const TH_JOGOS = 2;
+
+  const classificados = topPicos.map(p => {
+    const j = jogosContribuintes(p.start, p.end);
+    let tag;
+    if (p.total >= TH_TOTAL) {
+      tag = j.total >= TH_JOGOS ? 'valido' : 'outlier';
+    } else if (p.total >= 3) {
+      tag = j.total >= TH_JOGOS ? 'fraco_valido' : 'fraco';
+    } else {
+      tag = 'fraco';
+    }
+    return { ...p, ...j, tag };
+  });
+
+  const validos = classificados.filter(p => p.tag === 'valido');
+  const outliers = classificados.filter(p => p.tag === 'outlier');
+  const fracos_validos = classificados.filter(p => p.tag === 'fraco_valido');
+
+  const previsaoBase = validos.length;
+  // Fracos válidos contam metade — mas estudo prévio mostra que sozinhos eles superestimam,
+  // então peso 0 enquanto não temos amostra maior. Reativar quando dataset crescer.
+  const previsaoBonus = 0;
+  const previsao = previsaoBase + previsaoBonus;
+  const faixaInf = Math.max(0, Math.floor(previsao - 0.5));
+  const faixaSup = Math.ceil(previsao + 0.5);
+
+  const cor = previsao >= 3.5 ? '#ff8a4c' : previsao >= 2.5 ? 'var(--yl)' : '#7fa8c9';
+  const txtPrev = previsao >= 3.5 ? 'OVER 3.5 indicado' : previsao >= 2.5 ? 'OVER 2.5 indicado' : 'UNDER 2.5 indicado';
+
+  const linhas = classificados.map((p, i) => {
+    let badge, badgeCor;
+    if (p.tag === 'valido') { badge = '✓ válido'; badgeCor = 'var(--gn)'; }
+    else if (p.tag === 'outlier') { badge = '⚠ outlier (poucos jogos)'; badgeCor = 'var(--rd)'; }
+    else if (p.tag === 'fraco_valido') { badge = '~ fraco válido'; badgeCor = 'var(--yl)'; }
+    else { badge = '— fraco'; badgeCor = 'var(--tx3)'; }
+
+    return `
+      <tr>
+        <td style="color:var(--cy);font-weight:600">min ${p.start}-${p.end}</td>
+        <td style="text-align:right;font-family:var(--fM);color:var(--tx2)">${p.total}</td>
+        <td style="text-align:right;font-family:var(--fM)">
+          <span style="color:rgba(63,185,80,.85)">A:${p.a}</span> ·
+          <span style="color:rgba(255,138,76,.85)">B:${p.b}</span>
+        </td>
+        <td style="text-align:right;font-family:var(--fM);color:var(--tx3)">${p.nA}+${p.nB}</td>
+        <td style="color:${badgeCor};font-size:9px;font-family:var(--fM)">${badge}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+  <div class="h2h-section">
+    <div class="h2h-sec-title">Previsão de Gols por Densidade de Picos · v15 experimental</div>
+
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center;background:var(--s2);border-radius:6px;padding:12px;margin-bottom:10px">
+      <div style="text-align:center;padding:0 14px;border-right:1px solid var(--b1)">
+        <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px">Previsão</div>
+        <div style="font-size:28px;color:${cor};font-weight:800;font-family:var(--fM);line-height:1">${previsao.toFixed(1)}</div>
+        <div style="font-size:9px;color:var(--tx3);margin-top:2px">gols (faixa ${faixaInf}–${faixaSup})</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:${cor};font-weight:700;margin-bottom:4px">${txtPrev}</div>
+        <div style="font-size:10px;color:var(--tx2);line-height:1.5">
+          <strong style="color:var(--gn)">${validos.length} pico(s) válido(s)</strong>
+          ${fracos_validos.length ? ` · <strong style="color:var(--yl)">${fracos_validos.length} fraco(s) válido(s)</strong>` : ''}
+          ${outliers.length ? ` · <strong style="color:var(--rd)">${outliers.length} outlier(s) descartado(s)</strong>` : ''}
+        </div>
+        <div style="font-size:9px;color:var(--tx3);margin-top:4px;font-family:var(--fM)">
+          Regra: pico denso = ≥${TH_TOTAL} eventos em 3min, vindos de ≥${TH_JOGOS} jogos diferentes
+        </div>
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;font-size:10px;font-family:var(--fM)">
+      <thead>
+        <tr style="color:var(--tx3);font-size:9px;text-transform:uppercase;letter-spacing:.5px">
+          <th style="text-align:left">janela</th>
+          <th style="text-align:right">eventos</th>
+          <th style="text-align:right">A · B</th>
+          <th style="text-align:right">jogos</th>
+          <th style="text-align:left">status</th>
+        </tr>
+      </thead>
+      <tbody>${linhas}</tbody>
+    </table>
+
+    <div style="font-size:8px;color:var(--tx3);margin-top:8px;font-family:var(--fM);line-height:1.5">
+      Hipótese experimental validada em 3 jogos: nº de picos densos com contribuição de múltiplos jogos ≈ nº de gols.
+      <strong>Não use sozinho</strong> — combine com outros indicadores.
+      <span style="color:var(--rd)">⚠ outliers</span> = concentração de 1 jogo só (ex: goleada atípica), descartada.
+    </div>
+  </div>`;
+}
 
 function renderTiers(enriched, side) {
   const team = side==='A' ? H2H_A : H2H_B;
