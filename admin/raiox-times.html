@@ -1573,47 +1573,97 @@ function calcWRS(enriched) {
   return { w50, w30, w10, combined: w50*0.25 + w30*0.40 + w10*0.35 };
 }
 
-// ── Calc IO (Offensive Index) ──────────────────────────────────
+// ── Calc IO (Offensive Index) — v17: base 100% dos placares ─────
+// Gols feitos por jogo é a fonte primária. Stats avançadas (xG) viram bônus se existirem.
 function calcIO(teamStats, enriched20, statsMap20, tid) {
-  let gfAvg = null;
-  if (teamStats?.goals?.for?.average?.total)
-    gfAvg = parseFloat(teamStats.goals.for.average.total);
-  else {
-    const a = calcAgg(enriched20, statsMap20, tid);
-    if (a.gfJ !== '—') gfAvg = parseFloat(a.gfJ);
+  // 1. BASE: gols feitos por jogo (dos placares, sempre disponível)
+  const N = enriched20.length;
+  if (!N) return 0.45;
+  const GF = enriched20.reduce((s, e) => s + (e.tGoals || 0), 0);
+  const gfAvg = GF / N;
+
+  // 2. Forma recente: últimos 5 jogos pesam 2x mais
+  const N5 = Math.min(5, N);
+  const GF5 = enriched20.slice(0, 5).reduce((s, e) => s + (e.tGoals || 0), 0);
+  const gfAvg5 = N5 ? GF5 / N5 : gfAvg;
+
+  // Combina: 60% média geral + 40% forma recente (5j)
+  const gfCombined = gfAvg * 0.60 + gfAvg5 * 0.40;
+  const baseScore = Math.min(1, gfCombined / 2.6);
+
+  // 3. BÔNUS opcional: xG das stats da liga (se tiver)
+  if (teamStats?.goals?.for?.average?.total) {
+    const xgLiga = parseFloat(teamStats.goals.for.average.total);
+    // Diferença xG vs gols reais: se time tem xG > gols, ele tava azarado (subestima)
+    const ajuste = Math.max(-0.05, Math.min(0.05, (xgLiga - gfAvg) * 0.10));
+    return Math.max(0, Math.min(1, baseScore + ajuste));
   }
-  if (gfAvg === null) return 0.45;
-  const goalScore = Math.min(1, gfAvg / 2.6);
+
+  // 4. BÔNUS: xG dos snapshots se disponível em ≥10 jogos
   const agg = calcAgg(enriched20, statsMap20, tid);
   if (agg.xg !== '—') {
-    const xgScore = Math.min(1, parseFloat(agg.xg) / 2.0);
-    return goalScore*0.60 + xgScore*0.40;
+    const xgVal = parseFloat(agg.xg);
+    const xgScore = Math.min(1, xgVal / 2.0);
+    // 70% base placar, 30% xG
+    return baseScore * 0.70 + xgScore * 0.30;
   }
-  return goalScore;
+
+  return baseScore;
 }
 
-// ── Calc ID (Defensive Index) ──────────────────────────────────
+// ── Calc ID (Defensive Index) — v17: base 100% dos placares ─────
 function calcID(teamStats, enriched20, statsMap20, tid) {
-  let gcAvg = null, csRate = 0;
+  const N = enriched20.length;
+  if (!N) return 0.45;
+
+  // 1. BASE: gols sofridos por jogo
+  const GC = enriched20.reduce((s, e) => s + (e.oGoals || 0), 0);
+  const gcAvg = GC / N;
+
+  // 2. Forma recente
+  const N5 = Math.min(5, N);
+  const GC5 = enriched20.slice(0, 5).reduce((s, e) => s + (e.oGoals || 0), 0);
+  const gcAvg5 = N5 ? GC5 / N5 : gcAvg;
+  const gcCombined = gcAvg * 0.60 + gcAvg5 * 0.40;
+
+  // Clean sheets dos placares (sem precisar de stats da liga)
+  const csCount = enriched20.filter(e => (e.oGoals || 0) === 0).length;
+  const csRate = csCount / N;
+
+  // Score base: quanto menos gols toma, melhor
+  const concedeScore = Math.max(0, 1 - gcCombined / 2.6);
+  const baseScore = concedeScore * 0.75 + csRate * 0.25;
+
+  // BÔNUS opcional: stats da liga (se tiver, ajuste pequeno)
   if (teamStats?.goals?.against?.average?.total) {
-    gcAvg  = parseFloat(teamStats.goals.against.average.total);
-    const played = teamStats.fixtures?.played?.total || 1;
-    csRate = (teamStats.clean_sheet?.total || 0) / played;
-  } else {
-    const a = calcAgg(enriched20, statsMap20, tid);
-    if (a.gcJ !== '—') gcAvg = parseFloat(a.gcJ);
+    const gcLiga = parseFloat(teamStats.goals.against.average.total);
+    const ajuste = Math.max(-0.05, Math.min(0.05, (gcAvg - gcLiga) * 0.10));
+    return Math.max(0, Math.min(1, baseScore + ajuste));
   }
-  if (gcAvg === null) return 0.45;
-  const concedeScore = Math.max(0, 1 - gcAvg / 2.6);
-  return concedeScore*0.70 + csRate*0.30;
+
+  return baseScore;
 }
 
-// ── Calc IDom (Dominance Index) ────────────────────────────────
+// ── Calc IDom (Dominance Index) — v17: saldo de gols se sem posse ─
+// Dominância idealmente vem de posse + passes, mas se não tiver,
+// usa o saldo de gols (gf - gc) como proxy: time que domina ganha por mais.
 function calcIDom(enriched20, statsMap20, tid) {
   const a = calcAgg(enriched20, statsMap20, tid);
-  const possScore = a.poss !== '—' ? Math.min(1, parseInt(a.poss) / 64) : 0.50;
-  const passScore = a.pass !== '—' ? Math.min(1, parseInt(a.pass) / 91) : 0.50;
-  return possScore*0.55 + passScore*0.45;
+  const N = enriched20.length || 1;
+
+  // 1. Se tem posse e passes, usa eles
+  if (a.poss !== '—' && a.pass !== '—') {
+    const possScore = Math.min(1, parseInt(a.poss) / 64);
+    const passScore = Math.min(1, parseInt(a.pass) / 91);
+    return possScore * 0.55 + passScore * 0.45;
+  }
+
+  // 2. PROXY: saldo médio de gols (dominância tática = vencer por margem)
+  const GF = enriched20.reduce((s, e) => s + (e.tGoals || 0), 0);
+  const GC = enriched20.reduce((s, e) => s + (e.oGoals || 0), 0);
+  const saldoMedio = (GF - GC) / N;
+  // Normaliza: saldo -2 → 0, saldo 0 → 0.5, saldo +2 → 1
+  return Math.max(0, Math.min(1, (saldoMedio + 2) / 4));
 }
 
 // ── Calc LCS (League / Schedule Quality) ──────────────────────
@@ -1997,7 +2047,7 @@ async function checkDailyUpdate() {
   }
 }
 
-// ── Quick Score (1 chamada API por time) ───────────────────────
+// ── Quick Score (1 chamada API por time) — v17: 100% dos placares ──
 async function calcQuickScore(team) {
   try {
     const r   = await apiGet(`/fixtures?team=${team.apiId}&last=20`);
@@ -2010,14 +2060,31 @@ async function calcQuickScore(team) {
     const N    = e20.length;
     const GF   = e20.reduce((s,e) => s+(e.tGoals||0), 0);
     const GC   = e20.reduce((s,e) => s+(e.oGoals||0), 0);
-    const io   = N ? Math.min(1, (GF/N)/2.6) : 0.45;
-    const id   = N ? Math.max(0, 1-(GC/N)/2.6) : 0.45;
-    const raw  = wrs.combined*0.45 + io*0.20 + id*0.20 + 0.50*0.10 + lcs*0.05;
+    // Forma recente (últimos 5j)
+    const N5 = Math.min(5, N);
+    const GF5 = e20.slice(0, 5).reduce((s,e) => s+(e.tGoals||0), 0);
+    const GC5 = e20.slice(0, 5).reduce((s,e) => s+(e.oGoals||0), 0);
+    const gfCombined = (GF/N) * 0.60 + (N5 ? (GF5/N5) : (GF/N)) * 0.40;
+    const gcCombined = (GC/N) * 0.60 + (N5 ? (GC5/N5) : (GC/N)) * 0.40;
+    // Clean sheets
+    const csRate = e20.filter(e => (e.oGoals || 0) === 0).length / N;
+
+    const io   = Math.min(1, gfCombined / 2.6);
+    const id   = Math.max(0, 1 - gcCombined / 2.6) * 0.75 + csRate * 0.25;
+    // Dominância via saldo (proxy quando sem posse/passes)
+    const idom = Math.max(0, Math.min(1, ((GF - GC) / N + 2) / 4));
+
+    const raw  = wrs.combined*0.45 + io*0.20 + id*0.20 + idom*0.10 + lcs*0.05;
     const score = parseFloat(
       Math.max(0.01, Math.min(10.00, Math.pow(Math.max(0.001, raw), 0.62)*10)).toFixed(2)
     );
 
     FORTE_CACHE[team.apiId] = score;
+    // v17: cache rico também no quick
+    FORTE_FULL_CACHE[team.apiId] = {
+      score, wrs: wrs.combined, io, id, idom, lcs,
+      gamesUsed: N, quick: true, calcAt: Date.now()
+    };
     lsSaveScore(String(team.apiId), score);  // sempre String no localStorage
     renderSidebar();
 
@@ -2619,12 +2686,26 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
       savedAt: Date.now()
     }));
   } catch(e) {}
-  const scA   = FORTE_CACHE[H2H_A.apiId] || 5.0;
-  const scB   = FORTE_CACHE[H2H_B.apiId] || 5.0;
-  const colA  = forteColor(scA), colB = forteColor(scB);
-  const sumAB = scA + scB || 1;
+  const scA   = FORTE_CACHE[H2H_A.apiId];
+  const scB   = FORTE_CACHE[H2H_B.apiId];
+  // v17: NÃO usar mais '|| 5.0' como fallback — se não calculou, marca explícito
+  const scA_eh_real = scA != null;
+  const scB_eh_real = scB != null;
+  const scA_safe = scA_eh_real ? scA : 5.0;
+  const scB_safe = scB_eh_real ? scB : 5.0;
+  const colA  = forteColor(scA_safe), colB = forteColor(scB_safe);
+  const sumAB = scA_safe + scB_safe || 1;
 
   body.innerHTML = `
+    ${(!scA_eh_real || !scB_eh_real) ? `
+      <div class="h2h-section" style="background:rgba(248,81,73,.08);border-left:3px solid var(--rd)">
+        <div style="font-size:11px;color:var(--rd);font-weight:600;margin-bottom:4px">⚠ ForteScore não calculado</div>
+        <div style="font-size:10px;color:var(--tx3);line-height:1.5">
+          ${!scA_eh_real ? `<strong>${H2H_A.nome}</strong> ` : ''}${!scA_eh_real && !scB_eh_real ? 'e ' : ''}${!scB_eh_real ? `<strong>${H2H_B.nome}</strong> ` : ''}
+          sem cálculo. Clique no time na sidebar pra calcular antes de analisar — senão as comparações ficam imprecisas.
+        </div>
+      </div>
+    ` : ''}
     <div class="h2h-section" style="display:flex;justify-content:space-between;align-items:center;background:linear-gradient(90deg, rgba(0,212,255,.08), transparent);border-left:3px solid var(--cy)">
       <div>
         <div style="font-size:11px;font-weight:600;color:var(--cy);text-transform:uppercase;letter-spacing:.5px">📌 Snapshot pré-jogo</div>
