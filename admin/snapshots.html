@@ -238,6 +238,17 @@ function renderLista() {
     const gfA = s.agg?.A?.gfJ, gfB = s.agg?.B?.gfJ;
     const gcA = s.agg?.A?.gcJ, gcB = s.agg?.B?.gcJ;
 
+    // v16 indicators
+    const hasV16 = s.versaoRaiox?.includes('v16');
+    const hasForteFull = s.forteFull?.A && s.forteFull?.B;
+    const hasRefMin = s.referenciaMin?.A;
+    const hasJanelas15 = Array.isArray(s.janelas15min);
+    const hasTiers = s.forteTiers?.A;
+    const nFixturesA = s.enrichedCompact?.A?.length || 0;
+    const nFixturesB = s.enrichedCompact?.B?.length || 0;
+    const removidosA = s.expurgo?.fixturesRemovidosA || 0;
+    const removidosB = s.expurgo?.fixturesRemovidosB || 0;
+
     let resultadoHtml = '';
     if (completo) {
       const r = s.resultado;
@@ -274,11 +285,21 @@ function renderLista() {
             <div class="snap-num">xG: ${xgB ?? '—'} · GF/j: ${gfB ?? '—'} · GC/j: ${gcB ?? '—'}</div>
           </div>
         </div>
+        <div style="margin-top:8px;padding:6px 8px;background:var(--s2);border-radius:4px;font-size:10px;color:var(--tx3);font-family:var(--fM);display:flex;gap:10px;flex-wrap:wrap">
+          <span>📊 ${s.versaoRaiox || '?'}</span>
+          <span>📁 ${nFixturesA}j A · ${nFixturesB}j B</span>
+          ${(removidosA||removidosB)?`<span style="color:var(--yl)">✂ expurgou ${removidosA}A/${removidosB}B</span>`:''}
+          <span style="color:${hasForteFull?'var(--gn)':'var(--rd)'}">${hasForteFull?'✓':'✗'} forteFull</span>
+          <span style="color:${hasRefMin?'var(--gn)':'var(--rd)'}">${hasRefMin?'✓':'✗'} ref/min</span>
+          <span style="color:${hasJanelas15?'var(--gn)':'var(--rd)'}">${hasJanelas15?'✓':'✗'} janelas15</span>
+          <span style="color:${hasTiers?'var(--gn)':'var(--rd)'}">${hasTiers?'✓':'✗'} tiers</span>
+        </div>
         ${resultadoHtml}
         <div class="snap-actions">
           ${completo
             ? `<button onclick="abrirModal('${s._id}')">✎ Editar resultado</button>`
             : `<button class="success" onclick="abrirModal('${s._id}')">📝 Adicionar resultado</button>`}
+          <button onclick="inspecionar('${s._id}')">🔍 Inspecionar dados</button>
           <button onclick="exportarUm('${s._id}')">📤 Exportar este</button>
           <button class="danger" onclick="excluir('${s._id}')">🗑 Excluir</button>
         </div>
@@ -423,6 +444,66 @@ function exportarUm(id) {
   const s = SNAPS.find(x => x._id === id);
   if (!s) return;
   downloadJSON(`yellup-snap-${(s.teamA?.nome||'').replace(/\s+/g,'')}-vs-${(s.teamB?.nome||'').replace(/\s+/g,'')}.json`, s);
+}
+
+function inspecionar(id) {
+  const s = SNAPS.find(x => x._id === id);
+  if (!s) return;
+
+  // Lista todos os campos top-level e o tipo/preview
+  function preview(v) {
+    if (v == null) return '<span style="color:var(--rd)">null</span>';
+    if (Array.isArray(v)) return `<span style="color:var(--tx3)">array[${v.length}]</span>`;
+    if (typeof v === 'object') {
+      const keys = Object.keys(v);
+      return `<span style="color:var(--cy)">{${keys.slice(0,5).join(', ')}${keys.length>5?', …':''}}</span>`;
+    }
+    if (typeof v === 'number') return `<span style="color:var(--yl)">${v}</span>`;
+    if (typeof v === 'string') return `<span style="color:var(--tx2)">"${String(v).slice(0,60)}${v.length>60?'…':''}"</span>`;
+    return String(v);
+  }
+
+  const sortedKeys = Object.keys(s).sort();
+  const linhas = sortedKeys.map(k => `
+    <tr>
+      <td style="color:var(--cy);font-family:var(--fM);font-size:11px;padding:4px 8px;vertical-align:top;white-space:nowrap">${k}</td>
+      <td style="font-family:var(--fM);font-size:11px;padding:4px 8px">${preview(s[k])}</td>
+    </tr>
+  `).join('');
+
+  // JSON completo formatado
+  const jsonCompleto = JSON.stringify(s, null, 2);
+
+  const html = `
+    <div class="modal-bg" id="modalBg" onclick="if(event.target===this)fechar()">
+      <div class="modal" style="max-width: 900px; width: 95%;">
+        <h2>🔍 ${s.teamA?.nome} × ${s.teamB?.nome}</h2>
+        <div style="color:var(--tx3);font-size:11px;font-family:var(--fM);margin-bottom:12px">
+          Versão: <strong style="color:var(--cy)">${s.versaoRaiox || '?'}</strong> · ID: ${s._docId}
+        </div>
+
+        <div style="margin-bottom:14px">
+          <div style="font-size:11px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Campos disponíveis (${sortedKeys.length})</div>
+          <div style="max-height:300px;overflow-y:auto;background:var(--s3);border-radius:4px">
+            <table style="width:100%;border-collapse:collapse">
+              ${linhas}
+            </table>
+          </div>
+        </div>
+
+        <details style="margin-top:14px">
+          <summary style="cursor:pointer;color:var(--cy);font-family:var(--fM);font-size:11px;padding:8px;background:var(--s3);border-radius:4px">📄 Ver JSON completo</summary>
+          <pre style="background:#000;color:#7fa8c9;padding:12px;border-radius:4px;font-size:10px;max-height:400px;overflow:auto;margin-top:6px;line-height:1.4">${jsonCompleto.replace(/</g,'&lt;')}</pre>
+        </details>
+
+        <div class="modal-actions">
+          <button onclick="fechar()">Fechar</button>
+          <button class="primary" onclick="navigator.clipboard.writeText(${JSON.stringify(JSON.stringify(s))}); this.textContent='✓ Copiado'">📋 Copiar JSON</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
 }
 
 async function limparExpirados() {
