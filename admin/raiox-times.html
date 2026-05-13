@@ -17,12 +17,12 @@ const CFG = {
   apiKey:  '35647fb22d9fa6e5ab4397cb1a0d27a3',
   apiBase: 'https://v3.football.api-sports.io',
   firebase: {
-    apiKey:            '',
-    authDomain:        '',
+    apiKey:            'AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c',
+    authDomain:        'painel-yellup.firebaseapp.com',
     projectId:         'painel-yellup',
-    storageBucket:     '',
-    messagingSenderId: '',
-    appId:             ''
+    storageBucket:     'painel-yellup.appspot.com',
+    messagingSenderId: '608347210297',
+    appId:             '1:608347210297:web:75092713724e617c7203e8'
   }
 };
 </script>
@@ -680,25 +680,36 @@ let FORTE_CACHE  = {};   // apiId → score  (persiste entre seleções para ord
 
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
-  // Firebase
+  // Firebase: mesma lógica do previsoes.html — exige login admin@yellup.com
   try {
     if (!CFG.firebase.projectId) throw new Error('projectId vazio');
-    firebase.initializeApp(CFG.firebase);
+    if (firebase.apps && firebase.apps.length > 0) {
+      // já inicializado (provavelmente pelo /admin/ ou index)
+    } else {
+      firebase.initializeApp(CFG.firebase);
+    }
     db = firebase.firestore();
+    const auth = firebase.auth();
 
-    // Login anônimo — necessário para regras do Firestore
-    try {
-      await firebase.auth().signInAnonymously();
-      st('ok', 'Firebase OK');
-    } catch(authErr) {
-      // Auth pode falhar se não estiver habilitado — continua sem ela
-      console.warn('[Auth]', authErr.message);
-      st('ok', 'Firebase OK (sem auth)');
+    // Esperar a sessão estar pronta
+    const user = await new Promise(resolve => {
+      const unsub = auth.onAuthStateChanged(u => { unsub(); resolve(u); });
+      setTimeout(() => resolve(auth.currentUser), 3000);
+    });
+
+    if (!user) {
+      st('err', 'não logado — abra /admin/ primeiro');
+      console.warn('[Auth] Nenhuma sessão ativa. Faça login em /admin/');
+    } else if (user.email !== 'admin@yellup.com') {
+      st('warn', `logado como ${user.email} (não admin)`);
+      console.warn('[Auth] Apenas admin@yellup.com pode escrever no Firestore.');
+    } else {
+      st('ok', `Firebase OK (${user.email})`);
     }
   } catch(e) {
     st('err', 'Firebase: ' + e.message);
     document.getElementById('sbList').innerHTML =
-      `<div class="warn" style="margin:10px">Configure o bloco <code>CFG.firebase</code> para usar.</div>`;
+      `<div class="warn" style="margin:10px">Erro Firebase: <code>${e.message}</code></div>`;
     return;
   }
 
