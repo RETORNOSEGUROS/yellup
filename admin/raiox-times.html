@@ -677,6 +677,11 @@ let FORTE_TEAM   = null;
 let FORTE_E20    = [];
 let FORTE_SM20   = {};
 let FORTE_CACHE  = {};   // apiId → score  (persiste entre seleções para ordenar sidebar)
+// v17+: helper pra evitar 'toFixed of undefined'
+function safeFixed(v, n=2, fallback='—') {
+  if (v == null || isNaN(v)) return fallback;
+  return Number(v).toFixed(n);
+}
 let FORTE_FULL_CACHE = {};   // v16: apiId → {score, wrs, io, id, idom, lcs} — para snapshot rico
 
 // ── Boot ──────────────────────────────────────────────────────
@@ -2686,9 +2691,37 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
       savedAt: Date.now()
     }));
   } catch(e) {}
-  const scA   = FORTE_CACHE[H2H_A.apiId];
-  const scB   = FORTE_CACHE[H2H_B.apiId];
-  // v17: NÃO usar mais '|| 5.0' como fallback — se não calculou, marca explícito
+  // v17+: calcula ForteScore inline com placares se não tem cache
+  function calcForteInline(enriched) {
+    if (!enriched || !enriched.length) return null;
+    const N = enriched.length;
+    const GF = enriched.reduce((s,e) => s+(e.tGoals||0), 0);
+    const GC = enriched.reduce((s,e) => s+(e.oGoals||0), 0);
+    const N5 = Math.min(5, N);
+    const GF5 = enriched.slice(0,5).reduce((s,e) => s+(e.tGoals||0), 0);
+    const GC5 = enriched.slice(0,5).reduce((s,e) => s+(e.oGoals||0), 0);
+    const wrs = calcWRS(enriched).combined;
+    const lcs = calcLCS(enriched);
+    const gfComb = (GF/N)*0.60 + (N5?(GF5/N5):(GF/N))*0.40;
+    const gcComb = (GC/N)*0.60 + (N5?(GC5/N5):(GC/N))*0.40;
+    const csRate = enriched.filter(e => (e.oGoals||0)===0).length / N;
+    const io = Math.min(1, gfComb/2.6);
+    const id = Math.max(0, 1-gcComb/2.6) * 0.75 + csRate * 0.25;
+    const idom = Math.max(0, Math.min(1, ((GF-GC)/N + 2)/4));
+    const raw = wrs*0.45 + io*0.20 + id*0.20 + idom*0.10 + lcs*0.05;
+    return parseFloat(Math.max(0.5, Math.min(10, Math.pow(Math.max(0.001, raw), 0.62)*10)).toFixed(2));
+  }
+  let scA = FORTE_CACHE[H2H_A.apiId];
+  let scB = FORTE_CACHE[H2H_B.apiId];
+  // Se não tem cache, calcular inline (placar-based)
+  if (scA == null) {
+    scA = calcForteInline(eA);
+    if (scA != null) FORTE_CACHE[H2H_A.apiId] = scA;
+  }
+  if (scB == null) {
+    scB = calcForteInline(eB);
+    if (scB != null) FORTE_CACHE[H2H_B.apiId] = scB;
+  }
   const scA_eh_real = scA != null;
   const scB_eh_real = scB != null;
   const scA_safe = scA_eh_real ? scA : 5.0;
@@ -2716,7 +2749,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
         <button onclick="window.open('snapshots.html','_blank')" style="background:transparent;color:var(--tx2);border:1px solid var(--b1);padding:8px 14px;border-radius:5px;cursor:pointer;font-size:11px;font-family:var(--fM)">📋 ver snapshots</button>
       </div>
     </div>
-    ${renderForteCompare(scA, scB, colA, colB, sumAB)}
+    ${renderForteCompare(scA_safe, scB_safe, colA, colB, sumAB)}
     ${renderStatsCompare(aggA, aggB, eA, eB)}
     ${renderPerMinute(aggA, aggB)}
     ${renderDualIntervals(evA, evB)}
@@ -2728,6 +2761,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
     ${renderTiers(eA, 'A')}
     ${renderTiers(eB, 'B')}
     ${renderH2HMatches(fixH)}
+    ${(fixA && fixB) ? renderPrevisaoMultivariada(evA, evB, fixA, fixB, aggA, aggB) : ''}
   `;
 
   // Animate all bars
@@ -2745,9 +2779,11 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
 
 // ── Block 1 — ForteScore Compare ──────────────────────────────
 function renderForteCompare(scA, scB, colA, colB, sumAB) {
-  const pctA = Math.round((scA/sumAB)*100);
-  const diff = Math.abs(scA-scB).toFixed(2);
-  const adv  = scA>scB ? H2H_A.nome : scB>scA ? H2H_B.nome : 'Equilíbrio';
+  const sA = (scA == null) ? 5.0 : scA;
+  const sB = (scB == null) ? 5.0 : scB;
+  const pctA = Math.round((sA/sumAB)*100);
+  const diff = safeFixed(Math.abs(sA-sB), 2);
+  const adv  = sA>sB ? H2H_A.nome : sB>sA ? H2H_B.nome : 'Equilíbrio';
   return `
   <div class="h2h-forte-row">
     <div class="h2h-team-card">
@@ -2755,7 +2791,7 @@ function renderForteCompare(scA, scB, colA, colB, sumAB) {
       <div>
         <div class="h2h-tc-nm">${H2H_A.nome}</div>
         <div class="h2h-tc-sub">${H2H_A.pais}</div>
-        <div class="h2h-tc-score" style="color:${colA}">${scA.toFixed(2)}</div>
+        <div class="h2h-tc-score" style="color:${colA}">${safeFixed(sA, 2)}</div>
       </div>
     </div>
     <div class="h2h-mid-card">
@@ -2771,7 +2807,7 @@ function renderForteCompare(scA, scB, colA, colB, sumAB) {
       <div>
         <div class="h2h-tc-nm">${H2H_B.nome}</div>
         <div class="h2h-tc-sub">${H2H_B.pais}</div>
-        <div class="h2h-tc-score" style="color:${colB}">${scB.toFixed(2)}</div>
+        <div class="h2h-tc-score" style="color:${colB}">${safeFixed(sB, 2)}</div>
       </div>
     </div>
   </div>`;
@@ -3345,6 +3381,255 @@ function renderConsistenciaJanela(evA, evB, fixA, fixB) {
   </div>`;
 }
 
+
+// ── Block FINAL (v17+) — Previsão Multivariada de Gols ───────────
+// Junta os melhores sinais validados em 16 snapshots: picos densos, drift,
+// xG combo, chutes combo, divergência 10j vs 20j.
+// Honestidade: coeficientes calibrados em N=16, indicativos.
+function renderPrevisaoMultivariada(evA, evB, fixA, fixB, aggA, aggB) {
+  const HOJE = new Date(); HOJE.setHours(0,0,0,0);
+  const isOK = (f) => f?.fixture?.date && new Date(f.fixture.date).getTime() < HOJE.getTime();
+  const fidContamA = new Set((fixA||[]).filter(f=>!isOK(f)).map(f=>f.fixture.id));
+  const fidContamB = new Set((fixB||[]).filter(f=>!isOK(f)).map(f=>f.fixture.id));
+
+  // Minutos POR JOGO (pra filtrar outliers e separar 10j/20j)
+  const porJogoA = {}, porJogoB = {};
+  Object.entries(evA).forEach(([fid, evs]) => {
+    if (fidContamA.has(Number(fid)) || fidContamA.has(fid)) return;
+    const arr = new Array(95).fill(0);
+    evs.forEach(ev => { if (ev.sc) arr[Math.min(94, ev.elapsed || 0)]++; });
+    if (arr.some(v => v > 0)) porJogoA[fid] = arr;
+  });
+  Object.entries(evB).forEach(([fid, evs]) => {
+    if (fidContamB.has(Number(fid)) || fidContamB.has(fid)) return;
+    const arr = new Array(95).fill(0);
+    evs.forEach(ev => { if (ev.sc) arr[Math.min(94, ev.elapsed || 0)]++; });
+    if (arr.some(v => v > 0)) porJogoB[fid] = arr;
+  });
+
+  function calcularPicos(porJogo) {
+    const min = new Array(95).fill(0);
+    Object.values(porJogo).forEach(arr => arr.forEach((v, i) => min[i] += v));
+    return min;
+  }
+
+  // Picos 20j (todos)
+  const min20A = calcularPicos(porJogoA);
+  const min20B = calcularPicos(porJogoB);
+
+  // Picos 10j (últimos 10 fixtures)
+  const fidsA10 = (fixA||[]).filter(isOK).slice(0, 10).map(f => String(f.fixture.id));
+  const fidsB10 = (fixB||[]).filter(isOK).slice(0, 10).map(f => String(f.fixture.id));
+  const porJogo10A = {}; fidsA10.forEach(fid => { if (porJogoA[fid]) porJogo10A[fid] = porJogoA[fid]; });
+  const porJogo10B = {}; fidsB10.forEach(fid => { if (porJogoB[fid]) porJogo10B[fid] = porJogoB[fid]; });
+  const min10A = calcularPicos(porJogo10A);
+  const min10B = calcularPicos(porJogo10B);
+
+  function topPicos(mA, mB) {
+    const picos = [];
+    for (let i = 0; i < 91; i++) {
+      const sa = mA[i] + mA[i+1] + mA[i+2];
+      const sb = mB[i] + mB[i+1] + mB[i+2];
+      picos.push({ start: i, end: i+3, a: sa, b: sb, total: sa+sb });
+    }
+    const sorted = [...picos].sort((x,y) => y.total - x.total);
+    const seen = new Set(); const out = [];
+    for (const p of sorted) {
+      if ([...seen].some(s => Math.abs(s-p.start) < 3)) continue;
+      seen.add(p.start);
+      out.push(p);
+      if (out.length === 10) break;
+    }
+    return out;
+  }
+
+  const picos20 = topPicos(min20A, min20B);
+  const picos10 = topPicos(min10A, min10B);
+
+  // Filtro de outliers (vem de pelo menos 2 jogos diferentes)
+  function jogosNoPico(p, porJ_A, porJ_B) {
+    const set = new Set();
+    for (const [fid, arr] of Object.entries(porJ_A)) {
+      let s = 0; for (let i = p.start; i < p.end; i++) s += arr[i];
+      if (s > 0) set.add('A_'+fid);
+    }
+    for (const [fid, arr] of Object.entries(porJ_B)) {
+      let s = 0; for (let i = p.start; i < p.end; i++) s += arr[i];
+      if (s > 0) set.add('B_'+fid);
+    }
+    return set.size;
+  }
+
+  const picos20Densos = picos20.filter(p => p.total >= 4 && jogosNoPico(p, porJogoA, porJogoB) >= 2);
+  const picos10Densos = picos10.filter(p => p.total >= 4 && jogosNoPico(p, porJogo10A, porJogo10B) >= 2);
+
+  // Divergência: buckets 10j 50%+ mais quentes que 20j (mesmo bucket de 5min)
+  function bucketTotal(mA, mB) {
+    const buckets = new Array(20).fill(0);
+    for (let m = 0; m < 95; m++) {
+      let bi;
+      if (m <= 5) bi=0; else if (m<=10) bi=1; else if (m<=15) bi=2; else if (m<=20) bi=3;
+      else if (m<=25) bi=4; else if (m<=30) bi=5; else if (m<=35) bi=6; else if (m<=40) bi=7;
+      else if (m<=45) bi=8; else if (m<=50) bi=10; else if (m<=55) bi=11; else if (m<=60) bi=12;
+      else if (m<=65) bi=13; else if (m<=70) bi=14; else if (m<=75) bi=15; else if (m<=80) bi=16;
+      else if (m<=85) bi=17; else bi=18;
+      buckets[bi] += mA[m] + mB[m];
+    }
+    return buckets;
+  }
+  const b20 = bucketTotal(min20A, min20B);
+  const b10 = bucketTotal(min10A, min10B);
+  const LBL_5MIN = ['0-5','6-10','11-15','16-20','21-25','26-30','31-35','36-40','41-45','AC1T',
+                    '46-50','51-55','56-60','61-65','66-70','71-75','76-80','81-85','86-90','AC2T'];
+  // Bucket 10j é "muito mais quente" se (10j * 2) > (20j * 1.5)  → ou seja, normalizado por janela
+  const bucketsQuentes10 = [];
+  for (let i = 0; i < 20; i++) {
+    if (i === 9 || i === 19) continue;  // pula AC
+    if (b20[i] > 0 && (b10[i] * 2) > (b20[i] * 1.5)) {
+      bucketsQuentes10.push({ idx: i, lbl: LBL_5MIN[i], b10: b10[i], b20: b20[i] });
+    }
+  }
+
+  // xG e chutes combo
+  function num(v) { try { return parseFloat(v) || 0; } catch(e) { return 0; } }
+  const xgA = num(aggA?.xg), xgB = num(aggB?.xg);
+  const xg_combo = xgA + xgB;
+  const shotsA = num(aggA?.shots), shotsB = num(aggB?.shots);
+  const shots_combo = shotsA + shotsB;
+  const ogA = num(aggA?.shotsOG), ogB = num(aggB?.shotsOG);
+  const shotsOG_combo = ogA + ogB;
+
+  // Drift
+  function parseRes(arr) {
+    // arr é o enrichedCompact, MAS aqui temos só evA/evB. Pra drift uso uma proxy:
+    // soma gols dos últimos 5 jogos vs últimos 20 jogos, usando porJogoA/B (gols feitos)
+    return null;
+  }
+  // Drift via porJogo (apenas gols feitos do time = aproximação)
+  function avgGolsPorJogo(porJ, max) {
+    const fids = Object.keys(porJ).slice(0, max);
+    if (!fids.length) return 0;
+    let total = 0;
+    fids.forEach(fid => { total += porJ[fid].reduce((s,v)=>s+v,0); });
+    return total / fids.length;
+  }
+  const gpJ5A = avgGolsPorJogo(porJogoA, 5);
+  const gpJ20A = avgGolsPorJogo(porJogoA, 20);
+  const gpJ5B = avgGolsPorJogo(porJogoB, 5);
+  const gpJ20B = avgGolsPorJogo(porJogoB, 20);
+  const drift = (gpJ5A - gpJ20A) + (gpJ5B - gpJ20B);
+
+  // ─── REGRA DE NEGÓCIO baseada em coeficientes validados N=16 ───
+  // Mais picos densos do 20j = +0.26 gol cada (correlação r=+0.46)
+  // Picos do 10j ISOLADOS = correlação ~0 (NÃO usar como fator forte!)
+  // Drift positivo = +0.36 por unidade (r=+0.42)
+  // xG combo = +0.42 por unidade (r=+0.31)
+  // shots combo = +0.05 por unidade (r=+0.42)
+  // Divergência 10j>20j: correlação NEGATIVA (-0.35) — atenção contraintuitiva
+  const fator_picos20 = 0.26;
+  const fator_drift = 0.36;
+  const fator_xg = 0.42;
+
+  let gols_previstos = 1.5  // baseline (média de 16 jogos = ~2.4 gols, com base 1.5)
+    + (picos20Densos.length * fator_picos20)
+    + (Math.max(0, drift) * fator_drift)
+    + (xg_combo * 0.20);
+
+  // Sinais binários: contagem de critérios atendidos (sua lista original)
+  const criterios = [
+    { ok: picos20Densos.length >= 3, txt: `Picos densos (≥4 ev, ≥2 jogos): <strong>${picos20Densos.length}</strong>${picos20Densos.length>=3?' ✓':''}`, peso: 'forte' },
+    { ok: bucketsQuentes10.length >= 2, txt: `Buckets 10j 50%+ mais quentes que 20j: <strong>${bucketsQuentes10.length}</strong>${bucketsQuentes10.length>=2?' ✓':''}`, peso: 'fraco_negativo' },
+    { ok: xg_combo > 2.5, txt: `xG combo: <strong>${xg_combo.toFixed(2)}</strong>${xg_combo>2.5?' ✓':''}`, peso: 'medio' },
+    { ok: shots_combo > 27, txt: `Chutes combo: <strong>${shots_combo.toFixed(0)}</strong>${shots_combo>27?' ✓':''}`, peso: 'medio' },
+    { ok: drift > 0.5, txt: `Drift de forma: <strong>${drift>=0?'+':''}${drift.toFixed(2)}</strong>${drift>0.5?' ✓':''}`, peso: 'forte' },
+    { ok: picos10Densos.length >= 2, txt: `Picos densos só nos 10j: <strong>${picos10Densos.length}</strong>${picos10Densos.length>=2?' ~':''}`, peso: 'incerto' },
+  ];
+  const criteriosFortes = criterios.filter(c => c.ok && c.peso === 'forte').length;
+  const criteriosMedios = criterios.filter(c => c.ok && c.peso === 'medio').length;
+  const criteriosBateu = criterios.filter(c => c.ok).length;
+
+  const linhas = criterios.map(c => {
+    let cor = c.ok ? 'var(--gn)' : 'var(--tx3)';
+    if (c.peso === 'fraco_negativo' && c.ok) cor = 'var(--rd)';
+    if (c.peso === 'incerto' && c.ok) cor = 'var(--yl)';
+    return `<div style="display:flex;justify-content:space-between;padding:4px 0;color:${cor};font-size:11px;font-family:var(--fM)">
+      <span>${c.txt}</span>
+      <span style="color:var(--tx3);font-size:9px">${c.peso === 'forte' ? '★★★' : c.peso === 'medio' ? '★★' : c.peso === 'incerto' ? '?' : '-'}</span>
+    </div>`;
+  }).join('');
+
+  // Veredito
+  let veredito, corV, txtV;
+  if (criteriosFortes >= 2 || (criteriosFortes >= 1 && criteriosMedios >= 2)) {
+    veredito = 'OVER 2.5';
+    corV = '#ff8a4c';
+    txtV = 'Sinais fortes apontam OVER';
+  } else if (criteriosBateu === 0 || (criteriosBateu === 1 && criteriosMedios === 0)) {
+    veredito = 'UNDER 2.5';
+    corV = '#7fa8c9';
+    txtV = 'Sinais fracos — provável UNDER';
+  } else {
+    veredito = 'NEUTRO';
+    corV = 'var(--tx2)';
+    txtV = 'Sem consenso — cuidado';
+  }
+
+  // Detalhe dos picos densos identificados
+  const picosDetalhe = picos20Densos.length
+    ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b1)">
+        <div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Picos densos identificados (20j)</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${picos20Densos.map(p => `<span style="background:rgba(63,185,80,.12);color:var(--gn);padding:3px 8px;border-radius:3px;font-size:10px;font-family:var(--fM)">min ${p.start}-${p.end}: ${p.total}ev</span>`).join('')}
+        </div>
+      </div>`
+    : '';
+
+  const bucketsDetalhe = bucketsQuentes10.length
+    ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b1)">
+        <div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Buckets em ascensão (10j vs 20j)</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${bucketsQuentes10.map(b => `<span style="background:rgba(245,194,99,.12);color:var(--yl);padding:3px 8px;border-radius:3px;font-size:10px;font-family:var(--fM)">${b.lbl}: ${b.b10}→${b.b20}</span>`).join('')}
+        </div>
+        <div style="font-size:9px;color:var(--rd);margin-top:6px;line-height:1.4">⚠ Atenção: validação em 16 jogos mostrou correlação <strong>NEGATIVA</strong> (-0.35) entre divergência 10j↑ e gols totais. Sinal contraintuitivo — pode indicar UNDER, não OVER.</div>
+      </div>`
+    : '';
+
+  return `
+  <div class="h2h-section" style="border-top:2px solid var(--cy);margin-top:20px">
+    <div class="h2h-sec-title">🎯 PREVISÃO MULTIVARIADA · v17 (calibrada em 16 snapshots)</div>
+
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center;background:var(--s2);border-radius:6px;padding:14px;margin-bottom:12px">
+      <div style="text-align:center;padding:0 16px;border-right:1px solid var(--b1)">
+        <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px">Gols esperados</div>
+        <div style="font-size:32px;color:${corV};font-weight:800;font-family:var(--fM);line-height:1">${gols_previstos.toFixed(1)}</div>
+        <div style="font-size:9px;color:var(--tx3);margin-top:2px">faixa ${Math.max(0,Math.floor(gols_previstos-0.5))}–${Math.ceil(gols_previstos+0.5)}</div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:800;color:${corV};margin-bottom:2px">${veredito}</div>
+        <div style="font-size:10px;color:var(--tx2);margin-bottom:8px">${txtV}</div>
+        <div style="font-size:10px;color:var(--tx3);font-family:var(--fM)">
+          ${criteriosFortes} sinal(is) forte(s) · ${criteriosMedios} sinal(is) médio(s) · ${criteriosBateu}/6 critérios
+        </div>
+      </div>
+    </div>
+
+    <div style="background:var(--s3);border-radius:6px;padding:12px;margin-bottom:10px">
+      <div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Checklist de sinais</div>
+      ${linhas}
+    </div>
+
+    ${picosDetalhe}
+    ${bucketsDetalhe}
+
+    <div style="margin-top:12px;padding:8px;background:rgba(0,212,255,.06);border-left:2px solid var(--cy);border-radius:3px;font-size:9px;color:var(--tx3);line-height:1.5;font-family:var(--fM)">
+      <strong style="color:var(--cy)">★★★</strong> sinais validados (correlação >0.4 com gols em 16 snapshots)<br>
+      <strong style="color:var(--cy)">★★</strong> sinais moderados (correlação 0.2-0.4)<br>
+      <strong style="color:var(--yl)">?</strong> sinais incertos (correlação ~0, manter por intuição)<br>
+      <strong style="color:var(--rd)">-</strong> sinais com correlação negativa ou neutra<br>
+      <em>Fórmula:</em> 1.5 + (${picos20Densos.length}×0.26 picos20) + (max(0,${drift.toFixed(2)})×0.36 drift) + (${xg_combo.toFixed(2)}×0.20 xG) = <strong>${gols_previstos.toFixed(2)}</strong>
+    </div>
+  </div>`;
+}
 
 // ── Block 4f (v15) — Previsão de gols por densidade de picos ─────
 // Hipótese (Joao): número de picos finos densos com contribuição de múltiplos
