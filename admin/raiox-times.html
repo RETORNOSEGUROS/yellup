@@ -28,6 +28,69 @@ const CFG = {
 </script>
 
 <style>
+/* v17+: Tooltips informativos — passa o mouse e mostra explicação estatística */
+.yt-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+  border-bottom: 1px dotted rgba(0, 212, 255, 0.4);
+  padding-bottom: 1px;
+}
+.yt-tip::before {
+  content: 'ⓘ';
+  font-size: 9px;
+  color: var(--cy, #00d4ff);
+  opacity: 0.55;
+  margin-left: 3px;
+  font-family: monospace;
+}
+.yt-tip > .yt-tip-content {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0d1117;
+  color: #e6edf3;
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-transform: none;
+  width: 280px;
+  max-width: 90vw;
+  z-index: 10000;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.55);
+  transition: opacity 0.15s, visibility 0.15s;
+  text-align: left;
+  white-space: normal;
+  font-family: 'Inter', -apple-system, sans-serif;
+  pointer-events: none;
+}
+.yt-tip > .yt-tip-content::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: rgba(0, 212, 255, 0.3);
+}
+.yt-tip:hover > .yt-tip-content,
+.yt-tip:focus > .yt-tip-content {
+  visibility: visible;
+  opacity: 1;
+}
+.yt-tip-content strong { color: #00d4ff; }
+.yt-tip-content em { color: #f5c263; font-style: normal; }
+.yt-tip-content .yt-pro { color: #3fb950; }
+.yt-tip-content .yt-contra { color: #f85149; }
+.yt-tip-content .yt-warn { color: #f5c263; }
 /* ══════════════════════════════════════════════════
    RAIO-X TIMES · Design: Terminal Analytics
 ══════════════════════════════════════════════════ */
@@ -681,6 +744,12 @@ let FORTE_CACHE  = {};   // apiId → score  (persiste entre seleções para ord
 function safeFixed(v, n=2, fallback='—') {
   if (v == null || isNaN(v)) return fallback;
   return Number(v).toFixed(n);
+}
+
+// v17+: helper de tooltip — envolve um label com explicação ao passar mouse
+function tip(label, explanation) {
+  // Sanitiza apenas tags HTML perigosas, preserva markdown leve
+  return `<span class="yt-tip" tabindex="0">${label}<span class="yt-tip-content">${explanation}</span></span>`;
 }
 let FORTE_FULL_CACHE = {};   // v16: apiId → {score, wrs, io, id, idom, lcs} — para snapshot rico
 
@@ -2795,7 +2864,7 @@ function renderForteCompare(scA, scB, colA, colB, sumAB) {
       </div>
     </div>
     <div class="h2h-mid-card">
-      <div class="h2h-mid-diff" style="color:${diff>1.5?'var(--yl)':'var(--tx2)'}">Δ ${diff}</div>
+      <div class="h2h-mid-diff" style="color:${diff>1.5?'var(--yl)':'var(--tx2)'}">${tip(`Δ ${diff}`, '<strong>Diferença de ForteScore</strong> entre os dois times.<br><br><strong>Como interpretar:</strong><br>• Δ < 0.5 = times equilibrados → jogo pode ir pra qualquer lado.<br>• Δ 0.5-1.5 = ligeiramente desigual → favorito provável.<br>• Δ > 1.5 = desnível grande → favorito muito forte, mas <strong>não garante goleada</strong>.<br><br><span class="yt-warn">Atenção crucial:</span> em N=16, <strong>Δ tem correlação ~ZERO (-0.07) com total de gols</strong>. Δ prediz quem ganha, NÃO quanto gol vai sair. Time mais forte pode controlar e ganhar 1×0.')}</div>
       <div class="h2h-mid-bar">
         <div class="h2h-mid-a" data-w="${pctA}" style="background:${colA};width:0"></div>
         <div class="h2h-mid-b" data-w="${100-pctA}" style="background:${colB};width:0"></div>
@@ -2821,15 +2890,24 @@ function renderStatsCompare(aggA, aggB, eA, eB) {
   const ptsA = ((wA*3+dA)/NA).toFixed(2), ptsB = ((wB*3+dB)/NB).toFixed(2);
 
   const rows = [
-    ['Forma 20J', `${wA}V ${dA}E ${lA}D`, `${wB}V ${dB}E ${lB}D`, +ptsA > +ptsB ? 'A' : +ptsB > +ptsA ? 'B' : ''],
-    ['Pts/Jogo',  ptsA,                     ptsB,                   +ptsA>+ptsB?'A':+ptsB>+ptsA?'B':''],
-    ['Posse %',   aggA.poss+'%',            aggB.poss+'%',          aggA.poss!=='—'&&aggB.poss!=='—'?(+aggA.poss>+aggB.poss?'A':'B'):''],
-    ['xG',        aggA.xg,                  aggB.xg,                aggA.xg!=='—'&&aggB.xg!=='—'?(+aggA.xg>+aggB.xg?'A':'B'):''],
-    ['Finalizações',aggA.shots,             aggB.shots,             aggA.shots!=='—'&&aggB.shots!=='—'?(+aggA.shots>+aggB.shots?'A':'B'):''],
-    ['Passes %',  aggA.pass+'%',            aggB.pass+'%',          aggA.pass!=='—'&&aggB.pass!=='—'?(+aggA.pass>+aggB.pass?'A':'B'):''],
-    ['Passes Tot.',aggA.passTotal,          aggB.passTotal,         aggA.passTotal!=='—'&&aggB.passTotal!=='—'?(+aggA.passTotal>+aggB.passTotal?'A':'B'):''],
-    ['GF/Jogo',   aggA.gfJ,                aggB.gfJ,               aggA.gfJ!=='—'&&aggB.gfJ!=='—'?(+aggA.gfJ>+aggB.gfJ?'A':'B'):''],
-    ['GC/Jogo',   aggA.gcJ,                aggB.gcJ,               aggA.gcJ!=='—'&&aggB.gcJ!=='—'?(+aggA.gcJ<+aggB.gcJ?'A':'B'):''], // menor GC = melhor
+    [tip('Forma 20J', 'Vitórias / Empates / Derrotas nos últimos 20 jogos.<br><br><strong>Como ler:</strong> Time com 15V+ é elite. 8-12V é médio. Menos de 7V em 20 é fraco.<br><br><span class="yt-pro">Pró-OVER:</span> ambos com forma equilibrada (10V/10V).<br><span class="yt-contra">Pró-UNDER:</span> desequilíbrio grande (15V × 4V) tende a jogo controlado, não goleada.'),
+     `${wA}V ${dA}E ${lA}D`, `${wB}V ${dB}E ${lB}D`, +ptsA > +ptsB ? 'A' : +ptsB > +ptsA ? 'B' : ''],
+    [tip('Pts/Jogo', 'Pontos médios por jogo (V=3, E=1).<br><br><strong>Referência:</strong> elite: >2.0 · médio: 1.3-1.8 · fraco: <1.0.<br><br><em>Quanto maior, mais forte o time.</em>'),
+     ptsA, ptsB, +ptsA>+ptsB?'A':+ptsB>+ptsA?'B':''],
+    [tip('Posse %', 'Posse de bola média.<br><br><strong>Como ler:</strong> >55% = time toca a bola e impõe ritmo. <45% = time reativo/contra-ataque.<br><br><span class="yt-warn">Atenção:</span> posse alta NÃO garante mais gols. Time que toca pode travar jogo (1×0). Compare com xG e finalizações.'),
+     aggA.poss+'%', aggB.poss+'%', aggA.poss!=='—'&&aggB.poss!=='—'?(+aggA.poss>+aggB.poss?'A':'B'):''],
+    [tip('xG', 'Expected Goals: qualidade das chances criadas, média por jogo.<br><br><strong>Referência:</strong> <0.8 = ataque pobre · 1.2-1.7 = médio · >2.0 = ataque forte.<br><br><span class="yt-pro">Pró-OVER:</span> xG combo dos dois >2.8.<br><span class="yt-warn">Atenção (regressão à média):</span> compare xG com GF/jogo abaixo. Se time tem xG 1.5 mas faz 2.5 gols/jogo, está convertendo MUITO acima do esperado e tende a regredir (fazer menos gols).'),
+     aggA.xg, aggB.xg, aggA.xg!=='—'&&aggB.xg!=='—'?(+aggA.xg>+aggB.xg?'A':'B'):''],
+    [tip('Finalizações', 'Chutes médios por jogo (total, no alvo + fora).<br><br><strong>Referência:</strong> >15 = time pressiona muito · 8-12 = médio · <7 = passivo.<br><br><span class="yt-pro">Pró-OVER:</span> chutes combo >27 — em N=16 essa métrica tem correlação +0.42 com gols totais.'),
+     aggA.shots, aggB.shots, aggA.shots!=='—'&&aggB.shots!=='—'?(+aggA.shots>+aggB.shots?'A':'B'):''],
+    [tip('Passes %', 'Acerto de passes.<br><br><strong>Referência:</strong> >85% = time técnico/qualidade · 75-80% = médio · <70% = jogo direto/disputado.<br><br><em>Sozinho não prediz gols. Combine com posse e xG.</em>'),
+     aggA.pass+'%', aggB.pass+'%', aggA.pass!=='—'&&aggB.pass!=='—'?(+aggA.pass>+aggB.pass?'A':'B'):''],
+    [tip('Passes Tot.', 'Volume médio de passes por jogo.<br><br><strong>Referência:</strong> >500 = controle do jogo (City, Madrid) · 350-450 = médio · <300 = jogo verticalizado.'),
+     aggA.passTotal, aggB.passTotal, aggA.passTotal!=='—'&&aggB.passTotal!=='—'?(+aggA.passTotal>+aggB.passTotal?'A':'B'):''],
+    [tip('GF/Jogo', 'Gols feitos por jogo nos últimos 20.<br><br><strong>Referência:</strong> >2.0 = ataque potente · 1.2-1.8 = médio · <1.0 = ataque pobre.<br><br><span class="yt-pro">Pró-OVER:</span> GF combo (A+B) >3.5. <strong>Mas atenção:</strong> em N=16, GF combo só tem correlação +0.14 com gols totais — não é tão forte quanto parece. Considere junto com forma recente.'),
+     aggA.gfJ, aggB.gfJ, aggA.gfJ!=='—'&&aggB.gfJ!=='—'?(+aggA.gfJ>+aggB.gfJ?'A':'B'):''],
+    [tip('GC/Jogo', 'Gols sofridos por jogo.<br><br><strong>Referência:</strong> <0.9 = defesa elite · 1.1-1.5 = médio · >1.7 = defesa frágil.<br><br><span class="yt-contra">Pró-UNDER (descoberta):</span> em N=16, GC combo tem correlação <strong>NEGATIVA</strong> (-0.22). Quando ambos têm GC baixo (combo <2.5), jogo trava — ex: Pachuca×Pumas (gc combo 2.25 → real 1 gol).'),
+     aggA.gcJ, aggB.gcJ, aggA.gcJ!=='—'&&aggB.gcJ!=='—'?(+aggA.gcJ<+aggB.gcJ?'A':'B'):''], // menor GC = melhor
   ];
 
   const rowsHtml = rows.map(([lbl,vA,vB,win])=>`
@@ -2840,7 +2918,7 @@ function renderStatsCompare(aggA, aggB, eA, eB) {
 
   return `
   <div class="h2h-section">
-    <div class="h2h-sec-title">Comparativo de Stats · Últimos 20 Jogos</div>
+    <div class="h2h-sec-title">${tip('Comparativo de Stats · Últimos 20 Jogos', 'Médias agregadas dos últimos 20 jogos de cada time. <strong>Verde no número</strong> = vencedor naquele indicador.<br><br><strong>O que olhar primeiro:</strong><br>1) <em>GF/Jogo combo</em> — soma os 2. Se > 3.5, propenso a OVER.<br>2) <em>GC/Jogo combo</em> — se ambos têm GC <1.0, defesas sólidas = atenção pra UNDER (correlação -0.22 em N=16).<br>3) <em>xG</em> — se time tem xG bem maior que GF/Jogo, está azarado e tende a marcar mais; se menor, está sortudo e tende a regredir.')}</div>
     <div style="display:grid;grid-template-columns:1fr 14px 1fr;gap:2px;margin-bottom:3px;">
       <div style="font-size:10px;font-weight:700;color:${forteColor(FORTE_CACHE[H2H_A.apiId]||5)};padding:4px 12px">${H2H_A.nome}</div>
       <div></div>
@@ -2862,19 +2940,19 @@ function renderPerMinute(aggA, aggB) {
     return `
       <div class="pm-card">
         <div class="pm-title">${team.nome} · Referência/min</div>
-        <div class="pm-row"><span class="pm-lbl">xG por min</span><span class="pm-val" style="color:var(--cy)">${xg}</span></div>
-        <div class="pm-row"><span class="pm-lbl">Fin. por min</span><span class="pm-val">${sh}</span></div>
-        <div class="pm-row"><span class="pm-lbl">Passes por min</span><span class="pm-val">${ps}</span></div>
-        <div class="pm-row"><span class="pm-lbl">GF por min</span><span class="pm-val" style="color:var(--gn)">${gf}</span></div>
-        <div class="pm-row"><span class="pm-lbl">GC por min</span><span class="pm-val" style="color:var(--rd)">${gc}</span></div>
-        <div class="pm-row"><span class="pm-lbl">xG esperado 15'</span><span class="pm-val" style="color:var(--cy)">${xgM(15)}</span></div>
-        <div class="pm-row"><span class="pm-lbl">xG esperado 45'</span><span class="pm-val" style="color:var(--cy)">${xgM(45)}</span></div>
-        <div class="pm-row"><span class="pm-lbl">xG esperado 90'</span><span class="pm-val" style="color:var(--cy)">${xgM(90)}</span></div>
+        <div class="pm-row"><span class="pm-lbl">${tip('xG por min', 'xG médio gerado por minuto de jogo.<br><br><strong>Como usar AO VIVO:</strong> multiplique pelo minuto atual para ver se o time está acima ou abaixo do esperado. Ex: aos 30min com xG=0.5, deveria estar gerando ~0.4 xG real. Se está em 0.8, está acima do padrão; se 0.1, ataque está apagado.')}</span><span class="pm-val" style="color:var(--cy)">${xg}</span></div>
+        <div class="pm-row"><span class="pm-lbl">${tip('Fin. por min', 'Finalizações por minuto. Útil pra ver intensidade ofensiva em tempo real.<br><br><strong>Referência:</strong> >0.18 = ataque ativo · <0.10 = ataque parado.')}</span><span class="pm-val">${sh}</span></div>
+        <div class="pm-row"><span class="pm-lbl">${tip('Passes por min', 'Volume médio de passes por minuto. Ritmo do jogo do time.<br><br><strong>Referência:</strong> >6 = controle absoluto · 4-5 = médio · <3 = jogo direto/disputado.')}</span><span class="pm-val">${ps}</span></div>
+        <div class="pm-row"><span class="pm-lbl">${tip('GF por min', 'Probabilidade de marcar a cada minuto (média histórica).<br><br><strong>Como interpretar:</strong> GF/min × 90 = gols esperados num jogo. Ex: 0.025 × 90 = 2.25 gols esperados.<br><br><em>Compare com xG/min: se GF/min é muito maior que xG/min, time converte acima do esperado (regressão à média virá).</em>')}</span><span class="pm-val" style="color:var(--gn)">${gf}</span></div>
+        <div class="pm-row"><span class="pm-lbl">${tip('GC por min', 'Probabilidade de sofrer a cada minuto.<br><br><strong>Referência:</strong> <0.011 = defesa elite · 0.013-0.016 = média · >0.020 = defesa frágil.')}</span><span class="pm-val" style="color:var(--rd)">${gc}</span></div>
+        <div class="pm-row"><span class="pm-lbl">${tip("xG esperado 15'", 'xG acumulado esperado nos primeiros 15 minutos (= xG/min × 15).<br><br><strong>Uso ao vivo:</strong> aos 15min do jogo, se o time já estiver com xG real acima desse número, está num dia inspirado e tende a marcar.')}</span><span class="pm-val" style="color:var(--cy)">${xgM(15)}</span></div>
+        <div class="pm-row"><span class="pm-lbl">${tip("xG esperado 45'", 'xG esperado no 1º tempo inteiro.<br><br><strong>Cruzamento útil:</strong> compare com gols feitos nos primeiros 45min historicamente. Diferença grande = atenção.')}</span><span class="pm-val" style="color:var(--cy)">${xgM(45)}</span></div>
+        <div class="pm-row"><span class="pm-lbl">${tip("xG esperado 90'", 'xG esperado num jogo inteiro = igual ao xG médio.<br><br><strong>Como apostar:</strong> soma do xG esperado 90 de A + B é uma estimativa baseline de gols totais. Some os dois e veja se passa de 2.5.')}</span><span class="pm-val" style="color:var(--cy)">${xgM(90)}</span></div>
       </div>`;
   }
   return `
   <div class="h2h-section">
-    <div class="h2h-sec-title">Referência por Minuto · base para análise ao vivo</div>
+    <div class="h2h-sec-title">${tip('Referência por Minuto · base para análise ao vivo', 'Esses números são médias históricas dos últimos 20 jogos transformadas em <strong>"por minuto"</strong>. Servem como baseline durante o jogo: você compara o que está acontecendo AGORA com o que deveria acontecer estatisticamente.<br><br><span class="yt-warn">Truque mais útil:</span> compare xG esperado 90 (soma A+B) com o limite da aposta. Se > 2.5, sinaliza OVER baseline.')}</div>
     <div class="pm-grid">${pmRows(aggA,H2H_A)}${pmRows(aggB,H2H_B)}</div>
   </div>`;
 }
@@ -3007,7 +3085,7 @@ function renderDualIntervals(evA, evB) {
 
   return `
   <div class="h2h-section">
-    <div class="h2h-sec-title">Gols por Intervalo 5min · Ambos os Times</div>
+    <div class="h2h-sec-title">${tip('Gols por Intervalo 5min · Ambos os Times', 'Histograma de quando os gols saem nos jogos passados, divididos em janelas de 5 minutos.<br><br><strong>Como ler:</strong><br>• Barra alta = janela "quente" historicamente.<br>• Barras verdes = gols FEITOS · vermelhas = SOFRIDOS.<br>• Picos no fim do 1ºT (41-45) ou 2ºT (86-90) são comuns — fadiga e desespero.<br><br><span class="yt-pro">Pró-OVER:</span> muitas barras altas espalhadas.<br><span class="yt-warn">Atenção:</span> bucket muito quente vindo de 1-2 jogos só é OUTLIER (goleada atípica), não padrão. Veja "Consistência da Janela" abaixo pra filtrar.')}</div>
     <div class="di-legend">
       <div class="di-leg"><div class="di-leg-sq" style="background:var(--gn)"></div>${H2H_A.nome} marcou</div>
       <div class="di-leg"><div class="di-leg-sq" style="background:var(--rd)"></div>${H2H_A.nome} sofreu</div>
@@ -3088,7 +3166,7 @@ function renderSlidingWindows(evA, evB) {
   return `
   <div class="h2h-section">
     <div class="h2h-sec-title">
-      Janelas Deslizantes 15min · soma de gols (A+B)
+      ${tip('Janelas Deslizantes 15min · soma de gols (A+B)', 'Soma de gols numa janela de 15 minutos, deslizando de 5 em 5 min (ex: 0-15, 5-20, 10-25...).<br><br><strong>Por que 15min?</strong> Janela curta (5min) tem muito ruído, janela longa (30min) perde detalhe. 15min equilibra.<br><br><strong>Como ler:</strong><br>• Barra azul forte (top 3) = janela mais carregada historicamente.<br>• 🔥 = pico geral identificado.<br><br><span class="yt-pro">Pró-OVER ao vivo:</span> se o jogo entra numa janela top, atenção pra gol nos próximos minutos.')}
       <span style="font-family:var(--fM);font-size:9px;color:var(--cy);margin-left:4px">🔥 ${hotLabel}</span>
     </div>
     <div class="sw-wrap"><div class="sw-cols">${cols}</div></div>
@@ -3172,7 +3250,7 @@ function renderJanelaJogosCompare(evA, evB, fixA, fixB) {
   return `
   <div class="h2h-section">
     <div class="h2h-sec-title">
-      Comparativo Últimos 20j × Últimos 10j
+      ${tip('Comparativo Últimos 20j × Últimos 10j', '<strong>Detecta DRIFT de forma</strong>: o time está jogando diferente agora vs o histórico.<br><br><strong>Como ler:</strong><br>• Esquerda = padrão dos últimos 20 jogos.<br>• Direita = padrão dos últimos 10 jogos.<br>• ⚠ DIVERGÊNCIA = buckets diferentes no top 5 → time mudou (técnico novo, reforços, fadiga).<br>• ✓ estável = padrão se mantém → previsão confiável.<br><br><strong>Validado em N=16:</strong> drift positivo dos dois times (soma dos últimos 5j > soma dos 20j) tem correlação +0.42 com gols totais. Cada unidade de drift positivo = +0.36 gol esperado.<br><br><span class="yt-warn">Contraintuitivo:</span> "Buckets 10j 50%+ mais quentes que 20j" tem correlação <strong>NEGATIVA</strong> (-0.35). Não confunda drift com "buckets quentes nos 10".')}
       <span style="font-family:var(--fM);font-size:9px;color:${corDiv};margin-left:8px;font-weight:600">
         ${divergencia >= 2 ? '⚠ DIVERGÊNCIA' : divergencia === 1 ? '~ leve drift' : '✓ estável'}
       </span>
@@ -3272,7 +3350,7 @@ function renderSliding3min(evA, evB) {
 
   return `
   <div class="h2h-section">
-    <div class="h2h-sec-title">Picos Finos 3min · sliding window</div>
+    <div class="h2h-sec-title">${tip('Picos Finos 3min · sliding window', 'Janelas de 3 minutos com mais eventos somando ambos os times. <strong>Não confunda com buckets de 5min</strong> — esses são mais precisos.<br><br><strong>O que validei em N=16:</strong> picos densos (≥4 eventos) é <strong>o melhor sinal isolado</strong> com correlação +0.46. Cada pico denso adiciona ~0.26 gol esperado no jogo.<br><br><span class="yt-pro">Pró-OVER:</span> 3+ picos com ≥4 eventos.<br><span class="yt-warn">Filtro:</span> só vale se vier de ≥2 jogos diferentes. Pico de 6 eventos vindo de 1 jogo é outlier.')}</div>
     <div style="display:flex;align-items:flex-end;gap:1px;height:${MAX_H+4}px;padding:4px 0;background:var(--s2);border-radius:4px;overflow-x:auto">
       ${cols}
     </div>
@@ -3361,7 +3439,7 @@ function renderConsistenciaJanela(evA, evB, fixA, fixB) {
 
   return `
   <div class="h2h-section">
-    <div class="h2h-sec-title">Consistência da Janela · em quantos jogos cada bucket teve evento</div>
+    <div class="h2h-sec-title">${tip('Consistência da Janela · em quantos jogos cada bucket teve evento', 'Mede se um bucket "quente" vem de muitos jogos ou só 1-2.<br><br><strong>Como ler:</strong><br>• <em>% jogos</em>: em quantos % dos 20 jogos houve evento naquele bucket. >40% = consistente.<br>• <em>densidade</em>: média de eventos por jogo onde houve evento. >1.5 = janela muito carregada.<br>• <em>conf</em>: produto das duas. Quanto maior, mais confiável.<br><br><span class="yt-pro">Sinal forte:</span> bucket com >40% de jogos E densidade >1.2 — é padrão real, não outlier.<br><span class="yt-contra">Atenção:</span> bucket aparece "quente" no histograma mas tem <20% nos jogos = OUTLIER, ignore.')}</div>
     <table style="width:100%;border-collapse:collapse;font-size:10px;font-family:var(--fM)">
       <thead>
         <tr style="color:var(--tx3);font-size:9px;text-transform:uppercase;letter-spacing:.5px">
@@ -3537,12 +3615,24 @@ function renderPrevisaoMultivariada(evA, evB, fixA, fixB, aggA, aggB) {
 
   // Sinais binários: contagem de critérios atendidos (sua lista original)
   const criterios = [
-    { ok: picos20Densos.length >= 3, txt: `Picos densos (≥4 ev, ≥2 jogos): <strong>${picos20Densos.length}</strong>${picos20Densos.length>=3?' ✓':''}`, peso: 'forte' },
-    { ok: bucketsQuentes10.length >= 2, txt: `Buckets 10j 50%+ mais quentes que 20j: <strong>${bucketsQuentes10.length}</strong>${bucketsQuentes10.length>=2?' ✓':''}`, peso: 'fraco_negativo' },
-    { ok: xg_combo > 2.5, txt: `xG combo: <strong>${xg_combo.toFixed(2)}</strong>${xg_combo>2.5?' ✓':''}`, peso: 'medio' },
-    { ok: shots_combo > 27, txt: `Chutes combo: <strong>${shots_combo.toFixed(0)}</strong>${shots_combo>27?' ✓':''}`, peso: 'medio' },
-    { ok: drift > 0.5, txt: `Drift de forma: <strong>${drift>=0?'+':''}${drift.toFixed(2)}</strong>${drift>0.5?' ✓':''}`, peso: 'forte' },
-    { ok: picos10Densos.length >= 2, txt: `Picos densos só nos 10j: <strong>${picos10Densos.length}</strong>${picos10Densos.length>=2?' ~':''}`, peso: 'incerto' },
+    { ok: picos20Densos.length >= 3,
+      txt: `${tip('Picos densos (≥4 ev, ≥2 jogos)', 'Janelas de 3min onde caíram <strong>≥4 gols</strong> historicamente, vindos de pelo menos 2 jogos diferentes (não outlier).<br><br><strong>Coeficiente:</strong> cada pico denso adiciona <strong>+0.26 gol</strong> à previsão (validado em N=16, r=+0.46).<br><br><span class="yt-pro">Sinal forte:</span> ≥3 picos densos.<br><span class="yt-warn">Cuidado:</span> não conta picos que vêm de 1 jogo só (goleadas isoladas).')}: <strong>${picos20Densos.length}</strong>${picos20Densos.length>=3?' ✓':''}`,
+      peso: 'forte' },
+    { ok: bucketsQuentes10.length >= 2,
+      txt: `${tip('Buckets 10j 50%+ mais quentes que 20j', 'Buckets onde a atividade dos últimos 10 jogos é muito maior que a média dos 20 jogos.<br><br><span class="yt-contra"><strong>Sinal contraintuitivo!</strong></span> Em N=16, isso tem correlação <strong>NEGATIVA</strong> (-0.35) com gols totais.<br><br>Pode parecer "time esquentou", mas estatisticamente associado a UNDER. Hipótese: padrão recente é instável e tende a regredir.<br><br><em>Use como ALERTA, não como sinal de OVER.</em>')}: <strong>${bucketsQuentes10.length}</strong>${bucketsQuentes10.length>=2?' ⚠':''}`,
+      peso: 'fraco_negativo' },
+    { ok: xg_combo > 2.5,
+      txt: `${tip('xG combo', 'Soma do xG médio dos dois times.<br><br><strong>Coeficiente:</strong> cada unidade de xG combo = <strong>+0.20 gol</strong> esperado (r=+0.31 em N=16).<br><br><span class="yt-pro">Pró-OVER:</span> >2.8<br><span class="yt-warn">Atenção (regressão à média):</span> se xG combo é alto mas GF combo é baixo, times estão azarados (vai marcar mais). Se xG combo é baixo mas GF combo alto, estão sortudos (vai marcar menos).')}: <strong>${xg_combo.toFixed(2)}</strong>${xg_combo>2.5?' ✓':''}`,
+      peso: 'medio' },
+    { ok: shots_combo > 27,
+      txt: `${tip('Chutes combo', 'Soma de chutes médios por jogo (A+B).<br><br><strong>Validado em N=16:</strong> correlação +0.42 com gols totais — sinal forte de pressão ofensiva.<br><br><span class="yt-pro">Pró-OVER:</span> >27 chutes (muita pressão dos dois lados).')}: <strong>${shots_combo.toFixed(0)}</strong>${shots_combo>27?' ✓':''}`,
+      peso: 'medio' },
+    { ok: drift > 0.5,
+      txt: `${tip('Drift de forma', 'Diferença entre soma de gols dos últimos 5 jogos vs últimos 20.<br><br><strong>Positivo:</strong> times estão fazendo MAIS gols recentemente que a média histórica.<br><strong>Negativo:</strong> jogos travados na fase recente.<br><br><strong>Coeficiente:</strong> cada unidade positiva = <strong>+0.36 gol</strong> (r=+0.42 em N=16).<br><br><span class="yt-pro">Pró-OVER:</span> drift > +0.5.<br><span class="yt-contra">Pró-UNDER:</span> drift < -0.3 (queda recente).')}: <strong>${drift>=0?'+':''}${drift.toFixed(2)}</strong>${drift>0.5?' ✓':''}`,
+      peso: 'forte' },
+    { ok: picos10Densos.length >= 2,
+      txt: `${tip('Picos densos só nos 10j', 'Picos densos calculados usando APENAS últimos 10 jogos.<br><br><span class="yt-warn">Sinal incerto:</span> em N=16, correlação é praticamente <strong>ZERO</strong> (+0.02). Não use como fator forte.<br><br>Mantido na tela por interesse exploratório — talvez funcione melhor com mais dados (N=50+).')}: <strong>${picos10Densos.length}</strong>${picos10Densos.length>=2?' ~':''}`,
+      peso: 'incerto' },
   ];
   const criteriosFortes = criterios.filter(c => c.ok && c.peso === 'forte').length;
   const criteriosMedios = criterios.filter(c => c.ok && c.peso === 'medio').length;
@@ -3596,7 +3686,7 @@ function renderPrevisaoMultivariada(evA, evB, fixA, fixB, aggA, aggB) {
 
   return `
   <div class="h2h-section" style="border-top:2px solid var(--cy);margin-top:20px">
-    <div class="h2h-sec-title">🎯 PREVISÃO MULTIVARIADA · v17 (calibrada em 16 snapshots)</div>
+    <div class="h2h-sec-title">${tip('🎯 PREVISÃO MULTIVARIADA · v17 (calibrada em 16 snapshots)', '<strong>Fórmula honesta com coeficientes calibrados em N=16 jogos reais:</strong><br><br>Gols esperados = 1.5 (base) + (picos densos × 0.26) + (drift positivo × 0.36) + (xG combo × 0.20)<br><br><strong>Resultado:</strong> previsão em gols totais.<br><br><span class="yt-pro">★★★ sinais validados</span> (correlação >0.4 com gols)<br><span class="yt-pro">★★ sinais moderados</span> (correlação 0.2-0.4)<br><span class="yt-warn">? sinais incertos</span> (correlação ~0)<br><span class="yt-contra">- sinais contraintuitivos</span> (correlação negativa)<br><br><strong>Aviso:</strong> este modelo só pondera sinais de OVER. Erros pra MAIS são frequentes quando o jogo tem sinais escondidos de UNDER (taxa under individual alta, eficiência de conversão >120%, H2H apertados). Use junto com os stats acima.')}</div>
 
     <div style="display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center;background:var(--s2);border-radius:6px;padding:14px;margin-bottom:12px">
       <div style="text-align:center;padding:0 16px;border-right:1px solid var(--b1)">
@@ -3756,7 +3846,7 @@ function renderPrevisaoDensidade(evA, evB, fixA, fixB) {
 
   return `
   <div class="h2h-section">
-    <div class="h2h-sec-title">Previsão de Gols por Densidade de Picos · v15 experimental</div>
+    <div class="h2h-sec-title">${tip('Previsão de Gols por Densidade de Picos · v15 experimental', 'Fórmula rápida: número de gols esperados ≈ número de picos densos válidos.<br><br><strong>"Pico denso válido"</strong> = ≥4 eventos em janela de 3min, vindo de ≥2 jogos diferentes.<br><br><strong>Validado em N=16:</strong> correlação +0.46 com gols totais. Cada pico válido = +0.26 gol.<br><br><span class="yt-warn">Limitação:</span> sozinho não basta. Olhe junto a "Previsão Multivariada" abaixo, que cruza com xG, drift e outros sinais.')}</div>
 
     <div style="display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center;background:var(--s2);border-radius:6px;padding:12px;margin-bottom:10px">
       <div style="text-align:center;padding:0 14px;border-right:1px solid var(--b1)">
@@ -3845,7 +3935,7 @@ function renderTiers(enriched, side) {
 
   return `
   <div class="h2h-section">
-    <div class="h2h-sec-title">${team.nome} · Performance por Nível de Adversário (ForteScore)</div>
+    <div class="h2h-sec-title">${tip(`${team.nome} · Performance por Nível de Adversário (ForteScore)`, 'Como o time se sai contra ADVERSÁRIOS DE NÍVEL DIFERENTE.<br><br><strong>Tiers:</strong><br>• <strong>≥8.0</strong> = times Elite<br>• <strong>6.5-7.9</strong> = Fortes<br>• <strong>4.5-6.4</strong> = Médios<br>• <strong>&lt;4.5</strong> = Fracos<br><br><strong>Por que isso importa:</strong> média geral pode enganar. Time que faz 3 gols/jogo contra fracos mas só 0.5 contra fortes vai jogar travado hoje se o adversário for forte.<br><br><span class="yt-pro">Use HOJE:</span> veja o ForteScore do adversário de hoje e olhe o tier correspondente. Quantos gols esse time faz/sofre quando enfrenta times naquele nível?')}</div>
     <div class="tier-grid">${cards}</div>
     <div style="font-size:8px;color:var(--tx3);font-family:var(--fM)">
       Gols ⬆ marcados / ⬇ sofridos por jogo em cada faixa · apenas adversários com ForteScore calculado
@@ -3857,7 +3947,7 @@ function renderTiers(enriched, side) {
 function renderH2HMatches(fixH) {
   if (!fixH.length) return `
   <div class="h2h-section">
-    <div class="h2h-sec-title">Confrontos Diretos</div>
+    <div class="h2h-sec-title">${tip('Confrontos Diretos', 'Últimos jogos entre os dois times.<br><br><strong>Cuidado com média de gols:</strong> pode ser inflada por 1 goleada isolada. Olhe os placares individuais:<br>• Se >60% dos jogos terminaram com ≤3 gols, é confronto historicamente <em>apertado</em> (UNDER provável).<br>• Se >60% com ≥4 gols, é confronto <em>aberto</em> (OVER provável).<br><br><span class="yt-warn">Validado em N=16:</span> H2H média sozinha tem correlação fraca (+0.21). Mas <em>% de jogos apertados</em> é melhor indicador.')}</div>
     <div style="font-size:11px;color:var(--tx3);font-family:var(--fM);padding:10px 0">Nenhum confronto direto encontrado</div>
   </div>`;
 
@@ -3882,7 +3972,7 @@ function renderH2HMatches(fixH) {
 
   return `
   <div class="h2h-section">
-    <div class="h2h-sec-title">Confrontos Diretos · últimos ${Math.min(fixH.length,8)}</div>
+    <div class="h2h-sec-title">${tip(`Confrontos Diretos · últimos ${Math.min(fixH.length,8)}`, 'Últimos jogos entre os dois times.<br><br><strong>Cuidado com média de gols:</strong> pode ser inflada por 1 goleada isolada. Olhe os placares individuais:<br>• Se >60% dos jogos terminaram com ≤3 gols, é confronto historicamente <em>apertado</em> (UNDER provável).<br>• Se >60% com ≥4 gols, é confronto <em>aberto</em> (OVER provável).<br><br><span class="yt-warn">Validado em N=16:</span> H2H média sozinha tem correlação fraca (+0.21). Mas <em>% de jogos apertados</em> é melhor indicador.')}</div>
     ${rows}
   </div>`;
 }
