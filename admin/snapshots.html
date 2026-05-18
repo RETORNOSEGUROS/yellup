@@ -441,52 +441,63 @@ async function buscarResultadoAutomatico(id) {
   const idA = s.teamA?.apiId, idB = s.teamB?.apiId;
   if (!idA || !idB) return alert('Times sem apiId — impossível buscar');
 
-  let fixtureId = null;
+  // Lista de datas pra tentar (snapshot pode ter sido tirado dias antes do jogo)
+  const ts = s.dataJogoTimestamp || s.capturedAt || Date.now();
+  const datas = [];
+  // Tentar do dia do snapshot até 3 dias depois (jogo geralmente é dentro de 24h)
+  for (let i = 0; i <= 3; i++) {
+    const d = new Date(ts + i*86400000);
+    datas.push(d.toISOString().slice(0,10));
+  }
 
-  // 1ª TENTATIVA: jogos-admin com janela ampla (-7 a +3 dias)
-  setStatus(`Procurando ${s.teamA?.nome} × ${s.teamB?.nome} em jogos-admin...`, 'var(--cy)');
+  setStatus(`Buscando jogo em ${datas.join(', ')}...`, 'var(--cy)');
+  console.log('[buscarResultado] Procurando times', idA, 'vs', idB, 'nas datas', datas);
+
+  let fixtureId = null;
+  let jogoApi = null;
 
   try {
-    const tsSnap = s.dataJogoTimestamp || s.capturedAt || Date.now();
-    const tsMin = new Date(tsSnap - 7*86400000);
-    const tsMax = new Date(tsSnap + 3*86400000);
+    const fnBuscar = fns.httpsCallable('buscarJogosData', { timeout: 30000 });
 
-    // Tenta as duas direções (A casa OU A fora)
-    const queries = [
-      db.collection('jogos-admin').where('timeCasa.apiId', '==', idA).where('timeFora.apiId', '==', idB).where('dataInicio', '>=', tsMin).where('dataInicio', '<=', tsMax),
-      db.collection('jogos-admin').where('timeCasa.apiId', '==', idB).where('timeFora.apiId', '==', idA).where('dataInicio', '>=', tsMin).where('dataInicio', '<=', tsMax),
-    ];
+    // Tentar cada data até achar
+    for (const data of datas) {
+      try {
+        const r = await fnBuscar({ data, amanha: false });
+        const jogos = r?.data?.jogos || [];
+        console.log(`[buscarResultado] ${data}: ${jogos.length} jogos retornados`);
 
-    const results = await Promise.all(queries.map(q => q.get().catch(() => ({docs:[]}))));
-    let docs = [...results[0].docs, ...results[1].docs];
+        // Procurar match (A casa OU A fora)
+        const match = jogos.find(j => {
+          const cId = String(j.timeCasa?.id || j.timeCasa?.apiId || '');
+          const fId = String(j.timeFora?.id || j.timeFora?.apiId || '');
+          return (cId === String(idA) && fId === String(idB)) ||
+                 (cId === String(idB) && fId === String(idA));
+        });
 
-    docs.sort((a,b) => {
-      const ta = a.data().dataInicio?.toMillis?.() || 0;
-      const tb = b.data().dataInicio?.toMillis?.() || 0;
-      return Math.abs(ta - tsSnap) - Math.abs(tb - tsSnap);
-    });
-
-    if (docs.length) {
-      fixtureId = docs[0].data().apiFixtureId;
-      console.log('[snap] Achou em jogos-admin: fixtureId=' + fixtureId);
+        if (match) {
+          jogoApi = match;
+          fixtureId = match.apiFixtureId || match.apiFootballId || match.apiId;
+          console.log(`[buscarResultado] ✓ Achou fixture ${fixtureId} em ${data}`);
+          break;
+        }
+      } catch (e) {
+        console.warn(`[buscarResultado] erro buscando ${data}:`, e.message);
+      }
     }
-  } catch (e) { console.warn('Erro buscando jogos-admin:', e); }
+  } catch (e) {
+    console.error('[buscarResultado] erro geral:', e);
+  }
 
-  // 2ª TENTATIVA: fallback amigável
+  // Fallback se não achou
   if (!fixtureId) {
-    setStatus('Não achou em jogos-admin — pedindo manualmente', 'var(--yl)');
+    setStatus('Não achou via API — pedindo manualmente', 'var(--yl)');
     const input = prompt(
-      `Não achei "${s.teamA?.nome} × ${s.teamB?.nome}" em jogos-admin.\n\n` +
-      `Cole abaixo:\n` +
-      `  • o fixtureId (ex: 1378075)\n` +
-      `  • OU a URL do jogo-live (ex: ...jogo-live.html?id=1378075)\n` +
-      `  • OU a URL da API-Football (ex: ...fixture/id=1378075)`
+      `Não consegui achar "${s.teamA?.nome} × ${s.teamB?.nome}" automaticamente.\n\n` +
+      `Cole o fixtureId (ou a URL do jogo-live):`
     );
     if (!input) { setStatus('Cancelado', 'var(--rd)'); return; }
-
-    // Extrai número da string
     const m = input.match(/\d{5,}/);
-    if (!m) { alert('Não consegui extrair um fixtureId do que você colou'); setStatus('Inválido', 'var(--rd)'); return; }
+    if (!m) { alert('Não consegui extrair fixtureId'); setStatus('Inválido', 'var(--rd)'); return; }
     fixtureId = parseInt(m[0]);
   }
 
@@ -498,10 +509,13 @@ async function buscarResultadoAutomatico(id) {
       fn({ fixtureId }),
       new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 30s')), 30000))
     ]);
-    if (!r?.data?.fixture) throw new Error('Dados inválidos retornados pela API');
+    if (!r?.data?.fixture) throw new Error('Dados inválidos da API');
 
     const fx = r.data.fixture;
-    const evs = r.data.eventosJogo || r.data.eventos || [];
+    // Tentar todos os campos possíveis pra eventos
+    const evs = r.data.eventosJogo || r.data.eventos || r.data.events || fx.eventos || fx.events || [];
+    console.log('[buscarResultado] dados recebidos. eventos:', evs.length, 'primeiro:', evs[0]);
+
     const statusShort = fx.status?.short || fx.status;
     const finalizado = ['FT', 'AET', 'PEN'].includes(statusShort);
     if (!finalizado) {
@@ -511,9 +525,10 @@ async function buscarResultadoAutomatico(id) {
       }
     }
 
-    const placarCasaApi = fx.placarFinal?.casa ?? fx.placar?.casa ?? 0;
-    const placarForaApi = fx.placarFinal?.fora ?? fx.placar?.fora ?? 0;
-    const idCasa = fx.timeCasa?.id, idFora = fx.timeFora?.id;
+    const placarCasaApi = fx.placarFinal?.casa ?? fx.placar?.casa ?? fx.goals?.home ?? 0;
+    const placarForaApi = fx.placarFinal?.fora ?? fx.placar?.fora ?? fx.goals?.away ?? 0;
+    const idCasa = fx.timeCasa?.id || fx.teams?.home?.id;
+    const idFora = fx.timeFora?.id || fx.teams?.away?.id;
 
     let pA, pB, mapTime;
     if (String(idA) === String(idCasa)) {
@@ -531,19 +546,64 @@ async function buscarResultadoAutomatico(id) {
       mapTime = { [String(idCasa)]: 'A', [String(idFora)]: 'B' };
     }
 
+    // Parse robusto de eventos — tenta vários formatos
     const golsDetalhe = [];
-    evs.forEach(e => {
-      const tipo = (e.tipo || e.type || '').toLowerCase();
-      const detalhe = (e.detalhe || e.detail || '').toLowerCase();
-      if (tipo === 'goal' || tipo === 'gol') {
-        if (detalhe.includes('missed')) return;
-        const tempo = String(e.tempo || e.time?.elapsed || 0);
-        const parts = tempo.split('+');
-        const min = parseInt(parts[0]) + (parts[1] ? parseInt(parts[1])||0 : 0);
-        const idTime = String(e.time?.id || e.timeId || e.team?.id || '');
-        let lado = mapTime[idTime];
-        if (detalhe.includes('own')) lado = lado === 'A' ? 'B' : 'A';
-        if (lado) golsDetalhe.push({ min, lado, jogador: e.jogador || e.player?.name || '?', tipo: detalhe || 'normal' });
+    evs.forEach((e, idx) => {
+      // Tipo: 'Goal' / 'goal' / 'gol'
+      const tipo = String(e.tipo || e.type || '').toLowerCase();
+      const detalhe = String(e.detalhe || e.detail || '').toLowerCase();
+      const ehGol = tipo === 'goal' || tipo === 'gol';
+      if (!ehGol) return;
+      if (detalhe.includes('missed')) return; // pênalti perdido
+
+      // MINUTO — tentar vários formatos
+      let min = 0;
+      if (e.tempo != null) {
+        const t = String(e.tempo);
+        const parts = t.split('+');
+        min = parseInt(parts[0]) || 0;
+        if (parts[1]) min += parseInt(parts[1]) || 0;
+      } else if (e.time?.elapsed != null) {
+        min = parseInt(e.time.elapsed) || 0;
+        if (e.time.extra != null) min += parseInt(e.time.extra) || 0;
+      } else if (e.elapsed != null) {
+        min = parseInt(e.elapsed) || 0;
+        if (e.extra != null) min += parseInt(e.extra) || 0;
+      } else if (e.minuto != null) {
+        min = parseInt(e.minuto) || 0;
+      } else if (e.min != null) {
+        min = parseInt(e.min) || 0;
+      }
+
+      // TIME — tentar vários formatos
+      const idTime = String(
+        e.time?.id ||  // {time: {id: 33}}
+        e.timeId ||
+        e.team?.id ||  // {team: {id: 33}}
+        e.teamId ||
+        e.idTime ||
+        ''
+      );
+
+      let lado = mapTime[idTime];
+      if (detalhe.includes('own')) lado = lado === 'A' ? 'B' : 'A';
+
+      if (idx < 5) console.log(`[buscarResultado] gol ${idx+1}: min=${min}, time=${idTime}, lado=${lado}, raw:`, e);
+
+      if (lado && min > 0) {
+        golsDetalhe.push({
+          min, lado,
+          jogador: e.jogador || e.player?.name || '?',
+          tipo: detalhe || 'normal'
+        });
+      } else if (lado) {
+        // Tem o lado mas min é 0 — provavelmente erro de parse, mas salva mesmo assim
+        console.warn('[buscarResultado] gol com min=0:', e);
+        golsDetalhe.push({
+          min: 0, lado,
+          jogador: e.jogador || e.player?.name || '?',
+          tipo: (detalhe || 'normal') + ' (min não detectado)'
+        });
       }
     });
 
@@ -551,7 +611,12 @@ async function buscarResultadoAutomatico(id) {
     const minutosOrd = pares.map(p => p.min);
     const autoresOrd = pares.map(p => p.lado);
 
-    const msg = `✓ Resultado encontrado (fixture #${fixtureId}):\n\n${s.teamA?.nome} ${pA}-${pB} ${s.teamB?.nome}\n\nGols:\n${pares.map(p => `  ${p.min}' (${p.lado === 'A' ? s.teamA?.nome : s.teamB?.nome})`).join('\n') || '  (nenhum gol)'}\n\nSalvar?`;
+    // Verificação: total de gols dos eventos bate com placar?
+    if (pares.length !== (pA + pB)) {
+      console.warn(`[buscarResultado] divergência: placar ${pA}-${pB}=${pA+pB} gols vs ${pares.length} eventos de gol`);
+    }
+
+    const msg = `✓ Resultado encontrado (fixture #${fixtureId}):\n\n${s.teamA?.nome} ${pA}-${pB} ${s.teamB?.nome}\n\nGols detectados (${pares.length}):\n${pares.map(p => `  ${p.min}' (${p.lado === 'A' ? s.teamA?.nome : s.teamB?.nome})`).join('\n') || '  (nenhum gol detectado)'}\n\nSalvar?`;
     if (!confirm(msg)) { setStatus('Cancelado', 'var(--rd)'); return; }
 
     const resultado = {
@@ -571,7 +636,7 @@ async function buscarResultadoAutomatico(id) {
     await carregar();
   } catch (e) {
     console.error('[buscarResultado]', e);
-    alert('Erro ao buscar dados do jogo:\n\n' + (e.message || e) + '\n\nVerifique se o fixtureId está correto e se o jogo já terminou.');
+    alert('Erro: ' + (e.message || e));
     setStatus('Erro: ' + e.message, 'var(--rd)');
   }
 }
