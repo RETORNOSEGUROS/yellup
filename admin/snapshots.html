@@ -302,13 +302,13 @@ function renderLista() {
         ${resultadoHtml}
         ${completo ? renderAnalisePosJogo(s) : ''}
         <div class="snap-actions">
+          <button class="primary" onclick="abrirRelatorio('${s._id}')" style="background:var(--cy);color:#000;font-weight:700">📄 Ver / Salvar PDF do raio-x</button>
           ${!completo
             ? `<button class="success" onclick="buscarResultadoAutomatico('${s._id}')">🔄 Buscar resultado automaticamente</button>`
             : ''}
           ${completo
             ? `<button onclick="abrirModal('${s._id}')">✎ Editar resultado</button>`
-            : `<button onclick="abrirModal('${s._id}')">📝 Inserir manualmente</button>`}
-          <button class="primary" onclick="abrirRelatorio('${s._id}')">📄 Abrir relatório do raio-x</button>
+            : `<button onclick="abrirModal('${s._id}')">📝 Inserir resultado manual</button>`}
           <button onclick="inspecionar('${s._id}')">🔍 Inspecionar dados</button>
           <button onclick="exportarUm('${s._id}')">📤 Exportar este</button>
           <button class="danger" onclick="excluir('${s._id}')">🗑 Excluir</button>
@@ -438,18 +438,62 @@ async function buscarResultadoAutomatico(id) {
   const s = SNAPS.find(x => x._id === id);
   if (!s) return alert('Snapshot não encontrado');
 
-  // fixtureId está no _id no formato "idA_idB_fixtureId"
-  let fixtureId = null;
-  const m = String(s._id).match(/_(\d+)$/);
-  if (m) fixtureId = parseInt(m[1]);
-  if (!fixtureId) {
-    fixtureId = parseInt(prompt('FixtureId não encontrado. Digite o ID do jogo na API-Football:'));
-    if (!fixtureId) return;
-  }
+  const idA = s.teamA?.apiId, idB = s.teamB?.apiId;
+  if (!idA || !idB) return alert('Times do snapshot não têm apiId — não consigo buscar');
 
-  setStatus(`Buscando resultado fixture #${fixtureId}...`, 'var(--cy)');
+  setStatus(`Procurando jogo de ${s.teamA?.nome} × ${s.teamB?.nome} no banco...`, 'var(--cy)');
 
   try {
+    // 1. ACHAR fixtureId via jogos-admin (matching times + data)
+    // Janela: 7 dias pra trás e 3 dias pra frente a partir do snapshot
+    const tsSnap = s.dataJogoTimestamp || s.capturedAt || Date.now();
+    const tsMin = new Date(tsSnap - 7*86400000);
+    const tsMax = new Date(tsSnap + 3*86400000);
+
+    // Buscar jogos com mando A
+    const q1 = db.collection('jogos-admin')
+      .where('timeCasa.apiId', '==', idA)
+      .where('timeFora.apiId', '==', idB)
+      .where('dataInicio', '>=', tsMin)
+      .where('dataInicio', '<=', tsMax);
+    // E também inverso (caso A esteja como visitante na API)
+    const q2 = db.collection('jogos-admin')
+      .where('timeCasa.apiId', '==', idB)
+      .where('timeFora.apiId', '==', idA)
+      .where('dataInicio', '>=', tsMin)
+      .where('dataInicio', '<=', tsMax);
+
+    const [r1, r2] = await Promise.all([
+      q1.get().catch(e => { console.warn('q1 falhou', e); return {docs:[]}; }),
+      q2.get().catch(e => { console.warn('q2 falhou', e); return {docs:[]}; })
+    ]);
+
+    let docs = [...r1.docs, ...r2.docs];
+    // Ordenar por proximidade ao timestamp do snapshot
+    docs.sort((a,b) => {
+      const ta = a.data().dataInicio?.toMillis?.() || 0;
+      const tb = b.data().dataInicio?.toMillis?.() || 0;
+      return Math.abs(ta - tsSnap) - Math.abs(tb - tsSnap);
+    });
+
+    let fixtureId = null, jogoAdmin = null, invertido = false;
+    if (docs.length) {
+      jogoAdmin = docs[0].data();
+      fixtureId = jogoAdmin.apiFixtureId;
+      invertido = String(jogoAdmin.timeCasa?.apiId) === String(idB);
+    }
+
+    if (!fixtureId) {
+      // Fallback: pedir manualmente
+      const f = prompt(`Jogo não encontrado em jogos-admin.\n\nCole o fixtureId manualmente (você pega na URL do jogo-live):`);
+      if (!f) { setStatus('Cancelado', 'var(--rd)'); return; }
+      fixtureId = parseInt(f);
+      if (!fixtureId) { setStatus('FixtureId inválido', 'var(--rd)'); return; }
+    }
+
+    setStatus(`Buscando dados do fixture #${fixtureId}...`, 'var(--cy)');
+
+    // 2. CHAMAR buscarDadosJogo
     const fn = fns.httpsCallable('buscarDadosJogo', { timeout: 30000 });
     const r = await Promise.race([
       fn({ fixtureId }),
@@ -470,7 +514,6 @@ async function buscarResultadoAutomatico(id) {
 
     const placarCasaApi = fx.placarFinal?.casa ?? fx.placar?.casa ?? 0;
     const placarForaApi = fx.placarFinal?.fora ?? fx.placar?.fora ?? 0;
-    const idA = s.teamA?.apiId, idB = s.teamB?.apiId;
     const idCasa = fx.timeCasa?.id, idFora = fx.timeFora?.id;
 
     let pA, pB, mapTime;
@@ -509,7 +552,7 @@ async function buscarResultadoAutomatico(id) {
     const minutosOrd = pares.map(p => p.min);
     const autoresOrd = pares.map(p => p.lado);
 
-    const msg = `Resultado encontrado:\n\n${s.teamA?.nome} ${pA}-${pB} ${s.teamB?.nome}\n\nGols:\n${pares.map(p => `  ${p.min}' (${p.lado === 'A' ? s.teamA?.nome : s.teamB?.nome}) — ${p.jogador}${p.tipo!=='normal' && p.tipo ? ` [${p.tipo}]` : ''}`).join('\n') || '  (nenhum gol detectado)'}\n\nSalvar?`;
+    const msg = `✓ Resultado encontrado (fixture #${fixtureId}):\n\n${s.teamA?.nome} ${pA}-${pB} ${s.teamB?.nome}\n\nGols:\n${pares.map(p => `  ${p.min}' (${p.lado === 'A' ? s.teamA?.nome : s.teamB?.nome}) — ${p.jogador}${p.tipo!=='normal' && p.tipo ? ` [${p.tipo}]` : ''}`).join('\n') || '  (nenhum gol detectado)'}\n\nSalvar?`;
     if (!confirm(msg)) { setStatus('Cancelado', 'var(--rd)'); return; }
 
     const resultado = {
@@ -518,6 +561,7 @@ async function buscarResultadoAutomatico(id) {
       minutosGols: minutosOrd,
       autores: autoresOrd,
       golsDetalhe: pares,
+      fixtureId,
       observacoes: `Buscado automaticamente via API. Status: ${statusShort}`,
       registradoEm: Date.now(),
       fonteAutomatica: true
