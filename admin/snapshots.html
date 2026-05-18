@@ -117,6 +117,7 @@ input[type="text"].minutos-input { letter-spacing: 1px; }
 
 <div class="toolbar">
   <button class="primary" onclick="carregar()">🔄 Recarregar</button>
+  <button class="primary" onclick="analiseLote()" style="background:var(--cy);color:#000">📊 Análise em lote (método João)</button>
   <button onclick="exportarTodos()" id="btnExp">📤 Exportar TODOS p/ Claude</button>
   <button onclick="exportarCompletos()" id="btnExpC">📤 Só completos</button>
   <button class="danger" onclick="limparExpirados()">🗑 Limpar expirados (&gt;7d sem resultado)</button>
@@ -130,6 +131,7 @@ input[type="text"].minutos-input { letter-spacing: 1px; }
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
 <script>
 const FB_CFG = {
   apiKey: "AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
@@ -140,7 +142,7 @@ const FB_CFG = {
   appId: "1:608347210297:web:75092713724e617c7203e8"
 };
 
-let db, auth;
+let db, auth, fns;
 let SNAPS = [];
 
 function setStatus(txt, cor) {
@@ -156,6 +158,7 @@ async function init() {
   }
   db = firebase.firestore();
   auth = firebase.auth();
+  fns = firebase.functions();
   setStatus('verificando login...', 'var(--yl)');
   let user = auth.currentUser;
   if (!user) {
@@ -297,10 +300,15 @@ function renderLista() {
           <span style="color:${hasTiers?'var(--gn)':'var(--rd)'}">${hasTiers?'✓':'✗'} tiers</span>
         </div>
         ${resultadoHtml}
+        ${completo ? renderAnalisePosJogo(s) : ''}
         <div class="snap-actions">
+          ${!completo
+            ? `<button class="success" onclick="buscarResultadoAutomatico('${s._id}')">🔄 Buscar resultado automaticamente</button>`
+            : ''}
           ${completo
             ? `<button onclick="abrirModal('${s._id}')">✎ Editar resultado</button>`
-            : `<button class="success" onclick="abrirModal('${s._id}')">📝 Adicionar resultado</button>`}
+            : `<button onclick="abrirModal('${s._id}')">📝 Inserir manualmente</button>`}
+          <button class="primary" onclick="abrirRelatorio('${s._id}')">📄 Abrir relatório do raio-x</button>
           <button onclick="inspecionar('${s._id}')">🔍 Inspecionar dados</button>
           <button onclick="exportarUm('${s._id}')">📤 Exportar este</button>
           <button class="danger" onclick="excluir('${s._id}')">🗑 Excluir</button>
@@ -420,6 +428,489 @@ function downloadJSON(name, data) {
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// v18: BUSCA AUTOMÁTICA DE RESULTADO via cloud function buscarDadosJogo
+// ───────────────────────────────────────────────────────────────────────
+
+async function buscarResultadoAutomatico(id) {
+  const s = SNAPS.find(x => x._id === id);
+  if (!s) return alert('Snapshot não encontrado');
+
+  // fixtureId está no _id no formato "idA_idB_fixtureId"
+  let fixtureId = null;
+  const m = String(s._id).match(/_(\d+)$/);
+  if (m) fixtureId = parseInt(m[1]);
+  if (!fixtureId) {
+    fixtureId = parseInt(prompt('FixtureId não encontrado. Digite o ID do jogo na API-Football:'));
+    if (!fixtureId) return;
+  }
+
+  setStatus(`Buscando resultado fixture #${fixtureId}...`, 'var(--cy)');
+
+  try {
+    const fn = fns.httpsCallable('buscarDadosJogo', { timeout: 30000 });
+    const r = await Promise.race([
+      fn({ fixtureId }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 30s')), 30000))
+    ]);
+    if (!r?.data?.fixture) throw new Error('Dados inválidos da API');
+
+    const fx = r.data.fixture;
+    const evs = r.data.eventosJogo || r.data.eventos || [];
+    const statusShort = fx.status?.short || fx.status;
+    const finalizado = ['FT', 'AET', 'PEN'].includes(statusShort);
+    if (!finalizado) {
+      if (!confirm(`Jogo ainda não terminou (status: ${statusShort || '?'}). Salvar mesmo assim?`)) {
+        setStatus('Cancelado', 'var(--rd)');
+        return;
+      }
+    }
+
+    const placarCasaApi = fx.placarFinal?.casa ?? fx.placar?.casa ?? 0;
+    const placarForaApi = fx.placarFinal?.fora ?? fx.placar?.fora ?? 0;
+    const idA = s.teamA?.apiId, idB = s.teamB?.apiId;
+    const idCasa = fx.timeCasa?.id, idFora = fx.timeFora?.id;
+
+    let pA, pB, mapTime;
+    if (String(idA) === String(idCasa)) {
+      pA = placarCasaApi; pB = placarForaApi;
+      mapTime = { [String(idCasa)]: 'A', [String(idFora)]: 'B' };
+    } else if (String(idA) === String(idFora)) {
+      pA = placarForaApi; pB = placarCasaApi;
+      mapTime = { [String(idFora)]: 'A', [String(idCasa)]: 'B' };
+    } else {
+      if (!confirm(`Times não batem (snap A=${idA}, casa=${idCasa}). Aceitar ${placarCasaApi}-${placarForaApi}?`)) {
+        setStatus('Cancelado', 'var(--rd)');
+        return;
+      }
+      pA = placarCasaApi; pB = placarForaApi;
+      mapTime = { [String(idCasa)]: 'A', [String(idFora)]: 'B' };
+    }
+
+    const golsDetalhe = [];
+    evs.forEach(e => {
+      const tipo = (e.tipo || e.type || '').toLowerCase();
+      const detalhe = (e.detalhe || e.detail || '').toLowerCase();
+      if (tipo === 'goal' || tipo === 'gol') {
+        if (detalhe.includes('missed')) return;
+        const tempo = String(e.tempo || e.time?.elapsed || 0);
+        const parts = tempo.split('+');
+        const min = parseInt(parts[0]) + (parts[1] ? parseInt(parts[1])||0 : 0);
+        const idTime = String(e.time?.id || e.timeId || e.team?.id || '');
+        let lado = mapTime[idTime];
+        if (detalhe.includes('own')) lado = lado === 'A' ? 'B' : 'A';
+        if (lado) golsDetalhe.push({ min, lado, jogador: e.jogador || e.player?.name || '?', tipo: detalhe || 'normal' });
+      }
+    });
+
+    const pares = golsDetalhe.sort((a,b) => a.min - b.min);
+    const minutosOrd = pares.map(p => p.min);
+    const autoresOrd = pares.map(p => p.lado);
+
+    const msg = `Resultado encontrado:\n\n${s.teamA?.nome} ${pA}-${pB} ${s.teamB?.nome}\n\nGols:\n${pares.map(p => `  ${p.min}' (${p.lado === 'A' ? s.teamA?.nome : s.teamB?.nome}) — ${p.jogador}${p.tipo!=='normal' && p.tipo ? ` [${p.tipo}]` : ''}`).join('\n') || '  (nenhum gol detectado)'}\n\nSalvar?`;
+    if (!confirm(msg)) { setStatus('Cancelado', 'var(--rd)'); return; }
+
+    const resultado = {
+      placarA: pA, placarB: pB,
+      totalGols: pA + pB,
+      minutosGols: minutosOrd,
+      autores: autoresOrd,
+      golsDetalhe: pares,
+      observacoes: `Buscado automaticamente via API. Status: ${statusShort}`,
+      registradoEm: Date.now(),
+      fonteAutomatica: true
+    };
+
+    await db.collection('raiox-snapshots').doc(s._docId || id).set({ resultado }, { merge: true });
+    setStatus('✓ Resultado salvo', 'var(--gn)');
+    await carregar();
+  } catch (e) {
+    console.error(e);
+    alert('Erro: ' + (e.message || e));
+    setStatus('Erro: ' + e.message, 'var(--rd)');
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// v18: ANÁLISE PÓS-JOGO — leitura automática do método João
+// ───────────────────────────────────────────────────────────────────────
+
+function metodoJoao(bA, bB) {
+  if (!bA?.sc || !bB?.sc) return [];
+  const LBL = ['0-5','6-10','11-15','16-20','21-25','26-30','31-35','36-40','41-45','AC1T',
+               '46-50','51-55','56-60','61-65','66-70','71-75','76-80','81-85','86-90','AC2T'];
+  const out = [];
+  for (let i = 0; i < 20; i++) {
+    if (i === 9 || i === 19) continue;
+    const af = bA.sc[i]||0, at = bA.cn[i]||0, bf = bB.sc[i]||0, bt = bB.cn[i]||0;
+    if (af < 1 || at < 1 || bf < 1 || bt < 1) continue;
+    const acima = [af, at, bf, bt].filter(v => v >= 2).length;
+    if (acima >= 3 || (af >= 3 && bt >= 3) || (bf >= 3 && at >= 3)) {
+      out.push({ bucket: LBL[i], idx: i, af, at, bf, bt, razao: acima >= 3 ? 'principal' : 'casamento' });
+    }
+  }
+  return out;
+}
+
+function getBucketIdx(m) {
+  if (m <= 5) return 0; if (m <= 10) return 1; if (m <= 15) return 2; if (m <= 20) return 3;
+  if (m <= 25) return 4; if (m <= 30) return 5; if (m <= 35) return 6; if (m <= 40) return 7;
+  if (m <= 45) return 8; if (m <= 50) return 10; if (m <= 55) return 11; if (m <= 60) return 12;
+  if (m <= 65) return 13; if (m <= 70) return 14; if (m <= 75) return 15; if (m <= 80) return 16;
+  if (m <= 85) return 17; return 18;
+}
+
+function renderAnalisePosJogo(s) {
+  if (!s.resultado || !s.bucketsA || !s.bucketsB) return '';
+  const r = s.resultado;
+  const total = (r.placarA || 0) + (r.placarB || 0);
+  const qual = metodoJoao(s.bucketsA, s.bucketsB);
+  const n = qual.length;
+  const diff = n - total;
+  let cor = 'var(--rd)', txt = '✗ errou';
+  if (diff === 0) { cor = 'var(--gn)'; txt = '✓✓ exato'; }
+  else if (Math.abs(diff) === 1) { cor = 'var(--yl)'; txt = '✓ ±1'; }
+
+  const idxsQual = new Set(qual.map(q => q.idx));
+  const golsBuckets = (r.minutosGols || []).map(m => ({ m, idx: getBucketIdx(m) }));
+  const acertosJanela = golsBuckets.filter(g => idxsQual.has(g.idx)).length;
+  const direcaoOk = (n >= 3) === (total >= 3);
+
+  const LBL = ['0-5','6-10','11-15','16-20','21-25','26-30','31-35','36-40','41-45','AC1T',
+               '46-50','51-55','56-60','61-65','66-70','71-75','76-80','81-85','86-90','AC2T'];
+
+  return `
+    <div style="margin-top:10px;padding:10px;background:rgba(0,212,255,.06);border-left:3px solid var(--cy);border-radius:4px">
+      <div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:700">📊 Análise pós-jogo · Método João</div>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;font-family:var(--fM)">
+        <div>Previu: <strong style="color:var(--cy);font-size:14px">${n}</strong></div>
+        <div>Real: <strong style="font-size:14px">${total}</strong></div>
+        <div style="color:${cor};font-weight:700">${txt}</div>
+        <div>Direção O/U 2.5: <span style="color:${direcaoOk?'var(--gn)':'var(--rd)'}">${direcaoOk ? '✓' : '✗'}</span></div>
+        <div>Gols em janelas previstas: <strong>${acertosJanela}/${total}</strong></div>
+      </div>
+      ${qual.length ? `
+      <div style="margin-top:8px;font-size:10px;color:var(--tx3);font-family:var(--fM)">
+        Janelas previstas: ${qual.map(q => {
+          const teveGol = golsBuckets.some(g => g.idx === q.idx);
+          return `<span style="color:${teveGol?'var(--gn)':'var(--tx3)'};margin-right:8px">${teveGol?'✓':'○'} ${q.bucket}</span>`;
+        }).join('')}
+      </div>` : ''}
+      ${golsBuckets.length ? `
+      <div style="margin-top:6px;font-size:10px;color:var(--tx3);font-family:var(--fM)">
+        Buckets dos gols: ${golsBuckets.map(g => {
+          const previsto = idxsQual.has(g.idx);
+          return `<span style="color:${previsto?'var(--gn)':'var(--yl)'};margin-right:8px">${g.m}' → ${LBL[g.idx]}${previsto?' ✓':''}</span>`;
+        }).join('')}
+      </div>` : ''}
+    </div>`;
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// v18: ABRIR RELATÓRIO — gera HTML offline com raio-x renderizado
+// ───────────────────────────────────────────────────────────────────────
+
+function abrirRelatorio(id) {
+  const s = SNAPS.find(x => x._id === id);
+  if (!s) return alert('Snapshot não encontrado');
+
+  const win = window.open('', '_blank');
+  if (!win) return alert('Permita popup para abrir o relatório');
+
+  const key = '_yellup_rel_' + Date.now();
+  try {
+    sessionStorage.setItem(key, JSON.stringify(s));
+  } catch (e) {
+    alert('Snapshot grande demais para renderizar.');
+    win.close();
+    return;
+  }
+
+  const html = buildRelatorioHTML(key);
+  win.document.write(html);
+  win.document.close();
+}
+
+function buildRelatorioHTML(snapKey) {
+  return `<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<title>Raio-X · Relatório</title>
+<style>
+:root{--bg:#0d1117;--s2:#161b22;--s3:#1c2128;--b1:#30363d;--tx1:#e6edf3;--tx2:#8b949e;--tx3:#6e7681;
+  --gn:#3fb950;--rd:#f85149;--yl:#f5c263;--cy:#00d4ff;
+  --fM:'JetBrains Mono','Monaco',monospace;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--tx1);font-family:'Inter',-apple-system,sans-serif;padding:20px;line-height:1.4;}
+.wrap{max-width:1400px;margin:0 auto;}
+.hd{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--s2);border-radius:8px;margin-bottom:18px;border:1px solid var(--b1);}
+.times{font-size:22px;font-weight:700;}
+.meta{font-size:11px;color:var(--tx3);font-family:var(--fM);margin-top:4px;}
+.resultado-box{margin-bottom:18px;padding:14px;background:rgba(63,185,80,.08);border:1px solid var(--gn);border-radius:6px;}
+.no-result{margin-bottom:18px;padding:14px;background:rgba(245,194,99,.06);border:1px solid var(--yl);border-radius:6px;color:var(--yl);text-align:center;}
+.sec{margin-bottom:20px;background:var(--s2);border-radius:8px;padding:14px 18px;border:1px solid var(--b1);}
+.sec-t{font-size:11px;color:var(--tx3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px;font-weight:700;}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.stat-row{display:grid;grid-template-columns:1fr 120px 1fr;gap:10px;padding:6px 0;border-bottom:1px solid var(--b1);align-items:center;}
+.stat-lbl{font-size:9px;text-transform:uppercase;color:var(--tx3);letter-spacing:.6px;text-align:center;}
+.stat-a{text-align:right;font-family:var(--fM);font-size:12px;}
+.stat-b{text-align:left;font-family:var(--fM);font-size:12px;}
+.bucket-grid{display:grid;grid-template-columns:repeat(20,1fr);gap:2px;margin-top:6px;}
+.bk{background:var(--s3);text-align:center;font-size:8px;padding:4px 1px;border-radius:2px;font-family:var(--fM);min-height:36px;}
+.bk-lbl{color:var(--tx3);font-size:7px;}
+.bk-val{color:var(--tx1);font-weight:600;font-size:10px;}
+.bk-hot{background:rgba(0,212,255,.15);}
+.bk-hot .bk-val{color:var(--cy);}
+.bk-goal{background:rgba(63,185,80,.30);}
+.bk-goal .bk-val{color:var(--gn);font-weight:700;}
+.bk-hot.bk-goal{background:rgba(63,185,80,.30);}
+.h2h-item{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b1);font-size:11px;}
+.h2h-time{color:var(--tx3);font-family:var(--fM);}
+.print-btn{padding:8px 16px;background:var(--cy);color:#000;border:none;border-radius:4px;cursor:pointer;font-weight:700;}
+.legend{font-size:9px;color:var(--tx3);margin-top:8px;line-height:1.5;font-family:var(--fM);}
+@media print {
+  body { background: white; color: black; padding: 10px;}
+  .sec { background: #f5f5f5; border: 1px solid #ccc; page-break-inside: avoid; }
+  .no-print { display: none; }
+  .bk { background: #eee; }
+  .bk-hot { background: #cce7f5 !important; }
+  .bk-goal { background: #cce8d5 !important; }
+}
+</style>
+</head><body>
+<div class="wrap">
+  <div class="no-print" style="margin-bottom:14px;display:flex;gap:8px;">
+    <button class="print-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+    <button onclick="window.close()" style="padding:8px 16px;background:var(--s3);color:var(--tx1);border:1px solid var(--b1);border-radius:4px;cursor:pointer;">Fechar</button>
+  </div>
+  <div id="content"></div>
+</div>
+<script>
+const SNAP_KEY = ${JSON.stringify(snapKey)};
+const s = JSON.parse(sessionStorage.getItem(SNAP_KEY) || '{}');
+sessionStorage.removeItem(SNAP_KEY);
+
+const LBL = ['0-5','6-10','11-15','16-20','21-25','26-30','31-35','36-40','41-45','AC1T',
+             '46-50','51-55','56-60','61-65','66-70','71-75','76-80','81-85','86-90','AC2T'];
+
+function safe(v, def='—'){ return v==null||v===''||(typeof v==='number'&&isNaN(v))?def:v; }
+function getBucketIdx(m){if(m<=5)return 0;if(m<=10)return 1;if(m<=15)return 2;if(m<=20)return 3;if(m<=25)return 4;if(m<=30)return 5;if(m<=35)return 6;if(m<=40)return 7;if(m<=45)return 8;if(m<=50)return 10;if(m<=55)return 11;if(m<=60)return 12;if(m<=65)return 13;if(m<=70)return 14;if(m<=75)return 15;if(m<=80)return 16;if(m<=85)return 17;return 18;}
+
+function metodoJoao(bA, bB) {
+  if (!bA?.sc || !bB?.sc) return [];
+  const out = [];
+  for (let i = 0; i < 20; i++) {
+    if (i === 9 || i === 19) continue;
+    const af = bA.sc[i]||0, at = bA.cn[i]||0, bf = bB.sc[i]||0, bt = bB.cn[i]||0;
+    if (af < 1 || at < 1 || bf < 1 || bt < 1) continue;
+    const acima = [af, at, bf, bt].filter(v => v >= 2).length;
+    if (acima >= 3 || (af >= 3 && bt >= 3) || (bf >= 3 && at >= 3)) {
+      out.push({ bucket: LBL[i], idx: i, af, at, bf, bt });
+    }
+  }
+  return out;
+}
+
+const aggA = s.agg?.A || {}, aggB = s.agg?.B || {};
+const bA = s.bucketsA || {sc:[],cn:[]}, bB = s.bucketsB || {sc:[],cn:[]};
+const qual = metodoJoao(bA, bB);
+const r = s.resultado;
+const golsBuckets = r ? (r.minutosGols||[]).map(m => ({ m, idx: getBucketIdx(m), lado: (r.autores||[])[((r.minutosGols||[]).indexOf(m))] })) : [];
+const idxsQual = new Set(qual.map(q => q.idx));
+
+function bucketCell(i, isA) {
+  const sc = isA ? (bA.sc[i]||0) : (bB.sc[i]||0);
+  const cn = isA ? (bA.cn[i]||0) : (bB.cn[i]||0);
+  let cls = 'bk';
+  if (golsBuckets.some(g => g.idx === i)) cls += ' bk-goal';
+  else if (idxsQual.has(i)) cls += ' bk-hot';
+  return '<div class="'+cls+'"><div class="bk-lbl">'+LBL[i]+'</div><div class="bk-val">'+sc+'/'+cn+'</div></div>';
+}
+
+let html = '';
+html += '<div class="hd"><div><div class="times">'+(s.teamA?.nome||'?')+' × '+(s.teamB?.nome||'?')+'</div>';
+html += '<div class="meta">'+new Date(s.dataJogoTimestamp||s.capturedAt||0).toLocaleString('pt-BR')+' · '+(s.versaoRaiox||'v?')+'</div></div>';
+html += '<div style="text-align:right;font-family:var(--fM);font-size:12px;">';
+html += '<div>FS A: <strong style="color:var(--cy)">'+safe(s.forteScore?.A?.toFixed?.(2))+'</strong></div>';
+html += '<div>FS B: <strong style="color:var(--cy)">'+safe(s.forteScore?.B?.toFixed?.(2))+'</strong></div>';
+html += '<div style="color:var(--tx3)">Δ '+safe(Math.abs((s.forteScore?.A||0)-(s.forteScore?.B||0)).toFixed(2))+'</div>';
+html += '</div></div>';
+
+if (r) {
+  const total = (r.placarA||0)+(r.placarB||0);
+  const n = qual.length;
+  const acertou = n===total?'✓✓ EXATO':Math.abs(n-total)===1?'✓ ±1':'✗ errou';
+  const cor = n===total?'var(--gn)':Math.abs(n-total)===1?'var(--yl)':'var(--rd)';
+  const minStr = (r.minutosGols||[]).map((m,i) => {
+    const lado = (r.autores||[])[i];
+    const nome = lado === 'A' ? s.teamA?.nome : lado === 'B' ? s.teamB?.nome : '?';
+    return m+"' "+(nome||'').slice(0,12);
+  }).join(' · ');
+  html += '<div class="resultado-box"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">';
+  html += '<div><div style="font-size:28px;font-weight:800;font-family:var(--fM);color:var(--gn)">'+r.placarA+'–'+r.placarB+'</div>';
+  html += '<div style="font-size:10px;color:var(--tx3);font-family:var(--fM);margin-top:4px">'+(minStr||'—')+'</div></div>';
+  html += '<div style="text-align:right;font-family:var(--fM);">';
+  html += '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase">MÉTODO JOÃO</div>';
+  html += '<div style="margin:4px 0">Previu: <strong style="color:var(--cy);font-size:15px">'+n+'</strong> · Real: <strong style="font-size:15px">'+total+'</strong></div>';
+  html += '<div style="color:'+cor+';font-weight:700;font-size:14px">'+acertou+'</div></div></div></div>';
+} else {
+  html += '<div class="no-result">⏳ Resultado não preenchido ainda</div>';
+}
+
+// Stats
+html += '<div class="sec"><div class="sec-t">Comparativo de stats · últimos 20 jogos</div>';
+const rows = [['xG',aggA.xg,aggB.xg],['Finalizações',aggA.shots,aggB.shots],['Chutes no alvo',aggA.shotsOG,aggB.shotsOG],['Posse %',aggA.poss,aggB.poss],['Passes %',aggA.pass,aggB.pass],['Passes totais',aggA.passTotal,aggB.passTotal],['GF/jogo',aggA.gfJ,aggB.gfJ],['GC/jogo',aggA.gcJ,aggB.gcJ]];
+rows.forEach(([lbl,a,b])=>{
+  const winA = a != null && b != null && Number(a) > Number(b);
+  const winB = a != null && b != null && Number(b) > Number(a);
+  // Para GC, menor é melhor
+  const invertido = lbl === 'GC/jogo';
+  const verdeA = invertido ? winB : winA;
+  const verdeB = invertido ? winA : winB;
+  html += '<div class="stat-row"><div class="stat-a" style="color:'+(verdeA?'var(--gn)':'var(--tx1)')+';font-weight:'+(verdeA?700:400)+'">'+safe(a)+'</div>';
+  html += '<div class="stat-lbl">'+lbl+'</div>';
+  html += '<div class="stat-b" style="color:'+(verdeB?'var(--gn)':'var(--tx1)')+';font-weight:'+(verdeB?700:400)+'">'+safe(b)+'</div></div>';
+});
+html += '</div>';
+
+// Buckets
+html += '<div class="sec"><div class="sec-t">Distribuição por bucket 5min · últimos 20 jogos</div>';
+html += '<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-family:var(--fM)">'+(s.teamA?.nome||'A')+' (feitos / sofridos)</div>';
+html += '<div class="bucket-grid">';
+for (let i = 0; i < 20; i++) html += bucketCell(i, true);
+html += '</div>';
+html += '<div style="font-size:10px;color:var(--tx3);margin-top:14px;margin-bottom:6px;font-family:var(--fM)">'+(s.teamB?.nome||'B')+' (feitos / sofridos)</div>';
+html += '<div class="bucket-grid">';
+for (let i = 0; i < 20; i++) html += bucketCell(i, false);
+html += '</div>';
+html += '<div class="legend"><span style="color:var(--cy)">▣ azul</span> = janela qualificada (método João) · <span style="color:var(--gn)">▣ verde</span> = bucket onde gol caiu</div></div>';
+
+if (qual.length) {
+  html += '<div class="sec"><div class="sec-t">⭐ Janelas qualificadas pelo método João</div>';
+  qual.forEach(q => {
+    const teveGol = golsBuckets.some(g => g.idx === q.idx);
+    html += '<div style="padding:6px 0;border-bottom:1px solid var(--b1);font-family:var(--fM);font-size:11px;">';
+    html += '<span style="color:'+(teveGol?'var(--gn)':'var(--cy)')+';font-weight:700">'+q.bucket+'</span> — ';
+    html += (s.teamA?.nome||'A')+' faz '+q.af+'/sofre '+q.at+' · '+(s.teamB?.nome||'B')+' faz '+q.bf+'/sofre '+q.bt;
+    if (teveGol) html += '<span style="float:right;color:var(--gn);font-weight:700">✓ gol caiu aqui</span>';
+    html += '</div>';
+  });
+  html += '</div>';
+}
+
+if (s.h2h?.length) {
+  html += '<div class="sec"><div class="sec-t">Confrontos diretos · últimos '+s.h2h.length+'</div>';
+  s.h2h.forEach(h => {
+    html += '<div class="h2h-item"><span>'+(h.hN||h.h)+' <strong>'+h.hG+'–'+h.aG+'</strong> '+(h.aN||h.a)+'</span>';
+    html += '<span class="h2h-time">'+h.date+' · '+(h.lg||'')+'</span></div>';
+  });
+  html += '</div>';
+}
+
+if (s.referenciaMin?.A) {
+  html += '<div class="sec"><div class="sec-t">Referência por minuto · análise ao vivo</div><div class="grid">';
+  ['A','B'].forEach(lado => {
+    const ref = s.referenciaMin[lado] || {};
+    const nome = lado === 'A' ? s.teamA?.nome : s.teamB?.nome;
+    html += '<div style="background:var(--s3);padding:10px;border-radius:4px;">';
+    html += '<div style="font-size:11px;font-weight:700;color:var(--cy);margin-bottom:6px;">'+nome+'</div>';
+    html += '<div style="font-size:10px;font-family:var(--fM);line-height:1.7;color:var(--tx2);">';
+    html += 'xG/min: '+safe(ref.xgPorMin?.toFixed?.(4))+'<br>';
+    html += 'GF/min: '+safe(ref.gfPorMin?.toFixed?.(4))+'<br>';
+    html += 'GC/min: '+safe(ref.gcPorMin?.toFixed?.(4))+'<br>';
+    html += 'Fin./min: '+safe(ref.finPorMin?.toFixed?.(3))+'<br>';
+    html += "xG esperado 45': "+safe(ref.xgEsperado45?.toFixed?.(2))+'<br>';
+    html += "xG esperado 90': "+safe(ref.xgEsperado90?.toFixed?.(2));
+    html += '</div></div>';
+  });
+  html += '</div></div>';
+}
+
+document.getElementById('content').innerHTML = html;
+document.title = 'Raio-X · ' + (s.teamA?.nome||'?') + ' × ' + (s.teamB?.nome||'?');
+<\/script>
+</body></html>`;
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// v18: ANÁLISE EM LOTE
+// ───────────────────────────────────────────────────────────────────────
+
+function analiseLote() {
+  const completos = SNAPS.filter(s => s.resultado);
+  if (!completos.length) return alert('Nenhum snapshot completo ainda');
+
+  let exato = 0, prox = 0, dir = 0, golsAcertos = 0, golsReais = 0;
+  const linhas = completos.map(s => {
+    const r = s.resultado;
+    const total = (r.placarA||0)+(r.placarB||0);
+    const qual = metodoJoao(s.bucketsA, s.bucketsB);
+    const n = qual.length, diff = n - total;
+    if (diff === 0) exato++;
+    if (Math.abs(diff) <= 1) prox++;
+    if ((n >= 3) === (total >= 3)) dir++;
+    const idxs = new Set(qual.map(q => q.idx));
+    const ga = (r.minutosGols||[]).filter(m => idxs.has(getBucketIdx(m))).length;
+    golsAcertos += ga;
+    golsReais += total;
+    return { nome: `${s.teamA?.nome} × ${s.teamB?.nome}`, n, total, diff, ga };
+  });
+
+  const N = completos.length;
+  const txAvg = golsReais ? Math.round(golsAcertos/golsReais*100) : 0;
+
+  const html = `<div class="modal-bg" id="modalBg" onclick="if(event.target===this)fechar()">
+    <div class="modal" style="max-width:900px;">
+      <h2>📊 Análise em lote · método João</h2>
+      <div style="color:var(--tx3);font-size:11px;margin-bottom:14px;">${N} snapshots completos analisados</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
+        <div style="background:var(--s2);padding:10px;border-radius:4px;text-align:center">
+          <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;">Acerto EXATO</div>
+          <div style="font-size:22px;color:var(--gn);font-weight:700;font-family:var(--fM)">${exato}/${N}</div>
+          <div style="font-size:10px;color:var(--tx2)">${Math.round(exato/N*100)}%</div>
+        </div>
+        <div style="background:var(--s2);padding:10px;border-radius:4px;text-align:center">
+          <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;">Acerto ±1</div>
+          <div style="font-size:22px;color:var(--yl);font-weight:700;font-family:var(--fM)">${prox}/${N}</div>
+          <div style="font-size:10px;color:var(--tx2)">${Math.round(prox/N*100)}%</div>
+        </div>
+        <div style="background:var(--s2);padding:10px;border-radius:4px;text-align:center">
+          <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;">Direção O/U 2.5</div>
+          <div style="font-size:22px;color:var(--cy);font-weight:700;font-family:var(--fM)">${dir}/${N}</div>
+          <div style="font-size:10px;color:var(--tx2)">${Math.round(dir/N*100)}%</div>
+        </div>
+        <div style="background:var(--s2);padding:10px;border-radius:4px;text-align:center">
+          <div style="font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;">Gols em janelas</div>
+          <div style="font-size:22px;color:var(--cy);font-weight:700;font-family:var(--fM)">${txAvg}%</div>
+          <div style="font-size:10px;color:var(--tx2)">previu o bucket</div>
+        </div>
+      </div>
+      <div style="max-height:500px;overflow:auto;font-size:11px;font-family:var(--fM);">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="color:var(--tx3);border-bottom:1px solid var(--b1);">
+            <th style="padding:6px;text-align:left">Jogo</th>
+            <th style="padding:6px;text-align:right">Previ</th>
+            <th style="padding:6px;text-align:right">Real</th>
+            <th style="padding:6px;text-align:right">Diff</th>
+            <th style="padding:6px;text-align:right">Gols em janelas</th>
+          </tr></thead>
+          <tbody>${linhas.map(l => `<tr style="border-bottom:1px solid var(--b1);">
+            <td style="padding:5px;">${l.nome}</td>
+            <td style="padding:5px;text-align:right">${l.n}</td>
+            <td style="padding:5px;text-align:right">${l.total}</td>
+            <td style="padding:5px;text-align:right;color:${l.diff===0?'var(--gn)':Math.abs(l.diff)===1?'var(--yl)':'var(--rd)'}">${l.diff>=0?'+':''}${l.diff}</td>
+            <td style="padding:5px;text-align:right">${l.ga}/${l.total}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+      <div class="modal-actions">
+        <button class="primary" onclick="fechar()">Fechar</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
 }
 
 function exportarTodos() {
