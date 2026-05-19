@@ -2831,6 +2831,7 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
     ${renderTiers(eB, 'B')}
     ${renderH2HMatches(fixH)}
     ${(fixA && fixB) ? renderPrevisaoMultivariada(evA, evB, fixA, fixB, aggA, aggB) : ''}
+    ${renderPorMinuto(evA, evB)}
   `;
 
   // Animate all bars
@@ -3717,6 +3718,168 @@ function renderPrevisaoMultivariada(evA, evB, fixA, fixB, aggA, aggB) {
       <strong style="color:var(--yl)">?</strong> sinais incertos (correlação ~0, manter por intuição)<br>
       <strong style="color:var(--rd)">-</strong> sinais com correlação negativa ou neutra<br>
       <em>Fórmula:</em> 1.5 + (${picos20Densos.length}×0.26 picos20) + (max(0,${drift.toFixed(2)})×0.36 drift) + (${xg_combo.toFixed(2)}×0.20 xG) = <strong>${gols_previstos.toFixed(2)}</strong>
+    </div>
+  </div>`;
+}
+
+// ── Block FINAL (v17+) — Histograma de 1 minuto · ambos os times ────────
+// Mesma ideia do renderDualIntervals mas com granularidade 1min (90 colunas)
+// Não interfere em nada que já funciona — só visualização extra
+function renderPorMinuto(evA, evB) {
+  // Arrays de 91 posições (índice 0 = min 1, índice 89 = min 90, índice 90 = AC)
+  // Vou usar 90 colunas: 0=min 1, 1=min 2, ..., 89=min 90 — sem AC
+  const N = 90;
+  const asc = new Array(N).fill(0);  // A marcou
+  const acn = new Array(N).fill(0);  // A sofreu
+  const bsc = new Array(N).fill(0);  // B marcou
+  const bcn = new Array(N).fill(0);  // B sofreu
+
+  function toIdx(elapsed, extra) {
+    // Mapeia minuto real (1-90) pro índice 0-89
+    // Acréscimos (45+x e 90+x) somam ao bucket vizinho mais próximo
+    const hasExtra = extra != null && extra > 0;
+    let m = elapsed || 0;
+    if (m === 45 && hasExtra) return 44;       // 45+x → cai no minuto 45 (idx 44)
+    if (m === 90 && hasExtra) return 89;       // 90+x → cai no minuto 90 (idx 89)
+    if (m > 90) return 89;                      // 91, 92 → minuto 90
+    if (m < 1) return -1;                       // antes do início
+    return m - 1;                               // minuto N → idx N-1
+  }
+
+  Object.values(evA).forEach(evs => evs.forEach(ev => {
+    const i = toIdx(ev.elapsed, ev.extra);
+    if (i < 0) return;
+    if (ev.sc) asc[i]++; else acn[i]++;
+  }));
+  Object.values(evB).forEach(evs => evs.forEach(ev => {
+    const i = toIdx(ev.elapsed, ev.extra);
+    if (i < 0) return;
+    if (ev.sc) bsc[i]++; else bcn[i]++;
+  }));
+
+  // Total de eventos por minuto (pra destacar minutos quentes)
+  const totalPorMin = asc.map((_,i) => asc[i] + acn[i] + bsc[i] + bcn[i]);
+  const maxTotal = Math.max(...totalPorMin, 1);
+  const maxIndiv = Math.max(...asc, ...acn, ...bsc, ...bcn, 1);
+  const MAX_H = 60;  // altura máxima das barras em px
+
+  // Top 10 minutos mais quentes (pra destacar)
+  const topMins = totalPorMin
+    .map((t, i) => ({ i, t }))
+    .sort((a, b) => b.t - a.t)
+    .slice(0, 10)
+    .map(x => x.i);
+
+  // Helper pra renderizar coluna de 1 minuto
+  function col(i) {
+    const minNum = i + 1;
+    const hAsc = asc[i] ? Math.max(2, Math.round((asc[i]/maxIndiv) * MAX_H)) : 0;
+    const hAcn = acn[i] ? Math.max(2, Math.round((acn[i]/maxIndiv) * MAX_H)) : 0;
+    const hBsc = bsc[i] ? Math.max(2, Math.round((bsc[i]/maxIndiv) * MAX_H)) : 0;
+    const hBcn = bcn[i] ? Math.max(2, Math.round((bcn[i]/maxIndiv) * MAX_H)) : 0;
+    const total = asc[i] + acn[i] + bsc[i] + bcn[i];
+    const ehTop = topMins.includes(i);
+    const ehMarco = [1, 15, 30, 45, 60, 75, 90].includes(minNum);
+    // Label só nos marcos pra não poluir
+    const lbl = ehMarco ? minNum : '';
+    const bg = ehTop ? 'background:rgba(0,212,255,.08);border-radius:2px;' : '';
+    return `
+      <div class="pm-col" style="${bg}" title="min ${minNum} · A faz ${asc[i]} / sofre ${acn[i]} · B faz ${bsc[i]} / sofre ${bcn[i]} · total ${total}">
+        <div class="pm-bars">
+          ${asc[i] ? `<div class="pm-bar pm-asc" style="height:${hAsc}px"><span class="pm-n">${asc[i]}</span></div>` : ''}
+          ${acn[i] ? `<div class="pm-bar pm-acn" style="height:${hAcn}px"><span class="pm-n">${acn[i]}</span></div>` : ''}
+          ${bsc[i] ? `<div class="pm-bar pm-bsc" style="height:${hBsc}px"><span class="pm-n">${bsc[i]}</span></div>` : ''}
+          ${bcn[i] ? `<div class="pm-bar pm-bcn" style="height:${hBcn}px"><span class="pm-n">${bcn[i]}</span></div>` : ''}
+        </div>
+        <div class="pm-lbl">${lbl}</div>
+      </div>`;
+  }
+
+  // Dividir em 1º tempo (0-44 → min 1-45) e 2º tempo (45-89 → min 46-90)
+  const half1 = Array.from({length: 45}, (_,i) => col(i)).join('');
+  const half2 = Array.from({length: 45}, (_,i) => col(i+45)).join('');
+
+  // Totais por tempo
+  const t1A = asc.slice(0,45).reduce((s,v)=>s+v,0);
+  const t2A = asc.slice(45).reduce((s,v)=>s+v,0);
+  const t1As = acn.slice(0,45).reduce((s,v)=>s+v,0);
+  const t2As = acn.slice(45).reduce((s,v)=>s+v,0);
+  const t1B = bsc.slice(0,45).reduce((s,v)=>s+v,0);
+  const t2B = bsc.slice(45).reduce((s,v)=>s+v,0);
+  const t1Bs = bcn.slice(0,45).reduce((s,v)=>s+v,0);
+  const t2Bs = bcn.slice(45).reduce((s,v)=>s+v,0);
+
+  // Resumo dos top 10 minutos
+  const topResumo = topMins
+    .map(i => ({ i, min: i+1, asc: asc[i], acn: acn[i], bsc: bsc[i], bcn: bcn[i], total: totalPorMin[i] }))
+    .sort((a,b) => b.total - a.total);
+
+  return `
+  <style>
+    .pm-section { margin-top: 16px; }
+    .pm-halves { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .pm-half { background: var(--s3); border-radius: 4px; padding: 8px; }
+    .pm-half-lbl { font-size: 9px; color: var(--tx3); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: baseline; }
+    .pm-cols { display: grid; grid-template-columns: repeat(45, 1fr); gap: 1px; align-items: end; height: 80px; padding: 4px 0 2px; }
+    .pm-col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; min-height: 70px; }
+    .pm-bars { display: flex; flex-direction: column-reverse; gap: 1px; width: 100%; align-items: center; }
+    .pm-bar { width: 100%; max-width: 9px; position: relative; border-radius: 1px; display: flex; align-items: center; justify-content: center; }
+    .pm-asc { background: var(--gn); }
+    .pm-acn { background: var(--rd); }
+    .pm-bsc { background: rgba(15,232,152,.5); border: 1px solid rgba(15,232,152,.7); }
+    .pm-bcn { background: rgba(244,63,94,.5); border: 1px solid rgba(244,63,94,.7); }
+    .pm-n { font-size: 7px; color: #fff; font-family: var(--fM); font-weight: 700; pointer-events: none; }
+    .pm-lbl { font-size: 7px; color: var(--tx3); margin-top: 2px; font-family: var(--fM); height: 8px; }
+    .pm-legend { display: flex; gap: 12px; margin: 10px 0 4px; font-size: 9px; color: var(--tx3); flex-wrap: wrap; }
+    .pm-leg-sq { display: inline-block; width: 8px; height: 8px; border-radius: 1px; margin-right: 4px; vertical-align: middle; }
+    .pm-top-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 4px; margin-top: 8px; }
+    .pm-top-item { background: rgba(0,212,255,.08); border-radius: 3px; padding: 4px 6px; font-size: 9px; font-family: var(--fM); color: var(--tx2); }
+    .pm-top-item strong { color: var(--cy); }
+  </style>
+  <div class="h2h-section pm-section">
+    <div class="h2h-sec-title">${tip('Gols por Minuto · 1min · Ambos os Times (experimental)', '<strong>Granularidade fina:</strong> cada coluna é 1 minuto do jogo (1-90), mostrando quantas vezes cada time fez/sofreu naquele minuto exato em 20 jogos.<br><br><strong>Como ler:</strong><br>• Coluna alta = minuto historicamente quente<br>• Fundo azul = entre os 10 minutos mais ativos<br>• Acréscimos do 1ºT caem no min 45 · acréscimos do 2ºT caem no min 90<br><br><span class="yt-warn">Atenção:</span> com só 20 jogos, granularidade de 1 minuto tem muito ruído. Use só pra explorar — não é estatisticamente forte.')}</div>
+    <div class="pm-legend">
+      <div><span class="pm-leg-sq" style="background:var(--gn)"></span>${H2H_A.nome} marcou</div>
+      <div><span class="pm-leg-sq" style="background:var(--rd)"></span>${H2H_A.nome} sofreu</div>
+      <div><span class="pm-leg-sq" style="background:rgba(15,232,152,.5);border:1px solid rgba(15,232,152,.7)"></span>${H2H_B.nome} marcou</div>
+      <div><span class="pm-leg-sq" style="background:rgba(244,63,94,.5);border:1px solid rgba(244,63,94,.7)"></span>${H2H_B.nome} sofreu</div>
+      <div><span style="color:var(--cy)">●</span> minutos top 10</div>
+    </div>
+    <div class="pm-halves">
+      <div class="pm-half">
+        <div class="pm-half-lbl">
+          <span>Primeiro Tempo · min 1-45</span>
+          <span style="font-family:var(--fM);font-size:10px">
+            <span style="color:var(--gn)">${t1A}↑${t1B}↑</span>
+            <span style="color:var(--rd);margin-left:6px">${t1As}↓${t1Bs}↓</span>
+          </span>
+        </div>
+        <div class="pm-cols">${half1}</div>
+      </div>
+      <div class="pm-half">
+        <div class="pm-half-lbl">
+          <span>Segundo Tempo · min 46-90</span>
+          <span style="font-family:var(--fM);font-size:10px">
+            <span style="color:var(--gn)">${t2A}↑${t2B}↑</span>
+            <span style="color:var(--rd);margin-left:6px">${t2As}↓${t2Bs}↓</span>
+          </span>
+        </div>
+        <div class="pm-cols">${half2}</div>
+      </div>
+    </div>
+    <div style="font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--tx3);margin-top:14px;margin-bottom:6px">
+      🔥 Top 10 minutos mais quentes (qualquer evento)
+    </div>
+    <div class="pm-top-list">
+      ${topResumo.filter(t => t.total > 0).map(t => {
+        const det = [
+          t.asc ? `<span style="color:var(--gn)">${t.asc}↑A</span>` : '',
+          t.acn ? `<span style="color:var(--rd)">${t.acn}↓A</span>` : '',
+          t.bsc ? `<span style="color:rgba(15,232,152,.7)">${t.bsc}↑B</span>` : '',
+          t.bcn ? `<span style="color:rgba(244,63,94,.7)">${t.bcn}↓B</span>` : ''
+        ].filter(Boolean).join(' ');
+        return `<div class="pm-top-item"><strong>min ${t.min}</strong> · ${t.total}ev<br>${det}</div>`;
+      }).join('')}
     </div>
   </div>`;
 }
