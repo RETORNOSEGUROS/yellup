@@ -3941,15 +3941,43 @@
         // ✅ NOVO: Salvar status do jogo
         jogoStatus = jogo.status || 'agendado';
         console.log("📊 Status do jogo:", jogoStatus);
-        
-        // Carregar dados dos times
+
+        // Helper: só busca em 'times' se o id for de um documento real
+        // (ids sintéticos terminam em __casa/__fora e não existem em 'times')
+        const buscarTime = async (tid) => {
+          if (!tid || tid.endsWith('__casa') || tid.endsWith('__fora')) return null;
+          try {
+            const d = await db.collection("times").doc(tid).get();
+            return d.exists ? { ...d.data(), id: d.id } : null;
+          } catch (e) { return null; }
+        };
+
+        // Fallback com os dados de time gravados no próprio jogo (pela ponte)
+        const fbCasa = {
+          nome: jogo.timeCasaNome || "Time Casa",
+          escudo: jogo.timeCasaEscudo || null,
+          primaria: jogo.timeCasaPrimaria || "#28a745",
+          secundaria: jogo.timeCasaSecundaria || "#ffffff",
+          terciaria: jogo.timeCasaTerciaria || "#28a745",
+          codigoPais: jogo.timeCasaPais || "BR"
+        };
+        const fbFora = {
+          nome: jogo.timeForaNome || "Time Fora",
+          escudo: jogo.timeForaEscudo || null,
+          primaria: jogo.timeForaPrimaria || "#dc3545",
+          secundaria: jogo.timeForaSecundaria || "#ffffff",
+          terciaria: jogo.timeForaTerciaria || "#dc3545",
+          codigoPais: jogo.timeForaPais || "BR"
+        };
+
+        // Carregar dados dos times (com guarda contra id nulo/sintético)
         const [timeCasaDoc, timeForaDoc] = await Promise.all([
-          db.collection("times").doc(timeCasaId).get(),
-          db.collection("times").doc(timeForaId).get()
+          buscarTime(timeCasaId),
+          buscarTime(timeForaId)
         ]);
 
-        timeCasaData = timeCasaDoc.exists ? { ...timeCasaDoc.data(), id: timeCasaDoc.id } : { nome: "Time Casa", primaria: "#28a745", secundaria: "#ffffff", terciaria: "#28a745", codigoPais: "BR" };
-        timeForaData = timeForaDoc.exists ? { ...timeForaDoc.data(), id: timeForaDoc.id } : { nome: "Time Fora", primaria: "#dc3545", secundaria: "#ffffff", terciaria: "#dc3545", codigoPais: "BR" };
+        timeCasaData = timeCasaDoc || fbCasa;
+        timeForaData = timeForaDoc || fbFora;
 
         // Obter bandeiras
         const bandeiraA = getBandeira(timeCasaData.codigoPais);
