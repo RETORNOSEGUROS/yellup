@@ -463,6 +463,7 @@ select:focus{border-color:var(--acc);}
     <div style="display:flex;gap:8px;">
       <button class="btn-sm" onclick="abrirNovoJogo()">+ Jogo manual</button>
       <button class="btn-sm" id="btnCorrigir" onclick="corrigirStatusTodos()" style="border-color:var(--grn);color:var(--grn);">✅ Corrigir Status</button>
+      <button class="btn-sm" id="btnEspelhar" onclick="espelharTodosJogos()" style="border-color:var(--ye,#ffb547);color:var(--ye,#ffb547);">↗️ Enviar p/ jogos</button>
       <button class="btn-acc" onclick="recarregarAdmin()">↺ Recarregar</button>
     </div>
   </div>
@@ -975,6 +976,27 @@ async function carregarAdmin(){
 }
 async function recarregarAdmin(){await carregarAdmin();toast('✓ Recarregado','ok');}
 
+// ─── BACKFILL: enviar TODOS os jogos de 'jogos-admin' para 'jogos' ───────
+// Útil para os jogos que já estavam cadastrados antes da ponte existir.
+async function espelharTodosJogos(){
+  const btn = gc('btnEspelhar');
+  if(btn){ btn.disabled=true; btn.textContent='Enviando...'; }
+  try{
+    const snap = await db.collection('jogos-admin').get();
+    let ok=0, falhas=0;
+    for(const d of snap.docs){
+      try{ await espelharJogoEmJogos(d.id); ok++; }
+      catch(e){ falhas++; console.error('Falha espelhar', d.id, e); }
+    }
+    toast(`✓ ${ok} jogo(s) enviado(s) para "jogos"${falhas?` (${falhas} falha(s))`:''}`,'ok');
+  }catch(e){
+    console.error('espelharTodosJogos:', e);
+    toast('Erro ao enviar: '+(e.message||e),'err');
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='↗️ Enviar p/ jogos'; }
+  }
+}
+
 // ─── CORRIGIR STATUS DE TODOS OS JOGOS (força sync com API) ───────────────
 async function corrigirStatusTodos(){
   const btn = gc('btnCorrigir');
@@ -1354,6 +1376,7 @@ async function adicionarSelecionados(){
     try{
       const doc=apiJogoParaAdmin(j);
       await db.collection('jogos-admin').doc(String(j.id)).set(doc,{merge:true});
+      await espelharJogoEmJogos(String(j.id));
       ct++;
     }catch(e){console.error('Erro add',j.id,e.message);}
   }
@@ -1429,6 +1452,66 @@ function mapStatus(code){
   if(code==='PST')return 'adiado';
   if(code==='CANC'||code==='ABD')return 'cancelado';
   return 'agendado';
+}
+
+// ─── PONTE: espelhar o jogo de 'jogos-admin' para 'jogos' ────────────────
+// A coleção 'jogos' é a que o motor da partida usa (arena, pontuação,
+// entrarPartidaV2, premiarJogo, cron de status). Aqui criamos/atualizamos
+// uma versão "jogável" do jogo nela, mantendo o MESMO id do documento.
+// Usa merge:true para não apagar contadores de torcida nem participantes
+// que o motor adiciona depois.
+async function espelharJogoEmJogos(id){
+  try{
+    const snap = await db.collection('jogos-admin').doc(id).get();
+    if(!snap.exists) return;
+    const a = snap.data();
+    const tc = a.timeCasa || {};
+    const tf = a.timeFora || {};
+    const lg = a.liga || {};
+
+    // Datas
+    let inicio = a.dataInicio?.toDate ? a.dataInicio.toDate()
+               : (a.dataInicio ? new Date(a.dataInicio) : null);
+    let fim = a.dataFim?.toDate ? a.dataFim.toDate()
+            : (a.dataFim ? new Date(a.dataFim) : null);
+    // Muitos jogos da API vêm SEM dataFim. Sem ela, o cron marcaria como
+    // finalizado na hora. Então assumimos início + 3h como janela padrão.
+    if(inicio && !fim) fim = new Date(inicio.getTime() + 3*60*60*1000);
+
+    // Status no formato do motor antigo: agendado / ao_vivo / finalizado
+    let st = a.status;
+    if(st === 'encerrado') st = 'finalizado';
+    if(!['agendado','ao_vivo','finalizado'].includes(st)) st = 'agendado';
+
+    const docJogos = {
+      // Referências de time (id interno do banco 'times', quando existir)
+      timeCasaId: tc.idInterno || null,
+      timeForaId: tf.idInterno || null,
+      // Dados inline de fallback (caso o time não exista mais em 'times')
+      timeCasaNome: tc.nome || null,
+      timeForaNome: tf.nome || null,
+      timeCasaEscudo: tc.escudo || null,
+      timeForaEscudo: tf.escudo || null,
+      timeCasaPrimaria: tc.primaria || null,
+      timeForaPrimaria: tf.primaria || null,
+      timeCasaSecundaria: tc.secundaria || null,
+      timeForaSecundaria: tf.secundaria || null,
+      timeCasaTerciaria: tc.terciaria || null,
+      timeForaTerciaria: tf.terciaria || null,
+      liga: lg.nome || null,
+      ligaLogo: lg.logo || null,
+      status: st,
+      apiFixtureId: a.apiFixtureId || id,
+      origem: 'jogos-admin',
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    if(inicio) docJogos.dataInicio = firebase.firestore.Timestamp.fromDate(inicio);
+    if(fim)    docJogos.dataFim    = firebase.firestore.Timestamp.fromDate(fim);
+
+    await db.collection('jogos').doc(id).set(docJogos, {merge:true});
+  }catch(e){
+    console.error('Erro ao espelhar jogo em "jogos":', id, e.message||e);
+  }
 }
 
 function encontrarTime(apiTime){
@@ -1715,6 +1798,7 @@ async function ciclarStatus(id){
   j.status=novoStatus;
   try{
     await db.collection('jogos-admin').doc(id).update({status:novoStatus,atualizadoEm:firebase.firestore.FieldValue.serverTimestamp()});
+    await espelharJogoEmJogos(id);
     renderAdmin();
     toast(`Status → ${novoStatus.replace('_',' ')}`,'ok');
   }catch(e){toast('Erro: '+e.message,'err');}
@@ -2034,8 +2118,10 @@ async function salvarJogo(){
   try{
     if(editId){
       await db.collection('jogos-admin').doc(editId).update(dados);
+      await espelharJogoEmJogos(editId);
     }else{
-      await db.collection('jogos-admin').add(dados);
+      const ref = await db.collection('jogos-admin').add(dados);
+      await espelharJogoEmJogos(ref.id);
     }
     fecharJogo();
     // Sincronizar filtro de data com a data do jogo salvo
