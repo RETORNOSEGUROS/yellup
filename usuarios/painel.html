@@ -3888,19 +3888,27 @@
           const inicio = jogo._inicio;
           const fim = jogo._fim;
 
-          // Status: o admin manda. Um jogo SÓ é "ao vivo" se o admin marcou
-          // como ao_vivo E o horário de início já passou. Tudo que ainda não
-          // começou (futuro) vai para "Próximos Jogos", nunca para "Ao vivo".
-          const jaComecou = inicio ? (inicio <= now) : false;
+          // Status: o admin manda, mas o horário decide a seção.
+          // - AO VIVO: admin marcou ao_vivo E o jogo já começou.
+          // - PRÓXIMOS: só jogos que AINDA NÃO começaram (início no futuro).
+          // - ENCERRADO: já terminou OU já começou e não está ao vivo
+          //   (jogos antigos de meses atrás caem aqui e não aparecem nesta tela).
+          const temInicio = !!inicio;
+          const jaComecou = temInicio ? (inicio <= now) : false;
+          const jaTerminou = !!(fim && fim < now);
 
-          if (jogo.status === 'finalizado' || jogo.status === 'encerrado' || (fim && fim < now)) {
+          if (jogo.status === 'finalizado' || jogo.status === 'encerrado' || jaTerminou) {
             jogo.statusCalc = 'ENCERRADO';
             jogosFinished.push(jogo);
           } else if (jogo.status === 'ao_vivo' && jaComecou) {
             jogo.statusCalc = 'LIVE';
             jogosLive.push(jogo);
+          } else if (jaComecou) {
+            // Já começou mas não está marcado como ao vivo → trata como encerrado
+            jogo.statusCalc = 'ENCERRADO';
+            jogosFinished.push(jogo);
           } else {
-            // agendado, adiado, sem status, ou ao_vivo que ainda não começou
+            // Ainda não começou (ou sem data definida) → Próximos Jogos
             jogo.statusCalc = 'AGENDADO';
             jogosScheduled.push(jogo);
           }
