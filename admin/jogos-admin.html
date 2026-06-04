@@ -983,12 +983,20 @@ async function espelharTodosJogos(){
   if(btn){ btn.disabled=true; btn.textContent='Enviando...'; }
   try{
     const snap = await db.collection('jogos-admin').get();
-    let ok=0, falhas=0;
-    for(const d of snap.docs){
-      try{ await espelharJogoEmJogos(d.id); ok++; }
-      catch(e){ falhas++; console.error('Falha espelhar', d.id, e); }
+    const docs = snap.docs;
+    let ok=0;
+    // Grava em lotes de 400 (limite do batch do Firestore é 500)
+    for(let i=0; i<docs.length; i+=400){
+      const fatia = docs.slice(i, i+400);
+      const batch = db.batch();
+      for(const d of fatia){
+        batch.set(db.collection('jogos').doc(d.id), montarDocJogos(d.id, d.data()), {merge:true});
+      }
+      await batch.commit();
+      ok += fatia.length;
+      if(btn) btn.textContent = `Enviando... ${ok}/${docs.length}`;
     }
-    toast(`✓ ${ok} jogo(s) enviado(s) para "jogos"${falhas?` (${falhas} falha(s))`:''}`,'ok');
+    toast(`✓ ${ok} jogo(s) enviado(s) para "jogos"`,'ok');
   }catch(e){
     console.error('espelharTodosJogos:', e);
     toast('Erro ao enviar: '+(e.message||e),'err');
@@ -1460,55 +1468,57 @@ function mapStatus(code){
 // uma versão "jogável" do jogo nela, mantendo o MESMO id do documento.
 // Usa merge:true para não apagar contadores de torcida nem participantes
 // que o motor adiciona depois.
+// Monta o documento "jogável" (coleção 'jogos') a partir de um doc de 'jogos-admin'
+function montarDocJogos(id, a){
+  const tc = a.timeCasa || {};
+  const tf = a.timeFora || {};
+  const lg = a.liga || {};
+
+  // Datas
+  let inicio = a.dataInicio?.toDate ? a.dataInicio.toDate()
+             : (a.dataInicio ? new Date(a.dataInicio) : null);
+  let fim = a.dataFim?.toDate ? a.dataFim.toDate()
+          : (a.dataFim ? new Date(a.dataFim) : null);
+  // Muitos jogos da API vêm SEM dataFim. Sem ela, o cron marcaria como
+  // finalizado na hora. Então assumimos início + 3h como janela padrão.
+  if(inicio && !fim) fim = new Date(inicio.getTime() + 3*60*60*1000);
+
+  // Status no formato do motor antigo: agendado / ao_vivo / finalizado
+  let st = a.status;
+  if(st === 'encerrado') st = 'finalizado';
+  if(!['agendado','ao_vivo','finalizado'].includes(st)) st = 'agendado';
+
+  const docJogos = {
+    timeCasaId: tc.idInterno || null,
+    timeForaId: tf.idInterno || null,
+    timeCasaNome: tc.nome || null,
+    timeForaNome: tf.nome || null,
+    timeCasaEscudo: tc.escudo || null,
+    timeForaEscudo: tf.escudo || null,
+    timeCasaPrimaria: tc.primaria || null,
+    timeForaPrimaria: tf.primaria || null,
+    timeCasaSecundaria: tc.secundaria || null,
+    timeForaSecundaria: tf.secundaria || null,
+    timeCasaTerciaria: tc.terciaria || null,
+    timeForaTerciaria: tf.terciaria || null,
+    liga: lg.nome || null,
+    ligaLogo: lg.logo || null,
+    status: st,
+    apiFixtureId: a.apiFixtureId || id,
+    origem: 'jogos-admin',
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  if(inicio) docJogos.dataInicio = firebase.firestore.Timestamp.fromDate(inicio);
+  if(fim)    docJogos.dataFim    = firebase.firestore.Timestamp.fromDate(fim);
+  return docJogos;
+}
+
+// Espelha UM jogo (relê o doc de jogos-admin e grava em jogos)
 async function espelharJogoEmJogos(id){
   try{
     const snap = await db.collection('jogos-admin').doc(id).get();
     if(!snap.exists) return;
-    const a = snap.data();
-    const tc = a.timeCasa || {};
-    const tf = a.timeFora || {};
-    const lg = a.liga || {};
-
-    // Datas
-    let inicio = a.dataInicio?.toDate ? a.dataInicio.toDate()
-               : (a.dataInicio ? new Date(a.dataInicio) : null);
-    let fim = a.dataFim?.toDate ? a.dataFim.toDate()
-            : (a.dataFim ? new Date(a.dataFim) : null);
-    // Muitos jogos da API vêm SEM dataFim. Sem ela, o cron marcaria como
-    // finalizado na hora. Então assumimos início + 3h como janela padrão.
-    if(inicio && !fim) fim = new Date(inicio.getTime() + 3*60*60*1000);
-
-    // Status no formato do motor antigo: agendado / ao_vivo / finalizado
-    let st = a.status;
-    if(st === 'encerrado') st = 'finalizado';
-    if(!['agendado','ao_vivo','finalizado'].includes(st)) st = 'agendado';
-
-    const docJogos = {
-      // Referências de time (id interno do banco 'times', quando existir)
-      timeCasaId: tc.idInterno || null,
-      timeForaId: tf.idInterno || null,
-      // Dados inline de fallback (caso o time não exista mais em 'times')
-      timeCasaNome: tc.nome || null,
-      timeForaNome: tf.nome || null,
-      timeCasaEscudo: tc.escudo || null,
-      timeForaEscudo: tf.escudo || null,
-      timeCasaPrimaria: tc.primaria || null,
-      timeForaPrimaria: tf.primaria || null,
-      timeCasaSecundaria: tc.secundaria || null,
-      timeForaSecundaria: tf.secundaria || null,
-      timeCasaTerciaria: tc.terciaria || null,
-      timeForaTerciaria: tf.terciaria || null,
-      liga: lg.nome || null,
-      ligaLogo: lg.logo || null,
-      status: st,
-      apiFixtureId: a.apiFixtureId || id,
-      origem: 'jogos-admin',
-      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-    };
-    if(inicio) docJogos.dataInicio = firebase.firestore.Timestamp.fromDate(inicio);
-    if(fim)    docJogos.dataFim    = firebase.firestore.Timestamp.fromDate(fim);
-
-    await db.collection('jogos').doc(id).set(docJogos, {merge:true});
+    await db.collection('jogos').doc(id).set(montarDocJogos(id, snap.data()), {merge:true});
   }catch(e){
     console.error('Erro ao espelhar jogo em "jogos":', id, e.message||e);
   }
