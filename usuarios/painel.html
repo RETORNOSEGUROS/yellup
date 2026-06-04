@@ -3812,15 +3812,12 @@
     }
 
     // ===================================
-    // 🔄 NORMALIZAR JOGO DO ADMIN
-    // Converte um documento da coleção 'jogos-admin' (onde os times ficam
-    // dentro de timeCasa/timeFora) para o formato que o painel já usa.
+    // 🔄 NORMALIZAR JOGO (coleção 'jogos')
+    // Lê o documento da coleção 'jogos' (formato achatado: timeCasaId,
+    // timeForaId, liga string, dataInicio/dataFim) e prepara os campos de
+    // fallback de time usados na renderização.
     // ===================================
-    function normalizarJogoAdmin(id, raw) {
-      const tc = raw.timeCasa || {};
-      const tf = raw.timeFora || {};
-      const lg = raw.liga || {};
-
+    function normalizarJogo(id, raw) {
       const inicio = raw.dataInicio?.toDate ? raw.dataInicio.toDate()
                     : (raw.dataInicio ? new Date(raw.dataInicio) : null);
       const fim = raw.dataFim?.toDate ? raw.dataFim.toDate()
@@ -3829,30 +3826,27 @@
       return {
         ...raw,
         id,
-        // IDs dos times: usa o id interno do banco 'times' quando existir;
-        // senão gera um id estável a partir do jogo (para a torcida funcionar)
-        timeCasaId: tc.idInterno || `${id}__casa`,
-        timeForaId: tf.idInterno || `${id}__fora`,
-        // Escudos e dados inline vindos do admin (fallback do render)
-        timeCasaEscudo: tc.escudo || null,
-        timeForaEscudo: tf.escudo || null,
+        // timeCasaId/timeForaId já vêm no doc (referência ao banco 'times')
+        timeCasaId: raw.timeCasaId || null,
+        timeForaId: raw.timeForaId || null,
+        // Fallback de exibição (quando o time não existir mais em 'times').
+        // Vem dos campos inline gravados pela ponte (timeCasaNome, etc.)
         _adminCasa: {
-          nome: tc.nome || 'Time A',
-          escudo: tc.escudo || null,
-          primaria: tc.primaria || '#28a745',
-          secundaria: tc.secundaria || '#fff',
-          terciaria: tc.terciaria || '#28a745'
+          nome: raw.timeCasaNome || 'Time A',
+          escudo: raw.timeCasaEscudo || null,
+          primaria: raw.timeCasaPrimaria || '#28a745',
+          secundaria: raw.timeCasaSecundaria || '#fff',
+          terciaria: raw.timeCasaTerciaria || '#28a745'
         },
         _adminFora: {
-          nome: tf.nome || 'Time B',
-          escudo: tf.escudo || null,
-          primaria: tf.primaria || '#dc3545',
-          secundaria: tf.secundaria || '#fff',
-          terciaria: tf.terciaria || '#dc3545'
+          nome: raw.timeForaNome || 'Time B',
+          escudo: raw.timeForaEscudo || null,
+          primaria: raw.timeForaPrimaria || '#dc3545',
+          secundaria: raw.timeForaSecundaria || '#fff',
+          terciaria: raw.timeForaTerciaria || '#dc3545'
         },
-        // Liga vira string + logo separado (como o painel espera)
-        liga: lg.nome || (typeof raw.liga === 'string' ? raw.liga : 'Partida'),
-        ligaLogo: lg.logo || null,
+        liga: (typeof raw.liga === 'string' ? raw.liga : (raw.liga?.nome || 'Partida')),
+        ligaLogo: raw.ligaLogo || raw.liga?.logo || null,
         torcidaCasaCount: raw.torcidaCasaCount || 0,
         torcidaForaCount: raw.torcidaForaCount || 0,
         _inicio: inicio,
@@ -3867,10 +3861,11 @@
       try {
         console.log("🎮 Carregando jogos...");
 
-        // 🔄 Lê da MESMA coleção do admin ('jogos-admin'), assim TODO jogo
-        // cadastrado no admin aparece aqui. Sem orderBy no servidor para não
-        // descartar jogos sem dataInicio — a ordenação é feita no cliente abaixo.
-        const jogosSnap = await db.collection('jogos-admin').get();
+        // 🔄 Lê da coleção 'jogos' (a do motor da partida). Os jogos
+        // cadastrados no admin chegam aqui pela ponte (jogos-admin → jogos).
+        // Sem orderBy no servidor para não descartar jogos sem dataInicio —
+        // a ordenação é feita no cliente abaixo.
+        const jogosSnap = await db.collection('jogos').get();
         
         const jogosLive = [];
         const jogosScheduled = [];
@@ -3880,11 +3875,10 @@
         for (const doc of jogosSnap.docs) {
           const raw = doc.data();
 
-          // Pular jogos desativados no admin
+          // Pular jogos desativados
           if (raw.ativo === false) continue;
 
-          // Traduzir o documento do admin para o formato esperado pelo painel
-          const jogo = normalizarJogoAdmin(doc.id, raw);
+          const jogo = normalizarJogo(doc.id, raw);
           const inicio = jogo._inicio;
           const fim = jogo._fim;
 
@@ -4059,7 +4053,7 @@
         let pontosFora = 0;
         
         try {
-          const partSnap = await db.collection('jogos-admin').doc(jogo.id).collection('participantes').get();
+          const partSnap = await db.collection('jogos').doc(jogo.id).collection('participantes').get();
           partSnap.forEach(doc => {
             const p = doc.data();
             const pts = p.pontos || 0;
@@ -4309,13 +4303,13 @@
 
       try {
         // Buscar dados do jogo (mesma coleção do admin)
-        const jogoDoc = await db.collection('jogos-admin').doc(jogoId).get();
+        const jogoDoc = await db.collection('jogos').doc(jogoId).get();
         if (!jogoDoc.exists) {
           showToast('❌ Jogo não encontrado');
           return;
         }
 
-        const jogo = normalizarJogoAdmin(jogoId, jogoDoc.data());
+        const jogo = normalizarJogo(jogoId, jogoDoc.data());
 
         // Buscar dados dos times (cai para os dados do admin se não houver doc em 'times')
         let timeCasaData = { id: jogo.timeCasaId, ...jogo._adminCasa };
@@ -4400,7 +4394,7 @@
 
         // 2. Atualizar contador do jogo
         const campoContador = lado === 'A' ? 'torcidaCasaCount' : 'torcidaForaCount';
-        await db.collection('jogos-admin').doc(jogoAtual.id).update({
+        await db.collection('jogos').doc(jogoAtual.id).update({
           [campoContador]: firebase.firestore.FieldValue.increment(1)
         });
 
