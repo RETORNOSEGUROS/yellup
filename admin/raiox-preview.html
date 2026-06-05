@@ -70,6 +70,7 @@ body{font-family:'DM Sans',sans-serif;background:#0c0e14;color:#e8e9ed;min-heigh
 <div class="bar">
   <div class="logo">Y</div>
   <h1>Raio-X<span>preview do app do usuário</span></h1>
+  <span id="cnt" style="font-size:11px;color:#f0b429;font-weight:700">—</span>
   <select id="sel" onchange="abrir(this.value)"><option>Carregando...</option></select>
   <a href="dashboard.html">← Admin</a>
 </div>
@@ -122,19 +123,37 @@ function render(s){
     <div class="heat"><div class="who" style="color:var(--A)">${esc(A.nome||'A')}</div>${minStrip(s.minutosA,cA)}</div>
     <div class="heat" style="margin-bottom:0"><div class="who" style="color:var(--B)">${esc(B.nome||'B')}</div>${minStrip(s.minutosB,cB)}</div></div>`;
 }
-async function abrir(id){if(!id)return;document.getElementById('scr').innerHTML='<div class="state"><div class="spin"></div>Carregando análise...</div>';
-  try{const d=await db.collection('raiox-snapshots').doc(id).get();
-    if(!d.exists){document.getElementById('scr').innerHTML='<div class="state"><div class="ic">📭</div>Análise ainda não gerada para este jogo.</div>';return;}
-    render(d.data());}catch(e){document.getElementById('scr').innerHTML=`<div class="state"><div class="ic">⚠️</div>Erro: ${esc(e.message)}</div>`;}}
+let JOGOS={};
+async function abrir(id){if(!id)return;const g=JOGOS[id];
+  document.getElementById('scr').innerHTML='<div class="state"><div class="spin"></div>Carregando análise...</div>';
+  try{
+    let data=null;
+    let d=await db.collection('raiox-snapshots').doc(id).get();
+    if(d.exists) data=d.data();
+    if(!data){const q=await db.collection('raiox-snapshots').where('apiFixtureId','==',id).limit(1).get();if(!q.empty)data=q.docs[0].data();}
+    if(!data&&!isNaN(+id)){const q=await db.collection('raiox-snapshots').where('apiFixtureId','==',+id).limit(1).get();if(!q.empty)data=q.docs[0].data();}
+    if(!data&&g?.timeCasa?.apiId&&g?.timeFora?.apiId){
+      const ca=g.timeCasa.apiId,fa=g.timeFora.apiId;
+      let q=await db.collection('raiox-snapshots').where('teamA.apiId','==',ca).get();
+      let hit=q.docs.find(x=>String(x.data()?.teamB?.apiId)===String(fa));
+      if(!hit){q=await db.collection('raiox-snapshots').where('teamA.apiId','==',fa).get();hit=q.docs.find(x=>String(x.data()?.teamB?.apiId)===String(ca));}
+      if(hit)data=hit.data();
+    }
+    if(!data){document.getElementById('scr').innerHTML='<div class="state"><div class="ic">📭</div>Análise não encontrada para este jogo.<br><span style="font-size:11px">id: '+esc(id)+'</span></div>';return;}
+    render(data);
+  }catch(e){document.getElementById('scr').innerHTML=`<div class="state"><div class="ic">⚠️</div>Erro: ${esc(e.message)}</div>`;}}
 async function init(){
-  try{const snap=await db.collection('jogos').get();const jogos=[];
-    snap.forEach(d=>{const g=d.data();if(g.origem==='jogos-admin')jogos.push({id:d.id,...g});});
+  try{
+    let total=0; try{ total=(await db.collection('raiox-snapshots').get()).size; }catch(e){}
+    const cnt=document.getElementById('cnt'); if(cnt) cnt.textContent=total+' análise(s) no banco';
+    const snap=await db.collection('jogos-admin').get();const jogos=[];
+    snap.forEach(d=>{const g=d.data();if(g.ativo===false)return;if(!g.timeCasa?.apiId||!g.timeFora?.apiId)return;const j={id:d.id,...g};jogos.push(j);JOGOS[d.id]=j;});
     jogos.sort((a,b)=>{const da=a.dataInicio?.toMillis?a.dataInicio.toMillis():0,dbb=b.dataInicio?.toMillis?b.dataInicio.toMillis():0;return da-dbb;});
     const sel=document.getElementById('sel');
     if(!jogos.length){sel.innerHTML='<option>Nenhum jogo</option>';document.getElementById('scr').innerHTML='<div class="state"><div class="ic">⚽</div>Cadastre jogos no admin.</div>';return;}
-    sel.innerHTML=jogos.map(j=>`<option value="${j.id}">${esc(j.timeCasaNome||'A')} x ${esc(j.timeForaNome||'B')}</option>`).join('');
+    sel.innerHTML=jogos.map(j=>`<option value="${j.id}">${esc(j.timeCasa?.nome||'A')} x ${esc(j.timeFora?.nome||'B')}</option>`).join('');
     const u=new URLSearchParams(location.search).get('jogoId');
-    const first=(u&&jogos.find(j=>j.id===u))?u:jogos[0].id;sel.value=first;abrir(first);
+    const first=(u&&JOGOS[u])?u:jogos[0].id;sel.value=first;abrir(first);
   }catch(e){document.getElementById('scr').innerHTML=`<div class="state"><div class="ic">⚠️</div>${esc(e.message)}</div>`;}
 }
 auth.onAuthStateChanged(u=>{ if(!u||u.email!=='admin@yellup.com'){location.href='login.html';return;} init(); });
