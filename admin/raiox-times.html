@@ -4211,6 +4211,117 @@ async function registrarSnapshot() {
     setTimeout(() => { btn.textContent = '📌 REGISTRAR'; btn.style.background = 'var(--cy)'; }, 2500);
   }
 }
+
+// ════════════════════════════════════════════════════════════════
+// ⚡ AUTOMAÇÃO — gerar a "foto" (snapshot) de TODOS os jogos cadastrados
+// na Yellup de uma vez. Lê jogos-admin, e para cada jogo sem snapshot:
+// monta os times, roda a mesma comparação (runH2H) e salva em
+// raiox-snapshots/{jogoId}. Sem abrir jogo por jogo.
+// ════════════════════════════════════════════════════════════════
+let AUTO_STOP = false;
+
+async function carregarJogosYellup(){
+  const snap = await db.collection('jogos-admin').get();
+  const jogos = [];
+  snap.forEach(d=>{
+    const g = d.data();
+    if (g.ativo === false) return;
+    if (g.status === 'encerrado' || g.status === 'finalizado') return; // só pré-jogo
+    if (!g.timeCasa?.apiId || !g.timeFora?.apiId) return;
+    jogos.push({ id: d.id, ...g });
+  });
+  return jogos;
+}
+
+async function snapshotsExistentes(){
+  const set = new Set();
+  try{ (await db.collection('raiox-snapshots').get()).forEach(d=>set.add(d.id)); }
+  catch(e){ console.warn('lista snapshots:', e.message); }
+  return set;
+}
+
+function _timeDoJogo(t){
+  return { id: t.idInterno||null, apiId: t.apiId, nome: t.nome||'—',
+           pais: t.pais||'', tipo: t.tipo||'selecao', escudo: t.escudo||null };
+}
+
+async function _salvarSnapshotJogo(jogoId, jogo){
+  if(!window.SNAPSHOT_DATA) throw new Error('comparação não produziu dados');
+  const ts = jogo.dataInicio?.toMillis ? jogo.dataInicio.toMillis()
+           : (jogo.dataInicio?.seconds ? jogo.dataInicio.seconds*1000 : Date.now());
+  const clean = JSON.parse(JSON.stringify({
+    ...window.SNAPSHOT_DATA,
+    jogoId,
+    apiFixtureId: jogo.apiFixtureId || jogoId,
+    liga: jogo.liga?.nome || null,
+    dataJogoTimestamp: ts,
+    registradoTS: Date.now(),
+    _docId: jogoId,
+    origem: 'auto',
+    resultado: null,
+    analise: null
+  }, (k,v)=> v===undefined ? null : v));
+  await db.collection('raiox-snapshots').doc(jogoId).set({
+    ...clean, registradoEm: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+async function gerarSnapshotsPendentes(forcar){
+  const lbl = document.getElementById('autoLbl');
+  const btn = document.getElementById('autoBtn');
+  AUTO_STOP = false;
+  if(btn) btn.disabled = true;
+  try{
+    if(lbl) lbl.textContent = 'carregando jogos...';
+    const jogos = await carregarJogosYellup();
+    const feitos = forcar ? new Set() : await snapshotsExistentes();
+    const pend = jogos.filter(j=> !feitos.has(j.id));
+    if(!pend.length){ if(lbl) lbl.textContent = `✓ tudo pronto (${jogos.length} jogos)`; if(btn) btn.disabled=false; return; }
+
+    const overlay = document.getElementById('h2hOverlay');
+    if(overlay) overlay.style.display = 'flex';
+
+    let ok=0, err=0;
+    for(let i=0;i<pend.length;i++){
+      if(AUTO_STOP){ if(lbl) lbl.textContent = `parado em ${i}/${pend.length} (✓${ok})`; break; }
+      const j = pend[i];
+      if(lbl) lbl.textContent = `${i+1}/${pend.length}: ${j.timeCasa?.nome} x ${j.timeFora?.nome}`;
+      try{
+        setH2HTeam('A', _timeDoJogo(j.timeCasa));
+        setH2HTeam('B', _timeDoJogo(j.timeFora));
+        window.SNAPSHOT_DATA = null;
+        await runH2H();
+        await _salvarSnapshotJogo(j.id, j);
+        ok++;
+      }catch(e){ err++; console.error('Falha snapshot', j.id, e.message||e); }
+      await sleep(1500); // respeita o rate limit da API
+    }
+    if(lbl) lbl.textContent = `✓ ${ok} gerado(s)${err?` · ${err} falha(s)`:''}`;
+    if(overlay) overlay.style.display = 'none';
+  }catch(e){
+    console.error(e); if(lbl) lbl.textContent = 'erro: '+(e.message||e);
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
+// Botão flutuante + contagem de pendentes
+window.addEventListener('DOMContentLoaded', ()=>{
+  const wrap = document.createElement('div');
+  wrap.id='autoBar';
+  wrap.style.cssText='position:fixed;top:10px;right:12px;z-index:9999;display:flex;align-items:center;gap:10px;background:#11141c;border:1px solid #2a2f3e;padding:8px 12px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px;color:#cfd2dc;box-shadow:0 4px 14px rgba(0,0,0,.4)';
+  wrap.innerHTML = '<button id="autoBtn" onclick="gerarSnapshotsPendentes()" style="background:var(--cy);color:#000;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;font-family:inherit">⚡ Gerar análises pendentes</button><span id="autoLbl">—</span><button onclick="AUTO_STOP=true" title="parar" style="background:#3a2030;color:#f88;border:1px solid #5a2030;padding:6px 9px;border-radius:6px;cursor:pointer;font-size:11px">parar</button>';
+  document.body.appendChild(wrap);
+  (async()=>{
+    try{
+      const jogos = await carregarJogosYellup();
+      const feitos = await snapshotsExistentes();
+      const pend = jogos.filter(j=>!feitos.has(j.id)).length;
+      const lbl = document.getElementById('autoLbl');
+      if(lbl) lbl.textContent = pend ? `${pend} jogo(s) sem análise` : '✓ tudo pronto';
+    }catch(e){}
+  })();
+});
 </script>
 </body>
 </html>
