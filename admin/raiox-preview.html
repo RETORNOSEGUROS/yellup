@@ -638,6 +638,9 @@ body{background:#05070d}
   <div class="lg">Y</div>
   <h1>RAIO-X<span>tela congelada do comparativo</span></h1>
   <span id="cnt">—</span>
+  <input type="date" id="fDe" onchange="aplicarFiltro()" title="De" style="background:var(--s2);color:var(--tx);border:1px solid var(--b2,#1b2435);border-radius:8px;padding:7px 9px;font-size:12px;font-family:'Inter',sans-serif">
+  <input type="date" id="fAte" onchange="aplicarFiltro()" title="Até" style="background:var(--s2);color:var(--tx);border:1px solid var(--b2,#1b2435);border-radius:8px;padding:7px 9px;font-size:12px;font-family:'Inter',sans-serif">
+  <button onclick="document.getElementById('fDe').value='';document.getElementById('fAte').value='';aplicarFiltro()" style="background:var(--s2);color:var(--tx2);border:1px solid var(--b2,#1b2435);border-radius:8px;padding:7px 10px;font-size:12px;cursor:pointer">limpar</button>
   <select id="sel" onchange="abrir(this.value)"><option>Carregando...</option></select>
   <a href="dashboard.html">← Admin</a>
 </div>
@@ -650,7 +653,28 @@ body{background:#05070d}
 firebase.initializeApp({apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",authDomain:"painel-yellup.firebaseapp.com",projectId:"painel-yellup",storageBucket:"painel-yellup.appspot.com",messagingSenderId:"608347210297",appId:"1:608347210297:web:75092713724e617c7203e8"});
 const db=firebase.firestore(), auth=firebase.auth();
 const esc=t=>{const d=document.createElement('div');d.textContent=(t==null?'':t);return d.innerHTML;};
-let JOGOS={};
+let JOGOS={}, ALLJOGOS=[];
+function fmtDia(ts){ if(!ts)return '—'; const d=new Date(ts); return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}); }
+function aplicarFiltro(){
+  const de=document.getElementById('fDe').value, ate=document.getElementById('fAte').value;
+  const dDe = de? new Date(de+'T00:00:00').getTime():null;
+  const dAte= ate? new Date(ate+'T23:59:59').getTime():null;
+  const sel=document.getElementById('sel');
+  const filt=ALLJOGOS.filter(j=>{
+    if(dDe==null && dAte==null) return true;
+    if(j._ts==null) return false;
+    if(dDe && j._ts<dDe) return false;
+    if(dAte && j._ts>dAte) return false;
+    return true;
+  });
+  if(!filt.length){ sel.innerHTML='<option value="">— nenhum jogo no período —</option>';
+    document.getElementById('h2hBody').innerHTML='<div class="pv-state"><div class="ic">📅</div>Nenhum jogo nesse período.</div>';
+    document.getElementById('hd').innerHTML=''; return; }
+  const prev=sel.value;
+  sel.innerHTML=filt.map(j=>`<option value="${j.id}">${fmtDia(j._ts)} · ${esc(j.timeCasa?.nome||'A')} × ${esc(j.timeFora?.nome||'B')}</option>`).join('');
+  const keep = filt.find(j=>j.id===prev) ? prev : filt[0].id;
+  sel.value=keep; abrir(keep);
+}
 
 function header(s){
   const A=s.teamA||{},B=s.teamB||{};
@@ -690,13 +714,21 @@ async function init(){
     try{const all=await db.collection('raiox-snapshots').get();total=all.size;all.forEach(d=>{if(d.data().renderHTML)comHTML++;});}catch(e){}
     const cnt=document.getElementById('cnt'); if(cnt)cnt.textContent=`${comHTML}/${total} com tela`;
     const snap=await db.collection('jogos-admin').get();const jogos=[];
-    snap.forEach(d=>{const g=d.data();if(g.ativo===false)return;if(!g.timeCasa?.apiId||!g.timeFora?.apiId)return;const j={id:d.id,...g};jogos.push(j);JOGOS[d.id]=j;});
-    jogos.sort((a,b)=>{const da=a.dataInicio?.toMillis?a.dataInicio.toMillis():0,dbb=b.dataInicio?.toMillis?b.dataInicio.toMillis():0;return da-dbb;});
+    snap.forEach(d=>{const g=d.data();if(g.ativo===false)return;if(!g.timeCasa?.apiId||!g.timeFora?.apiId)return;
+      const ts=g.dataInicio?.toMillis?g.dataInicio.toMillis():(g.dataInicio?.seconds?g.dataInicio.seconds*1000:null);
+      const j={id:d.id,_ts:ts,...g};jogos.push(j);JOGOS[d.id]=j;});
+    jogos.sort((a,b)=>(a._ts||0)-(b._ts||0));
+    ALLJOGOS=jogos;
     const sel=document.getElementById('sel');
     if(!jogos.length){sel.innerHTML='<option>Nenhum jogo</option>';document.getElementById('h2hBody').innerHTML='<div class="pv-state"><div class="ic">⚽</div>Cadastre jogos no admin.</div>';return;}
-    sel.innerHTML=jogos.map(j=>`<option value="${j.id}">${esc(j.timeCasa?.nome||'A')} × ${esc(j.timeFora?.nome||'B')}</option>`).join('');
+    // Filtro padrão: a partir de hoje (trim na lista enorme)
     const u=new URLSearchParams(location.search).get('jogoId');
-    const first=(u&&JOGOS[u])?u:jogos[0].id;sel.value=first;abrir(first);
+    if(u && JOGOS[u]){ // se veio jogoId na URL, não force filtro
+      document.getElementById('fDe').value=''; aplicarFiltro(); document.getElementById('sel').value=u; abrir(u);
+    }else{
+      document.getElementById('fDe').value=new Date().toISOString().slice(0,10);
+      aplicarFiltro();
+    }
   }catch(e){document.getElementById('h2hBody').innerHTML=`<div class="pv-state"><div class="ic">⚠️</div>${esc(e.message)}</div>`;}
 }
 auth.onAuthStateChanged(u=>{if(!u||u.email!=='admin@yellup.com'){location.href='login.html';return;}init();});
