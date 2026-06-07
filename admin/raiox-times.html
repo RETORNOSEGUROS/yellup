@@ -4170,11 +4170,18 @@ async function registrarSnapshot() {
     // Data do jogo = timestamp do registro (você registra antes do jogo)
     const dataJogoTS = Date.now();
 
+    // Se um jogo cadastrado está selecionado, a foto é chaveada pelo id dele
+    // (assim o preview e a arena acham pelo mesmo id). Senão, esquema antigo.
+    const jid = window.CURRENT_JOGO_ID || null;
     const snap = {
       ...window.SNAPSHOT_DATA,
       dataJogoTimestamp: dataJogoTS,
       registradoTS: Date.now(),
-      _docId: `${window.SNAPSHOT_DATA.teamA.apiId}_${window.SNAPSHOT_DATA.teamB.apiId}_${Math.floor(dataJogoTS/60000)}`,
+      _docId: jid || `${window.SNAPSHOT_DATA.teamA.apiId}_${window.SNAPSHOT_DATA.teamB.apiId}_${Math.floor(dataJogoTS/60000)}`,
+      jogoId: jid,
+      apiFixtureId: (window.CURRENT_JOGO?.apiFixtureId) || jid || null,
+      liga: (window.CURRENT_JOGO?.liga?.nome) || window.SNAPSHOT_DATA.liga || null,
+      origem: jid ? 'manual-jogo' : 'manual',
       resultado: null,
       analise: null
     };
@@ -4321,28 +4328,65 @@ async function gerarSnapshotsPendentes(forcar){
   }
 }
 
-// Botão flutuante + contagem de pendentes
+// Barra flutuante: seletor de JOGO CADASTRADO (manual, jogo a jogo)
+let JOGOS_PICK = {};
+async function montarListaJogos(){
+  const de=document.getElementById('rxDe')?.value, ate=document.getElementById('rxAte')?.value;
+  const dDe = de? new Date(de+'T00:00:00').getTime():null;
+  const dAte= ate? new Date(ate+'T23:59:59').getTime():null;
+  const sel=document.getElementById('rxJogo'); if(!sel) return;
+  sel.innerHTML='<option>carregando...</option>';
+  try{
+    const jogos=await carregarJogosYellup(dDe,dAte);
+    JOGOS_PICK={}; jogos.forEach(j=>JOGOS_PICK[j.id]=j);
+    jogos.sort((a,b)=>{const da=a.dataInicio?.toMillis?a.dataInicio.toMillis():0,dbb=b.dataInicio?.toMillis?b.dataInicio.toMillis():0;return da-dbb;});
+    let feitos=new Set(); try{feitos=await snapshotsExistentes();}catch(e){}
+    if(!jogos.length){ sel.innerHTML='<option value="">— nenhum jogo no período —</option>'; return; }
+    sel.innerHTML='<option value="">— escolha um jogo —</option>'+jogos.map(j=>{
+      const ts=j.dataInicio?.toMillis?j.dataInicio.toMillis():(j.dataInicio?.seconds?j.dataInicio.seconds*1000:null);
+      const dia=ts?new Date(ts).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'--';
+      const ok=feitos.has(j.id)?'● ':'○ ';
+      return `<option value="${j.id}">${ok}${dia} · ${(j.timeCasa?.nome||'A')} x ${(j.timeFora?.nome||'B')}</option>`;
+    }).join('');
+  }catch(e){ sel.innerHTML='<option value="">erro</option>'; console.error(e); }
+}
+async function carregarJogoNoComparativo(jogoId){
+  const lbl=document.getElementById('rxLbl');
+  if(!jogoId){ window.CURRENT_JOGO_ID=null; window.CURRENT_JOGO=null; if(lbl)lbl.textContent='—'; return; }
+  const g=JOGOS_PICK[jogoId]; if(!g)return;
+  window.CURRENT_JOGO_ID=jogoId; window.CURRENT_JOGO=g;
+  if(lbl)lbl.textContent='comparando...';
+  try{
+    document.getElementById('h2hOverlay').style.display='flex';
+    document.getElementById('h2hOverlay').style.flexDirection='column';
+    setH2HTeam('A', _timeDoJogo(g.timeCasa));
+    setH2HTeam('B', _timeDoJogo(g.timeFora));
+    window.SNAPSHOT_DATA=null;
+    await runH2H();
+    if(lbl)lbl.textContent='✓ pronto — revise e clique em REGISTRAR';
+  }catch(e){ if(lbl)lbl.textContent='erro: '+(e.message||e); console.error(e); }
+}
 window.addEventListener('DOMContentLoaded', ()=>{
-  const wrap = document.createElement('div');
-  wrap.id='autoBar';
-  wrap.style.cssText='position:fixed;top:10px;right:12px;z-index:9999;display:flex;align-items:center;gap:10px;background:#11141c;border:1px solid #2a2f3e;padding:8px 12px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px;color:#cfd2dc;box-shadow:0 4px 14px rgba(0,0,0,.4)';
-  wrap.style.flexWrap='wrap'; wrap.style.maxWidth='460px';
+  const wrap=document.createElement('div');
+  wrap.id='rxBar';
+  wrap.style.cssText='position:fixed;top:10px;left:12px;z-index:9999;display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:520px;background:#11141c;border:1px solid #2a2f3e;padding:8px 12px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px;color:#cfd2dc;box-shadow:0 4px 14px rgba(0,0,0,.4)';
   const inSt='background:#0e1420;color:#cddaee;border:1px solid #1b2435;border-radius:5px;padding:4px 6px;font-size:11px;font-family:inherit';
-  wrap.innerHTML = '<label style="font-size:11px;color:#8898b8">de <input type="date" id="autoDe" style="'+inSt+'"></label>'
-    + '<label style="font-size:11px;color:#8898b8">até <input type="date" id="autoAte" style="'+inSt+'"></label>'
-    + '<label style="font-size:11px;color:#8898b8;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="autoForce"> forçar (regerar)</label>'
-    + '<button id="autoBtn" onclick="gerarSnapshotsPendentes()" style="background:var(--cy);color:#000;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;font-family:inherit">⚡ Gerar</button>'
-    + '<span id="autoLbl">—</span>'
-    + '<button onclick="AUTO_STOP=true" title="parar" style="background:#3a2030;color:#f88;border:1px solid #5a2030;padding:6px 9px;border-radius:6px;cursor:pointer;font-size:11px">parar</button>';
+  wrap.innerHTML='<label style="color:#8898b8">de <input type="date" id="rxDe" style="'+inSt+'"></label>'
+    +'<label style="color:#8898b8">até <input type="date" id="rxAte" style="'+inSt+'"></label>'
+    +'<select id="rxJogo" style="'+inSt+';min-width:230px"><option>—</option></select>'
+    +'<span id="rxLbl" style="color:#8898b8">—</span>';
   document.body.appendChild(wrap);
+  document.getElementById('rxDe').addEventListener('change', montarListaJogos);
+  document.getElementById('rxAte').addEventListener('change', montarListaJogos);
+  document.getElementById('rxJogo').addEventListener('change', e=>carregarJogoNoComparativo(e.target.value));
   (async()=>{
-    try{
-      const jogos = await carregarJogosYellup();
-      const feitos = await snapshotsExistentes();
-      const pend = jogos.filter(j=>!feitos.has(j.id)).length;
-      const lbl = document.getElementById('autoLbl');
-      if(lbl) lbl.textContent = pend ? `${pend} jogo(s) sem análise` : '✓ tudo pronto';
-    }catch(e){}
+    document.getElementById('rxDe').value=new Date().toISOString().slice(0,10);
+    await montarListaJogos();
+    const jg=new URLSearchParams(location.search).get('jogo');
+    if(jg){
+      if(!JOGOS_PICK[jg]){ document.getElementById('rxDe').value=''; document.getElementById('rxAte').value=''; await montarListaJogos(); }
+      if(JOGOS_PICK[jg]){ document.getElementById('rxJogo').value=jg; carregarJogoNoComparativo(jg); }
+    }
   })();
 });
 </script>
