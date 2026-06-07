@@ -4222,7 +4222,7 @@ async function registrarSnapshot() {
 // ════════════════════════════════════════════════════════════════
 let AUTO_STOP = false;
 
-async function carregarJogosYellup(){
+async function carregarJogosYellup(dDe, dAte){
   const snap = await db.collection('jogos-admin').get();
   const jogos = [];
   snap.forEach(d=>{
@@ -4230,6 +4230,13 @@ async function carregarJogosYellup(){
     if (g.ativo === false) return;
     if (g.status === 'encerrado' || g.status === 'finalizado') return; // só pré-jogo
     if (!g.timeCasa?.apiId || !g.timeFora?.apiId) return;
+    if (dDe || dAte){
+      const ts = g.dataInicio?.toMillis ? g.dataInicio.toMillis()
+               : (g.dataInicio?.seconds ? g.dataInicio.seconds*1000 : null);
+      if (ts == null) return;
+      if (dDe && ts < dDe) return;
+      if (dAte && ts > dAte) return;
+    }
     jogos.push({ id: d.id, ...g });
   });
   return jogos;
@@ -4274,11 +4281,15 @@ async function _salvarSnapshotJogo(jogoId, jogo){
 async function gerarSnapshotsPendentes(forcar){
   const lbl = document.getElementById('autoLbl');
   const btn = document.getElementById('autoBtn');
+  if(forcar===undefined) forcar = !!document.getElementById('autoForce')?.checked;
+  const de=document.getElementById('autoDe')?.value, ate=document.getElementById('autoAte')?.value;
+  const dDe = de? new Date(de+'T00:00:00').getTime():null;
+  const dAte= ate? new Date(ate+'T23:59:59').getTime():null;
   AUTO_STOP = false;
   if(btn) btn.disabled = true;
   try{
     if(lbl) lbl.textContent = 'carregando jogos...';
-    const jogos = await carregarJogosYellup();
+    const jogos = await carregarJogosYellup(dDe, dAte);
     const feitos = forcar ? new Set() : await snapshotsExistentes();
     const pend = jogos.filter(j=> !feitos.has(j.id));
     if(!pend.length){ if(lbl) lbl.textContent = `✓ tudo pronto (${jogos.length} jogos)`; if(btn) btn.disabled=false; return; }
@@ -4315,7 +4326,14 @@ window.addEventListener('DOMContentLoaded', ()=>{
   const wrap = document.createElement('div');
   wrap.id='autoBar';
   wrap.style.cssText='position:fixed;top:10px;right:12px;z-index:9999;display:flex;align-items:center;gap:10px;background:#11141c;border:1px solid #2a2f3e;padding:8px 12px;border-radius:8px;font-family:ui-monospace,monospace;font-size:12px;color:#cfd2dc;box-shadow:0 4px 14px rgba(0,0,0,.4)';
-  wrap.innerHTML = '<button id="autoBtn" onclick="gerarSnapshotsPendentes()" style="background:var(--cy);color:#000;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;font-family:inherit">⚡ Gerar análises pendentes</button><span id="autoLbl">—</span><button onclick="AUTO_STOP=true" title="parar" style="background:#3a2030;color:#f88;border:1px solid #5a2030;padding:6px 9px;border-radius:6px;cursor:pointer;font-size:11px">parar</button>';
+  wrap.style.flexWrap='wrap'; wrap.style.maxWidth='460px';
+  const inSt='background:#0e1420;color:#cddaee;border:1px solid #1b2435;border-radius:5px;padding:4px 6px;font-size:11px;font-family:inherit';
+  wrap.innerHTML = '<label style="font-size:11px;color:#8898b8">de <input type="date" id="autoDe" style="'+inSt+'"></label>'
+    + '<label style="font-size:11px;color:#8898b8">até <input type="date" id="autoAte" style="'+inSt+'"></label>'
+    + '<label style="font-size:11px;color:#8898b8;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="autoForce"> forçar (regerar)</label>'
+    + '<button id="autoBtn" onclick="gerarSnapshotsPendentes()" style="background:var(--cy);color:#000;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;font-family:inherit">⚡ Gerar</button>'
+    + '<span id="autoLbl">—</span>'
+    + '<button onclick="AUTO_STOP=true" title="parar" style="background:#3a2030;color:#f88;border:1px solid #5a2030;padding:6px 9px;border-radius:6px;cursor:pointer;font-size:11px">parar</button>';
   document.body.appendChild(wrap);
   (async()=>{
     try{
