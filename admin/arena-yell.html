@@ -657,6 +657,30 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
 .ar-load{text-align:center;padding:60px 24px;color:var(--tx3)}
 .ar-spin{width:30px;height:30px;border:3px solid var(--s3);border-top-color:var(--cy);border-radius:50%;margin:0 auto 14px;animation:arr .8s linear infinite}
 @keyframes arr{to{transform:rotate(360deg)}}
+/* aba Ao Vivo */
+.av-scrub{margin:13px 12px;background:var(--s1);border:1px solid var(--b2,#1b2435);border-radius:14px;padding:13px 15px}
+.av-scrub .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.av-scrub .mlbl{font-family:'Rajdhani';font-weight:700;font-size:15px} .av-scrub .mlbl b{font-family:'JetBrains Mono';color:var(--cy)}
+.av-scrub .ctr{display:flex;gap:6px}
+.av-scrub button{background:var(--s3);color:var(--tx);border:1px solid var(--b2,#1b2435);border-radius:8px;padding:6px 11px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Inter'}
+.av-scrub button.live{background:var(--rd);color:#fff;border:none} .av-scrub button:disabled{opacity:.4}
+.av-scrub input[type=range]{width:100%;accent-color:var(--cy);margin-top:3px}
+.av-scrub .mini{text-align:center;font-family:'JetBrains Mono';font-size:12px;color:var(--tx2);margin-top:7px}
+.av-scrub .leg{font-family:'JetBrains Mono';font-size:9.5px;color:var(--tx3);text-align:center;margin-top:3px}
+.av-card{margin:13px 12px;background:var(--s1);border:1px solid var(--b2,#1b2435);border-radius:14px;padding:15px}
+.av-tt{font-family:'Rajdhani';font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;color:var(--tx2);margin-bottom:13px;display:flex;align-items:center;gap:7px}
+.av-tt::before{content:"";width:3px;height:13px;background:var(--cy);border-radius:2px}.av-tt.yl::before{background:#fbbf24}
+.av-ind{margin-bottom:12px}.av-ind:last-child{margin-bottom:0}
+.av-ind .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.av-ind .v{font-family:'JetBrains Mono';font-size:14px;font-weight:700;display:flex;align-items:center;gap:5px}
+.av-ind .v.a{color:var(--cy)} .av-ind .v.b{color:#ff8a3d} .av-ind .lbl{font-size:11px;color:var(--tx2);font-weight:600}
+.av-arr{font-size:11px;font-weight:800}.av-arr.up{color:var(--gn)}.av-arr.dn{color:var(--rd)}.av-arr.eq{color:var(--tx3);opacity:.5}
+.av-trk{display:flex;height:7px;border-radius:4px;overflow:hidden;background:var(--s3)}
+.av-trk .a{background:var(--cy)} .av-trk .b{background:#ff8a3d}
+.av-ev{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--b2,#1b2435)}.av-ev:last-child{border-bottom:none}
+.av-ev .min{font-family:'JetBrains Mono';font-size:12px;font-weight:700;color:var(--tx2);width:32px}
+.av-ev .ic{font-size:15px;width:18px;text-align:center} .av-ev .tx{flex:1;font-size:13px}
+.av-ev .tx .det{color:var(--tx3);font-size:11px} .av-ev .tmn{font-size:11px;color:var(--tx2);font-family:'JetBrains Mono'}
 </style>
 </head>
 <body>
@@ -681,7 +705,11 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
   </div>
   <div class="ar-body">
     <div class="ar-pane on" id="pane-raiox"><div class="ar-photo"><div id="h2hOverlay"><div class="h2h-body" id="h2hBody"><div class="ar-load"><div class="ar-spin"></div>Carregando raio-x...</div></div></div></div></div>
-    <div class="ar-pane" id="pane-vivo"><div class="ar-soon"><div class="ic">📡</div><h3>Ao Vivo</h3><p>Placar, posse, finalizações e a timeline da partida em tempo real. Vamos plugar aqui os dados que já chegam em <b>jogos</b>.</p></div></div>
+    <div class="ar-pane" id="pane-vivo">
+      <div class="av-scrub" id="avScrub"></div>
+      <div class="av-card"><div class="av-tt">Quadro do minuto</div><div id="avBoard"><div class="ar-load"><div class="ar-spin"></div>Carregando ao vivo...</div></div></div>
+      <div class="av-card"><div class="av-tt yl">Linha do tempo</div><div id="avEvs"></div></div>
+    </div>
     <div class="ar-pane" id="pane-quiz"><div class="ar-soon"><div class="ic">🎯</div><h3>Quiz</h3><p>Perguntas durante e fora da partida, valendo pontos e ranking. Próximo passo da estrutura.</p></div></div>
     <div class="ar-pane" id="pane-chat"><div class="ar-soon"><div class="ic">💬</div><h3>Chat</h3><p>A torcida conversando durante o jogo. Sala por partida.</p></div></div>
   </div>
@@ -693,7 +721,15 @@ const db=firebase.firestore();
 const auth=firebase.auth();
 const esc=t=>{const d=document.createElement('div');d.textContent=(t==null?'':t);return d.innerHTML;};
 const JID=new URLSearchParams(location.search).get('jogoId');
-let JOGO=null, RAIOX_CARREGADO=false;
+let JOGO=null, RAIOX_CARREGADO=false, VIVO_CARREGADO=false;
+let SERIE=[], SEL_MIN=null, FOLLOW=true, UNSUB_VIVO=null;
+const pv=v=>{if(v==null)return null;if(typeof v==='number')return v;const n=parseFloat(String(v).replace('%','').replace(',','.'));return isNaN(n)?null:n;};
+const INDS=[
+  {lbl:'Posse de bola',key:'Ball Possession',pct:true},{lbl:'Finalizações',key:'Total Shots'},
+  {lbl:'No gol',key:'Shots on Goal'},{lbl:'Gols esperados (xG)',key:'expected_goals',dec:true},
+  {lbl:'Passes certos',key:'Passes accurate'},{lbl:'Precisão de passe',key:'Passes %',pct:true},
+  {lbl:'Escanteios',key:'Corner Kicks'},{lbl:'Faltas',key:'Fouls'},{lbl:'Cartões',key:'Yellow Cards'}
+];
 
 function cr(nome,escudo,cor){return escudo?`<div class="cr"><img src="${esc(escudo)}" onerror="this.parentNode.innerHTML='${esc((nome||'?').charAt(0))}'"></div>`:`<div class="cr" style="background:linear-gradient(140deg,${cor||'#2a3142'},#1a2030)">${esc((nome||'?').charAt(0).toUpperCase())}</div>`;}
 
@@ -724,6 +760,53 @@ function trocarAba(t){
   document.querySelectorAll('.ar-tab').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
   document.querySelectorAll('.ar-pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+t));
   if(t==='raiox' && !RAIOX_CARREGADO) carregarRaiox();
+  if(t==='vivo' && !VIVO_CARREGADO) carregarVivo();
+}
+
+// ===== Ao Vivo (mesmo modelo do arenayell-live, dentro da arena) =====
+function preencherSerie(rows){let u=null;return rows.map(r=>{let e=r.estatisticas;if(e&&(e.casa||e.fora))u=e;else e=u;return{...r,_est:e||null};});}
+function fmtVal(raw,ind){const n=pv(raw);if(n==null)return '—';if(ind.pct)return Math.round(n)+'%';if(ind.dec)return n.toFixed(2);return String(Math.round(n));}
+function seta(c0,p0){const c=pv(c0),p=pv(p0);if(c==null||p==null||c===p)return '<span class="av-arr eq">–</span>';return c>p?'<span class="av-arr up">▲</span>':'<span class="av-arr dn">▼</span>';}
+function avBoard(){
+  const i=SERIE.findIndex(r=>r.minuto===SEL_MIN), cur=i>=0?SERIE[i]:SERIE[SERIE.length-1], prev=i>0?SERIE[i-1]:null;
+  const eC=cur?._est, eP=prev?._est, box=document.getElementById('avBoard'); if(!box)return;
+  if(!eC||(!eC.casa&&!eC.fora)){box.innerHTML='<div class="ar-soon"><div class="ic">📡</div><p>Sem estatísticas neste minuto ainda.</p></div>';}
+  else{box.innerHTML=INDS.map(ind=>{const rc=eC.casa?.[ind.key],rf=eC.fora?.[ind.key];const nc=pv(rc)||0,nf=pv(rf)||0,s=nc+nf,pa=s>0?nc/s*100:50;
+    return `<div class="av-ind"><div class="top"><span class="v a">${eP?seta(rc,eP.casa?.[ind.key]):''}${fmtVal(rc,ind)}</span><span class="lbl">${ind.lbl}</span><span class="v b">${fmtVal(rf,ind)}${eP?seta(rf,eP.fora?.[ind.key]):''}</span></div><div class="av-trk"><div class="a" style="width:${pa}%"></div><div class="b" style="width:${100-pa}%"></div></div></div>`;}).join('');}
+  avEvs(SEL_MIN);
+}
+function avEvs(ate){const el=document.getElementById('avEvs');if(!el)return;
+  const evs=(JOGO?.eventosJogo||[]).filter(e=>{const m=parseInt(String(e.tempo).split('+')[0],10);return isNaN(m)?true:(ate==null||m<=ate);});
+  if(!evs.length){el.innerHTML='<div class="ar-soon" style="padding:20px"><p>Nenhum evento até aqui.</p></div>';return;}
+  const ico=e=>{const t=(e.tipo||'').toLowerCase(),d=(e.detalhe||'').toLowerCase();if(t==='goal')return '⚽';if(d.includes('yellow'))return '🟨';if(d.includes('red'))return '🟥';if(t==='subst')return '🔁';return '•';};
+  el.innerHTML=evs.slice().reverse().map(e=>`<div class="av-ev"><span class="min">${esc(e.tempo)}'</span><span class="ic">${ico(e)}</span><span class="tx"><b>${esc(e.jogador||e.detalhe||e.tipo)}</b><br><span class="det">${esc(e.detalhe||'')}</span></span><span class="tmn">${esc(e.time||'')}</span></div>`).join('');
+}
+function avScrub(){
+  const el=document.getElementById('avScrub');if(!el)return;
+  if(!SERIE.length){el.innerHTML='<div class="ar-soon" style="padding:18px"><div class="ic">🧊</div><p>Sem histórico minuto a minuto ainda — começa a gravar quando o jogo estiver ao vivo.</p></div>';return;}
+  const mx=SERIE[SERIE.length-1].minuto; if(SEL_MIN==null||FOLLOW)SEL_MIN=mx; const fim=SEL_MIN===mx; const row=SERIE.find(r=>r.minuto===SEL_MIN);
+  el.innerHTML=`<div class="hd"><div class="mlbl">Minuto <b>${SEL_MIN}'</b></div><div class="ctr">
+    <button onclick="avPasso(-1)" ${SEL_MIN<=SERIE[0].minuto?'disabled':''}>‹</button>
+    <button onclick="avPasso(1)" ${fim?'disabled':''}>›</button>
+    <button class="${fim&&FOLLOW?'live':''}" onclick="avLive()">● ao vivo</button></div></div>
+    <input type="range" min="${SERIE[0].minuto}" max="${mx}" value="${SEL_MIN}" oninput="avSet(+this.value)">
+    <div class="mini">placar no minuto: ${row?.placarCasa??'–'} × ${row?.placarFora??'–'}</div>
+    <div class="leg">▲ subiu · ▼ caiu · – igual</div>`;
+}
+function avSet(m){SEL_MIN=m;FOLLOW=false;avScrub();avBoard();}
+function avPasso(d){const i=SERIE.findIndex(r=>r.minuto===SEL_MIN),ni=Math.max(0,Math.min(SERIE.length-1,i+d));SEL_MIN=SERIE[ni].minuto;FOLLOW=(ni===SERIE.length-1);avScrub();avBoard();}
+function avLive(){FOLLOW=true;SEL_MIN=SERIE.length?SERIE[SERIE.length-1].minuto:null;avScrub();avBoard();}
+function carregarVivo(){
+  VIVO_CARREGADO=true;
+  if(UNSUB_VIVO)return;
+  UNSUB_VIVO=db.collection('jogos').doc(JID).collection('aovivo').orderBy('minuto').onSnapshot(snap=>{
+    const rows=[];snap.forEach(x=>rows.push(x.data()));
+    SERIE=preencherSerie(rows);
+    if(!SERIE.length && JOGO?.estatisticasPartida){
+      SERIE=[{minuto:JOGO.minutosJogo||0,placarCasa:JOGO.placarCasa,placarFora:JOGO.placarFora,estatisticas:JOGO.estatisticasPartida,_est:JOGO.estatisticasPartida}];
+    }
+    avScrub();avBoard();
+  }, e=>{ console.warn('aovivo:',e.message); SERIE=[]; avScrub(); avBoard(); });
 }
 
 async function carregarRaiox(){
