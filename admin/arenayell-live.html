@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arena Yell · Ao Vivo — Yellup Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#070a10; --s1:#10141d; --s2:#161b26; --s3:#1d2330; --line:#222a39;
+  --tx:#e6e9f0; --tx2:#8b95ac; --tx3:#525c72;
+  --casa:#00e5a0; --fora:#4b8eff; --up:#00e5a0; --down:#ff4560; --eq:#525c72;
+  --live:#ff4560; --yl:#ffb800;
+  --fD:'Rajdhani',sans-serif; --fM:'JetBrains Mono',monospace; --fB:'Inter',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--fB);background:var(--bg);color:var(--tx);min-height:100vh}
+.bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;padding:12px 20px;background:rgba(7,10,16,.94);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.bar .lg{width:30px;height:30px;background:var(--casa);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#042;font-family:var(--fD)}
+.bar h1{font-family:var(--fD);font-size:16px;font-weight:700;letter-spacing:.4px}
+.bar h1 span{color:var(--tx3);font-weight:500;font-size:11px;margin-left:6px;font-family:var(--fB)}
+.bar input,.bar select{background:var(--s2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;font-family:var(--fB);outline:none}
+.bar select{min-width:230px}
+.bar .sp{margin-left:auto}
+.bar a{color:var(--tx2);text-decoration:none;font-size:12.5px;font-weight:600;border:1px solid var(--line);padding:7px 11px;border-radius:8px}
+
+.wrap{max-width:740px;margin:0 auto;padding:18px 16px 70px}
+
+/* header da partida */
+.mh{background:var(--s1);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+.mh .liga{text-align:center;font-family:var(--fM);font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:1.4px;margin-bottom:12px}
+.mh .row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px}
+.mh .tm{display:flex;flex-direction:column;align-items:center;gap:8px}
+.mh .cr{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-family:var(--fD);font-size:21px;font-weight:700;color:#fff;overflow:hidden;border:1px solid var(--line)}
+.mh .cr img{width:100%;height:100%;object-fit:contain;padding:5px}
+.mh .nm{font-family:var(--fD);font-size:15px;font-weight:600;text-align:center;max-width:130px;line-height:1.1}
+.mh .mid{text-align:center;min-width:90px}
+.mh .sc{font-family:var(--fM);font-size:30px;font-weight:800;letter-spacing:1px}
+.mh .vs{font-family:var(--fD);font-size:16px;color:var(--tx3);font-weight:700}
+.mh .stt{font-family:var(--fM);font-size:10px;font-weight:700;margin-top:4px;padding:2px 9px;border-radius:999px;display:inline-block}
+.mh .stt.live{color:var(--live);background:rgba(255,69,96,.13)}
+.mh .stt.sched{color:var(--fora);background:rgba(75,142,255,.13)}
+.mh .stt.done{color:var(--casa);background:rgba(0,229,160,.13)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block;margin-right:4px;animation:pulse 1.3s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* scrubber de minuto */
+.scrub{background:var(--s1);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.scrub .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.scrub .mlbl{font-family:var(--fD);font-weight:700;font-size:15px;letter-spacing:.5px}
+.scrub .mlbl b{font-family:var(--fM);color:var(--casa)}
+.scrub .ctr{display:flex;gap:6px}
+.scrub button{background:var(--s3);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:6px 11px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--fB)}
+.scrub button.live{background:var(--live);color:#fff;border:none}
+.scrub button:disabled{opacity:.4;cursor:default}
+.scrub input[type=range]{width:100%;accent-color:var(--casa);margin-top:4px}
+.scrub .sc-mini{text-align:center;font-family:var(--fM);font-size:13px;color:var(--tx2);margin-top:8px}
+
+/* board de stats */
+.board{background:var(--s1);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.board .tt{font-family:var(--fD);font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;color:var(--tx2);margin-bottom:14px;display:flex;align-items:center;gap:7px}
+.board .tt::before{content:"";width:3px;height:13px;background:var(--casa);border-radius:2px}
+.ind{margin-bottom:13px}.ind:last-child{margin-bottom:0}
+.ind .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.ind .v{font-family:var(--fM);font-size:14px;font-weight:700;display:flex;align-items:center;gap:5px}
+.ind .v.casa{color:var(--casa)} .ind .v.fora{color:var(--fora)}
+.ind .lbl{font-size:11px;color:var(--tx2);font-weight:600}
+.arr{font-family:var(--fM);font-size:11px;font-weight:800}
+.arr.up{color:var(--up)} .arr.down{color:var(--down)} .arr.eq{color:var(--eq);opacity:.5}
+.trk{display:flex;height:7px;border-radius:4px;overflow:hidden;background:var(--s3)}
+.trk .a{background:var(--casa)} .trk .b{background:var(--fora)}
+
+/* eventos */
+.evs{background:var(--s1);border:1px solid var(--line);border-radius:14px;padding:16px}
+.evs .tt{font-family:var(--fD);font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;color:var(--tx2);margin-bottom:14px;display:flex;align-items:center;gap:7px}
+.evs .tt::before{content:"";width:3px;height:13px;background:var(--yl);border-radius:2px}
+.ev{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid var(--line)}
+.ev:last-child{border-bottom:none}
+.ev .min{font-family:var(--fM);font-size:12px;font-weight:700;color:var(--tx2);width:34px;flex-shrink:0}
+.ev .ic{font-size:15px;width:20px;text-align:center}
+.ev .txt{flex:1;font-size:13px}
+.ev .txt .who{font-weight:600} .ev .txt .det{color:var(--tx3);font-size:11px}
+.ev .tmn{font-size:11px;color:var(--tx2);font-family:var(--fM)}
+
+.state{text-align:center;padding:50px 24px;color:var(--tx3)}
+.state .ic{font-size:34px;margin-bottom:12px}
+.state p{font-size:13px;line-height:1.5;max-width:340px;margin:0 auto}
+.spin{width:28px;height:28px;border:3px solid var(--s3);border-top-color:var(--casa);border-radius:50%;margin:0 auto 14px;animation:rot .8s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.legend{font-family:var(--fM);font-size:10px;color:var(--tx3);text-align:center;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="lg">Y</div>
+  <h1>Jogo ao Vivo<span>organizado · validação</span></h1>
+  <input type="date" id="fData" onchange="montarLista()" title="Filtrar por data">
+  <select id="sel" onchange="abrir(this.value)"><option>Carregando...</option></select>
+  <span class="sp"></span>
+  <a href="dashboard.html">← Admin</a>
+</div>
+<div class="wrap" id="wrap">
+  <div class="state"><div class="spin"></div><p>Selecione um jogo.</p></div>
+</div>
+
+<script>
+firebase.initializeApp({apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",authDomain:"painel-yellup.firebaseapp.com",projectId:"painel-yellup",storageBucket:"painel-yellup.appspot.com",messagingSenderId:"608347210297",appId:"1:608347210297:web:75092713724e617c7203e8"});
+const db=firebase.firestore(), auth=firebase.auth();
+const esc=t=>{const d=document.createElement('div');d.textContent=(t==null?'':t);return d.innerHTML;};
+const pv=v=>{ if(v==null)return null; if(typeof v==='number')return v; const n=parseFloat(String(v).replace('%','').replace(',','.')); return isNaN(n)?null:n; };
+
+let JOGOS={}, UNSUB=[], JOGO=null, SERIE=[], SEL_MIN=null, AO_VIVO_FOLLOW=true;
+
+// indicadores (sem fórmulas — só os dados crus da API)
+const INDS=[
+  {lbl:'Posse de bola', key:'Ball Possession', pct:true},
+  {lbl:'Finalizações', key:'Total Shots'},
+  {lbl:'No gol', key:'Shots on Goal'},
+  {lbl:'Gols esperados (xG)', key:'expected_goals', dec:true},
+  {lbl:'Passes certos', key:'Passes accurate'},
+  {lbl:'Precisão de passe', key:'Passes %', pct:true},
+  {lbl:'Escanteios', key:'Corner Kicks'},
+  {lbl:'Faltas', key:'Fouls'},
+  {lbl:'Cartões amarelos', key:'Yellow Cards'}
+];
+
+function tsOf(g){return g.dataInicio?.toMillis?g.dataInicio.toMillis():(g.dataInicio?.seconds?g.dataInicio.seconds*1000:null);}
+function cr(n,e,c){return e?`<div class="cr"><img src="${esc(e)}" onerror="this.parentNode.innerHTML='${esc((n||'?').charAt(0))}'"></div>`:`<div class="cr" style="background:linear-gradient(140deg,${c||'#2a3142'},#1a2030)">${esc((n||'?').charAt(0).toUpperCase())}</div>`;}
+
+// ---- série minuto a minuto: preenche stats faltantes com a última conhecida ----
+function preencherSerie(rows){
+  let ultEst=null;
+  return rows.map(r=>{
+    let est=r.estatisticas;
+    if(est && (est.casa||est.fora)) ultEst=est; else est=ultEst;
+    return {...r, _est:est||null};
+  });
+}
+
+function fmtVal(raw, ind){
+  const n=pv(raw);
+  if(n==null) return '—';
+  if(ind.pct) return Math.round(n)+'%';
+  if(ind.dec) return n.toFixed(2);
+  return String(Math.round(n));
+}
+function seta(curRaw, prevRaw){
+  const c=pv(curRaw), p=pv(prevRaw);
+  if(c==null||p==null||c===p) return '<span class="arr eq">–</span>';
+  return c>p ? '<span class="arr up">▲</span>' : '<span class="arr down">▼</span>';
+}
+
+function renderBoard(){
+  const idx=SERIE.findIndex(r=>r.minuto===SEL_MIN);
+  const cur=idx>=0?SERIE[idx]:(SERIE[SERIE.length-1]||null);
+  const prev=idx>0?SERIE[idx-1]:null;
+  const estC=cur?._est, estP=prev?._est;
+
+  let rows;
+  if(!estC || (!estC.casa && !estC.fora)){
+    rows=`<div class="state"><div class="ic">📡</div><p>Sem estatísticas neste minuto ainda. Elas aparecem conforme a função agendada grava (no jogo ao vivo).</p></div>`;
+  }else{
+    rows=INDS.map(ind=>{
+      const rc=estC.casa?.[ind.key], rf=estC.fora?.[ind.key];
+      const nc=pv(rc)||0, nf=pv(rf)||0, sum=nc+nf;
+      const pa=sum>0?nc/sum*100:50;
+      const sc=estP?seta(rc, estP.casa?.[ind.key]):'';
+      const sf=estP?seta(rf, estP.fora?.[ind.key]):'';
+      return `<div class="ind">
+        <div class="top">
+          <span class="v casa">${sc}${fmtVal(rc,ind)}</span>
+          <span class="lbl">${ind.lbl}</span>
+          <span class="v fora">${fmtVal(rf,ind)}${sf}</span>
+        </div>
+        <div class="trk"><div class="a" style="width:${pa}%"></div><div class="b" style="width:${100-pa}%"></div></div>
+      </div>`;
+    }).join('');
+  }
+  const el=document.getElementById('boardBody'); if(el) el.innerHTML=rows;
+
+  // eventos até o minuto selecionado
+  renderEventos(SEL_MIN);
+}
+
+function renderEventos(ateMin){
+  const el=document.getElementById('evsBody'); if(!el) return;
+  const evs=(JOGO?.eventosJogo||[]).filter(e=>{
+    const m=parseInt(String(e.tempo).split('+')[0],10); return isNaN(m)?true:(ateMin==null||m<=ateMin);
+  });
+  if(!evs.length){ el.innerHTML='<div class="state" style="padding:24px"><p>Nenhum evento até aqui.</p></div>'; return; }
+  const ico=e=>{const t=(e.tipo||'').toLowerCase(),d=(e.detalhe||'').toLowerCase();
+    if(t==='goal')return '⚽'; if(d.includes('yellow'))return '🟨'; if(d.includes('red'))return '🟥'; if(t==='subst')return '🔁'; if(t==='var')return '📺'; return '•';};
+  el.innerHTML=evs.slice().reverse().map(e=>`<div class="ev">
+    <span class="min">${esc(e.tempo)}'</span>
+    <span class="ic">${ico(e)}</span>
+    <span class="txt"><span class="who">${esc(e.jogador||e.detalhe||e.tipo)}</span>${e.assistencia?` <span class="det">(assist. ${esc(e.assistencia)})</span>`:''}<br><span class="det">${esc(e.detalhe||'')}</span></span>
+    <span class="tmn">${esc(e.time||'')}</span>
+  </div>`).join('');
+}
+
+function renderHeader(){
+  const j=JOGO; if(!j) return;
+  const isLive=j.status==='ao_vivo', isDone=j.status==='finalizado'||j.status==='encerrado';
+  const temP=(j.placarCasa!=null&&j.placarFora!=null);
+  const mid=temP?`<div class="sc">${j.placarCasa} <span style="color:var(--tx3)">×</span> ${j.placarFora}</div>`:`<div class="vs">VS</div>`;
+  const stt=isLive?`<div class="stt live"><span class="dot"></span>AO VIVO ${j.minutosJogo??''}'</div>`
+    :isDone?`<div class="stt done">ENCERRADO</div>`:`<div class="stt sched">AGENDADO</div>`;
+  const el=document.getElementById('mhRow');
+  if(el) el.innerHTML=`<div class="tm">${cr(j.timeCasaNome,j.timeCasaEscudo,j.timeCasaPrimaria)}<div class="nm">${esc(j.timeCasaNome||'Casa')}</div></div>
+    <div class="mid">${mid}${stt}</div>
+    <div class="tm">${cr(j.timeForaNome,j.timeForaEscudo,j.timeForaPrimaria)}<div class="nm">${esc(j.timeForaNome||'Fora')}</div></div>`;
+  const lg=document.getElementById('mhLiga'); if(lg) lg.textContent=j.liga||'Partida';
+}
+
+function renderScrub(){
+  const el=document.getElementById('scrubBox'); if(!el) return;
+  if(!SERIE.length){
+    el.innerHTML=`<div class="state" style="padding:20px"><div class="ic">🧊</div><p>Sem histórico minuto a minuto ainda.<br>Ele começa a gravar quando a função agendada rodar num jogo ao vivo (após adicionar o trecho da foto do minuto).</p></div>`;
+    return;
+  }
+  const maxMin=SERIE[SERIE.length-1].minuto;
+  if(SEL_MIN==null||AO_VIVO_FOLLOW) SEL_MIN=maxMin;
+  const noFim=SEL_MIN===maxMin;
+  el.innerHTML=`
+    <div class="hd">
+      <div class="mlbl">Minuto <b>${SEL_MIN}'</b></div>
+      <div class="ctr">
+        <button onclick="passo(-1)" ${SEL_MIN<=SERIE[0].minuto?'disabled':''}>‹</button>
+        <button onclick="passo(1)" ${noFim?'disabled':''}>›</button>
+        <button class="${noFim&&AO_VIVO_FOLLOW?'live':''}" onclick="irAoVivo()">● ao vivo</button>
+      </div>
+    </div>
+    <input type="range" min="${SERIE[0].minuto}" max="${maxMin}" value="${SEL_MIN}" oninput="setMin(+this.value)">
+    <div class="sc-mini">placar no minuto: ${minRow(SEL_MIN)?.placarCasa ?? '–'} × ${minRow(SEL_MIN)?.placarFora ?? '–'}</div>
+    <div class="legend">▲ subiu desde o minuto anterior · ▼ caiu · – igual</div>`;
+}
+function minRow(m){return SERIE.find(r=>r.minuto===m);}
+function setMin(m){ SEL_MIN=m; AO_VIVO_FOLLOW=false; renderScrub(); renderBoard(); }
+function passo(d){
+  const i=SERIE.findIndex(r=>r.minuto===SEL_MIN);
+  const ni=Math.max(0,Math.min(SERIE.length-1,i+d));
+  SEL_MIN=SERIE[ni].minuto; AO_VIVO_FOLLOW=(ni===SERIE.length-1); renderScrub(); renderBoard();
+}
+function irAoVivo(){ AO_VIVO_FOLLOW=true; SEL_MIN=SERIE.length?SERIE[SERIE.length-1].minuto:null; renderScrub(); renderBoard(); }
+
+function montarTela(){
+  document.getElementById('wrap').innerHTML=`
+    <div class="mh"><div class="liga" id="mhLiga">—</div><div class="row" id="mhRow"></div></div>
+    <div class="scrub" id="scrubBox"></div>
+    <div class="board"><div class="tt">Quadro do minuto</div><div id="boardBody"></div></div>
+    <div class="evs"><div class="tt">Linha do tempo</div><div id="evsBody"></div></div>`;
+}
+
+function limparSubs(){ UNSUB.forEach(u=>{try{u();}catch(e){}}); UNSUB=[]; }
+
+function abrir(id){
+  if(!id) return;
+  limparSubs(); SERIE=[]; SEL_MIN=null; AO_VIVO_FOLLOW=true; JOGO=null;
+  montarTela();
+  // jogo (header + estado atual) — ao vivo
+  UNSUB.push(db.collection('jogos').doc(id).onSnapshot(d=>{
+    if(d.exists){ JOGO={id,...d.data()}; renderHeader(); if(!SERIE.length) renderBoardFromCurrent(); }
+  }, e=>console.error(e)));
+  // série minuto a minuto — ao vivo
+  UNSUB.push(db.collection('jogos').doc(id).collection('aovivo').orderBy('minuto').onSnapshot(snap=>{
+    const rows=[]; snap.forEach(x=>rows.push(x.data()));
+    SERIE=preencherSerie(rows);
+    renderScrub(); renderBoard();
+  }, e=>{ console.warn('aovivo:',e.message); renderScrub(); }));
+}
+
+// fallback: se ainda não há série, mostra o estado atual do jogos como "minuto atual"
+function renderBoardFromCurrent(){
+  if(SERIE.length) return;
+  const j=JOGO; if(!j) return;
+  if(j.estatisticasPartida){
+    SERIE=[{minuto:j.minutosJogo||0, placarCasa:j.placarCasa, placarFora:j.placarFora, estatisticas:j.estatisticasPartida, _est:j.estatisticasPartida}];
+    SEL_MIN=SERIE[0].minuto;
+  }
+  renderScrub(); renderBoard();
+}
+
+async function montarLista(){
+  const de=document.getElementById('fData').value;
+  const sel=document.getElementById('sel');
+  try{
+    const snap=await db.collection('jogos').get();
+    let arr=[];
+    snap.forEach(d=>{const g=d.data(); if(g.origem!=='jogos-admin')return; arr.push({id:d.id,...g});});
+    if(de){ const d0=new Date(de+'T00:00:00').getTime(), d1=new Date(de+'T23:59:59').getTime();
+      arr=arr.filter(g=>{const t=tsOf(g);return t!=null&&t>=d0&&t<=d1;}); }
+    else { const h=new Date(); h.setHours(0,0,0,0); arr=arr.filter(g=>{const t=tsOf(g);return t==null||t>=h.getTime();}); }
+    arr.sort((a,b)=>(tsOf(a)||0)-(tsOf(b)||0));
+    arr.forEach(g=>JOGOS[g.id]=g);
+    if(!arr.length){ sel.innerHTML='<option value="">— nenhum jogo —</option>'; return; }
+    const live=arr.filter(g=>g.status==='ao_vivo');
+    sel.innerHTML='<option value="">— escolha —</option>'+arr.map(g=>{
+      const t=tsOf(g), dia=t?new Date(t).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'--';
+      const liveTag=g.status==='ao_vivo'?'🔴 ':'';
+      return `<option value="${g.id}">${liveTag}${dia} · ${esc(g.timeCasaNome||'A')} × ${esc(g.timeForaNome||'B')}</option>`;
+    }).join('');
+    // auto-abre: jogoId da URL > primeiro ao vivo
+    const u=new URLSearchParams(location.search).get('jogoId');
+    if(u&&JOGOS[u]){ sel.value=u; abrir(u); }
+    else if(live.length){ sel.value=live[0].id; abrir(live[0].id); }
+  }catch(e){ sel.innerHTML='<option>erro</option>'; console.error(e); }
+}
+
+auth.onAuthStateChanged(u=>{ if(!u||u.email!=='admin@yellup.com'){location.href='login.html';return;} montarLista(); });
+</script>
+</body>
+</html>
