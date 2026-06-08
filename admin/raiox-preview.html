@@ -669,7 +669,12 @@ body{background:#05070d;font-family:'Inter',sans-serif}
   <div class="pv-top">
     <div class="lg">Y</div>
     <h1>Jogos da Yellup<span>raio-x · registre e veja a foto</span></h1>
-    <div class="rt"><span class="stat" id="stat">—</span><a href="dashboard.html">← Admin</a></div>
+    <div class="rt">
+      <input type="date" id="pickDate" onchange="SEL_DATE=this.value;renderBoard()" title="Ver jogos de uma data (inclui encerrados)" style="background:var(--s2);color:var(--tx);border:1px solid var(--b2,#1b2435);border-radius:9px;padding:7px 10px;font-size:12px;font-family:'Inter'">
+      <button onclick="SEL_DATE='';document.getElementById('pickDate').value='';renderBoard()" title="Voltar aos próximos jogos">Próximos</button>
+      <span class="stat" id="stat">—</span>
+      <a href="dashboard.html">← Admin</a>
+    </div>
   </div>
   <div class="board" id="board"><div class="empty"><div class="pv-spin"></div>Carregando jogos...</div></div>
 </div>
@@ -687,7 +692,7 @@ body{background:#05070d;font-family:'Inter',sans-serif}
 firebase.initializeApp({apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",authDomain:"painel-yellup.firebaseapp.com",projectId:"painel-yellup",storageBucket:"painel-yellup.appspot.com",messagingSenderId:"608347210297",appId:"1:608347210297:web:75092713724e617c7203e8"});
 const db=firebase.firestore(), auth=firebase.auth();
 const esc=t=>{const d=document.createElement('div');d.textContent=(t==null?'':t);return d.innerHTML;};
-let JOGOS={}, SNAPSET={}; // SNAPSET[id]={tem:true, html:true}
+let JOGOS={}, SNAPSET={}, SEL_DATE=''; // SNAPSET[id]={tem:true, html:true}
 
 function tsOf(g){return g.dataInicio?.toMillis?g.dataInicio.toMillis():(g.dataInicio?.seconds?g.dataInicio.seconds*1000:null);}
 function diaKey(ts){if(!ts)return 'sem';const d=new Date(ts);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -718,12 +723,22 @@ function card(g){
 
 function renderBoard(){
   const lista=Object.values(JOGOS);
-  const inicioHoje=new Date(); inicioHoje.setHours(0,0,0,0);
-  // mostra de hoje em diante (sem poluir com jogos velhos)
-  const vis=lista.filter(g=>{const t=tsOf(g); return t==null || t>=inicioHoje.getTime();});
+  let vis;
+  if(SEL_DATE){
+    const d0=new Date(SEL_DATE+'T00:00:00').getTime(), d1=new Date(SEL_DATE+'T23:59:59').getTime();
+    vis=lista.filter(g=>{const t=tsOf(g);return t!=null && t>=d0 && t<=d1;});
+  }else{
+    const inicioHoje=new Date(); inicioHoje.setHours(0,0,0,0);
+    vis=lista.filter(g=>{const t=tsOf(g); return t==null || t>=inicioHoje.getTime();});
+  }
   vis.sort((a,b)=>(tsOf(a)||9e15)-(tsOf(b)||9e15));
   const board=document.getElementById('board');
-  if(!vis.length){board.innerHTML='<div class="empty"><div class="ic">⚽</div>Nenhum jogo de hoje em diante. Cadastre jogos no admin.</div>';return;}
+  if(!vis.length){
+    board.innerHTML = SEL_DATE
+      ? '<div class="empty"><div class="ic">📅</div>Nenhum jogo cadastrado nesse dia.</div>'
+      : '<div class="empty"><div class="ic">⚽</div>Nenhum jogo de hoje em diante.<br><span style="font-size:12px">Use o calendário pra ver dias anteriores.</span></div>';
+    return;
+  }
   const grupos={};
   vis.forEach(g=>{const k=diaKey(tsOf(g));(grupos[k]=grupos[k]||[]).push(g);});
   const ordem=Object.keys(grupos).sort();
