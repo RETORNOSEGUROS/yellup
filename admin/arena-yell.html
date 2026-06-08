@@ -650,6 +650,19 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
 .ar-photo .h2h-body{height:auto!important;overflow-x:auto!important;max-width:100%!important;width:100%!important;margin:0!important;padding:14px 12px 60px!important}
 .ar-photo #h2hBody .tpane{display:block!important;height:auto!important;overflow:visible!important}
 .ar-photo #h2hBody .forte-wrap,.ar-photo #h2hBody .forte-left,.ar-photo #h2hBody .forte-right,.ar-photo #h2hBody .tw{height:auto!important;overflow:visible!important}
+/* >>> ajuste mobile dos gráficos da foto (evita sobreposição) <<< */
+.ar-photo #h2hBody .forte-wrap{grid-template-columns:1fr!important}
+.ar-photo #h2hBody .h2h-section{overflow-x:auto!important;-webkit-overflow-scrolling:touch}
+.ar-photo #h2hBody .chart-halves{overflow-x:auto!important}
+.ar-photo #h2hBody .half-block{min-width:300px!important}
+.ar-photo #h2hBody .int-col{min-width:26px!important;flex:0 0 auto!important}
+.ar-photo #h2hBody .di-cols{min-width:max-content!important}
+.ar-photo #h2hBody .di-col{min-width:28px!important;flex:0 0 auto!important}
+.ar-photo #h2hBody .sw-cols{overflow-x:visible!important}
+.ar-photo #h2hBody .chart-summary,.ar-photo #h2hBody .frd-grid{grid-template-columns:repeat(2,1fr)!important}
+.ar-photo #h2hBody .bb-grid,.ar-photo #h2hBody .bb-row{grid-template-columns:110px 1fr 44px!important}
+/* botão flutuante do card */
+#camFab{display:none;position:fixed;right:16px;bottom:18px;z-index:60;background:var(--cy);color:#04121a;border:none;border-radius:50%;width:52px;height:52px;font-size:22px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.5)}
 .ar-soon{text-align:center;padding:60px 28px;color:var(--tx3)}
 .ar-soon .ic{font-size:40px;margin-bottom:14px}
 .ar-soon h3{font-family:'Rajdhani';font-size:18px;font-weight:700;color:var(--tx);margin-bottom:8px;letter-spacing:.5px}
@@ -763,6 +776,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
   </div>
 </div>
 
+<button id="camFab" onclick="abrirCard()" title="Gerar card pro Instagram">📷</button>
 <div id="shareOv"><button class="close" onclick="fecharCard()">✕</button><div class="share-hint">📸 Tire um print deste card para postar no feed ou story</div><div id="shotBox"></div></div>
 <script>
 firebase.initializeApp({apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",authDomain:"painel-yellup.firebaseapp.com",projectId:"painel-yellup",storageBucket:"painel-yellup.appspot.com",messagingSenderId:"608347210297",appId:"1:608347210297:web:75092713724e617c7203e8"});
@@ -810,6 +824,7 @@ function trocarAba(t){
   document.querySelectorAll('.ar-pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+t));
   if(t==='raiox' && !RAIOX_CARREGADO) carregarRaiox();
   if(t==='vivo' && !VIVO_CARREGADO) carregarVivo();
+  atualizarFab();
 }
 
 // ===== Ao Vivo (mesmo modelo do arenayell-live, dentro da arena) =====
@@ -935,13 +950,20 @@ async function carregarRaiox(){
     let d=await db.collection('raiox-snapshots').doc(JID).get(); if(d.exists)data=d.data();
     if(!data){const q=await db.collection('raiox-snapshots').where('apiFixtureId','==',JID).limit(1).get();if(!q.empty)data=q.docs[0].data();}
     if(!data&&JOGO?.apiFootballId){const q=await db.collection('raiox-snapshots').where('apiFixtureId','==',JOGO.apiFootballId).limit(1).get();if(!q.empty)data=q.docs[0].data();}
-    if(!data){
+    if(!data || !data.renderHTML){
       box.innerHTML='<div class="ar-soon"><div class="ic">🧊</div><h3>Raio-X em breve</h3><p>A análise pré-jogo desta partida ainda não foi registrada.</p></div>';
       return;
     }
     SNAP=data;
-    box.innerHTML=renderRaioxAmigavel(data);
+    box.innerHTML=data.renderHTML;        // foto exata do admin
+    atualizarFab();
   }catch(e){ box.innerHTML=`<div class="ar-soon"><div class="ic">⚠️</div><h3>Ops</h3><p>${esc(e.message)}</p></div>`; }
+}
+function atualizarFab(){
+  const fab=document.getElementById('camFab'); if(!fab)return;
+  const raioxAtiva=document.getElementById('pane-raiox')?.classList.contains('on');
+  fab.style.display=(raioxAtiva && SNAP)?'flex':'none';
+  fab.style.alignItems='center'; fab.style.justifyContent='center';
 }
 
 async function init(){
