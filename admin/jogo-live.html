@@ -1284,6 +1284,30 @@ async function _salvarSnapshotFirestore(min, row) {
       .doc(docId)
       .set(snapDoc, { merge: true }); // merge: backend tem prioridade nos campos que já existem
     console.log(`💾 Snapshot min ${min} salvo pelo navegador`);
+
+    // 🟢 CÓPIA LIMPA p/ a ARENA (usuário) — jogos/{doc}/aovivo/{min}
+    // Reusa o DADOS que já temos (zero chamada nova de API).
+    try {
+      const jogoId = DOC_ID || FIX_ID;
+      if (jogoId) {
+        const est = {
+          casa: { posse:h.posse??null, shots:h.shots??null, shotsOn:h.shotsOn??null, xg:h.xg??null, passes:h.passes??null, corners:h.corners??null, fouls:h.fouls??null, ap:h.ap??null },
+          fora: { posse:a.posse??null, shots:a.shots??null, shotsOn:a.shotsOn??null, xg:a.xg??null, passes:a.passes??null, corners:a.corners??null, fouls:a.fouls??null, ap:a.ap??null },
+        };
+        const ref = db.collection('jogos').doc(String(jogoId));
+        const tsNow = firebase.firestore.FieldValue.serverTimestamp();
+        await ref.collection('aovivo').doc(docId).set({
+          minuto: min, ts: tsNow,
+          placarCasa: snapDoc.placarCasa, placarFora: snapDoc.placarFora,
+          estatisticas: est,
+        }, { merge: true });
+        await ref.set({
+          placarCasa: snapDoc.placarCasa, placarFora: snapDoc.placarFora,
+          minutosJogo: min, estatisticasPartida: est,
+          eventosJogo: snapDoc.eventos, apiUltimaAtualizacao: tsNow,
+        }, { merge: true });
+      }
+    } catch (e2) { console.warn('aovivo arena:', e2.message); }
   } catch(e) {
     console.warn('_salvarSnapshotFirestore:', e.message);
   }
