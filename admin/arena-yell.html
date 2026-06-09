@@ -863,14 +863,30 @@ function avLive(){FOLLOW=true;SEL_MIN=SERIE.length?SERIE[SERIE.length-1].minuto:
 function carregarVivo(){
   VIVO_CARREGADO=true;
   if(UNSUB_VIVO)return;
-  UNSUB_VIVO=db.collection('jogos').doc(JID).collection('aovivo').orderBy('minuto').onSnapshot(snap=>{
-    const rows=[];snap.forEach(x=>rows.push(x.data()));
+  // Fonte: o que o servidor (schedulePlacarMinuto) já grava sozinho, sem aba aberta.
+  // jogo-snapshots/{fixtureId}/minutos/{docId} — docId "045","045+02" = minuto real.
+  const sid = String((JOGO&&JOGO.apiFootballId)||JID);
+  const mapEst=d=>({
+    casa:{posse:d.posseCasa, shots:d.chutesTotaisCasa, shotsOn:d.chutesAlvoCasa, xg:d.xgCasa, passes:d.passesTotaisCasa, corners:d.escanteiosCasa, fouls:d.faltasCasa, ap:d.ataquesPerigososCasa},
+    fora:{posse:d.posseFora, shots:d.chutesTotaisFora, shotsOn:d.chutesAlvoFora, xg:d.xgFora, passes:d.passesTotaisFora, corners:d.escanteiosFora, fouls:d.faltasFora, ap:d.ataquesPerigososFora}
+  });
+  UNSUB_VIVO=db.collection('jogo-snapshots').doc(sid).collection('minutos')
+    .orderBy(firebase.firestore.FieldPath.documentId()).onSnapshot(snap=>{
+    const byMin={};
+    snap.forEach(x=>{
+      const d=x.data(), id=String(x.id);
+      const base=parseInt(id.replace(/\+.*/,''))||0;
+      const extra=id.indexOf('+')>=0?(parseInt(id.split('+')[1])||0):0;
+      byMin[base]={minuto:base, minutoExibicao: extra>0?`${base}+${extra}`:String(base),
+        placarCasa:d.placarCasa, placarFora:d.placarFora, estatisticas:mapEst(d)};
+    });
+    const rows=Object.values(byMin).sort((a,b)=>a.minuto-b.minuto);
     SERIE=preencherSerie(rows);
     if(!SERIE.length && JOGO?.estatisticasPartida){
       SERIE=[{minuto:JOGO.minutosJogo||0,placarCasa:JOGO.placarCasa,placarFora:JOGO.placarFora,estatisticas:JOGO.estatisticasPartida,_est:JOGO.estatisticasPartida}];
     }
     avScrub();avBoard();
-  }, e=>{ console.warn('aovivo:',e.message); SERIE=[]; avScrub(); avBoard(); });
+  }, e=>{ console.warn('jogo-snapshots:',e.message); SERIE=[]; avScrub(); avBoard(); });
 }
 
 let SNAP=null;
