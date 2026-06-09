@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Robô da Arena · Yellup</title>
+<style>
+  :root{ --bg:#0a0e16; --pan:#111826; --pan2:#0d1420; --bd:#1e2a3d; --tx:#e8eef7; --t2:#9fb0c6; --t3:#5d6e85; --acc:#22d3ee; --yel:#f0b429; --grn:#34d399; --red:#f87171; }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--bg);color:var(--tx);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:18px;max-width:760px;margin:0 auto}
+  h1{font-size:18px;letter-spacing:.5px;margin:0 0 2px;display:flex;align-items:center;gap:8px}
+  .sub{color:var(--t3);font-size:12px;margin-bottom:16px}
+  .bar{display:flex;align-items:center;gap:12px;background:var(--pan);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;margin-bottom:14px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--t3);flex:none}
+  .dot.on{background:var(--grn);box-shadow:0 0 10px var(--grn);animation:pulse 1.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .barinfo{flex:1;min-width:0}
+  .barinfo b{font-size:13px}
+  .barinfo span{color:var(--t2);font-size:12px}
+  button{background:var(--acc);color:#04212a;border:0;border-radius:10px;padding:9px 16px;font-weight:700;cursor:pointer;font-size:13px}
+  button.off{background:var(--red);color:#2a0707}
+  .cprog{height:3px;background:var(--bd);border-radius:3px;overflow:hidden;margin-top:8px}
+  .cprog i{display:block;height:100%;width:0;background:var(--acc)}
+  .note{background:var(--pan2);border:1px dashed var(--bd);border-radius:12px;padding:10px 14px;color:var(--t2);font-size:12.5px;margin-bottom:16px}
+  .note b{color:var(--yel)}
+  .game{background:var(--pan);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+  .game img{width:26px;height:26px;border-radius:6px;background:#fff1;object-fit:contain;flex:none}
+  .gnames{flex:1;min-width:0}
+  .gnames b{font-size:13.5px}
+  .gnames .liga{color:var(--t3);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .gmin{text-align:right;flex:none}
+  .gmin .m{font-size:20px;font-weight:800;color:var(--acc)}
+  .gmin .pl{font-size:12px;color:var(--t2)}
+  .gst{font-size:11px;margin-top:2px}
+  .gst.ok{color:var(--grn)} .gst.err{color:var(--red)} .gst.wait{color:var(--t3)}
+  .empty{color:var(--t3);text-align:center;padding:30px;border:1px dashed var(--bd);border-radius:14px}
+  #log{background:#060a11;border:1px solid var(--bd);border-radius:12px;padding:10px 12px;font:11.5px/1.6 ui-monospace,Menlo,monospace;color:var(--t2);max-height:200px;overflow:auto;margin-top:14px;white-space:pre-wrap}
+  #log .t{color:var(--t3)} #log .g{color:var(--grn)} #log .r{color:var(--red)} #log .y{color:var(--yel)}
+</style>
+</head>
+<body>
+  <h1>🤖 Robô da Arena <span style="font-size:11px;color:var(--t3);font-weight:400">Yellup</span></h1>
+  <div class="sub">Tira uma foto das estatísticas a cada minuto e alimenta o arena-yell em tempo real.</div>
+
+  <div class="bar">
+    <div class="dot" id="dot"></div>
+    <div class="barinfo">
+      <b id="bstate">Parado</b><br>
+      <span id="binfo">—</span>
+      <div class="cprog"><i id="cprog"></i></div>
+    </div>
+    <button id="btn">Iniciar</button>
+  </div>
+
+  <div class="note">Mantenha <b>esta aba aberta</b> durante os jogos — pode ser num celular ou PC separado. Não precisa abrir a tela de cada jogo; este robô cuida de <b>todos os ao vivo</b> de uma vez.</div>
+
+  <div id="games"><div class="empty">Aguardando o primeiro ciclo…</div></div>
+
+  <div id="log"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
+  <script>
+  firebase.initializeApp({
+    apiKey:"AIzaSyC5ZrkEy7KuCFJOtPvI7-P-JcA0MF4im5c",
+    authDomain:"painel-yellup.firebaseapp.com",
+    projectId:"painel-yellup",
+    storageBucket:"painel-yellup.appspot.com",
+    messagingSenderId:"608347210297",
+    appId:"1:608347210297:web:75092713724e617c7203e8"
+  });
+  const auth=firebase.auth(), db=firebase.firestore(), fns=firebase.functions();
+  const ts = ()=>firebase.firestore.FieldValue.serverTimestamp();
+  const gc=id=>document.getElementById(id);
+
+  const CICLO_MS = 25000;            // verifica a cada 25s (1 foto por minuto, com folga)
+  let ativo=false, timer=null, restante=0, tickTimer=null;
+  const ultimo = {};                 // anti-regressão por jogo
+  const estado = {};                 // último estado por jogo (pra render)
+
+  // ── helpers de stats (idênticos ao que o jogo-live/monitor usam) ──────
+  const pn = v => { if(v==null||v==='')return null; const n=parseFloat(String(v).replace('%','')); return isNaN(n)?null:n; };
+  function normStats(raw){ if(!raw)return{}; if(Array.isArray(raw)){const o={};raw.forEach(s=>{if(s?.type!=null)o[s.type]=s.value;});return o;} return raw; }
+  function calcAP(s){
+    const da=pn(s['Dangerous Attacks']); if(da!=null&&da>0)return da;
+    const sOn=pn(s['Shots on Goal'])||0,sOff=pn(s['Shots off Goal'])||0,sBlk=pn(s['Blocked Shots'])||0,cor=pn(s['Corner Kicks'])||0;
+    if(!sOn&&!sOff&&!cor)return null;
+    return Math.round(sOn*3+sOff*1.2+sBlk+cor*0.6);
+  }
+
+  function log(msg,cls=''){
+    const el=gc('log'); const t=new Date().toLocaleTimeString('pt-BR');
+    el.innerHTML = `<span class="t">${t}</span>  <span class="${cls}">${msg}</span>\n` + el.innerHTML;
+  }
+
+  // ── AUTH ──────────────────────────────────────────────────────────────
+  auth.onAuthStateChanged(u=>{
+    if(!u || u.email!=='admin@yellup.com'){ location.href='login.html'; return; }
+    log('Logado como admin. Pronto.', 'g');
+    iniciar();   // começa sozinho
+  });
+
+  // ── CICLO ───────────────────────────────────────────────────────────────
+  async function ciclo(){
+    let jogos=[];
+    try{
+      const snap=await db.collection('jogos-admin').where('status','==','ao_vivo').get();
+      snap.forEach(d=>{ const r=d.data(); jogos.push({...r,_id:d.id}); });
+    }catch(e){ log('Erro lendo jogos-admin: '+e.message,'r'); }
+
+    gc('binfo').textContent = `${jogos.length} jogo(s) ao vivo · ciclo a cada ${CICLO_MS/1000}s`;
+
+    if(!jogos.length){
+      gc('games').innerHTML='<div class="empty">Nenhum jogo ao vivo agora.</div>';
+    }
+
+    for(const jogo of jogos){
+      const fid=String(jogo.apiFixtureId||jogo.apiFootballId||'');
+      if(!fid) continue;
+      try{
+        const fn=fns.httpsCallable('buscarDadosJogo',{timeout:25000});
+        const r=await fn({fixtureId:parseInt(fid)});
+        const dados=r.data;
+        if(!dados?.fixture || !dados?.estatisticas?.length){ log(`${fid}: sem stats ainda`,'y'); continue; }
+        await processar(fid, dados, jogo);
+      }catch(e){
+        log(`${fid}: ${e.message}`,'r');
+        if(estado[fid]) estado[fid].st={cls:'err',txt:'erro: '+e.message};
+      }
+    }
+    render();
+  }
+
+  // ── PROCESSAR 1 JOGO: monta a foto e grava no formato da arena ──────────
+  async function processar(fid, dados, meta){
+    const f=dados.fixture, sts=dados.estatisticas;
+    const min=f.status?.elapsed||0;
+    const tcId=f.timeCasa?.id, tfId=f.timeFora?.id;
+
+    const sC=normStats(sts.find(t=>String(t.time?.id)===String(tcId))?.stats||{});
+    const sF=normStats(sts.find(t=>String(t.time?.id)===String(tfId))?.stats||{});
+
+    const prev=ultimo[fid]||{};
+    const nr=(v,k)=> v!=null?Math.max(v, prev[k]??0):(prev[k]??null);   // acumulados nunca regridem
+
+    const est={
+      casa:{
+        posse:   pn(sC['Ball Possession']),
+        shots:   nr(pn(sC['Total Shots']),'shC'),
+        shotsOn: nr(pn(sC['Shots on Goal']),'soC'),
+        xg:      pn(sC['expected_goals']),
+        passes:  nr(pn(sC['Total passes']),'paC'),
+        corners: nr(pn(sC['Corner Kicks']),'coC'),
+        fouls:   nr(pn(sC['Fouls']),'foC'),
+        ap:      calcAP(sC),
+      },
+      fora:{
+        posse:   pn(sF['Ball Possession']),
+        shots:   nr(pn(sF['Total Shots']),'shF'),
+        shotsOn: nr(pn(sF['Shots on Goal']),'soF'),
+        xg:      pn(sF['expected_goals']),
+        passes:  nr(pn(sF['Total passes']),'paF'),
+        corners: nr(pn(sF['Corner Kicks']),'coF'),
+        fouls:   nr(pn(sF['Fouls']),'foF'),
+        ap:      calcAP(sF),
+      },
+    };
+    ultimo[fid]={ shC:est.casa.shots,soC:est.casa.shotsOn,paC:est.casa.passes,coC:est.casa.corners,foC:est.casa.fouls,
+                  shF:est.fora.shots,soF:est.fora.shotsOn,paF:est.fora.passes,coF:est.fora.corners,foF:est.fora.fouls };
+
+    const placarCasa = dados.placarCasa ?? f.placar?.casa ?? 0;
+    const placarFora = dados.placarFora ?? f.placar?.fora ?? 0;
+
+    // estado pra render
+    estado[fid]={
+      nomeC:f.timeCasa?.nome||meta.timeCasa?.nome||'Casa', logoC:f.timeCasa?.logo||meta.timeCasa?.escudo||'',
+      nomeF:f.timeFora?.nome||meta.timeFora?.nome||'Fora', logoF:f.timeFora?.logo||meta.timeFora?.escudo||'',
+      liga:f.liga?.nome||meta.liga?.nome||'', min, placarCasa, placarFora,
+      st:{cls:'wait',txt:'gravando…'}
+    };
+
+    if(min<1){ estado[fid].st={cls:'wait',txt:'aguardando bola rolar'}; return; }
+
+    // ── GRAVA no que a arena lê: jogos/{fixtureId}/aovivo/{min} ──────────
+    const ref=db.collection('jogos').doc(fid);
+    const docMin=String(min).padStart(3,'0');
+    try{
+      await ref.collection('aovivo').doc(docMin).set({
+        minuto:min, minutoExibicao:String(min), ts:ts(),
+        placarCasa, placarFora, estatisticas:est,
+      },{merge:true});
+      await ref.set({
+        placarCasa, placarFora, minutosJogo:min, status:'ao_vivo',
+        estatisticasPartida:est, apiUltimaAtualizacao:ts(),
+      },{merge:true});
+      estado[fid].st={cls:'ok',txt:`✓ min ${min} gravado`};
+      log(`${fid}: min ${min} → aovivo ✓`,'g');
+    }catch(e){
+      estado[fid].st={cls:'err',txt:'falha ao gravar: '+e.message};
+      log(`${fid}: GRAVAÇÃO falhou — ${e.message}`,'r');
+    }
+  }
+
+  // ── RENDER ──────────────────────────────────────────────────────────────
+  function render(){
+    const ids=Object.keys(estado);
+    if(!ids.length) return;
+    gc('games').innerHTML = ids.map(fid=>{
+      const e=estado[fid];
+      return `<div class="game">
+        <img src="${e.logoC}" onerror="this.style.visibility='hidden'">
+        <div class="gnames"><b>${e.nomeC} × ${e.nomeF}</b><div class="liga">${e.liga}</div>
+          <div class="gst ${e.st.cls}">${e.st.txt}</div></div>
+        <div class="gmin"><div class="m">${e.min}'</div><div class="pl">${e.placarCasa} – ${e.placarFora}</div></div>
+        <img src="${e.logoF}" onerror="this.style.visibility='hidden'">
+      </div>`;
+    }).join('');
+  }
+
+  // ── START / STOP + barrinha de progresso ────────────────────────────────
+  function tick(){
+    restante -= 0.2;
+    if(restante<0) restante=0;
+    gc('cprog').style.width = (100 - (restante/(CICLO_MS/1000))*100) + '%';
+  }
+  function iniciar(){
+    if(ativo) return;
+    ativo=true;
+    gc('dot').classList.add('on'); gc('bstate').textContent='Rodando';
+    gc('btn').textContent='Parar'; gc('btn').classList.add('off');
+    const run=()=>{ restante=CICLO_MS/1000; ciclo(); };
+    run();
+    timer=setInterval(run, CICLO_MS);
+    tickTimer=setInterval(tick, 200);
+  }
+  function parar(){
+    ativo=false;
+    clearInterval(timer); clearInterval(tickTimer);
+    gc('dot').classList.remove('on'); gc('bstate').textContent='Parado';
+    gc('btn').textContent='Iniciar'; gc('btn').classList.remove('off');
+    gc('cprog').style.width='0%';
+    log('Robô parado.','y');
+  }
+  gc('btn').onclick=()=> ativo?parar():iniciar();
+  </script>
+</body>
+</html>
