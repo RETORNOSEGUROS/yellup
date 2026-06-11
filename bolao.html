@@ -395,30 +395,33 @@
   }
 
   function renderRank(){
-    const pagos=USERS.filter(u=>u.pago).length, pote=pagos*10;
     const brl=v=>'R$ '+v.toFixed(2).replace('.',',');
-    $('poteInfo').textContent=`${pagos} pagante(s) · bolada de ${brl(pote)}`;
-    // ranking de indicações (só conta indicado que pagou)
+    const score=(a,b)=>b.total-a.total||(a.u.nome||'').localeCompare(b.u.nome||'');
+    const pagosArr=USERS.filter(u=>u.pago).map(u=>({u,...totalUser(u)})).sort(score);
+    const naoArr=USERS.filter(u=>!u.pago).map(u=>({u,...totalUser(u)})).sort(score);
+    const pote=pagosArr.length*10;
+    $('poteInfo').textContent=`${pagosArr.length} pagante(s) · bolada de ${brl(pote)}`;
     const refCount=u=>USERS.filter(o=>o.pago&&o.indicadoPor&&dig(o.indicadoPor)===u.id).length;
     const refRows=USERS.map(u=>({u,n:refCount(u)})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
-    const topRef=refRows[0];
+    const nm=i=>pagosArr[i]?pagosArr[i].u.nome:'—';
     $('prizeGrid').innerHTML=[
       ['🏠 Casa (20%)',pote*0.20,''],
-      ['🥇 1º lugar (35%)',pote*0.35,''],
-      ['🥈 2º lugar (20%)',pote*0.20,''],
-      ['🥉 3º lugar (15%)',pote*0.15,''],
-      ['🤝 Mais indicou (10%)',pote*0.10, topRef?topRef.u.nome:'—']
+      ['🥇 1º lugar (35%)',pote*0.35,nm(0)],
+      ['🥈 2º lugar (20%)',pote*0.20,nm(1)],
+      ['🥉 3º lugar (15%)',pote*0.15,nm(2)],
+      ['🤝 Mais indicou (10%)',pote*0.10, refRows[0]?refRows[0].u.nome:'—']
     ].map(([l,v,w])=>`<div class="p"><div class="l">${l}</div><div class="v">${brl(v)}</div>${w?`<div class="w">${w}</div>`:''}</div>`).join('');
     $('refRank').innerHTML = refRows.length
       ? '🤝 <b style="color:var(--tx)">Mais indicou:</b> '+refRows.slice(0,5).map((x,i)=>`${i===0?'🏆 ':''}${x.u.nome} (${x.n})`).join(' · ')
       : '🤝 Ninguém indicou ainda.';
-    const rows=USERS.map(u=>({u,...totalUser(u)})).sort((a,b)=>b.total-a.total||(a.u.nome||'').localeCompare(b.u.nome||''));
-    $('rankBody').innerHTML=rows.map((r,i)=>{
-      const eu=ME&&r.u.id===ME.id;
-      return `<tr class="${eu?'eu':''}"><td class="pos p${i+1}">${i+1}</td>
-        <td>${r.u.nome||'—'} ${r.u.pago?'<span class="badge pago" style="font-size:9px">✓</span>':''}</td>
-        <td class="n">${r.jg}</td><td class="n">${r.ind}</td><td class="n tot">${r.total}</td></tr>`;
-    }).join('')||'<tr><td colspan="5" class="center small">Ninguém ainda.</td></tr>';
+    const linha=(r,pos,vale)=>{const eu=ME&&r.u.id===ME.id;
+      return `<tr class="${eu?'eu':''}" style="${vale?'':'opacity:.5'}">
+        <td class="pos ${vale?'p'+pos:''}">${vale?pos:'–'}</td>
+        <td>${r.u.nome||'—'} ${vale?'<span class="badge pago" style="font-size:9px">✓</span>':'<span class="badge npago" style="font-size:9px">não pago</span>'}</td>
+        <td class="n">${r.jg}</td><td class="n">${r.ind}</td><td class="n tot">${r.total}</td></tr>`;};
+    let html=pagosArr.map((r,i)=>linha(r,i+1,true)).join('');
+    if(naoArr.length) html+=`<tr><td colspan="5" class="small" style="text-align:center;color:var(--t3);padding:6px">— ainda não pagaram (não valem prêmio) —</td></tr>`+naoArr.map(r=>linha(r,'–',false)).join('');
+    $('rankBody').innerHTML=html||'<tr><td colspan="5" class="center small">Ninguém ainda.</td></tr>';
   }
   function renderAdmin(){
     if(!ME||dig(ME.celular)!==ADMIN_TEL){$('admBody').innerHTML='<tr><td class="small">Sem acesso.</td></tr>';return;}
