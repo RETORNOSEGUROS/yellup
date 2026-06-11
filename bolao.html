@@ -32,6 +32,7 @@
   .badge{font-size:10.5px;padding:3px 8px;border-radius:20px;font-weight:800;text-transform:uppercase;letter-spacing:.4px}
   .badge.pago{background:#0c3b2a;color:var(--grn)} .badge.npago{background:#3b1212;color:var(--red)}
   .gtag{font-size:10px;font-weight:800;color:var(--t3);background:#0d1420;border:1px solid var(--bd);border-radius:6px;padding:1px 6px}
+  .fl{width:22px;height:15px;border-radius:3px;object-fit:cover;vertical-align:middle;margin:0 5px;box-shadow:0 0 0 1px #0006}
   .daygrp{font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin:16px 2px 6px;font-weight:700}
   .jogo{background:var(--pan);border:1px solid var(--bd);border-radius:14px;padding:11px 13px;margin-bottom:9px}
   .jrow{display:flex;align-items:center;gap:8px}
@@ -131,7 +132,8 @@
         <div style="font-weight:800">💰 Premiação</div>
         <div class="small" id="poteInfo">—</div>
         <div class="prize" id="prizeGrid"></div>
-        <div class="small" style="margin-top:8px">A casa fica com 20%. Prêmios pros 3 primeiros. Só quem está <span style="color:var(--grn)">PAGO</span> entra valendo.</div>
+        <div id="refRank" class="small" style="margin-top:10px"></div>
+        <div class="small" style="margin-top:8px">A casa fica com 20%. Prêmios pros 3 primeiros + quem mais indicou. Só quem está <span style="color:var(--grn)">PAGO</span> entra valendo.</div>
       </div>
       <div class="card" style="padding:0;overflow:hidden">
         <table><thead><tr><th class="pos">#</th><th>Quem</th><th class="n">Jogos</th><th class="n">Ind.</th><th class="n">Total</th></tr></thead>
@@ -167,7 +169,7 @@
 
   // ── 72 JOGOS DA FASE DE GRUPOS (horário em UTC; exibido em Brasília) ──────
   const FIXTURES=[
-    {id:'g01',g:'A',c:'México',f:'África do Sul',ko:'2026-06-11T19:00:00Z'},
+    {id:'g01',g:'A',c:'México',f:'África do Sul',ko:'2026-06-11T19:45:00Z'},
     {id:'g02',g:'A',c:'Coreia do Sul',f:'Tchéquia',ko:'2026-06-12T02:00:00Z'},
     {id:'g03',g:'B',c:'Canadá',f:'Bósnia',ko:'2026-06-12T19:00:00Z'},
     {id:'g04',g:'D',c:'EUA',f:'Paraguai',ko:'2026-06-13T01:00:00Z'},
@@ -245,6 +247,8 @@
 
   // ── util ───────────────────────────────────────────────────────────────
   const dig=s=>String(s||'').replace(/\D/g,'');
+  const FLAG={'México':'mx','África do Sul':'za','Coreia do Sul':'kr','Tchéquia':'cz','Canadá':'ca','Bósnia':'ba','Catar':'qa','Suíça':'ch','Brasil':'br','Marrocos':'ma','Haiti':'ht','Escócia':'gb-sct','EUA':'us','Paraguai':'py','Austrália':'au','Turquia':'tr','Alemanha':'de','Curaçao':'cw','Costa do Marfim':'ci','Equador':'ec','Holanda':'nl','Japão':'jp','Suécia':'se','Tunísia':'tn','Bélgica':'be','Egito':'eg','Irã':'ir','Nova Zelândia':'nz','Espanha':'es','Cabo Verde':'cv','Arábia Saudita':'sa','Uruguai':'uy','França':'fr','Senegal':'sn','Iraque':'iq','Noruega':'no','Argentina':'ar','Argélia':'dz','Áustria':'at','Jordânia':'jo','Portugal':'pt','RD Congo':'cd','Uzbequistão':'uz','Colômbia':'co','Inglaterra':'gb-eng','Croácia':'hr','Gana':'gh','Panamá':'pa'};
+  const flag=n=>{const c=FLAG[n];return c?`<img class="fl" src="https://flagcdn.com/w40/${c}.png" alt="" onerror="this.style.display='none'">`:'';};
   const koMs=j=>new Date(j.ko).getTime();
   const aberto=j=>Date.now()<koMs(j);
   function dataLabel(j){return new Date(j.ko).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}
@@ -346,13 +350,13 @@
       const lock = ab?`🟢 aberto · fecha ${dataLabel(j)}` : `🔒 fechado · ${dataLabel(j)}`;
       html+=`<div class="jogo">
         <div class="jrow">
-          <div class="tm"><span class="gtag">${j.g}</span> ${j.c}</div>
+          <div class="tm"><span class="gtag">${j.g}</span> ${flag(j.c)}${j.c}</div>
           <div class="pl">
             <input type="number" min="0" max="20" value="${p.c??''}" ${ab?'':'disabled'} id="c_${j.id}">
             <span class="x">×</span>
             <input type="number" min="0" max="20" value="${p.f??''}" ${ab?'':'disabled'} id="f_${j.id}">
           </div>
-          <div class="tm r">${j.f}</div>
+          <div class="tm r">${j.f}${flag(j.f)}</div>
         </div>
         <div class="jfoot">
           <span class="lock ${ab?'open':''}">${lock}</span>
@@ -389,10 +393,20 @@
     const pagos=USERS.filter(u=>u.pago).length, pote=pagos*10;
     const brl=v=>'R$ '+v.toFixed(2).replace('.',',');
     $('poteInfo').textContent=`${pagos} pagante(s) · bolada de ${brl(pote)}`;
+    // ranking de indicações (só conta indicado que pagou)
+    const refCount=u=>USERS.filter(o=>o.pago&&o.indicadoPor&&dig(o.indicadoPor)===u.id).length;
+    const refRows=USERS.map(u=>({u,n:refCount(u)})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
+    const topRef=refRows[0];
     $('prizeGrid').innerHTML=[
-      ['🏠 Casa (20%)',pote*0.20,''],['🥇 1º lugar (45%)',pote*0.45,''],
-      ['🥈 2º lugar (25%)',pote*0.25,''],['🥉 3º lugar (10%)',pote*0.10,'']
-    ].map(([l,v])=>`<div class="p"><div class="l">${l}</div><div class="v">${brl(v)}</div></div>`).join('');
+      ['🏠 Casa (20%)',pote*0.20,''],
+      ['🥇 1º lugar (35%)',pote*0.35,''],
+      ['🥈 2º lugar (20%)',pote*0.20,''],
+      ['🥉 3º lugar (15%)',pote*0.15,''],
+      ['🤝 Mais indicou (10%)',pote*0.10, topRef?topRef.u.nome:'—']
+    ].map(([l,v,w])=>`<div class="p"><div class="l">${l}</div><div class="v">${brl(v)}</div>${w?`<div class="w">${w}</div>`:''}</div>`).join('');
+    $('refRank').innerHTML = refRows.length
+      ? '🤝 <b style="color:var(--tx)">Mais indicou:</b> '+refRows.slice(0,5).map((x,i)=>`${i===0?'🏆 ':''}${x.u.nome} (${x.n})`).join(' · ')
+      : '🤝 Ninguém indicou ainda.';
     const rows=USERS.map(u=>({u,...totalUser(u)})).sort((a,b)=>b.total-a.total||(a.u.nome||'').localeCompare(b.u.nome||''));
     $('rankBody').innerHTML=rows.map((r,i)=>{
       const eu=ME&&r.u.id===ME.id;
