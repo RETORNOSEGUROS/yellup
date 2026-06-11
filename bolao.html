@@ -112,6 +112,7 @@
       <button class="on" data-t="jogos" onclick="aba('jogos')">⚽ Jogos</button>
       <button data-t="rank" onclick="aba('rank')">🏆 Ranking</button>
       <button id="tbAdmin" class="hidden" data-t="admin" onclick="aba('admin')">⚙️ Admin</button>
+      <button id="tbPalp" class="hidden" data-t="palp" onclick="aba('palp')">👁 Palpites</button>
     </div>
 
     <div id="paneJogos">
@@ -147,6 +148,13 @@
         <table><thead><tr><th>Quem</th><th>Celular</th><th>PIX</th><th class="n">Pago</th></tr></thead>
         <tbody id="admBody"></tbody></table>
       </div>
+    </div>
+
+    <div id="panePalp" class="hidden">
+      <div class="card small">Veja o palpite de cada participante num jogo — útil pra conferir erros. Os palpites de cada jogo travam no início dele.</div>
+      <label style="margin-top:0">Escolha o jogo</label>
+      <select id="palSel" onchange="renderPalp()"></select>
+      <div id="palBody" style="margin-top:10px"></div>
     </div>
   </div>
 
@@ -325,11 +333,11 @@
     db.collection(COL).onSnapshot(s=>{
       USERS=s.docs.map(d=>({id:d.id,...d.data()}));
       ME=USERS.find(u=>u.id===tel)||ME; pintarMe();
-      if(visivel('jogos'))renderJogos(); if(visivel('rank'))renderRank(); if(visivel('admin'))renderAdmin();
+      if(visivel('jogos'))renderJogos(); if(visivel('rank'))renderRank(); if(visivel('admin'))renderAdmin(); if(visivel('palp'))renderPalp();
     },e=>toast('Erro lendo usuários: '+e.message,true));
     db.collection(RESDOC[0]).doc(RESDOC[1]).onSnapshot(d=>{
       RESULTS=d.exists?d.data():{};
-      if(visivel('jogos'))renderJogos(); if(visivel('rank'))renderRank();
+      if(visivel('jogos'))renderJogos(); if(visivel('rank'))renderRank(); if(visivel('palp'))renderPalp();
     },e=>console.warn('resultados:',e.message));
   }
   function pintarMe(){
@@ -337,12 +345,13 @@
     $('meNome').textContent=ME.nome||'';
     $('meBadge').innerHTML=ME.pago?'<span class="badge pago">pago</span>':'<span class="badge npago">não pago</span>';
     $('tbAdmin').classList.toggle('hidden',dig(ME.celular)!==ADMIN_TEL);
+    $('tbPalp').classList.toggle('hidden',dig(ME.celular)!==ADMIN_TEL);
   }
-  function visivel(t){return !$('pane'+({jogos:'Jogos',rank:'Rank',admin:'Admin'}[t])).classList.contains('hidden');}
+  function visivel(t){return !$('pane'+({jogos:'Jogos',rank:'Rank',admin:'Admin',palp:'Palp'}[t])).classList.contains('hidden');}
   function aba(t){
-    [['jogos','Jogos'],['rank','Rank'],['admin','Admin']].forEach(([k,n])=>$('pane'+n).classList.toggle('hidden',k!==t));
+    [['jogos','Jogos'],['rank','Rank'],['admin','Admin'],['palp','Palp']].forEach(([k,n])=>$('pane'+n).classList.toggle('hidden',k!==t));
     document.querySelectorAll('#appTabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
-    if(t==='rank')renderRank(); if(t==='admin')renderAdmin(); if(t==='jogos')renderJogos();
+    if(t==='rank')renderRank(); if(t==='admin')renderAdmin(); if(t==='jogos')renderJogos(); if(t==='palp')renderPalp();
   }
 
   function renderJogos(){
@@ -442,6 +451,30 @@
     if(!window.confirm(`Excluir "${u.nome||id}"? (apaga o cadastro e os palpites)`))return;
     try{await authReady;await db.collection(COL).doc(id).delete();toast('Usuário excluído.');}
     catch(e){toast('Erro ao excluir: '+e.message,true);}
+  }
+
+  // ── ADMIN: palpites de todos num jogo ─────────────────────────────────────
+  function renderPalp(){
+    if(!ME||dig(ME.celular)!==ADMIN_TEL){$('palBody').innerHTML='<div class="card small">Sem acesso.</div>';return;}
+    const sel=$('palSel');
+    if(!sel.options.length){
+      sel.innerHTML=FIXTURES.map(j=>`<option value="${j.id}">[${j.g}] ${j.c} × ${j.f} — ${dataLabel(j)}</option>`).join('');
+      const ini=FIXTURES.filter(j=>!aberto(j));               // pré-seleciona o último que já começou
+      sel.value=(ini.length?ini[ini.length-1].id:FIXTURES[0].id);
+    }
+    const gid=sel.value, j=FIXTURES.find(x=>x.id===gid), r=RESULTS[gid];
+    const rows=USERS.map(u=>{const p=(u.palpites||{})[gid]; return {u,p,pts:(p&&r)?pontosJogo(p,r):null};})
+      .sort((a,b)=>((b.p?1:0)-(a.p?1:0))||((b.pts||0)-(a.pts||0))||(a.u.nome||'').localeCompare(b.u.nome||''));
+    const palpitaram=rows.filter(x=>x.p).length;
+    const head=`<div class="card" style="margin-bottom:8px"><div style="font-weight:700">${flag(j.c)}${j.c} × ${j.f}${flag(j.f)}</div>
+      <div class="small">${aberto(j)?'🟢 ainda aberto — palpites podem mudar':'🔒 fechado'} ${r?`· Final ${r.c}×${r.f}`:''} · ${palpitaram} palpitaram</div></div>`;
+    const body=`<div class="card" style="padding:0;overflow:hidden"><table>
+      <thead><tr><th>Participante</th><th class="n">Palpite</th>${r?'<th class="n">Pts</th>':''}</tr></thead><tbody>`+
+      rows.map(x=>`<tr><td>${x.u.nome||x.u.id} ${x.u.pago?'':'<span class="badge npago" style="font-size:9px">não pago</span>'}</td>
+        <td class="n">${x.p?`<b>${x.p.c}×${x.p.f}</b>`:'<span class="small">— não palpitou</span>'}</td>
+        ${r?`<td class="n tot">${x.pts!=null?'+'+x.pts:'-'}</td>`:''}</tr>`).join('')+
+      `</tbody></table></div>`;
+    $('palBody').innerHTML=head+body;
   }
 
   ['cTel','lTel','cInd'].forEach(id=>{const el=$(id);if(el)el.addEventListener('blur',()=>{const d=dig(el.value);if(d.length>=10)el.value=`(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;});});
