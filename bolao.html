@@ -283,7 +283,10 @@
   }
 
   // ── auth anônimo (só pra liberar leitura/escrita no Firestore) ────────────
-  auth.signInAnonymously().catch(e=>console.warn('anon:',e.message));
+  // garante que o login anônimo terminou ANTES de gravar (senão dá "permissions")
+  let _authOk; const authReady=new Promise(r=>_authOk=r);
+  auth.onAuthStateChanged(u=>{ if(u) _authOk(u); });
+  auth.signInAnonymously().catch(e=>{ console.warn('anon:',e.message); _authOk(null); });
 
   function aAba(t){
     $('tbLogin').classList.toggle('on',t==='login');$('tbCad').classList.toggle('on',t==='cad');
@@ -292,10 +295,12 @@
   async function cadastrar(){
     const nome=$('cNome').value.trim(),tel=dig($('cTel').value),senha=$('cSenha').value,pix=$('cPix').value.trim(),ind=dig($('cInd').value);
     if(!nome||tel.length<10||senha.length<3){$('cErr').textContent='Preencha nome, celular válido e senha (mín. 3).';return;}
-    $('cErr').textContent='';
+    $('cErr').textContent='Criando conta…';
     try{
+      await authReady;
       const ref=db.collection(COL).doc(tel);
       if((await ref.get()).exists){$('cErr').textContent='Esse celular já tem conta. Vá em "Entrar".';return;}
+      if(pix){ const dup=await db.collection(COL).where('pix','==',pix).limit(1).get(); if(!dup.empty){$('cErr').textContent='Essa chave PIX/CPF já está cadastrada em outra conta.';return;} }
       await ref.set({nome,celular:tel,senhaHash:await sha(senha),pix,indicadoPor:ind||'',pago:false,palpites:{},criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
       lsSet('bolao_tel',tel);toast('Conta criada! Bora palpitar.');iniciarApp();
     }catch(e){$('cErr').textContent='Erro ao salvar: '+e.message;}
@@ -305,6 +310,7 @@
     if(tel.length<10||!senha){$('lErr').textContent='Informe celular e senha.';return;}
     $('lErr').textContent='';
     try{
+      await authReady;
       const d=await db.collection(COL).doc(tel).get();
       if(!d.exists){$('lErr').textContent='Conta não encontrada. Crie uma conta.';return;}
       if(d.data().senhaHash!==await sha(senha)){$('lErr').textContent='Senha incorreta.';return;}
@@ -379,13 +385,13 @@
     if(c===''||f===''){toast('Preencha os dois placares.',true);return;}
     const j=FIXTURES.find(x=>x.id===gid);
     if(!j||!aberto(j)){toast('Esse jogo já fechou.',true);renderJogos();return;}
-    try{ await db.collection(COL).doc(ME.id).set({palpites:{[gid]:{c:+c,f:+f,ts:Date.now()}}},{merge:true}); toast('Palpite salvo!'); }
+    try{ await authReady; await db.collection(COL).doc(ME.id).set({palpites:{[gid]:{c:+c,f:+f,ts:Date.now()}}},{merge:true}); toast('Palpite salvo!'); }
     catch(e){toast('Erro ao salvar: '+e.message,true);}
   }
   async function salvarResultado(gid){
     const c=$('rc_'+gid).value,f=$('rf_'+gid).value;
     if(c===''||f===''){toast('Preencha o resultado.',true);return;}
-    try{ await db.collection(RESDOC[0]).doc(RESDOC[1]).set({[gid]:{c:+c,f:+f}},{merge:true}); toast('Resultado lançado!'); }
+    try{ await authReady; await db.collection(RESDOC[0]).doc(RESDOC[1]).set({[gid]:{c:+c,f:+f}},{merge:true}); toast('Resultado lançado!'); }
     catch(e){toast('Erro: '+e.message,true);}
   }
 
@@ -421,12 +427,19 @@
     $('admBody').innerHTML=rows.map(u=>`<tr>
       <td>${u.nome||'—'}${u.indicadoPor?`<br><span class="small">ind: ${u.indicadoPor}</span>`:''}</td>
       <td class="small">${u.celular||''}</td><td class="small">${u.pix||'—'}</td>
-      <td class="n"><button class="mini ${u.pago?'':'sec'}" style="width:auto" onclick="togglePago('${u.id}',${!u.pago})">${u.pago?'PAGO ✓':'marcar'}</button></td>
+      <td class="n"><button class="mini ${u.pago?'':'sec'}" style="width:auto" onclick="togglePago('${u.id}',${!u.pago})">${u.pago?'PAGO ✓':'marcar'}</button>${u.pago?'':`<button class="mini sec" style="width:auto;margin-left:5px;color:var(--red);border-color:#5c1c1c" onclick="excluir('${u.id}')">🗑</button>`}</td>
     </tr>`).join('');
   }
   async function togglePago(id,val){
-    try{await db.collection(COL).doc(id).set({pago:val},{merge:true});toast(val?'Marcado como pago':'Removido');}
+    try{await authReady;await db.collection(COL).doc(id).set({pago:val},{merge:true});toast(val?'Marcado como pago':'Removido');}
     catch(e){toast('Erro: '+e.message,true);}
+  }
+  async function excluir(id){
+    const u=USERS.find(x=>x.id===id); if(!u)return;
+    if(u.pago){toast('Esse já pagou — não dá pra excluir.',true);return;}
+    if(!window.confirm(`Excluir "${u.nome||id}"? (apaga o cadastro e os palpites)`))return;
+    try{await authReady;await db.collection(COL).doc(id).delete();toast('Usuário excluído.');}
+    catch(e){toast('Erro ao excluir: '+e.message,true);}
   }
 
   ['cTel','lTel','cInd'].forEach(id=>{const el=$(id);if(el)el.addEventListener('blur',()=>{const d=dig(el.value);if(d.length>=10)el.value=`(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;});});
