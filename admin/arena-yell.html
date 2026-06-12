@@ -835,7 +835,7 @@ const INDS=[
   {lbl:'Posse de bola',key:'posse',pct:true},{lbl:'Finalizações',key:'shots'},
   {lbl:'No gol',key:'shotsOn'},{lbl:'Gols esperados (xG)',key:'xg',dec:true},
   {lbl:'Passes',key:'passes'},{lbl:'Escanteios',key:'corners'},
-  {lbl:'Faltas',key:'fouls'},{lbl:'Ataques perigosos',key:'ap'}
+  {lbl:'Faltas',key:'fouls'}
 ];
 
 function cr(nome,escudo,cor){return escudo?`<div class="cr"><img src="${esc(escudo)}" onerror="this.parentNode.innerHTML='${esc((nome||'?').charAt(0))}'"></div>`:`<div class="cr" style="background:linear-gradient(140deg,${cor||'#2a3142'},#1a2030)">${esc((nome||'?').charAt(0).toUpperCase())}</div>`;}
@@ -873,7 +873,26 @@ function trocarAba(t){
 }
 
 // ===== Ao Vivo (mesmo modelo do arenayell-live, dentro da arena) =====
-function preencherSerie(rows){let u=null;return rows.map(r=>{let e=r.estatisticas;if(e&&(e.casa||e.fora))u=e;else e=u;return{...r,_est:e||null};});}
+function preencherSerie(rows){
+  // Acumulados nunca diminuem nem zeram (pega o maior já visto). Posse pode subir/descer.
+  const CUM=['passes','shots','shotsOn','corners','fouls','xg'];
+  const best={casa:{},fora:{}}; const lastPosse={casa:null,fora:null}; let seen=false;
+  return rows.map(r=>{
+    const e=r.estatisticas;
+    ['casa','fora'].forEach(side=>{
+      const src=e&&e[side]?e[side]:null;
+      CUM.forEach(k=>{
+        const v=pv(src?src[k]:null);
+        if(v!=null && v>0){ best[side][k]=(best[side][k]==null)?v:Math.max(best[side][k],v); seen=true; }
+        else if(v===0 && best[side][k]==null){ best[side][k]=0; }
+      });
+      const p=pv(src?src.posse:null);
+      if(p!=null){ lastPosse[side]=p; seen=true; }
+    });
+    const out={ casa:{...best.casa,posse:lastPosse.casa}, fora:{...best.fora,posse:lastPosse.fora} };
+    return {...r,_est: seen?out:null};
+  });
+}
 function fmtVal(raw,ind){const n=pv(raw);if(n==null)return '—';if(ind.pct)return Math.round(n)+'%';if(ind.dec)return n.toFixed(2);return String(Math.round(n));}
 function seta(c0,p0){const c=pv(c0),p=pv(p0);if(c==null||p==null||c===p)return '<span class="av-arr eq">–</span>';return c>p?'<span class="av-arr up">▲</span>':'<span class="av-arr dn">▼</span>';}
 function avBoard(){
@@ -885,7 +904,11 @@ function avBoard(){
   avEvs(SEL_MIN);
 }
 function avEvs(ate){const el=document.getElementById('avEvs');if(!el)return;
-  const evs=(JOGO?.eventosJogo||[]).filter(e=>{const m=parseInt(String(e.tempo).split('+')[0],10);return isNaN(m)?true:(ate==null||m<=ate);});
+  const evs=(JOGO?.eventosJogo||[]).filter(e=>{
+    const tipo=(e.tipo||'').toLowerCase(), det=(e.detalhe||'').toLowerCase();
+    if(tipo==='var' || /cancel|disallow|annul|anul|no goal|sem gol|overturn/.test(det)) return false; // gol anulado / VAR
+    const m=parseInt(String(e.tempo).split('+')[0],10);return isNaN(m)?true:(ate==null||m<=ate);
+  });
   if(!evs.length){el.innerHTML='<div class="ar-soon" style="padding:20px"><p>Nenhum evento até aqui.</p></div>';return;}
   const ico=e=>{const t=(e.tipo||'').toLowerCase(),d=(e.detalhe||'').toLowerCase();if(t==='goal')return '⚽';if(d.includes('yellow'))return '🟨';if(d.includes('red'))return '🟥';if(t==='subst')return '🔁';return '•';};
   el.innerHTML=evs.slice().reverse().map(e=>`<div class="av-ev"><span class="min">${esc(e.tempo)}'</span><span class="ic">${ico(e)}</span><span class="tx"><b>${esc(e.jogador||e.detalhe||e.tipo)}</b><br><span class="det">${esc(e.detalhe||'')}</span></span><span class="tmn">${esc(e.time||'')}</span></div>`).join('');
@@ -936,38 +959,51 @@ function carregarVivo(){
 
 // ===== Fluxo minuto a minuto (soma dos dois times + variações) =====
 function comb(est,key){ const a=pv(est?.casa?.[key]), b=pv(est?.fora?.[key]); if(a==null&&b==null)return null; return (a||0)+(b||0); }
+// Gols reais por minuto-base, a partir dos eventos (ignora anulados no VAR)
+function golsPorMinuto(){
+  const m={};
+  (JOGO?.eventosJogo||[]).forEach(e=>{
+    const tipo=(e.tipo||'').toLowerCase(), det=(e.detalhe||'').toLowerCase();
+    if(tipo!=='goal') return;
+    if(/cancel|disallow|annul|anul|no goal|sem gol|overturn/.test(det)) return; // gol anulado no VAR
+    const base=parseInt(String(e.tempo).split('+')[0],10); if(isNaN(base))return;
+    (m[base]=m[base]||[]).push(e.time||'');
+  });
+  return m;
+}
 function renderFluxo(){
   const box=document.getElementById('fluxoBox'); if(!box)return;
   const arr=SERIE.filter(r=>r._est&&(r._est.casa||r._est.fora));
   if(arr.length<2){ box.innerHTML='<div class="ar-soon"><div class="ic">📈</div><p>Ainda sem minutos suficientes pra comparar. Aparece quando o jogo começar a registrar.</p></div>'; return; }
+  const golMap=golsPorMinuto();
   const linhas=[];
   for(let i=1;i<arr.length;i++){
     const cur=arr[i], prev=arr[i-1];
     const dPass=Math.max(0,(comb(cur._est,'passes')??0)-(comb(prev._est,'passes')??0));
-    const dAp  =Math.max(0,(comb(cur._est,'ap')??0)    -(comb(prev._est,'ap')??0));
-    const dSh  =Math.max(0,(comb(cur._est,'shots')??0) -(comb(prev._est,'shots')??0));
-    const dXg  =Math.max(0,(comb(cur._est,'xg')??0)    -(comb(prev._est,'xg')??0));
-    const golC=(cur.placarCasa??0)!==(prev.placarCasa??0), golF=(cur.placarFora??0)!==(prev.placarFora??0);
-    linhas.push({min:cur.minuto,exib:cur.minutoExibicao||String(cur.minuto),dPass,dAp,dSh,dXg,gol:golC||golF,golLado:golC?'casa':(golF?'fora':null),pc:cur.placarCasa,pf:cur.placarFora});
+    const dSh  =Math.max(0,(comb(cur._est,'shots')??0)  -(comb(prev._est,'shots')??0));
+    const dOn  =Math.max(0,(comb(cur._est,'shotsOn')??0)-(comb(prev._est,'shotsOn')??0));
+    const dXg  =Math.max(0,(comb(cur._est,'xg')??0)     -(comb(prev._est,'xg')??0));
+    linhas.push({min:cur.minuto,exib:cur.minutoExibicao||String(cur.minuto),dPass,dSh,dOn,dXg,gols:golMap[cur.minuto]||null,pc:cur.placarCasa,pf:cur.placarFora});
   }
-  const passesPos=linhas.map(l=>l.dPass).filter(v=>v>0).sort((a,b)=>a-b);
-  const med=passesPos.length?passesPos[Math.floor(passesPos.length/2)]:0;
+  // Limiar "jogo aberto": compara o minuto ao RITMO médio de passes do próprio jogo
+  const ult=arr[arr.length-1];
+  const paceEsper=(comb(ult._est,'passes')||0)/Math.max(1,ult.minuto||1); // passes/min combinados
+  const limAberto=Math.max(paceEsper*1.8, 8);
   const maxP=Math.max(1,...linhas.map(l=>l.dPass));
-  const limAberto=Math.max(med*1.6,8);
   for(let i=0;i<linhas.length;i++){const ant=linhas[i-1];linhas[i].seta=!ant?'eq':(linhas[i].dPass>ant.dPass?'up':(linhas[i].dPass<ant.dPass?'dn':'eq'));}
-  const nomeC=(JOGO&&JOGO.timeCasaNome)||'Casa', nomeF=(JOGO&&JOGO.timeForaNome)||'Fora';
-  const head=`<div class="fx-head">Soma dos <b>dois times</b> · variação a cada minuto. Salto forte de passes = <b style="color:var(--gn)">jogo aberto</b> 🔥 (gol costuma sair). ⚽ marca o minuto do gol.</div>`;
+  const head=`<div class="fx-head">Soma dos <b>dois times</b> · variação a cada minuto. Quando os passes do minuto ficam bem acima do ritmo do jogo (média ~${Math.round(paceEsper)}/min) acende <b style="color:var(--gn)">jogo aberto</b> 🔥. ⚽ marca o gol pelo minuto real do evento.</div>`;
   const rows=linhas.slice().reverse().map(l=>{
     const aberto=l.dPass>=limAberto;
     const w=Math.round(l.dPass/maxP*100);
     const setaHtml=l.seta==='up'?'<span class="fx-a up">▲</span>':l.seta==='dn'?'<span class="fx-a dn">▼</span>':'<span class="fx-a eq">–</span>';
-    const tags=`${l.gol?`<span class="fx-tag gol">⚽ GOL ${l.golLado==='casa'?esc(nomeC):esc(nomeF)}</span>`:''}${aberto?'<span class="fx-tag hot">🔥 jogo aberto</span>':''}`;
-    return `<div class="fx-row${aberto?' aberto':''}${l.gol?' temgol':''}">
+    const tagGol=l.gols?`<span class="fx-tag gol">⚽ GOL ${esc([...new Set(l.gols)].filter(Boolean).join('/'))}</span>`:'';
+    const tagHot=aberto?'<span class="fx-tag hot">🔥 jogo aberto</span>':'';
+    return `<div class="fx-row${aberto?' aberto':''}${l.gols?' temgol':''}">
       <div class="fx-min">${esc(l.exib)}'</div>
       <div class="fx-main">
-        <div class="fx-lead">${setaHtml}<b>+${l.dPass}</b> passes <span class="fx-cum">· ${l.pc??'–'}×${l.pf??'–'}</span> ${tags}</div>
+        <div class="fx-lead">${setaHtml}<b>+${l.dPass}</b> passes <span class="fx-cum">· ${l.pc??'–'}×${l.pf??'–'}</span> ${tagGol}${tagHot}</div>
         <div class="fx-bar"><span style="width:${w}%"></span></div>
-        <div class="fx-sub">⚡ +${l.dAp} at. perigosos · 🥅 +${l.dSh} finalizações${l.dXg>0?` · xG +${l.dXg.toFixed(2)}`:''}</div>
+        <div class="fx-sub">🥅 +${l.dSh} finalizações · 🎯 +${l.dOn} no gol${l.dXg>0?` · xG +${l.dXg.toFixed(2)}`:''}</div>
       </div>
     </div>`;
   }).join('');
