@@ -829,9 +829,7 @@ const auth=firebase.auth();
 const esc=t=>{const d=document.createElement('div');d.textContent=(t==null?'':t);return d.innerHTML;};
 const JID=new URLSearchParams(location.search).get('jogoId');
 let JOGO=null, RAIOX_CARREGADO=false, VIVO_CARREGADO=false;
-let SERIE=[], SEL_IDX=null, FOLLOW=true, UNSUB_VIVO=null;
-// chave numérica de ordenação do minuto: "45+2" -> 45002, "67" -> 67000
-const mkey=lbl=>{const p=String(lbl).split('+');return (parseInt(p[0],10)||0)*1000+(parseInt(p[1],10)||0);};
+let SERIE=[], SEL_MIN=null, FOLLOW=true, UNSUB_VIVO=null;
 const pv=v=>{if(v==null)return null;if(typeof v==='number')return v;const n=parseFloat(String(v).replace('%','').replace(',','.'));return isNaN(n)?null:n;};
 const INDS=[
   {lbl:'Posse de bola',key:'posse',pct:true},{lbl:'Finalizações',key:'shots'},
@@ -898,19 +896,18 @@ function preencherSerie(rows){
 function fmtVal(raw,ind){const n=pv(raw);if(n==null)return '—';if(ind.pct)return Math.round(n)+'%';if(ind.dec)return n.toFixed(2);return String(Math.round(n));}
 function seta(c0,p0){const c=pv(c0),p=pv(p0);if(c==null||p==null||c===p)return '<span class="av-arr eq">–</span>';return c>p?'<span class="av-arr up">▲</span>':'<span class="av-arr dn">▼</span>';}
 function avBoard(){
-  const idx=(SEL_IDX!=null&&SEL_IDX>=0&&SEL_IDX<SERIE.length)?SEL_IDX:SERIE.length-1;
-  const cur=SERIE[idx], prev=idx>0?SERIE[idx-1]:null;
+  const i=SERIE.findIndex(r=>r.minuto===SEL_MIN), cur=i>=0?SERIE[i]:SERIE[SERIE.length-1], prev=i>0?SERIE[i-1]:null;
   const eC=cur?._est, eP=prev?._est, box=document.getElementById('avBoard'); if(!box)return;
   if(!eC||(!eC.casa&&!eC.fora)){box.innerHTML='<div class="ar-soon"><div class="ic">📡</div><p>Sem estatísticas neste minuto ainda.</p></div>';}
   else{box.innerHTML=INDS.map(ind=>{const rc=eC.casa?.[ind.key],rf=eC.fora?.[ind.key];const nc=pv(rc)||0,nf=pv(rf)||0,s=nc+nf,pa=s>0?nc/s*100:50;
     return `<div class="av-ind"><div class="top"><span class="v a">${eP?seta(rc,eP.casa?.[ind.key]):''}${fmtVal(rc,ind)}</span><span class="lbl">${ind.lbl}</span><span class="v b">${fmtVal(rf,ind)}${eP?seta(rf,eP.fora?.[ind.key]):''}</span></div><div class="av-trk"><div class="a" style="width:${pa}%"></div><div class="b" style="width:${100-pa}%"></div></div></div>`;}).join('');}
-  avEvs(cur?cur.sortKey:null);
+  avEvs(SEL_MIN);
 }
-function avEvs(cut){const el=document.getElementById('avEvs');if(!el)return;
+function avEvs(ate){const el=document.getElementById('avEvs');if(!el)return;
   const evs=(JOGO?.eventosJogo||[]).filter(e=>{
     const tipo=(e.tipo||'').toLowerCase(), det=(e.detalhe||'').toLowerCase();
     if(tipo==='var' || /cancel|disallow|annul|anul|no goal|sem gol|overturn/.test(det)) return false; // gol anulado / VAR
-    const k=mkey(e.tempo); return cut==null||k<=cut;
+    const m=parseInt(String(e.tempo).split('+')[0],10);return isNaN(m)?true:(ate==null||m<=ate);
   });
   if(!evs.length){el.innerHTML='<div class="ar-soon" style="padding:20px"><p>Nenhum evento até aqui.</p></div>';return;}
   const ico=e=>{const t=(e.tipo||'').toLowerCase(),d=(e.detalhe||'').toLowerCase();if(t==='goal')return '⚽';if(d.includes('yellow'))return '🟨';if(d.includes('red'))return '🟥';if(t==='subst')return '🔁';return '•';};
@@ -919,20 +916,19 @@ function avEvs(cut){const el=document.getElementById('avEvs');if(!el)return;
 function avScrub(){
   const el=document.getElementById('avScrub');if(!el)return;
   if(!SERIE.length){el.innerHTML='<div class="ar-soon" style="padding:18px"><div class="ic">🧊</div><p>Sem histórico minuto a minuto ainda — começa a gravar quando o jogo estiver ao vivo.</p></div>';return;}
-  const last=SERIE.length-1; if(SEL_IDX==null||FOLLOW)SEL_IDX=last; if(SEL_IDX>last)SEL_IDX=last; if(SEL_IDX<0)SEL_IDX=0;
-  const fim=SEL_IDX===last; const row=SERIE[SEL_IDX];
-  const evp=fnPlacarEventos(); const sc=evp.confiavel?evp.at(row?row.sortKey:0):{casa:row?.placarCasa,fora:row?.placarFora};
-  el.innerHTML=`<div class="hd"><div class="mlbl">Minuto <b>${esc(row?row.exib:'?')}'</b></div><div class="ctr">
-    <button onclick="avPasso(-1)" ${SEL_IDX<=0?'disabled':''}>‹</button>
+  const mx=SERIE[SERIE.length-1].minuto; if(SEL_MIN==null||FOLLOW)SEL_MIN=mx; const fim=SEL_MIN===mx; const row=SERIE.find(r=>r.minuto===SEL_MIN);
+  const evp=fnPlacarEventos(); const sc=evp.confiavel?evp.at(SEL_MIN):{casa:row?.placarCasa,fora:row?.placarFora};
+  el.innerHTML=`<div class="hd"><div class="mlbl">Minuto <b>${SEL_MIN}'</b></div><div class="ctr">
+    <button onclick="avPasso(-1)" ${SEL_MIN<=SERIE[0].minuto?'disabled':''}>‹</button>
     <button onclick="avPasso(1)" ${fim?'disabled':''}>›</button>
     <button class="${fim&&FOLLOW?'live':''}" onclick="avLive()">● ao vivo</button></div></div>
-    <input type="range" min="0" max="${last}" value="${SEL_IDX}" oninput="avSet(+this.value)">
+    <input type="range" min="${SERIE[0].minuto}" max="${mx}" value="${SEL_MIN}" oninput="avSet(+this.value)">
     <div class="mini">placar no minuto: ${sc.casa??'–'} × ${sc.fora??'–'}</div>
     <div class="leg">▲ subiu · ▼ caiu · – igual</div>`;
 }
-function avSet(i){SEL_IDX=i;FOLLOW=false;avScrub();avBoard();}
-function avPasso(d){const base=(SEL_IDX==null?SERIE.length-1:SEL_IDX);const ni=Math.max(0,Math.min(SERIE.length-1,base+d));SEL_IDX=ni;FOLLOW=(ni===SERIE.length-1);avScrub();avBoard();}
-function avLive(){FOLLOW=true;SEL_IDX=SERIE.length?SERIE.length-1:null;avScrub();avBoard();}
+function avSet(m){SEL_MIN=m;FOLLOW=false;avScrub();avBoard();}
+function avPasso(d){const i=SERIE.findIndex(r=>r.minuto===SEL_MIN),ni=Math.max(0,Math.min(SERIE.length-1,i+d));SEL_MIN=SERIE[ni].minuto;FOLLOW=(ni===SERIE.length-1);avScrub();avBoard();}
+function avLive(){FOLLOW=true;SEL_MIN=SERIE.length?SERIE[SERIE.length-1].minuto:null;avScrub();avBoard();}
 function carregarVivo(){
   VIVO_CARREGADO=true;
   if(UNSUB_VIVO)return;
@@ -945,19 +941,18 @@ function carregarVivo(){
   });
   UNSUB_VIVO=db.collection('jogo-snapshots').doc(sid).collection('minutos')
     .orderBy(firebase.firestore.FieldPath.documentId()).onSnapshot(snap=>{
-    const arr=[];
+    const byMin={};
     snap.forEach(x=>{
       const d=x.data(), id=String(x.id);
-      const base=parseInt(id.replace(/\+.*/,''),10)||0;
-      const extra=id.indexOf('+')>=0?(parseInt(id.split('+')[1],10)||0):0;
-      arr.push({minuto:base, extra, exib: extra>0?`${base}+${extra}`:String(base), sortKey: base*1000+extra,
-        placarCasa:d.placarCasa, placarFora:d.placarFora, estatisticas:mapEst(d)});
+      const base=parseInt(id.replace(/\+.*/,''))||0;
+      const extra=id.indexOf('+')>=0?(parseInt(id.split('+')[1])||0):0;
+      byMin[base]={minuto:base, minutoExibicao: extra>0?`${base}+${extra}`:String(base),
+        placarCasa:d.placarCasa, placarFora:d.placarFora, estatisticas:mapEst(d)};
     });
-    arr.sort((a,b)=>a.sortKey-b.sortKey);
-    SERIE=preencherSerie(arr);
+    const rows=Object.values(byMin).sort((a,b)=>a.minuto-b.minuto);
+    SERIE=preencherSerie(rows);
     if(!SERIE.length && JOGO?.estatisticasPartida){
-      const mb=JOGO.minutosJogo||0;
-      SERIE=[{minuto:mb,extra:0,exib:String(mb),sortKey:mb*1000,placarCasa:JOGO.placarCasa,placarFora:JOGO.placarFora,estatisticas:JOGO.estatisticasPartida,_est:JOGO.estatisticasPartida}];
+      SERIE=[{minuto:JOGO.minutosJogo||0,placarCasa:JOGO.placarCasa,placarFora:JOGO.placarFora,estatisticas:JOGO.estatisticasPartida,_est:JOGO.estatisticasPartida}];
     }
     avScrub();avBoard();renderFluxo();
   }, e=>{ console.warn('jogo-snapshots:',e.message); SERIE=[]; avScrub(); avBoard(); });
@@ -972,8 +967,8 @@ function golsPorMinuto(){
     const tipo=(e.tipo||'').toLowerCase(), det=(e.detalhe||'').toLowerCase();
     if(tipo!=='goal') return;
     if(/cancel|disallow|annul|anul|no goal|sem gol|overturn/.test(det)) return; // gol anulado no VAR
-    const lbl=String(e.tempo||'').trim(); if(!lbl) return;
-    (m[lbl]=m[lbl]||[]).push(e.time||'');
+    const base=parseInt(String(e.tempo).split('+')[0],10); if(isNaN(base))return;
+    (m[base]=m[base]||[]).push(e.time||'');
   });
   return m;
 }
@@ -987,15 +982,15 @@ function fnPlacarEventos(){
     const det=(e.detalhe||'').toLowerCase();
     if(/cancel|disallow|annul|anul|no goal|sem gol|overturn/.test(det)) return; // anulado no VAR não conta
     total++;
-    const k=mkey(e.tempo);
+    const base=parseInt(String(e.tempo).split('+')[0],10); if(isNaN(base))return;
     const nt=_norm(e.time);
     let side = nt&&nt===nF?'fora':(nt&&nt===nC?'casa':null);
     if(side===null) return;
     if(det.includes('own goal')) side = side==='casa'?'fora':'casa';
-    casados++; gols.push({k,side});
+    casados++; gols.push({base,side});
   });
   const confiavel = total===0 || casados===total;   // só usa eventos se TODOS os gols casaram com um time
-  return { confiavel, at:(cut)=>{let c=0,f=0; gols.forEach(g=>{ if(g.k<=cut)(g.side==='fora'?f++:c++); }); return {casa:c,fora:f};} };
+  return { confiavel, at:(min)=>{let c=0,f=0; gols.forEach(g=>{ if(g.base<=min)(g.side==='fora'?f++:c++); }); return {casa:c,fora:f};} };
 }
 function renderFluxo(){
   const box=document.getElementById('fluxoBox'); if(!box)return;
@@ -1010,7 +1005,7 @@ function renderFluxo(){
     const dSh  =Math.max(0,(comb(cur._est,'shots')??0)  -(comb(prev._est,'shots')??0));
     const dOn  =Math.max(0,(comb(cur._est,'shotsOn')??0)-(comb(prev._est,'shotsOn')??0));
     const dXg  =Math.max(0,(comb(cur._est,'xg')??0)     -(comb(prev._est,'xg')??0));
-    linhas.push({min:cur.minuto,exib:cur.exib||String(cur.minuto),sortKey:cur.sortKey??(cur.minuto*1000),dPass,dSh,dOn,dXg,gols:golMap[cur.exib]||null,pc:cur.placarCasa,pf:cur.placarFora});
+    linhas.push({min:cur.minuto,exib:cur.minutoExibicao||String(cur.minuto),dPass,dSh,dOn,dXg,gols:golMap[cur.minuto]||null,pc:cur.placarCasa,pf:cur.placarFora});
   }
   // Limiar "jogo aberto": compara o minuto ao RITMO médio de passes do próprio jogo
   const ult=arr[arr.length-1];
@@ -1025,7 +1020,7 @@ function renderFluxo(){
     const setaHtml=l.seta==='up'?'<span class="fx-a up">▲</span>':l.seta==='dn'?'<span class="fx-a dn">▼</span>':'<span class="fx-a eq">–</span>';
     const tagGol=l.gols?`<span class="fx-tag gol">⚽ GOL ${esc([...new Set(l.gols)].filter(Boolean).join('/'))}</span>`:'';
     const tagHot=aberto?'<span class="fx-tag hot">🔥 jogo aberto</span>':'';
-    const sc=evPl.confiavel?evPl.at(l.sortKey):{casa:l.pc,fora:l.pf};
+    const sc=evPl.confiavel?evPl.at(l.min):{casa:l.pc,fora:l.pf};
     return `<div class="fx-row${aberto?' aberto':''}${l.gols?' temgol':''}">
       <div class="fx-min">${esc(l.exib)}'</div>
       <div class="fx-main">
