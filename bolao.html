@@ -118,12 +118,12 @@
     <div id="paneJogos">
       <div class="card invite">
         <div style="font-weight:700">🤝 Convide amigos e ganhe pontos</div>
-        <div class="small" style="color:var(--t2);margin:4px 0 8px">Cada amigo que entrar pelo seu link e pagar = <b>+10 pts</b> pra você. O link já vem com seu número preenchido.</div>
+        <div class="small" style="color:var(--t2);margin:4px 0 8px">Quem mais trouxer amigos pagantes lidera o <b>ranking de indicações</b> e leva <b>10% do prêmio</b>. O link já vem com seu número preenchido.</div>
         <button class="mini" onclick="copiarConvite()">Copiar meu link de convite</button>
       </div>
       <div class="card leg">
         <b>Pontuação por jogo:</b><br>
-        🎯 Placar exato <b>50</b> · ✅ Resultado certo <b>25</b> · ⚽ Gols certos do mandante <b>15</b> · do visitante <b>15</b>
+        🎯 Placar exato <b>50</b> · ✅ Resultado certo <b>25</b> · ⚽ Gols certos do mandante <b>15</b> · do visitante <b>15</b> · 🏅 Melhor da rodada (mais pontos no dia) <b>+30</b>
       </div>
       <div id="listaJogos"><div class="card center small">Carregando jogos…</div></div>
     </div>
@@ -136,8 +136,9 @@
         <div id="refRank" class="small" style="margin-top:10px"></div>
         <div class="small" style="margin-top:8px">A casa fica com 20%. Prêmios pros 3 primeiros + quem mais indicou. Só quem está <span style="color:var(--grn)">PAGO</span> entra valendo.</div>
       </div>
+      <div class="daygrp">🎯 Ranking de pontos</div>
       <div class="card" style="padding:0;overflow:hidden">
-        <table><thead><tr><th class="pos">#</th><th>Quem</th><th class="n">Jogos</th><th class="n">Ind.</th><th class="n">Total</th></tr></thead>
+        <table><thead><tr><th class="pos">#</th><th>Quem</th><th class="n">Jogos</th><th class="n">Bônus</th><th class="n">Total</th></tr></thead>
         <tbody id="rankBody"></tbody></table>
       </div>
     </div>
@@ -151,8 +152,10 @@
     </div>
 
     <div id="panePalp" class="hidden">
-      <div class="card small">Veja o palpite de cada participante num jogo — útil pra conferir erros. Os palpites de cada jogo travam no início dele.</div>
-      <label style="margin-top:0">Escolha o jogo</label>
+      <div class="card small">Veja os palpites dos apostadores. Pra não dar cola, os palpites de cada jogo só aparecem <b>depois que o jogo começa</b>.</div>
+      <label style="margin-top:0">Apostador</label>
+      <select id="palUser" onchange="renderPalp()"></select>
+      <label>Jogo</label>
       <select id="palSel" onchange="renderPalp()"></select>
       <div id="palBody" style="margin-top:10px"></div>
     </div>
@@ -283,12 +286,24 @@
     if(f===pf)pts+=15;
     return pts;
   }
-  function totalUser(u){
-    let jg=0; const pal=u.palpites||{};
-    Object.keys(pal).forEach(gid=>{ if(RESULTS[gid]) jg+=pontosJogo(pal[gid],RESULTS[gid]); });
-    const ind=USERS.filter(o=>o.pago&&o.indicadoPor&&dig(o.indicadoPor)===u.id).length*10;
-    return {jg,ind,total:jg+ind};
+  function matchPts(u){
+    let s=0; const pal=u.palpites||{};
+    Object.keys(pal).forEach(gid=>{ if(RESULTS[gid]) s+=pontosJogo(pal[gid],RESULTS[gid]); });
+    return s;
   }
+  // +30 para o melhor pontuador de cada dia (rodada) que já tenha resultado lançado
+  function bonusRodada(){
+    const dias={}; FIXTURES.forEach(j=>{(dias[diaKey(j)]=dias[diaKey(j)]||[]).push(j);});
+    const bonus={};
+    Object.values(dias).forEach(jogosDia=>{
+      const comRes=jogosDia.filter(j=>RESULTS[j.id]); if(!comRes.length)return;
+      let best=0; const pd={};
+      USERS.forEach(u=>{ let s=0; comRes.forEach(j=>{const p=(u.palpites||{})[j.id]; if(p)s+=pontosJogo(p,RESULTS[j.id]);}); pd[u.id]=s; if(s>best)best=s; });
+      if(best>0) USERS.forEach(u=>{ if(pd[u.id]===best) bonus[u.id]=(bonus[u.id]||0)+30; });
+    });
+    return bonus;
+  }
+  function refCountUser(u){ return USERS.filter(o=>o.pago&&o.indicadoPor&&dig(o.indicadoPor)===u.id).length; }
 
   // ── auth anônimo (só pra liberar leitura/escrita no Firestore) ────────────
   // As coleções do bolão são públicas (regra liberada no Firestore),
@@ -345,7 +360,7 @@
     $('meNome').textContent=ME.nome||'';
     $('meBadge').innerHTML=ME.pago?'<span class="badge pago">pago</span>':'<span class="badge npago">não pago</span>';
     $('tbAdmin').classList.toggle('hidden',dig(ME.celular)!==ADMIN_TEL);
-    $('tbPalp').classList.toggle('hidden',dig(ME.celular)!==ADMIN_TEL);
+    $('tbPalp').classList.remove('hidden');
   }
   function visivel(t){return !$('pane'+({jogos:'Jogos',rank:'Rank',admin:'Admin',palp:'Palp'}[t])).classList.contains('hidden');}
   function aba(t){
@@ -405,13 +420,14 @@
 
   function renderRank(){
     const brl=v=>'R$ '+v.toFixed(2).replace('.',',');
+    const bonus=bonusRodada();
+    const mk=u=>{const mp=matchPts(u),bo=bonus[u.id]||0;return {u,mp,bo,total:mp+bo};};
     const score=(a,b)=>b.total-a.total||(a.u.nome||'').localeCompare(b.u.nome||'');
-    const pagosArr=USERS.filter(u=>u.pago).map(u=>({u,...totalUser(u)})).sort(score);
-    const naoArr=USERS.filter(u=>!u.pago).map(u=>({u,...totalUser(u)})).sort(score);
+    const pagosArr=USERS.filter(u=>u.pago).map(mk).sort(score);
+    const naoArr=USERS.filter(u=>!u.pago).map(mk).sort(score);
     const pote=pagosArr.length*10;
     $('poteInfo').textContent=`${pagosArr.length} pagante(s) · bolada de ${brl(pote)}`;
-    const refCount=u=>USERS.filter(o=>o.pago&&o.indicadoPor&&dig(o.indicadoPor)===u.id).length;
-    const refRows=USERS.map(u=>({u,n:refCount(u)})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
+    const refRows=USERS.map(u=>({u,n:refCountUser(u)})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n||(a.u.nome||'').localeCompare(b.u.nome||''));
     const nm=i=>pagosArr[i]?pagosArr[i].u.nome:'—';
     $('prizeGrid').innerHTML=[
       ['🏠 Casa (20%)',pote*0.20,''],
@@ -420,14 +436,13 @@
       ['🥉 3º lugar (15%)',pote*0.15,nm(2)],
       ['🤝 Mais indicou (10%)',pote*0.10, refRows[0]?refRows[0].u.nome:'—']
     ].map(([l,v,w])=>`<div class="p"><div class="l">${l}</div><div class="v">${brl(v)}</div>${w?`<div class="w">${w}</div>`:''}</div>`).join('');
-    $('refRank').innerHTML = refRows.length
-      ? '🤝 <b style="color:var(--tx)">Mais indicou:</b> '+refRows.slice(0,5).map((x,i)=>`${i===0?'🏆 ':''}${x.u.nome} (${x.n})`).join(' · ')
-      : '🤝 Ninguém indicou ainda.';
+    $('refRank').innerHTML='<b style="color:var(--tx)">🤝 Ranking de indicações</b> <span class="small">(disputa os 10% — não soma nos pontos)</span><br>'+
+      (refRows.length?refRows.slice(0,8).map((x,i)=>`${i+1}. ${x.u.nome} — <b>${x.n}</b>`).join(' · '):'<span class="small">Ninguém indicou ainda.</span>');
     const linha=(r,pos,vale)=>{const eu=ME&&r.u.id===ME.id;
       return `<tr class="${eu?'eu':''}" style="${vale?'':'opacity:.5'}">
         <td class="pos ${vale?'p'+pos:''}">${vale?pos:'–'}</td>
         <td>${r.u.nome||'—'} ${vale?'<span class="badge pago" style="font-size:9px">✓</span>':'<span class="badge npago" style="font-size:9px">não pago</span>'}</td>
-        <td class="n">${r.jg}</td><td class="n">${r.ind}</td><td class="n tot">${r.total}</td></tr>`;};
+        <td class="n">${r.mp}</td><td class="n">${r.bo?'+'+r.bo:'-'}</td><td class="n tot">${r.total}</td></tr>`;};
     let html=pagosArr.map((r,i)=>linha(r,i+1,true)).join('');
     if(naoArr.length) html+=`<tr><td colspan="5" class="small" style="text-align:center;color:var(--t3);padding:6px">— ainda não pagaram (não valem prêmio) —</td></tr>`+naoArr.map(r=>linha(r,'–',false)).join('');
     $('rankBody').innerHTML=html||'<tr><td colspan="5" class="center small">Ninguém ainda.</td></tr>';
@@ -453,28 +468,56 @@
     catch(e){toast('Erro ao excluir: '+e.message,true);}
   }
 
-  // ── ADMIN: palpites de todos num jogo ─────────────────────────────────────
+  // ── Palpites (todos os apostadores) — revela só depois do apito; admin vê tudo ──
   function renderPalp(){
-    if(!ME||dig(ME.celular)!==ADMIN_TEL){$('palBody').innerHTML='<div class="card small">Sem acesso.</div>';return;}
-    const sel=$('palSel');
-    if(!sel.options.length){
-      sel.innerHTML=FIXTURES.map(j=>`<option value="${j.id}">[${j.g}] ${j.c} × ${j.f} — ${dataLabel(j)}</option>`).join('');
-      const ini=FIXTURES.filter(j=>!aberto(j));               // pré-seleciona o último que já começou
-      sel.value=(ini.length?ini[ini.length-1].id:FIXTURES[0].id);
+    const isAdmin=ME&&dig(ME.celular)===ADMIN_TEL;
+    const selU=$('palUser'), selJ=$('palSel');
+    if(selU){ const cur=selU.value;
+      const us=USERS.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+      selU.innerHTML='<option value="__all">Todos os apostadores</option>'+us.map(u=>`<option value="${u.id}">${u.nome||u.id}</option>`).join('');
+      if(cur&&[...selU.options].some(o=>o.value===cur))selU.value=cur;
     }
-    const gid=sel.value, j=FIXTURES.find(x=>x.id===gid), r=RESULTS[gid];
-    const rows=USERS.map(u=>{const p=(u.palpites||{})[gid]; return {u,p,pts:(p&&r)?pontosJogo(p,r):null};})
-      .sort((a,b)=>((b.p?1:0)-(a.p?1:0))||((b.pts||0)-(a.pts||0))||(a.u.nome||'').localeCompare(b.u.nome||''));
-    const palpitaram=rows.filter(x=>x.p).length;
-    const head=`<div class="card" style="margin-bottom:8px"><div style="font-weight:700">${flag(j.c)}${j.c} × ${j.f}${flag(j.f)}</div>
-      <div class="small">${aberto(j)?'🟢 ainda aberto — palpites podem mudar':'🔒 fechado'} ${r?`· Final ${r.c}×${r.f}`:''} · ${palpitaram} palpitaram</div></div>`;
-    const body=`<div class="card" style="padding:0;overflow:hidden"><table>
-      <thead><tr><th>Participante</th><th class="n">Palpite</th>${r?'<th class="n">Pts</th>':''}</tr></thead><tbody>`+
-      rows.map(x=>`<tr><td>${x.u.nome||x.u.id} ${x.u.pago?'':'<span class="badge npago" style="font-size:9px">não pago</span>'}</td>
-        <td class="n">${x.p?`<b>${x.p.c}×${x.p.f}</b>`:'<span class="small">— não palpitou</span>'}</td>
-        ${r?`<td class="n tot">${x.pts!=null?'+'+x.pts:'-'}</td>`:''}</tr>`).join('')+
-      `</tbody></table></div>`;
-    $('palBody').innerHTML=head+body;
+    if(selJ&&!selJ.options.length){
+      selJ.innerHTML='<option value="__all">Todos os jogos</option>'+FIXTURES.map(j=>`<option value="${j.id}">[${j.g}] ${j.c} × ${j.f} — ${dataLabel(j)}</option>`).join('');
+      const ini=FIXTURES.filter(j=>!aberto(j)); selJ.value=(ini.length?ini[ini.length-1].id:'__all');
+    }
+    const uId=selU?selU.value:'__all', gId=selJ?selJ.value:'__all';
+    const revela=j=>(!aberto(j))||isAdmin;
+    const cell=(u,j)=>{ if(!revela(j))return '<span class="small">🔒</span>';
+      const p=(u.palpites||{})[j.id], r=RESULTS[j.id];
+      if(!p)return '<span class="small">—</span>';
+      const pts=r?pontosJogo(p,r):null;
+      return `<b>${p.c}×${p.f}</b>${pts!=null?` <span class="pts">+${pts}</span>`:''}`;
+    };
+    let html='';
+    if(uId!=='__all'){
+      const u=USERS.find(x=>x.id===uId);
+      if(u){
+        const jogos=FIXTURES.filter(revela);
+        html=`<div class="card" style="margin-bottom:8px"><b>${u.nome||u.id}</b> ${u.pago?'<span class="badge pago" style="font-size:9px">pago</span>':'<span class="badge npago" style="font-size:9px">não pago</span>'} · ${matchPts(u)} pts</div>
+          <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Jogo</th><th class="n">Palpite</th></tr></thead><tbody>`+
+          (jogos.length?jogos.map(j=>`<tr><td>${j.c} × ${j.f}</td><td class="n">${cell(u,j)}</td></tr>`).join(''):'<tr><td colspan="2" class="small center">Nenhum jogo começou ainda.</td></tr>')+
+          `</tbody></table></div>`;
+      }
+    } else if(gId!=='__all'){
+      const j=FIXTURES.find(x=>x.id===gId), r=RESULTS[gId];
+      html=`<div class="card" style="margin-bottom:8px"><div style="font-weight:700">${flag(j.c)}${j.c} × ${j.f}${flag(j.f)}</div>
+        <div class="small">${aberto(j)?'🟢 ainda aberto':'🔒 fechado'} ${r?`· Final ${r.c}×${r.f}`:''}</div></div>`;
+      if(!revela(j)) html+='<div class="card center small">🔒 Os palpites aparecem quando o jogo começar.</div>';
+      else { const rows=USERS.map(u=>({u,p:(u.palpites||{})[gId]})).sort((a,b)=>((b.p?1:0)-(a.p?1:0))||(a.u.nome||'').localeCompare(b.u.nome||''));
+        html+=`<div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Apostador</th><th class="n">Palpite</th></tr></thead><tbody>`+
+          rows.map(x=>`<tr><td>${x.u.nome||x.u.id}</td><td class="n">${cell(x.u,j)}</td></tr>`).join('')+`</tbody></table></div>`; }
+    } else {
+      const jogos=FIXTURES.filter(revela);
+      if(!jogos.length) html='<div class="card center small">Os palpites aparecem quando os jogos começarem. Escolha um apostador acima pra ver os dele.</div>';
+      else html=jogos.slice().reverse().map(j=>{ const r=RESULTS[j.id];
+        const rows=USERS.filter(u=>(u.palpites||{})[j.id]).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+        return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:8px"><table>
+          <thead><tr><th>${j.c} × ${j.f}${r?` · ${r.c}×${r.f}`:''}</th><th class="n">Palpite</th></tr></thead><tbody>`+
+          (rows.length?rows.map(u=>`<tr><td>${u.nome||u.id}</td><td class="n">${cell(u,j)}</td></tr>`).join(''):'<tr><td colspan="2" class="small">Ninguém palpitou.</td></tr>')+
+          `</tbody></table></div>`; }).join('');
+    }
+    $('palBody').innerHTML=html;
   }
 
   ['cTel','lTel','cInd'].forEach(id=>{const el=$(id);if(el)el.addEventListener('blur',()=>{const d=dig(el.value);if(d.length>=10)el.value=`(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;});});
