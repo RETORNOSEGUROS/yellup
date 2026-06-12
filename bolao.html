@@ -153,8 +153,9 @@
 
     <div id="panePalp" class="hidden">
       <div class="card small">Veja os palpites dos apostadores. Pra não dar cola, os palpites de cada jogo só aparecem <b>depois que o jogo começa</b>.</div>
-      <label style="margin-top:0">Apostador</label>
-      <select id="palUser" onchange="renderPalp()"></select>
+      <label style="margin-top:0">Apostador <span class="small">(digite o nome — vazio = todos)</span></label>
+      <input id="palUser" list="palUserList" autocomplete="off" placeholder="nome do apostador" oninput="renderPalp()">
+      <datalist id="palUserList"></datalist>
       <label>Jogo</label>
       <select id="palSel" onchange="renderPalp()"></select>
       <div id="palBody" style="margin-top:10px"></div>
@@ -471,17 +472,12 @@
   // ── Palpites (todos os apostadores) — revela só depois do apito; admin vê tudo ──
   function renderPalp(){
     const isAdmin=ME&&dig(ME.celular)===ADMIN_TEL;
-    const selU=$('palUser'), selJ=$('palSel');
-    if(selU){ const cur=selU.value;
-      const us=USERS.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
-      selU.innerHTML='<option value="__all">Todos os apostadores</option>'+us.map(u=>`<option value="${u.id}">${u.nome||u.id}</option>`).join('');
-      if(cur&&[...selU.options].some(o=>o.value===cur))selU.value=cur;
-    }
+    const inU=$('palUser'), selJ=$('palSel'), dl=$('palUserList');
+    if(dl) dl.innerHTML=USERS.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(u=>`<option value="${(u.nome||u.id).replace(/"/g,'')}">`).join('');
     if(selJ&&!selJ.options.length){
       selJ.innerHTML='<option value="__all">Todos os jogos</option>'+FIXTURES.map(j=>`<option value="${j.id}">[${j.g}] ${j.c} × ${j.f} — ${dataLabel(j)}</option>`).join('');
       const ini=FIXTURES.filter(j=>!aberto(j)); selJ.value=(ini.length?ini[ini.length-1].id:'__all');
     }
-    const uId=selU?selU.value:'__all', gId=selJ?selJ.value:'__all';
     const revela=j=>(!aberto(j))||isAdmin;
     const cell=(u,j)=>{ if(!revela(j))return '<span class="small">🔒</span>';
       const p=(u.palpites||{})[j.id], r=RESULTS[j.id];
@@ -489,33 +485,39 @@
       const pts=r?pontosJogo(p,r):null;
       return `<b>${p.c}×${p.f}</b>${pts!=null?` <span class="pts">+${pts}</span>`:''}`;
     };
-    let html='';
-    if(uId!=='__all'){
-      const u=USERS.find(x=>x.id===uId);
-      if(u){
-        const jogos=FIXTURES.filter(revela);
-        html=`<div class="card" style="margin-bottom:8px"><b>${u.nome||u.id}</b> ${u.pago?'<span class="badge pago" style="font-size:9px">pago</span>':'<span class="badge npago" style="font-size:9px">não pago</span>'} · ${matchPts(u)} pts</div>
-          <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Jogo</th><th class="n">Palpite</th></tr></thead><tbody>`+
-          (jogos.length?jogos.map(j=>`<tr><td>${j.c} × ${j.f}</td><td class="n">${cell(u,j)}</td></tr>`).join(''):'<tr><td colspan="2" class="small center">Nenhum jogo começou ainda.</td></tr>')+
-          `</tbody></table></div>`;
-      }
-    } else if(gId!=='__all'){
-      const j=FIXTURES.find(x=>x.id===gId), r=RESULTS[gId];
-      html=`<div class="card" style="margin-bottom:8px"><div style="font-weight:700">${flag(j.c)}${j.c} × ${j.f}${flag(j.f)}</div>
-        <div class="small">${aberto(j)?'🟢 ainda aberto':'🔒 fechado'} ${r?`· Final ${r.c}×${r.f}`:''}</div></div>`;
-      if(!revela(j)) html+='<div class="card center small">🔒 Os palpites aparecem quando o jogo começar.</div>';
-      else { const rows=USERS.map(u=>({u,p:(u.palpites||{})[gId]})).sort((a,b)=>((b.p?1:0)-(a.p?1:0))||(a.u.nome||'').localeCompare(b.u.nome||''));
-        html+=`<div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Apostador</th><th class="n">Palpite</th></tr></thead><tbody>`+
-          rows.map(x=>`<tr><td>${x.u.nome||x.u.id}</td><td class="n">${cell(x.u,j)}</td></tr>`).join('')+`</tbody></table></div>`; }
-    } else {
+    const blocoUser=u=>{
       const jogos=FIXTURES.filter(revela);
-      if(!jogos.length) html='<div class="card center small">Os palpites aparecem quando os jogos começarem. Escolha um apostador acima pra ver os dele.</div>';
-      else html=jogos.slice().reverse().map(j=>{ const r=RESULTS[j.id];
-        const rows=USERS.filter(u=>(u.palpites||{})[j.id]).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
-        return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:8px"><table>
-          <thead><tr><th>${j.c} × ${j.f}${r?` · ${r.c}×${r.f}`:''}</th><th class="n">Palpite</th></tr></thead><tbody>`+
-          (rows.length?rows.map(u=>`<tr><td>${u.nome||u.id}</td><td class="n">${cell(u,j)}</td></tr>`).join(''):'<tr><td colspan="2" class="small">Ninguém palpitou.</td></tr>')+
-          `</tbody></table></div>`; }).join('');
+      return `<div class="card" style="margin-bottom:6px"><b>${u.nome||u.id}</b> ${u.pago?'<span class="badge pago" style="font-size:9px">pago</span>':'<span class="badge npago" style="font-size:9px">não pago</span>'} · ${matchPts(u)} pts</div>
+        <div class="card" style="padding:0;overflow:hidden;margin-bottom:10px"><table><thead><tr><th>Jogo</th><th class="n">Palpite</th></tr></thead><tbody>`+
+        (jogos.length?jogos.map(j=>`<tr><td>${j.c} × ${j.f}</td><td class="n">${cell(u,j)}</td></tr>`).join(''):'<tr><td colspan="2" class="small center">Nenhum jogo começou ainda.</td></tr>')+
+        `</tbody></table></div>`;
+    };
+
+    const q=(inU?inU.value:'').trim().toLowerCase();
+    let html='';
+    if(q){
+      const matched=USERS.filter(u=>(u.nome||'').toLowerCase().includes(q)).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).slice(0,12);
+      html = matched.length ? matched.map(blocoUser).join('') : '<div class="card center small">Nenhum apostador com esse nome.</div>';
+    } else {
+      const gId=selJ?selJ.value:'__all';
+      if(gId!=='__all'){
+        const j=FIXTURES.find(x=>x.id===gId), r=RESULTS[gId];
+        html=`<div class="card" style="margin-bottom:8px"><div style="font-weight:700">${flag(j.c)}${j.c} × ${j.f}${flag(j.f)}</div>
+          <div class="small">${aberto(j)?'🟢 ainda aberto':'🔒 fechado'} ${r?`· Final ${r.c}×${r.f}`:''}</div></div>`;
+        if(!revela(j)) html+='<div class="card center small">🔒 Os palpites aparecem quando o jogo começar.</div>';
+        else { const rows=USERS.map(u=>({u,p:(u.palpites||{})[gId]})).sort((a,b)=>((b.p?1:0)-(a.p?1:0))||(a.u.nome||'').localeCompare(b.u.nome||''));
+          html+=`<div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Apostador</th><th class="n">Palpite</th></tr></thead><tbody>`+
+            rows.map(x=>`<tr><td>${x.u.nome||x.u.id}</td><td class="n">${cell(x.u,j)}</td></tr>`).join('')+`</tbody></table></div>`; }
+      } else {
+        const jogos=FIXTURES.filter(revela);
+        if(!jogos.length) html='<div class="card center small">Os palpites aparecem quando os jogos começarem. Ou digite um nome acima.</div>';
+        else html=jogos.slice().reverse().map(j=>{ const r=RESULTS[j.id];
+          const rows=USERS.filter(u=>(u.palpites||{})[j.id]).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+          return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:8px"><table>
+            <thead><tr><th>${j.c} × ${j.f}${r?` · ${r.c}×${r.f}`:''}</th><th class="n">Palpite</th></tr></thead><tbody>`+
+            (rows.length?rows.map(u=>`<tr><td>${u.nome||u.id}</td><td class="n">${cell(u,j)}</td></tr>`).join(''):'<tr><td colspan="2" class="small">Ninguém palpitou.</td></tr>')+
+            `</tbody></table></div>`; }).join('');
+      }
     }
     $('palBody').innerHTML=html;
   }
