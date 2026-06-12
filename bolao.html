@@ -93,7 +93,7 @@
   </div>
 
   <div class="card pixbox">
-    <div><b>R$ 10</b> por pessoa · pague no PIX e mande o comprovante pro organizador confirmar.</div>
+    <div><b>R$ 10</b> por pessoa. Pague no PIX e clique em <b>"Já paguei"</b> — o organizador confirma.</div>
     <div class="pixrow"><code id="pixKey">29.092.877/0001-31</code><button class="mini" onclick="copiarPix()">Copiar</button></div>
     <div class="small" style="margin-top:6px;color:var(--t2)">Chave PIX: <b>CNPJ</b></div>
   </div>
@@ -138,6 +138,7 @@
     </div>
 
     <div id="paneJogos">
+      <div id="avisoPgto"></div>
       <div class="card invite">
         <div style="font-weight:700">🤝 Convide amigos e ganhe pontos</div>
         <div class="small" style="color:var(--t2);margin:4px 0 8px">Quem mais trouxer amigos pagantes lidera o <b>ranking de indicações</b> e leva <b>10% do prêmio</b>. O link já vem com seu número preenchido.</div>
@@ -408,6 +409,12 @@
     $('meBadge').innerHTML=ME.pago?'<span class="badge pago">pago</span>':'<span class="badge npago">não pago</span>';
     $('tbAdmin').classList.toggle('hidden',dig(ME.celular)!==ADMIN_TEL);
     $('tbPalp').classList.remove('hidden');
+    const ap=$('avisoPgto');
+    if(ap){
+      if(ME.pago) ap.innerHTML='';
+      else if(ME.avisouPago) ap.innerHTML='<div class="card invite"><b style="color:var(--grn)">✅ Você avisou que pagou.</b><div class="small" style="color:var(--t2);margin-top:2px">Aguardando o organizador confirmar.</div></div>';
+      else ap.innerHTML='<div class="card pixbox"><div style="font-weight:700">Pagou o PIX?</div><div class="small" style="color:var(--t2);margin:3px 0 9px">Clica aqui pra avisar o organizador.</div><button class="mini" onclick="jaPaguei()">✅ Já paguei</button></div>';
+    }
   }
   function visivel(t){return !$('pane'+({jogos:'Jogos',pontos:'Pontos',indic:'Indic',rodadas:'Rodadas',admin:'Admin',palp:'Palp'}[t])).classList.contains('hidden');}
   function aba(t){
@@ -531,12 +538,18 @@
   }
   function renderAdmin(){
     if(!ME||dig(ME.celular)!==ADMIN_TEL){$('admBody').innerHTML='<tr><td class="small">Sem acesso.</td></tr>';return;}
-    const rows=USERS.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+    const pri=u=>(!u.pago&&u.avisouPago)?0:(!u.pago?1:2);
+    const rows=USERS.slice().sort((a,b)=>pri(a)-pri(b)||(a.nome||'').localeCompare(b.nome||''));
     $('admBody').innerHTML=rows.map(u=>`<tr>
-      <td>${u.nome||'—'}${u.indicadoPor?`<br><span class="small">ind: ${u.indicadoPor}</span>`:''}</td>
+      <td>${u.nome||'—'}${u.indicadoPor?`<br><span class="small">ind: ${u.indicadoPor}</span>`:''}${(!u.pago&&u.avisouPago)?'<br><span class="badge pago" style="font-size:9px">💬 avisou que pagou</span>':''}</td>
       <td class="small">${u.celular||''}</td><td class="small">${u.pix||'—'}</td>
       <td class="n"><button class="mini ${u.pago?'':'sec'}" style="width:auto" onclick="togglePago('${u.id}',${!u.pago})">${u.pago?'PAGO ✓':'marcar'}</button>${u.pago?'':`<button class="mini sec" style="width:auto;margin-left:5px;color:var(--red);border-color:#5c1c1c" onclick="excluir('${u.id}')">🗑</button>`}</td>
     </tr>`).join('');
+  }
+  async function jaPaguei(){
+    if(!ME)return;
+    try{ await authReady; await db.collection(COL).doc(ME.id).set({avisouPago:true,avisouTs:Date.now()},{merge:true}); toast('Avisado! O organizador vai confirmar.'); }
+    catch(e){ toast('Erro: '+e.message,true); }
   }
   async function togglePago(id,val){
     try{await authReady;await db.collection(COL).doc(id).set({pago:val},{merge:true});toast(val?'Marcado como pago':'Removido');}
