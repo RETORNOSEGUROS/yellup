@@ -1015,13 +1015,18 @@ function atualizarFab(){
   fab.style.alignItems='center'; fab.style.justifyContent='center';
 }
 
+let HEAD_UNSUB=null, RAIOX_ONCE=false;
 async function init(){
   if(!JID){ document.getElementById('h2hBody').innerHTML='<div class="ar-soon"><div class="ic">❓</div><h3>Sem jogo</h3><p>Abra a arena a partir de um jogo (arena-yell.html?jogoId=...).</p></div>'; return; }
-  try{
-    const d=await db.collection('jogos').doc(JID).get();
+  // Cabeçalho em tempo real: placar/minuto/status atualizam sozinhos a cada minuto
+  if(HEAD_UNSUB) HEAD_UNSUB();
+  HEAD_UNSUB = db.collection('jogos').doc(JID).onSnapshot(d=>{
     if(d.exists){ JOGO={id:JID,...d.data()}; renderHead(JOGO); }
-    carregarRaiox();
-  }catch(e){ console.error(e); carregarRaiox(); }
+    if(!RAIOX_ONCE){ RAIOX_ONCE=true; carregarRaiox(); }   // raio-x é congelado: carrega 1x só
+  }, e=>{
+    console.error('jogos onSnapshot:', e.message);
+    if(!RAIOX_ONCE){ RAIOX_ONCE=true; carregarRaiox(); }
+  });
 }
 auth.onAuthStateChanged(user=>{
   if(!user){
