@@ -917,12 +917,13 @@ function avScrub(){
   const el=document.getElementById('avScrub');if(!el)return;
   if(!SERIE.length){el.innerHTML='<div class="ar-soon" style="padding:18px"><div class="ic">🧊</div><p>Sem histórico minuto a minuto ainda — começa a gravar quando o jogo estiver ao vivo.</p></div>';return;}
   const mx=SERIE[SERIE.length-1].minuto; if(SEL_MIN==null||FOLLOW)SEL_MIN=mx; const fim=SEL_MIN===mx; const row=SERIE.find(r=>r.minuto===SEL_MIN);
+  const evp=fnPlacarEventos(); const sc=evp.confiavel?evp.at(SEL_MIN):{casa:row?.placarCasa,fora:row?.placarFora};
   el.innerHTML=`<div class="hd"><div class="mlbl">Minuto <b>${SEL_MIN}'</b></div><div class="ctr">
     <button onclick="avPasso(-1)" ${SEL_MIN<=SERIE[0].minuto?'disabled':''}>‹</button>
     <button onclick="avPasso(1)" ${fim?'disabled':''}>›</button>
     <button class="${fim&&FOLLOW?'live':''}" onclick="avLive()">● ao vivo</button></div></div>
     <input type="range" min="${SERIE[0].minuto}" max="${mx}" value="${SEL_MIN}" oninput="avSet(+this.value)">
-    <div class="mini">placar no minuto: ${row?.placarCasa??'–'} × ${row?.placarFora??'–'}</div>
+    <div class="mini">placar no minuto: ${sc.casa??'–'} × ${sc.fora??'–'}</div>
     <div class="leg">▲ subiu · ▼ caiu · – igual</div>`;
 }
 function avSet(m){SEL_MIN=m;FOLLOW=false;avScrub();avBoard();}
@@ -971,11 +972,32 @@ function golsPorMinuto(){
   });
   return m;
 }
+// Placar correto por minuto, contado pelos gols reais (eventos, sem VAR). Fallback no snapshot se não casar.
+function _norm(s){return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();}
+function fnPlacarEventos(){
+  const nC=_norm(JOGO?.timeCasaNome), nF=_norm(JOGO?.timeForaNome);
+  const gols=[]; let total=0, casados=0;
+  (JOGO?.eventosJogo||[]).forEach(e=>{
+    if((e.tipo||'').toLowerCase()!=='goal') return;
+    const det=(e.detalhe||'').toLowerCase();
+    if(/cancel|disallow|annul|anul|no goal|sem gol|overturn/.test(det)) return; // anulado no VAR não conta
+    total++;
+    const base=parseInt(String(e.tempo).split('+')[0],10); if(isNaN(base))return;
+    const nt=_norm(e.time);
+    let side = nt&&nt===nF?'fora':(nt&&nt===nC?'casa':null);
+    if(side===null) return;
+    if(det.includes('own goal')) side = side==='casa'?'fora':'casa';
+    casados++; gols.push({base,side});
+  });
+  const confiavel = total===0 || casados===total;   // só usa eventos se TODOS os gols casaram com um time
+  return { confiavel, at:(min)=>{let c=0,f=0; gols.forEach(g=>{ if(g.base<=min)(g.side==='fora'?f++:c++); }); return {casa:c,fora:f};} };
+}
 function renderFluxo(){
   const box=document.getElementById('fluxoBox'); if(!box)return;
   const arr=SERIE.filter(r=>r._est&&(r._est.casa||r._est.fora));
   if(arr.length<2){ box.innerHTML='<div class="ar-soon"><div class="ic">📈</div><p>Ainda sem minutos suficientes pra comparar. Aparece quando o jogo começar a registrar.</p></div>'; return; }
   const golMap=golsPorMinuto();
+  const evPl=fnPlacarEventos();
   const linhas=[];
   for(let i=1;i<arr.length;i++){
     const cur=arr[i], prev=arr[i-1];
@@ -998,10 +1020,11 @@ function renderFluxo(){
     const setaHtml=l.seta==='up'?'<span class="fx-a up">▲</span>':l.seta==='dn'?'<span class="fx-a dn">▼</span>':'<span class="fx-a eq">–</span>';
     const tagGol=l.gols?`<span class="fx-tag gol">⚽ GOL ${esc([...new Set(l.gols)].filter(Boolean).join('/'))}</span>`:'';
     const tagHot=aberto?'<span class="fx-tag hot">🔥 jogo aberto</span>':'';
+    const sc=evPl.confiavel?evPl.at(l.min):{casa:l.pc,fora:l.pf};
     return `<div class="fx-row${aberto?' aberto':''}${l.gols?' temgol':''}">
       <div class="fx-min">${esc(l.exib)}'</div>
       <div class="fx-main">
-        <div class="fx-lead">${setaHtml}<b>+${l.dPass}</b> passes <span class="fx-cum">· ${l.pc??'–'}×${l.pf??'–'}</span> ${tagGol}${tagHot}</div>
+        <div class="fx-lead">${setaHtml}<b>+${l.dPass}</b> passes <span class="fx-cum">· ${sc.casa??'–'}×${sc.fora??'–'}</span> ${tagGol}${tagHot}</div>
         <div class="fx-bar"><span style="width:${w}%"></span></div>
         <div class="fx-sub">🥅 +${l.dSh} finalizações · 🎯 +${l.dOn} no gol${l.dXg>0?` · xG +${l.dXg.toFixed(2)}`:''}</div>
       </div>
