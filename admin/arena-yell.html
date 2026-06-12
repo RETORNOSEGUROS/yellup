@@ -917,9 +917,14 @@ function preencherSerie(rows){
   });
 }
 function fmtVal(raw,ind){const n=pv(raw);if(n==null)return '—';if(ind.pct)return Math.round(n)+'%';if(ind.dec)return n.toFixed(2);return String(Math.round(n));}
+// Trava: enquanto AO VIVO, não mostra minutos à frente do relógio real (minutosJogo).
+// Snapshots gravados com minJogo às vezes ficam "no futuro"; isso alinha tudo ao placar.
+function minutoReal(){ return (JOGO && JOGO.status==='ao_vivo' && Number.isFinite(JOGO.minutosJogo)) ? JOGO.minutosJogo : Infinity; }
+function serieVisivel(){ const cap=minutoReal(); return cap===Infinity?SERIE:SERIE.filter(r=>r.minuto<=cap); }
 function seta(c0,p0){const c=pv(c0),p=pv(p0);if(c==null||p==null||c===p)return '<span class="av-arr eq">–</span>';return c>p?'<span class="av-arr up">▲</span>':'<span class="av-arr dn">▼</span>';}
 function avBoard(){
-  const i=SERIE.findIndex(r=>r.minuto===SEL_MIN), cur=i>=0?SERIE[i]:SERIE[SERIE.length-1], prev=i>0?SERIE[i-1]:null;
+  const S=serieVisivel();
+  const i=S.findIndex(r=>r.minuto===SEL_MIN), cur=i>=0?S[i]:S[S.length-1], prev=i>0?S[i-1]:null;
   const eC=cur?._est, eP=prev?._est, box=document.getElementById('avBoard'); if(!box)return;
   if(!eC||(!eC.casa&&!eC.fora)){box.innerHTML='<div class="ar-soon"><div class="ic">📡</div><p>Sem estatísticas neste minuto ainda.</p></div>';}
   else{box.innerHTML=INDS.map(ind=>{const rc=eC.casa?.[ind.key],rf=eC.fora?.[ind.key];const nc=pv(rc)||0,nf=pv(rf)||0,s=nc+nf,pa=s>0?nc/s*100:50;
@@ -938,20 +943,21 @@ function avEvs(ate){const el=document.getElementById('avEvs');if(!el)return;
 }
 function avScrub(){
   const el=document.getElementById('avScrub');if(!el)return;
-  if(!SERIE.length){el.innerHTML='<div class="ar-soon" style="padding:18px"><div class="ic">🧊</div><p>Sem histórico minuto a minuto ainda — começa a gravar quando o jogo estiver ao vivo.</p></div>';return;}
-  const mx=SERIE[SERIE.length-1].minuto; if(SEL_MIN==null||FOLLOW)SEL_MIN=mx; const fim=SEL_MIN===mx; const row=SERIE.find(r=>r.minuto===SEL_MIN);
+  const S=serieVisivel();
+  if(!S.length){el.innerHTML='<div class="ar-soon" style="padding:18px"><div class="ic">🧊</div><p>Sem histórico minuto a minuto ainda — começa a gravar quando o jogo estiver ao vivo.</p></div>';return;}
+  const mx=S[S.length-1].minuto; if(SEL_MIN==null||FOLLOW||SEL_MIN>mx)SEL_MIN=mx; const fim=SEL_MIN===mx; const row=S.find(r=>r.minuto===SEL_MIN);
   const evp=fnPlacarEventos(); const sc=evp.confiavel?evp.at(SEL_MIN):{casa:row?.placarCasa,fora:row?.placarFora};
   el.innerHTML=`<div class="hd"><div class="mlbl">Minuto <b>${SEL_MIN}'</b></div><div class="ctr">
-    <button onclick="avPasso(-1)" ${SEL_MIN<=SERIE[0].minuto?'disabled':''}>‹</button>
+    <button onclick="avPasso(-1)" ${SEL_MIN<=S[0].minuto?'disabled':''}>‹</button>
     <button onclick="avPasso(1)" ${fim?'disabled':''}>›</button>
     <button class="${fim&&FOLLOW?'live':''}" onclick="avLive()">● ao vivo</button></div></div>
-    <input type="range" min="${SERIE[0].minuto}" max="${mx}" value="${SEL_MIN}" oninput="avSet(+this.value)">
+    <input type="range" min="${S[0].minuto}" max="${mx}" value="${SEL_MIN}" oninput="avSet(+this.value)">
     <div class="mini">placar no minuto: ${sc.casa??'–'} × ${sc.fora??'–'}</div>
     <div class="leg">▲ subiu · ▼ caiu · – igual</div>`;
 }
 function avSet(m){SEL_MIN=m;FOLLOW=false;avScrub();avBoard();}
-function avPasso(d){const i=SERIE.findIndex(r=>r.minuto===SEL_MIN),ni=Math.max(0,Math.min(SERIE.length-1,i+d));SEL_MIN=SERIE[ni].minuto;FOLLOW=(ni===SERIE.length-1);avScrub();avBoard();}
-function avLive(){FOLLOW=true;SEL_MIN=SERIE.length?SERIE[SERIE.length-1].minuto:null;avScrub();avBoard();}
+function avPasso(d){const S=serieVisivel();const i=S.findIndex(r=>r.minuto===SEL_MIN),ni=Math.max(0,Math.min(S.length-1,i+d));SEL_MIN=S[ni]?S[ni].minuto:SEL_MIN;FOLLOW=(ni===S.length-1);avScrub();avBoard();}
+function avLive(){const S=serieVisivel();FOLLOW=true;SEL_MIN=S.length?S[S.length-1].minuto:null;avScrub();avBoard();}
 function carregarVivo(){
   VIVO_CARREGADO=true;
   if(UNSUB_VIVO)return;
@@ -1017,7 +1023,7 @@ function fnPlacarEventos(){
 }
 function renderFluxo(){
   const box=document.getElementById('fluxoBox'); if(!box)return;
-  const arr=SERIE.filter(r=>r._est&&(r._est.casa||r._est.fora));
+  const arr=serieVisivel().filter(r=>r._est&&(r._est.casa||r._est.fora));
   if(arr.length<2){ box.innerHTML='<div class="ar-soon"><div class="ic">📈</div><p>Ainda sem minutos suficientes pra comparar. Aparece quando o jogo começar a registrar.</p></div>'; return; }
   const golMap=golsPorMinuto();
   const evPl=fnPlacarEventos();
@@ -1192,7 +1198,7 @@ function comentariosPreJogo(){
 }
 
 function comentariosAoVivo(){
-  const arr=SERIE.filter(r=>r._est&&(r._est.casa||r._est.fora));
+  const arr=serieVisivel().filter(r=>r._est&&(r._est.casa||r._est.fora));
   if(arr.length<2) return [];
   const golMap=golsPorMinuto(), evPl=fnPlacarEventos();
   const jqSc={casa:topJanelas('casa','sc'), fora:topJanelas('fora','sc')};
@@ -1244,7 +1250,7 @@ function comentariosAoVivo(){
 
 function renderResenha(){
   const box=document.getElementById('resenhaBox'); if(!box)return;
-  const temVivo=SERIE.filter(r=>r._est).length>=2;
+  const temVivo=serieVisivel().filter(r=>r._est).length>=2;
   const isLive=JOGO&&(JOGO.status==='ao_vivo'||JOGO.status==='finalizado'||JOGO.status==='encerrado');
   if(!SNAP&&!temVivo){ box.innerHTML='<div class="ar-soon"><div class="ic">🗣️</div><p>A resenha aparece com o Raio-X pré-jogo e vira narração quando a bola rola.</p></div>'; return; }
   const linhaPre=c=>`<div class="cm-item"><span class="cm-ic">${c.ic}</span><span class="cm-tx">${c.txt}</span></div>`;
@@ -1310,7 +1316,9 @@ async function init(){
   // Cabeçalho em tempo real: placar/minuto/status atualizam sozinhos a cada minuto
   if(HEAD_UNSUB) HEAD_UNSUB();
   HEAD_UNSUB = db.collection('jogos').doc(JID).onSnapshot(d=>{
-    if(d.exists){ JOGO={id:JID,...d.data()}; renderHead(JOGO); }
+    if(d.exists){ JOGO={id:JID,...d.data()}; renderHead(JOGO);
+      if(VIVO_CARREGADO){ avScrub(); avBoard(); renderFluxo(); renderResenha(); } // acompanha o minuto real
+    }
     if(!RAIOX_ONCE){ RAIOX_ONCE=true; carregarRaiox(); }   // raio-x é congelado: carrega 1x só
   }, e=>{
     console.error('jogos onSnapshot:', e.message);
