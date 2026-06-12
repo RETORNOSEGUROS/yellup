@@ -782,6 +782,16 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
 .fx-tag{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;white-space:nowrap}
 .fx-tag.hot{background:var(--gn-d);color:var(--gn)}
 .fx-tag.gol{background:var(--yl-d);color:var(--yl)}
+/* ===== Aba Resenha (comentários) ===== */
+.cm-wrap{padding:2px}
+.cm-tt{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--tx3);margin:4px 2px 10px;display:flex;align-items:center;gap:8px}
+.cm-tt::after{content:'';flex:1;height:1px;background:var(--b1)}
+.cm-feed{display:flex;flex-direction:column;gap:7px}
+.cm-item{display:flex;gap:9px;align-items:flex-start;background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:9px 11px;font-size:13px;line-height:1.45;color:var(--tx2)}
+.cm-min{font-family:var(--fM);font-size:11px;font-weight:700;color:var(--cy);min-width:30px;text-align:right;padding-top:1px}
+.cm-ic{font-size:15px;line-height:1.3}
+.cm-tx{flex:1;min-width:0}
+.cm-tx b{color:var(--tx)}
 </style>
 </head>
 <body>
@@ -799,6 +809,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
     </div>
     <div class="ar-tabs" id="arTabs">
       <button class="ar-tab on" data-tab="raiox" onclick="trocarAba('raiox')">Raio-X</button>
+      <button class="ar-tab" data-tab="resenha" onclick="trocarAba('resenha')">🗣️ Resenha</button>
       <button class="ar-tab" data-tab="vivo" onclick="trocarAba('vivo')">Ao Vivo</button>
       <button class="ar-tab" data-tab="fluxo" onclick="trocarAba('fluxo')">📈 Fluxo</button>
       <button class="ar-tab" data-tab="quiz" onclick="trocarAba('quiz')">Quiz</button>
@@ -807,6 +818,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
   </div>
   <div class="ar-body">
     <div class="ar-pane on" id="pane-raiox"><div class="ar-photo"><div id="h2hOverlay"><div class="h2h-body" id="h2hBody"><div class="ar-load"><div class="ar-spin"></div>Carregando raio-x...</div></div></div></div></div>
+    <div class="ar-pane" id="pane-resenha"><div id="resenhaBox" class="cm-wrap"><div class="ar-soon"><div class="ic">🗣️</div><p>Carregando a resenha...</p></div></div></div>
     <div class="ar-pane" id="pane-vivo">
       <div class="av-scrub" id="avScrub"></div>
       <div class="av-card"><div class="av-tt">Quadro do minuto</div><div id="avBoard"><div class="ar-load"><div class="ar-spin"></div>Carregando ao vivo...</div></div></div>
@@ -869,6 +881,7 @@ function trocarAba(t){
   if(t==='raiox' && !RAIOX_CARREGADO) carregarRaiox();
   if((t==='vivo'||t==='fluxo') && !VIVO_CARREGADO) carregarVivo();
   if(t==='fluxo') renderFluxo();
+  if(t==='resenha'){ if(!RAIOX_CARREGADO) carregarRaiox(); if(!VIVO_CARREGADO) carregarVivo(); renderResenha(); }
   atualizarFab();
 }
 
@@ -954,7 +967,7 @@ function carregarVivo(){
     if(!SERIE.length && JOGO?.estatisticasPartida){
       SERIE=[{minuto:JOGO.minutosJogo||0,placarCasa:JOGO.placarCasa,placarFora:JOGO.placarFora,estatisticas:JOGO.estatisticasPartida,_est:JOGO.estatisticasPartida}];
     }
-    avScrub();avBoard();renderFluxo();
+    avScrub();avBoard();renderFluxo();renderResenha();
   }, e=>{ console.warn('jogo-snapshots:',e.message); SERIE=[]; avScrub(); avBoard(); });
 }
 
@@ -1101,6 +1114,103 @@ function abrirCard(){
 }
 function fecharCard(){document.getElementById('shareOv').style.display='none';document.body.style.overflow='';}
 
+// ===== Resenha (comentarista esportivo): pré-jogo vira narração ao vivo =====
+const BK_LBL=['0-5','6-10','11-15','16-20','21-25','26-30','31-35','36-40','41-45','acréscimos do 1ºT','46-50','51-55','56-60','61-65','66-70','71-75','76-80','81-85','86-90','acréscimos do 2ºT'];
+function bkStart(i){ if(i<=8)return i*5; if(i===9)return 45; if(i>=10&&i<=18)return 46+(i-10)*5; return 90; }
+function _aIsCasa(){ return _norm(SNAP?.teamA?.nome)===_norm(JOGO?.timeCasaNome); }
+function _pick(side,A,B){ return _aIsCasa() ? (side==='casa'?A:B) : (side==='casa'?B:A); }
+function _aggS(side){ return _pick(side, SNAP?.agg?.A, SNAP?.agg?.B)||{}; }
+function _bkS(side){ return _pick(side, SNAP?.bucketsA, SNAP?.bucketsB); }
+function _formaS(side){ return _pick(side, SNAP?.enrichedCompact?.A, SNAP?.enrichedCompact?.B); }
+function _forteS(side){ return numr(_pick(side, SNAP?.forteScore?.A, SNAP?.forteScore?.B)); }
+function _ladoNome(side){ return side==='casa'?(JOGO?.timeCasaNome||'Casa'):(JOGO?.timeForaNome||'Fora'); }
+function _ladoDe(nome){ const n=_norm(nome); if(n&&n===_norm(JOGO?.timeCasaNome))return 'casa'; if(n&&n===_norm(JOGO?.timeForaNome))return 'fora'; return null; }
+function formaArr(c){ if(!Array.isArray(c))return []; return c.slice(0,5).map(s=>(String(s).split('|')[9]||'').toUpperCase()).filter(r=>r==='V'||r==='E'||r==='D'); }
+function formaTxt(c){ const f=formaArr(c); if(!f.length)return null; const v=f.filter(x=>x==='V').length; let st=0; for(const r of f){ if(r===f[0])st++; else break; } if(f[0]==='V'&&st>=2)return `vem embalado, ${st} vitórias seguidas`; if(f[0]==='D'&&st>=2)return `está em baixa, ${st} derrotas seguidas`; return `venceu ${v} ${v===1?'vez':'vezes'} nos últimos ${f.length}`; }
+function topJanelas(side){ const b=_bkS(side); const sc=b&&b.sc; if(!Array.isArray(sc))return []; const mx=Math.max.apply(null,sc.concat([1])); return sc.map((v,i)=>({i,v,lbl:BK_LBL[i],ini:bkStart(i)})).filter(x=>x.v>0&&x.v>=mx*0.6&&x.i<=18).sort((a,b)=>b.v-a.v).slice(0,3); }
+
+function comentariosPreJogo(){
+  if(!SNAP) return [];
+  const out=[]; const nC=JOGO?.timeCasaNome||'Casa', nF=JOGO?.timeForaNome||'Fora';
+  const fc=_forteS('casa'), ff=_forteS('fora');
+  if(fc!=null&&ff!=null){ const d=Math.abs(fc-ff); if(d>=8){ const m=fc>ff?nC:nF, o=fc>ff?nF:nC; out.push({ic:'💪',txt:`No papel, o <b>${esc(m)}</b> chega mais forte que o ${esc(o)} (força ${Math.round(Math.max(fc,ff))} a ${Math.round(Math.min(fc,ff))}).`}); } else out.push({ic:'⚖️',txt:`Jogo equilibrado no papel — força parecida entre os dois.`}); }
+  const tcF=formaTxt(_formaS('casa')); if(tcF) out.push({ic:'📈',txt:`O <b>${esc(nC)}</b> ${tcF}.`});
+  const tfF=formaTxt(_formaS('fora')); if(tfF) out.push({ic:'📈',txt:`O <b>${esc(nF)}</b> ${tfF}.`});
+  const aC=_aggS('casa'), aF=_aggS('fora');
+  const gfC=numr(aC.gfJ), gcC=numr(aC.gcJ), gfF=numr(aF.gfJ), gcF=numr(aF.gcJ);
+  if(gfC!=null&&gcC!=null) out.push({ic:'🥅',txt:`O ${esc(nC)} faz em média ${gfC.toFixed(1)} gol e sofre ${gcC.toFixed(1)} por jogo.`});
+  if(gfF!=null&&gcF!=null) out.push({ic:'🥅',txt:`O ${esc(nF)} faz ${gfF.toFixed(1)} e sofre ${gcF.toFixed(1)} por jogo.`});
+  const pC=numr(aC.poss), pF=numr(aF.poss);
+  if(pC!=null&&pF!=null&&Math.abs(pC-pF)>=8){ const m=pC>pF?nC:nF; out.push({ic:'🎮',txt:`Quem costuma mandar na bola é o <b>${esc(m)}</b> (${Math.round(Math.max(pC,pF))}% de posse).`}); }
+  const jC=topJanelas('casa'), jF=topJanelas('fora');
+  if(jC.length) out.push({ic:'⏱️',txt:`O ${esc(nC)} costuma marcar ${jC.length>1?'nas faixas de':'na faixa de'} ${jC.map(j=>j.lbl).join(' e ')} min.`});
+  if(jF.length) out.push({ic:'⏱️',txt:`O ${esc(nF)} aparece mais ${jF.length>1?'nas faixas de':'na faixa de'} ${jF.map(j=>j.lbl).join(' e ')} min.`});
+  let vd='Deve ser um jogo parelho';
+  if(fc!=null&&ff!=null&&Math.abs(fc-ff)>=8) vd=`Favoritismo do ${fc>ff?esc(nC):esc(nF)}`;
+  const somaGols=(gfC||0)+(gfF||0)+(gcC||0)+(gcF||0);
+  vd+= somaGols>=5?', e com cara de jogo movimentado, daqueles de sair gol.':(somaGols>0?', tendendo a um jogo mais fechado.':'.');
+  out.push({ic:'🧠',txt:`<b>Resumo:</b> ${vd}`});
+  return out;
+}
+
+function comentariosAoVivo(){
+  const arr=SERIE.filter(r=>r._est&&(r._est.casa||r._est.fora));
+  if(arr.length<2) return [];
+  const golMap=golsPorMinuto();
+  const jq={casa:topJanelas('casa'), fora:topJanelas('fora')};
+  const W=4, feed=[], cd={}, jaJanela={};
+  const ok=(k,m,n)=>{ if(cd[k]!=null && (m-cd[k])<n) return false; cd[k]=m; return true; };
+  const val=(r,side,key)=>pv(r._est&&r._est[side]?r._est[side][key]:null)||0;
+  for(let i=1;i<arr.length;i++){
+    const cur=arr[i], prev=arr[i-1], win=arr[Math.max(0,i-W)], m=cur.minuto;
+    // GOL (eventos reais, sem VAR)
+    const gs=golMap[m];
+    if(gs&&gs.length) gs.forEach(nome=>{ const lado=_ladoDe(nome); const naJanela=lado&&(jq[lado]||[]).some(j=>m>=j.ini&&m<j.ini+5);
+      feed.push({min:m,ic:'⚽',txt:`<b>GOL do ${esc(nome||(lado?_ladoNome(lado):'time'))}!</b>${naJanela?' Saiu bem na faixa em que ele mais costuma marcar.':''}`}); });
+    // Jogo abrindo (surto de passes acima do ritmo do jogo)
+    const dPassMin=(comb(cur._est,'passes')||0)-(comb(prev._est,'passes')||0);
+    const pace=(comb(cur._est,'passes')||0)/Math.max(1,m);
+    if(dPassMin>=Math.max(pace*1.8,8)&&ok('aberto',m,5)) feed.push({min:m,ic:'🔥',txt:`O jogo abriu — bola rolando de pé em pé, num ritmo bem acima da média.`});
+    // Escanteios em sequência
+    const dCornC=val(cur,'casa','corners')-val(win,'casa','corners'), dCornF=val(cur,'fora','corners')-val(win,'fora','corners'), dCornMax=Math.max(dCornC,dCornF);
+    if(dCornMax>=3&&ok('corner',m,5)){ const side=dCornC>=dCornF?'casa':'fora'; feed.push({min:m,ic:'📐',txt:`Pressão do <b>${esc(_ladoNome(side))}</b>: ${dCornMax} escanteios em poucos minutos.`}); }
+    // Finalizações em sequência
+    const dShC=val(cur,'casa','shots')-val(win,'casa','shots'), dShF=val(cur,'fora','shots')-val(win,'fora','shots'), dShMax=Math.max(dShC,dShF);
+    if(dShMax>=3&&ok('shots',m,5)){ const side=dShC>=dShF?'casa':'fora'; const on=val(cur,side,'shotsOn')-val(win,side,'shotsOn'); feed.push({min:m,ic:'🥅',txt:`O <b>${esc(_ladoNome(side))}</b> chegou com perigo: ${dShMax} finalizações nos últimos minutos${on>0?`, ${on} no gol`:''}.`}); }
+    // Posse virando de lado
+    const posC0=val(win,'casa','posse'), posC1=val(cur,'casa','posse');
+    if(posC1>0&&Math.abs(posC1-posC0)>=10&&ok('posse',m,6)){ const side=posC1>posC0?'casa':'fora'; const de=side==='casa'?posC0:100-posC0, pa=side==='casa'?posC1:100-posC1; feed.push({min:m,ic:'🎮',txt:`O <b>${esc(_ladoNome(side))}</b> tomou conta: posse subiu de ${Math.round(de)}% pra ${Math.round(pa)}%.`}); }
+    // Jogo esquentando (faltas)
+    const dFoul=(comb(cur._est,'fouls')||0)-(comb(win._est,'fouls')||0);
+    if(dFoul>=5&&ok('faltas',m,6)) feed.push({min:m,ic:'🟨',txt:`O jogo esquentou: as faltas se acumulando nos últimos minutos.`});
+    // Entrando numa janela quente do histórico
+    ['casa','fora'].forEach(side=>(jq[side]||[]).forEach(j=>{ if(j.ini>0&&m===j.ini&&!jaJanela[side+'-'+j.i]){ jaJanela[side+'-'+j.i]=1; feed.push({min:m,ic:'⚠️',txt:`Entrando na faixa dos ${j.lbl} min, em que o <b>${esc(_ladoNome(side))}</b> costuma marcar — olho vivo.`}); } }));
+  }
+  return feed;
+}
+
+function renderResenha(){
+  const box=document.getElementById('resenhaBox'); if(!box)return;
+  const temVivo=SERIE.filter(r=>r._est).length>=2;
+  const isLive=JOGO&&(JOGO.status==='ao_vivo'||JOGO.status==='finalizado'||JOGO.status==='encerrado');
+  if(!SNAP&&!temVivo){ box.innerHTML='<div class="ar-soon"><div class="ic">🗣️</div><p>A resenha aparece com o Raio-X pré-jogo e vira narração quando a bola rola.</p></div>'; return; }
+  const linhaPre=c=>`<div class="cm-item"><span class="cm-ic">${c.ic}</span><span class="cm-tx">${c.txt}</span></div>`;
+  let html='';
+  if(temVivo||isLive){
+    const feed=comentariosAoVivo(), pre=comentariosPreJogo();
+    html+=`<div class="cm-tt">🗣️ Comentários ao vivo</div>`;
+    html+= feed.length
+      ? `<div class="cm-feed">`+feed.slice().reverse().map(c=>`<div class="cm-item"><span class="cm-min">${c.min}'</span><span class="cm-ic">${c.ic}</span><span class="cm-tx">${c.txt}</span></div>`).join('')+`</div>`
+      : `<div class="ar-soon" style="padding:18px"><p>Bola rolando — assim que aparecer movimento (passes, escanteios, finalizações), eu começo a comentar aqui.</p></div>`;
+    if(pre.length) html+=`<div class="cm-tt" style="margin-top:18px">📋 Antes da bola rolar</div><div class="cm-feed">`+pre.map(linhaPre).join('')+`</div>`;
+  } else {
+    const pre=comentariosPreJogo();
+    html+=`<div class="cm-tt">📋 A resenha antes do jogo</div>`;
+    html+= pre.length?`<div class="cm-feed">`+pre.map(linhaPre).join('')+`</div>`:'<div class="ar-soon" style="padding:18px"><p>Sem dados de Raio-X pra comentar ainda.</p></div>';
+  }
+  box.innerHTML=html;
+}
+
 async function carregarRaiox(){
   RAIOX_CARREGADO=true;
   const box=document.getElementById('h2hBody');
@@ -1116,6 +1226,7 @@ async function carregarRaiox(){
     SNAP=data;
     box.innerHTML=data.renderHTML;        // foto exata do admin
     densificarMinutos();
+    renderResenha();
     atualizarFab();
   }catch(e){ box.innerHTML=`<div class="ar-soon"><div class="ic">⚠️</div><h3>Ops</h3><p>${esc(e.message)}</p></div>`; }
 }
