@@ -1027,6 +1027,9 @@ function renderFluxo(){
   if(arr.length<2){ box.innerHTML='<div class="ar-soon"><div class="ic">📈</div><p>Ainda sem minutos suficientes pra comparar. Aparece quando o jogo começar a registrar.</p></div>'; return; }
   const golMap=golsPorMinuto();
   const evPl=fnPlacarEventos();
+  // ata cada gol à linha mais próxima (eventos usam minuto real; o snapshot pode driftar)
+  const golsRow={};
+  Object.keys(golMap).forEach(ms=>{ const gmin=+ms; let idx=-1; for(let k=0;k<arr.length;k++){ if(arr[k].minuto<=gmin) idx=k; } if(idx<0&&arr.length) idx=0; if(idx>=0)(golsRow[idx]=golsRow[idx]||[]).push(...golMap[ms]); });
   const linhas=[];
   for(let i=1;i<arr.length;i++){
     const cur=arr[i], prev=arr[i-1];
@@ -1034,7 +1037,7 @@ function renderFluxo(){
     const dSh  =Math.max(0,(comb(cur._est,'shots')??0)  -(comb(prev._est,'shots')??0));
     const dOn  =Math.max(0,(comb(cur._est,'shotsOn')??0)-(comb(prev._est,'shotsOn')??0));
     const dXg  =Math.max(0,(comb(cur._est,'xg')??0)     -(comb(prev._est,'xg')??0));
-    linhas.push({min:cur.minuto,exib:cur.minutoExibicao||String(cur.minuto),dPass,dSh,dOn,dXg,gols:golMap[cur.minuto]||null,pc:cur.placarCasa,pf:cur.placarFora});
+    linhas.push({min:cur.minuto,exib:cur.minutoExibicao||String(cur.minuto),dPass,dSh,dOn,dXg,gols:golsRow[i]||null,pc:cur.placarCasa,pf:cur.placarFora});
   }
   // Limiar "jogo aberto": compara o minuto ao RITMO médio de passes do próprio jogo
   const ult=arr[arr.length-1];
@@ -1144,10 +1147,33 @@ function _ladoDe(nome){ const n=_norm(nome); if(n&&n===_norm(JOGO?.timeCasaNome)
 function formaArr(c){ if(!Array.isArray(c))return []; return c.slice(0,5).map(s=>(String(s).split('|')[9]||'').toUpperCase()).filter(r=>r==='V'||r==='E'||r==='D'); }
 function formaTxt(c){ const f=formaArr(c); if(!f.length)return null; const v=f.filter(x=>x==='V').length; let st=0; for(const r of f){ if(r===f[0])st++; else break; } if(f[0]==='V'&&st>=2)return `vem embalado, ${st} vitórias seguidas`; if(f[0]==='D'&&st>=2)return `está em baixa, ${st} derrotas seguidas`; return `venceu ${v} ${v===1?'vez':'vezes'} nos últimos ${f.length}`; }
 function topJanelas(side,kind){ kind=kind||'sc'; const b=_bkS(side); const a=b&&b[kind]; if(!Array.isArray(a))return []; const mx=Math.max.apply(null,a.concat([1])); return a.map((v,i)=>({i,v,lbl:BK_LBL[i],ini:bkStart(i)})).filter(x=>x.v>0&&x.v>=mx*0.6&&x.i<=18).sort((a,b)=>b.v-a.v).slice(0,3); }
+// Faixas goleadoras do confronto: soma gols feitos+sofridos dos DOIS times por faixa de 5min
+function janelasGoleadoras(){
+  const bC=_bkS('casa'), bF=_bkS('fora'); if(!bC||!bF) return [];
+  const tot=[]; for(let i=0;i<=18;i++){ const v=(bC.sc?.[i]||0)+(bC.cn?.[i]||0)+(bF.sc?.[i]||0)+(bF.cn?.[i]||0); tot.push({i,v,lbl:BK_LBL[i],ini:bkStart(i)}); }
+  const mx=Math.max.apply(null,tot.map(t=>t.v).concat([1]));
+  return tot.filter(t=>t.v>0&&t.v>=mx*0.7).sort((a,b)=>b.v-a.v).slice(0,3);
+}
+// Leitura de forças pré-jogo (multi-sinal): decide favorito por GOLS ESPERADOS + força
+function leituraForcas(){
+  const aC=_aggS('casa'), aF=_aggS('fora');
+  const gfC=numr(aC.gfJ), gcC=numr(aC.gcJ), gfF=numr(aF.gfJ), gcF=numr(aF.gcJ);
+  const fc=_forteS('casa'), ff=_forteS('fora');
+  const nC=JOGO?.timeCasaNome||'Casa', nF=JOGO?.timeForaNome||'Fora';
+  let xg=null;
+  if([gfC,gcC,gfF,gcF].every(v=>v!=null)){ const ce=(gfC+gcF)/2, fe=(gfF+gcC)/2; xg={ce,fe,d:ce-fe}; }
+  let adv=0, base=0;                       // adv>0 => casa
+  if(xg){ adv+=xg.d; base++; }
+  if(fc!=null&&ff!=null){ adv+=(fc-ff)/40; base++; }
+  const mag=Math.abs(adv);
+  const nivel = base===0?'equilibrio':(mag>=0.7?'forte':(mag>=0.32?'leve':'equilibrio'));
+  const favLado = nivel==='equilibrio'?null:(adv>0?'casa':'fora');
+  return {nivel, favLado, adv, xg, fc, ff, gfC,gcC,gfF,gcF, nC, nF, aC, aF};
+}
 function sideVal(r,side,key){ return pv(r&&r._est&&r._est[side]?r._est[side][key]:null)||0; }
 // Anatomia do gol: volta ~7 min e mostra o que mudou + veredito
-function anatomiaGol(arr,i,lado,nome,evPl){
-  const cur=arr[i], W=7, pre=arr[Math.max(0,i-W)], m=cur.minuto;
+function anatomiaGol(arr,i,lado,nome,evPl,golMin){
+  const cur=arr[i], W=7, pre=arr[Math.max(0,i-W)], m=(golMin!=null?golMin:cur.minuto);
   const nomeT=nome||(lado?_ladoNome(lado):'time'); const linhas=[]; let sinais=0;
   if(lado){
     const p0=sideVal(pre,lado,'posse'), p1=sideVal(cur,lado,'posse');
@@ -1175,26 +1201,61 @@ function anatomiaGol(arr,i,lado,nome,evPl){
 
 function comentariosPreJogo(){
   if(!SNAP) return [];
-  const out=[]; const nC=JOGO?.timeCasaNome||'Casa', nF=JOGO?.timeForaNome||'Fora';
-  const fc=_forteS('casa'), ff=_forteS('fora');
-  if(fc!=null&&ff!=null){ const d=Math.abs(fc-ff); if(d>=8){ const m=fc>ff?nC:nF, o=fc>ff?nF:nC; out.push({ic:'💪',txt:`No papel, o <b>${esc(m)}</b> chega mais forte que o ${esc(o)} (força ${Math.round(Math.max(fc,ff))} a ${Math.round(Math.min(fc,ff))}).`}); } else out.push({ic:'⚖️',txt:`Jogo equilibrado no papel — força parecida entre os dois.`}); }
+  const out=[]; const lf=leituraForcas(); const nC=lf.nC, nF=lf.nF;
+  // Favoritismo (multi-sinal)
+  if(lf.nivel==='forte'){ const fav=lf.favLado==='casa'?nC:nF, und=lf.favLado==='casa'?nF:nC; out.push({ic:'💪',txt:`Os números dão <b>favoritismo claro do ${esc(fav)}</b> sobre o ${esc(und)}.`}); }
+  else if(lf.nivel==='leve'){ const fav=lf.favLado==='casa'?nC:nF; out.push({ic:'💪',txt:`Leve vantagem do <b>${esc(fav)}</b> no papel — mas dá jogo.`}); }
+  else out.push({ic:'⚖️',txt:`Jogo equilibrado no papel — os indicadores andam lado a lado.`});
+  // Placar esperado (gols esperados das médias)
+  if(lf.xg && (lf.xg.ce>=0.3||lf.xg.fe>=0.3)){ const cc=Math.round(lf.xg.ce), ff2=Math.round(lf.xg.fe); out.push({ic:'🔮',txt:`Pelas médias, algo como <b>${cc}×${ff2}</b> para ${cc>=ff2?esc(nC):esc(nF)} estaria dentro do esperado.`}); }
+  // Forma recente
   const tcF=formaTxt(_formaS('casa')); if(tcF) out.push({ic:'📈',txt:`O <b>${esc(nC)}</b> ${tcF}.`});
   const tfF=formaTxt(_formaS('fora')); if(tfF) out.push({ic:'📈',txt:`O <b>${esc(nF)}</b> ${tfF}.`});
-  const aC=_aggS('casa'), aF=_aggS('fora');
-  const gfC=numr(aC.gfJ), gcC=numr(aC.gcJ), gfF=numr(aF.gfJ), gcF=numr(aF.gcJ);
-  if(gfC!=null&&gcC!=null) out.push({ic:'🥅',txt:`O ${esc(nC)} faz em média ${gfC.toFixed(1)} gol e sofre ${gcC.toFixed(1)} por jogo.`});
-  if(gfF!=null&&gcF!=null) out.push({ic:'🥅',txt:`O ${esc(nF)} faz ${gfF.toFixed(1)} e sofre ${gcF.toFixed(1)} por jogo.`});
-  const pC=numr(aC.poss), pF=numr(aF.poss);
+  // Médias de gol
+  if(lf.gfC!=null&&lf.gcC!=null) out.push({ic:'🥅',txt:`O ${esc(nC)} faz em média ${lf.gfC.toFixed(1)} gol e sofre ${lf.gcC.toFixed(1)} por jogo.`});
+  if(lf.gfF!=null&&lf.gcF!=null) out.push({ic:'🥅',txt:`O ${esc(nF)} faz ${lf.gfF.toFixed(1)} e sofre ${lf.gcF.toFixed(1)} por jogo.`});
+  // Estilo (posse)
+  const pC=numr(lf.aC.poss), pF=numr(lf.aF.poss);
   if(pC!=null&&pF!=null&&Math.abs(pC-pF)>=8){ const m=pC>pF?nC:nF; out.push({ic:'🎮',txt:`Quem costuma mandar na bola é o <b>${esc(m)}</b> (${Math.round(Math.max(pC,pF))}% de posse).`}); }
+  // Janelas de gol por time
   const jC=topJanelas('casa'), jF=topJanelas('fora');
   if(jC.length) out.push({ic:'⏱️',txt:`O ${esc(nC)} costuma marcar ${jC.length>1?'nas faixas de':'na faixa de'} ${jC.map(j=>j.lbl).join(' e ')} min.`});
   if(jF.length) out.push({ic:'⏱️',txt:`O ${esc(nF)} aparece mais ${jF.length>1?'nas faixas de':'na faixa de'} ${jF.map(j=>j.lbl).join(' e ')} min.`});
-  let vd='Deve ser um jogo parelho';
-  if(fc!=null&&ff!=null&&Math.abs(fc-ff)>=8) vd=`Favoritismo do ${fc>ff?esc(nC):esc(nF)}`;
-  const somaGols=(gfC||0)+(gfF||0)+(gcC||0)+(gcF||0);
+  // Faixas goleadoras do confronto (soma dos dois)
+  const jgl=janelasGoleadoras();
+  if(jgl.length) out.push({ic:'🎯',txt:`Somando os dois lados, as faixas mais movimentadas de gol são <b>${jgl.map(j=>j.lbl).join(', ')} min</b> — fica de olho nelas.`});
+  // Veredito
+  let vd = lf.nivel==='forte'?`Favoritismo do ${lf.favLado==='casa'?esc(nC):esc(nF)}`:(lf.nivel==='leve'?`Ligeira vantagem do ${lf.favLado==='casa'?esc(nC):esc(nF)}`:'Jogo parelho');
+  const somaGols=(lf.gfC||0)+(lf.gfF||0)+(lf.gcC||0)+(lf.gcF||0);
   vd+= somaGols>=5?', e com cara de jogo movimentado, daqueles de sair gol.':(somaGols>0?', tendendo a um jogo mais fechado.':'.');
   out.push({ic:'🧠',txt:`<b>Resumo:</b> ${vd}`});
   return out;
+}
+
+// Análise pós-jogo: compara o que rolou com o Raio-X pré-jogo
+function analisePosJogo(){
+  if(!SNAP) return null;
+  const arr=SERIE.filter(r=>r._est); if(!arr.length) return null;
+  const fim={_est:arr[arr.length-1]._est};
+  const evp=fnPlacarEventos(), placar=evp.at(999), pc=placar.casa, pf=placar.fora;
+  const lf=leituraForcas(); const nC=lf.nC, nF=lf.nF; const linhas=[];
+  // Expectativa x resultado
+  let acertou;
+  if(lf.nivel!=='equilibrio'){ const favNome=lf.favLado==='casa'?nC:nF; acertou=(lf.favLado==='casa'&&pc>pf)||(lf.favLado==='fora'&&pf>pc);
+    linhas.push(acertou?`O Raio-X apontava o ${esc(favNome)} como favorito — e o ${esc(favNome)} confirmou em campo (${pc}×${pf}).`:`O papel dava o ${esc(favNome)} na frente, mas o jogo terminou ${pc}×${pf} e contrariou a previsão.`); }
+  else { acertou=(pc===pf); linhas.push(acertou?`O Raio-X via equilíbrio, e o ${pc}×${pf} confirmou o jogo parelho.`:`O Raio-X via equilíbrio, mas no fim deu ${pc}×${pf} — um lado se impôs.`); }
+  // Posse real x histórica
+  ['casa','fora'].forEach(side=>{ const pos=sideVal(fim,side,'posse'); const h=numr(_aggS(side).poss); if(pos>0&&h!=null&&Math.abs(pos-h)>=6) linhas.push(`O ${esc(_ladoNome(side))} ${pos>h?'segurou mais a bola que de costume':'teve menos a bola que o habitual'}: ${Math.round(pos)}% (média ~${Math.round(h)}%).`); });
+  // Finalizações real x histórica
+  ['casa','fora'].forEach(side=>{ const sh=sideVal(fim,side,'shots'); const h=numr(_aggS(side).shots); if(sh>0&&h!=null&&Math.abs(sh-h)>=4) linhas.push(`O ${esc(_ladoNome(side))} finalizou ${sh}x (média ~${Math.round(h)}) — ${sh>h?'bem mais agressivo':'abaixo do seu padrão'}.`); });
+  // xG x gols (eficiência / sorte)
+  ['casa','fora'].forEach(side=>{ const xg=sideVal(fim,side,'xg'); const g=side==='casa'?pc:pf; if(xg>=0.3){ if(g-xg>=1) linhas.push(`O ${esc(_ladoNome(side))} foi clínico: fez ${g} com ~${xg.toFixed(1)} de xG, acima do que as chances pediam.`); else if(xg-g>=1) linhas.push(`O ${esc(_ladoNome(side))} criou ~${xg.toFixed(1)} de xG e fez só ${g} — faltou capricho.`); } });
+  // Gols x janelas previstas
+  const gj=golsPorMinuto(); const gols=[]; Object.keys(gj).forEach(mn=>gj[mn].forEach(nm=>gols.push({m:+mn,nome:nm})));
+  if(gols.length){ let nas=0; gols.forEach(g=>{ const ld=_ladoDe(g.nome); if(ld&&topJanelas(ld,'sc').some(j=>g.m>=j.ini&&g.m<j.ini+5)) nas++; });
+    linhas.push(nas>=Math.ceil(gols.length/2)?`A maioria dos gols saiu nas faixas que o Raio-X já apontava como quentes.`:`Os gols fugiram das faixas habituais — jogo com roteiro próprio.`); }
+  const vtxt = acertou?'No fim, o que o Raio-X mostrava antes da bola rolar se confirmou em campo.':'No fim, o jogo contrariou os números — e futebol também é isso.';
+  return { placar:`${pc}×${pf}`, linhas, verdict:vtxt, acertou };
 }
 
 function comentariosAoVivo(){
@@ -1203,16 +1264,14 @@ function comentariosAoVivo(){
   const golMap=golsPorMinuto(), evPl=fnPlacarEventos();
   const jqSc={casa:topJanelas('casa','sc'), fora:topJanelas('fora','sc')};
   const jqCn={casa:topJanelas('casa','cn'), fora:topJanelas('fora','cn')};
-  const W=5, feed=[], cd={}, jaJan={}, jaT2={};
+  const W=5, feed=[], cd={}, jaJan={}, jaT2={}, jaGol={};
+  const jgl=janelasGoleadoras();
   const ok=(k,m,n)=>{ if(cd[k]!=null && (m-cd[k])<n) return false; cd[k]=m; return true; };
   const cardMin={}; (JOGO?.eventosJogo||[]).forEach(e=>{ if((e.tipo||'').toLowerCase()==='card'||/yellow|red|amarelo|vermelho/.test((e.detalhe||'').toLowerCase())){ const b=parseInt(String(e.tempo).split('+')[0],10); if(!isNaN(b))cardMin[b]=(cardMin[b]||0)+1; } });
   const t2Side=side=>{ const b=_bkS(side); if(!b||!Array.isArray(b.sc))return false; const t1=b.sc.slice(0,10).reduce((s,v)=>s+v,0), t2=b.sc.slice(10).reduce((s,v)=>s+v,0); return t2>0&&t2>=t1*1.5; };
   for(let i=1;i<arr.length;i++){
     const cur=arr[i], prev=arr[i-1], win=arr[Math.max(0,i-W)], m=cur.minuto;
     const placar=evPl.at(m);
-    // ⚽ GOL → anatomia detalhada
-    const gs=golMap[m];
-    if(gs&&gs.length) gs.forEach(nome=>feed.push(anatomiaGol(arr,i,_ladoDe(nome),nome,evPl)));
     // pressão por lado (índice de cerco): finalizações + no alvo + escanteios na janela
     const pidx=side=>(sideVal(cur,side,'shots')-sideVal(win,side,'shots'))+(sideVal(cur,side,'shotsOn')-sideVal(win,side,'shotsOn'))*1.5+(sideVal(cur,side,'corners')-sideVal(win,side,'corners'));
     const pC=pidx('casa'), pF=pidx('fora'), pSide=pC>=pF?'casa':'fora', pMax=Math.max(pC,pF);
@@ -1244,7 +1303,13 @@ function comentariosAoVivo(){
     ['casa','fora'].forEach(side=>(jqSc[side]||[]).forEach(j=>{ if(j.ini>0&&m===j.ini&&!jaJan[side+'-'+j.i]){ jaJan[side+'-'+j.i]=1; feed.push({min:m,ic:'⏱️',txt:`Entrando na faixa dos ${j.lbl} min, em que o <b>${esc(_ladoNome(side))}</b> costuma marcar — olho vivo.`}); } }));
     // #12 Time de 2º tempo (uma vez, ao começar o 2º tempo)
     if(m>=46&&m<=48) ['casa','fora'].forEach(side=>{ if(!jaT2[side]&&t2Side(side)){ jaT2[side]=1; feed.push({min:m,ic:'📈',txt:`Começa o 2º tempo: o <b>${esc(_ladoNome(side))}</b> faz a maioria dos gols nessa etapa — tende a crescer.`}); } });
+    // Entrando numa faixa goleadora do confronto (soma gols feitos+sofridos dos 2 no histórico)
+    jgl.forEach(j=>{ if(j.ini>0&&m===j.ini&&!jaGol[j.i]){ jaGol[j.i]=1; feed.push({min:m,ic:'🎯',txt:`Faixa dos ${j.lbl} min costuma ser movimentada nesse confronto — historicamente saem gols dos dois lados aqui.`}); } });
   }
+  // ⚽ GOLS: cada gol na linha mais próxima (eventos = minuto real; snapshot pode driftar)
+  Object.keys(golMap).forEach(ms=>{ const gmin=+ms; let idx=-1; for(let k=0;k<arr.length;k++){ if(arr[k].minuto<=gmin) idx=k; } if(idx<0&&arr.length) idx=0; if(idx<0)return;
+    golMap[ms].forEach(nome=>feed.push(anatomiaGol(arr,idx,_ladoDe(nome),nome,evPl,gmin))); });
+  feed.sort((a,b)=>(a.min-b.min)); // ordem cronológica (o render inverte pro mais recente no topo)
   return feed;
 }
 
@@ -1255,6 +1320,13 @@ function renderResenha(){
   if(!SNAP&&!temVivo){ box.innerHTML='<div class="ar-soon"><div class="ic">🗣️</div><p>A resenha aparece com o Raio-X pré-jogo e vira narração quando a bola rola.</p></div>'; return; }
   const linhaPre=c=>`<div class="cm-item"><span class="cm-ic">${c.ic}</span><span class="cm-tx">${c.txt}</span></div>`;
   let html='';
+  const fimDeJogo=JOGO&&(JOGO.status==='finalizado'||JOGO.status==='encerrado');
+  if(fimDeJogo){ const ap=analisePosJogo();
+    if(ap){ html+=`<div class="cm-tt">🏁 Depois do apito · ${ap.placar}</div>`+
+      `<div class="cm-gol cm-gol-${ap.acertou?'quente':'surpresa'}"><div class="cm-gol-hd"><span class="cm-ic">📋</span><span class="cm-tx">Como o jogo se comparou ao Raio-X pré-jogo:</span></div>`+
+      (ap.linhas.length?`<ul class="cm-gol-li">${ap.linhas.map(l=>`<li>${l}</li>`).join('')}</ul>`:'')+
+      `<div class="cm-gol-vd">${ap.verdict}</div></div>`; }
+  }
   if(temVivo||isLive){
     const feed=comentariosAoVivo(), pre=comentariosPreJogo();
     html+=`<div class="cm-tt">🗣️ Comentários ao vivo</div>`;
