@@ -1154,6 +1154,20 @@ function janelasGoleadoras(){
   const mx=Math.max.apply(null,tot.map(t=>t.v).concat([1]));
   return tot.filter(t=>t.v>0&&t.v>=mx*0.7).sort((a,b)=>b.v-a.v).slice(0,3);
 }
+// Classifica um gol (minuto m) contra as janelas do time: faixa de 5min (±1) ou bloco de 15min
+function matchJanela(side,m){
+  const w5=topJanelas(side,'sc').find(j=>m>=j.ini-1 && m<j.ini+5);
+  if(w5) return {nivel:'5', lbl:w5.lbl};
+  const b=_bkS(side);
+  if(b&&Array.isArray(b.sc)){
+    const blocos=[{ix:[0,1,2],lbl:'0-15'},{ix:[3,4,5],lbl:'16-30'},{ix:[6,7,8,9],lbl:'31-45'},{ix:[10,11,12],lbl:'46-60'},{ix:[13,14,15],lbl:'61-75'},{ix:[16,17,18,19],lbl:'76-90'}];
+    const soma=blocos.map(bl=>({lbl:bl.lbl, v:bl.ix.reduce((s,ix)=>s+(b.sc[ix]||0),0)}));
+    const mx=Math.max.apply(null,soma.map(x=>x.v).concat([1]));
+    const idx = m<=15?0:m<=30?1:m<=45?2:m<=60?3:m<=75?4:5;
+    if(soma[idx].v>0 && soma[idx].v>=mx*0.6) return {nivel:'15', lbl:soma[idx].lbl};
+  }
+  return {nivel:'fora'};
+}
 // Leitura de forças pré-jogo (multi-sinal): decide favorito por GOLS ESPERADOS + força
 function leituraForcas(){
   const aC=_aggS('casa'), aF=_aggS('fora');
@@ -1186,9 +1200,10 @@ function anatomiaGol(arr,i,lado,nome,evPl,golMin){
     if(co>=2){ linhas.push(`Forçou ${co} escanteios na pressão.`); sinais++; }
     const xg=sideVal(cur,lado,'xg')-sideVal(pre,lado,'xg');
     if(xg>=0.2){ linhas.push(`Acumulou ~${xg.toFixed(2)} de xG (chance real criada) antes de marcar.`); sinais++; }
-    const naSc=topJanelas(lado,'sc').find(j=>m>=j.ini&&m<j.ini+5);
-    if(naSc){ linhas.push(`E saiu na faixa dos <b>${naSc.lbl} min</b>, justamente onde o ${esc(nomeT)} mais marca.`); sinais++; }
-    const opp=lado==='casa'?'fora':'casa'; const naCn=topJanelas(opp,'cn').find(j=>m>=j.ini&&m<j.ini+5);
+    const mt=matchJanela(lado,m);
+    if(mt.nivel==='5'){ linhas.push(`E saiu na faixa dos <b>${mt.lbl} min</b>, justamente onde o ${esc(nomeT)} mais marca.`); sinais++; }
+    else if(mt.nivel==='15'){ linhas.push(`Dentro do bloco dos ${mt.lbl} min, faixa em que o ${esc(nomeT)} costuma aparecer.`); sinais++; }
+    const opp=lado==='casa'?'fora':'casa'; const naCn=topJanelas(opp,'cn').find(j=>m>=j.ini-1&&m<j.ini+5);
     if(naCn){ linhas.push(`Pegou o ${esc(_ladoNome(opp))} na faixa em que ele costuma sofrer gol.`); sinais++; }
   }
   let vtxt,tom;
@@ -1250,10 +1265,16 @@ function analisePosJogo(){
   ['casa','fora'].forEach(side=>{ const sh=sideVal(fim,side,'shots'); const h=numr(_aggS(side).shots); if(sh>0&&h!=null&&Math.abs(sh-h)>=4) linhas.push(`O ${esc(_ladoNome(side))} finalizou ${sh}x (média ~${Math.round(h)}) — ${sh>h?'bem mais agressivo':'abaixo do seu padrão'}.`); });
   // xG x gols (eficiência / sorte)
   ['casa','fora'].forEach(side=>{ const xg=sideVal(fim,side,'xg'); const g=side==='casa'?pc:pf; if(xg>=0.3){ if(g-xg>=1) linhas.push(`O ${esc(_ladoNome(side))} foi clínico: fez ${g} com ~${xg.toFixed(1)} de xG, acima do que as chances pediam.`); else if(xg-g>=1) linhas.push(`O ${esc(_ladoNome(side))} criou ~${xg.toFixed(1)} de xG e fez só ${g} — faltou capricho.`); } });
-  // Gols x janelas previstas
+  // Gols x janelas previstas: minuto e em qual faixa do Raio-X caiu
   const gj=golsPorMinuto(); const gols=[]; Object.keys(gj).forEach(mn=>gj[mn].forEach(nm=>gols.push({m:+mn,nome:nm})));
-  if(gols.length){ let nas=0; gols.forEach(g=>{ const ld=_ladoDe(g.nome); if(ld&&topJanelas(ld,'sc').some(j=>g.m>=j.ini&&g.m<j.ini+5)) nas++; });
-    linhas.push(nas>=Math.ceil(gols.length/2)?`A maioria dos gols saiu nas faixas que o Raio-X já apontava como quentes.`:`Os gols fugiram das faixas habituais — jogo com roteiro próprio.`); }
+  gols.sort((a,b)=>a.m-b.m);
+  let acertosJanela=0;
+  gols.forEach(g=>{ const ld=_ladoDe(g.nome); const mt=ld?matchJanela(ld,g.m):{nivel:'fora'}; if(mt.nivel!=='fora')acertosJanela++;
+    const nm=esc(g.nome||(ld?_ladoNome(ld):'time'));
+    linhas.push(mt.nivel==='5'?`⚽ ${g.m}' — gol do ${nm} caiu na faixa <b>${mt.lbl} min</b>, exatamente onde ele mais marca no Raio-X.`
+      :mt.nivel==='15'?`⚽ ${g.m}' — gol do ${nm} dentro do bloco <b>${mt.lbl} min</b>, faixa em que ele costuma aparecer.`
+      :`⚽ ${g.m}' — gol do ${nm} fora das faixas habituais dele.`); });
+  if(gols.length) linhas.push(acertosJanela>=Math.ceil(gols.length/2)?`No geral, o relógio dos gols bateu com o que o Raio-X previa.`:`No geral, os gols fugiram das faixas previstas — jogo com roteiro próprio.`);
   const vtxt = acertou?'No fim, o que o Raio-X mostrava antes da bola rolar se confirmou em campo.':'No fim, o jogo contrariou os números — e futebol também é isso.';
   return { placar:`${pc}×${pf}`, linhas, verdict:vtxt, acertou };
 }
