@@ -1142,11 +1142,28 @@ function _aggS(side){ return _pick(side, SNAP?.agg?.A, SNAP?.agg?.B)||{}; }
 function _bkS(side){ return _pick(side, SNAP?.bucketsA, SNAP?.bucketsB); }
 function _formaS(side){ return _pick(side, SNAP?.enrichedCompact?.A, SNAP?.enrichedCompact?.B); }
 function _forteS(side){ return numr(_pick(side, SNAP?.forteScore?.A, SNAP?.forteScore?.B)); }
+function _refS(side){ return _pick(side, SNAP?.referenciaMin?.A, SNAP?.referenciaMin?.B)||null; }   // baseline: xg/min, fin/min, gf/min, gc/min
+function _minsS(side){ return _pick(side, SNAP?.minutosA, SNAP?.minutosB); }                          // gols por minuto (array 95)
+function _bk10S(side){ return _pick(side, SNAP?.buckets10A, SNAP?.buckets10B); }                      // últimos 10 jogos
+function _amostra(side){ const f=_formaS(side); return Array.isArray(f)?f.length:0; }                 // nº de jogos no histórico
+// Confiança de uma janela (0-4): volume, concentração, sustentado nos últimos 10, amostra
+function confiancaJanela(side,idx){
+  const b=_bkS(side); if(!b||!Array.isArray(b.sc))return 0;
+  const total=b.sc.reduce((s,v)=>s+v,0)||1, share=(b.sc[idx]||0)/total;
+  const b10=_bk10S(side), recente=b10&&Array.isArray(b10.sc)?(b10.sc[idx]||0):0, n=_amostra(side);
+  let c=0; if((b.sc[idx]||0)>=3)c++; if(share>=0.15)c++; if(recente>=1)c++; if(n>=8)c++; return c;
+}
+function palavraFreq(conf){ return conf>=3?'costuma':(conf===2?'às vezes':'de vez em quando'); }
+// Cluster por minuto (±W): o histórico concentra gols em torno do minuto m?
+function clusterMinuto(side,m,W){ W=W||2; const arr=_minsS(side); if(!Array.isArray(arr))return null;
+  let s=0; const a=Math.max(0,m-W), z=Math.min(94,m+W); for(let k=a;k<=z;k++)s+=arr[k]||0;
+  const total=arr.reduce((x,y)=>x+y,0)||1, esperado=total*(z-a+1)/95;
+  return {soma:s, esperado, quente:s>=Math.max(2,esperado*2)}; }
 function _ladoNome(side){ return side==='casa'?(JOGO?.timeCasaNome||'Casa'):(JOGO?.timeForaNome||'Fora'); }
 function _ladoDe(nome){ const n=_norm(nome); if(n&&n===_norm(JOGO?.timeCasaNome))return 'casa'; if(n&&n===_norm(JOGO?.timeForaNome))return 'fora'; return null; }
 function formaArr(c){ if(!Array.isArray(c))return []; return c.slice(0,5).map(s=>(String(s).split('|')[9]||'').toUpperCase()).filter(r=>r==='V'||r==='E'||r==='D'); }
 function formaTxt(c){ const f=formaArr(c); if(!f.length)return null; const v=f.filter(x=>x==='V').length; let st=0; for(const r of f){ if(r===f[0])st++; else break; } if(f[0]==='V'&&st>=2)return `vem embalado, ${st} vitórias seguidas`; if(f[0]==='D'&&st>=2)return `está em baixa, ${st} derrotas seguidas`; return `venceu ${v} ${v===1?'vez':'vezes'} nos últimos ${f.length}`; }
-function topJanelas(side,kind){ kind=kind||'sc'; const b=_bkS(side); const a=b&&b[kind]; if(!Array.isArray(a))return []; const mx=Math.max.apply(null,a.concat([1])); return a.map((v,i)=>({i,v,lbl:BK_LBL[i],ini:bkStart(i)})).filter(x=>x.v>0&&x.v>=mx*0.6&&x.i<=18).sort((a,b)=>b.v-a.v).slice(0,3); }
+function topJanelas(side,kind){ kind=kind||'sc'; const b=_bkS(side); const a=b&&b[kind]; if(!Array.isArray(a))return []; const mx=Math.max.apply(null,a.concat([1])); return a.map((v,i)=>({i,v,lbl:BK_LBL[i],ini:bkStart(i),conf:kind==='sc'?confiancaJanela(side,i):2})).filter(x=>x.v>0&&x.v>=mx*0.6&&x.i<=18).sort((a,b)=>b.v-a.v).slice(0,3); }
 // Faixas goleadoras do confronto: soma gols feitos+sofridos dos DOIS times por faixa de 5min
 function janelasGoleadoras(){
   const bC=_bkS('casa'), bF=_bkS('fora'); if(!bC||!bF) return [];
@@ -1157,7 +1174,9 @@ function janelasGoleadoras(){
 // Classifica um gol (minuto m) contra as janelas do time: faixa de 5min (±1) ou bloco de 15min
 function matchJanela(side,m){
   const w5=topJanelas(side,'sc').find(j=>m>=j.ini-1 && m<j.ini+5);
-  if(w5) return {nivel:'5', lbl:w5.lbl};
+  if(w5) return {nivel:'5', lbl:w5.lbl, conf:w5.conf};
+  const cl=clusterMinuto(side,m,2);                       // gols por minuto: faixa ±2 min
+  if(cl&&cl.quente) return {nivel:'cluster', lbl:`${Math.max(0,m-2)}'-${m+2}'`};
   const b=_bkS(side);
   if(b&&Array.isArray(b.sc)){
     const blocos=[{ix:[0,1,2],lbl:'0-15'},{ix:[3,4,5],lbl:'16-30'},{ix:[6,7,8,9],lbl:'31-45'},{ix:[10,11,12],lbl:'46-60'},{ix:[13,14,15],lbl:'61-75'},{ix:[16,17,18,19],lbl:'76-90'}];
@@ -1201,7 +1220,8 @@ function anatomiaGol(arr,i,lado,nome,evPl,golMin){
     const xg=sideVal(cur,lado,'xg')-sideVal(pre,lado,'xg');
     if(xg>=0.2){ linhas.push(`Acumulou ~${xg.toFixed(2)} de xG (chance real criada) antes de marcar.`); sinais++; }
     const mt=matchJanela(lado,m);
-    if(mt.nivel==='5'){ linhas.push(`E saiu na faixa dos <b>${mt.lbl} min</b>, justamente onde o ${esc(nomeT)} mais marca.`); sinais++; }
+    if(mt.nivel==='5'){ linhas.push(`E saiu na faixa dos <b>${mt.lbl} min</b>, onde o ${esc(nomeT)} ${palavraFreq(mt.conf)} marcar.`); sinais++; }
+    else if(mt.nivel==='cluster'){ linhas.push(`O histórico do ${esc(nomeT)} concentra gols bem em torno desse minuto (${mt.lbl}).`); sinais++; }
     else if(mt.nivel==='15'){ linhas.push(`Dentro do bloco dos ${mt.lbl} min, faixa em que o ${esc(nomeT)} costuma aparecer.`); sinais++; }
     const opp=lado==='casa'?'fora':'casa'; const naCn=topJanelas(opp,'cn').find(j=>m>=j.ini-1&&m<j.ini+5);
     if(naCn){ linhas.push(`Pegou o ${esc(_ladoNome(opp))} na faixa em que ele costuma sofrer gol.`); sinais++; }
@@ -1232,10 +1252,10 @@ function comentariosPreJogo(){
   // Estilo (posse)
   const pC=numr(lf.aC.poss), pF=numr(lf.aF.poss);
   if(pC!=null&&pF!=null&&Math.abs(pC-pF)>=8){ const m=pC>pF?nC:nF; out.push({ic:'🎮',txt:`Quem costuma mandar na bola é o <b>${esc(m)}</b> (${Math.round(Math.max(pC,pF))}% de posse).`}); }
-  // Janelas de gol por time
-  const jC=topJanelas('casa'), jF=topJanelas('fora');
-  if(jC.length) out.push({ic:'⏱️',txt:`O ${esc(nC)} costuma marcar ${jC.length>1?'nas faixas de':'na faixa de'} ${jC.map(j=>j.lbl).join(' e ')} min.`});
-  if(jF.length) out.push({ic:'⏱️',txt:`O ${esc(nF)} aparece mais ${jF.length>1?'nas faixas de':'na faixa de'} ${jF.map(j=>j.lbl).join(' e ')} min.`});
+  // Janelas de gol por time (só as confiáveis, com palavra graduada pela confiança)
+  const jWords=(side,nome,pre)=>{ const js=topJanelas(side,'sc').filter(j=>j.conf>=2); if(!js.length)return null; const pal=palavraFreq(Math.max.apply(null,js.map(j=>j.conf))); return {ic:'⏱️',txt:`O ${esc(nome)} ${pal} ${pre} ${js.length>1?'nas faixas de':'na faixa de'} ${js.map(j=>j.lbl).join(' e ')} min.`}; };
+  const wC=jWords('casa',nC,'marcar'); if(wC) out.push(wC);
+  const wF=jWords('fora',nF,'aparecer'); if(wF) out.push(wF);
   // Faixas goleadoras do confronto (soma dos dois)
   const jgl=janelasGoleadoras();
   if(jgl.length) out.push({ic:'🎯',txt:`Somando os dois lados, as faixas mais movimentadas de gol são <b>${jgl.map(j=>j.lbl).join(', ')} min</b> — fica de olho nelas.`});
@@ -1265,13 +1285,18 @@ function analisePosJogo(){
   ['casa','fora'].forEach(side=>{ const sh=sideVal(fim,side,'shots'); const h=numr(_aggS(side).shots); if(sh>0&&h!=null&&Math.abs(sh-h)>=4) linhas.push(`O ${esc(_ladoNome(side))} finalizou ${sh}x (média ~${Math.round(h)}) — ${sh>h?'bem mais agressivo':'abaixo do seu padrão'}.`); });
   // xG x gols (eficiência / sorte)
   ['casa','fora'].forEach(side=>{ const xg=sideVal(fim,side,'xg'); const g=side==='casa'?pc:pf; if(xg>=0.3){ if(g-xg>=1) linhas.push(`O ${esc(_ladoNome(side))} foi clínico: fez ${g} com ~${xg.toFixed(1)} de xG, acima do que as chances pediam.`); else if(xg-g>=1) linhas.push(`O ${esc(_ladoNome(side))} criou ~${xg.toFixed(1)} de xG e fez só ${g} — faltou capricho.`); } });
+  // Baseline: finalizações/xG reais vs PROJEÇÃO histórica (referenciaMin = fin/min, xg/min)
+  ['casa','fora'].forEach(side=>{ const ref=_refS(side); if(!ref)return; const sh=sideVal(fim,side,'shots'), xg=sideVal(fim,side,'xg');
+    if(ref.finPorMin!=null&&sh>0){ const proj=ref.finPorMin*90; if(proj>0&&Math.abs(sh-proj)/proj>=0.35) linhas.push(`O ${esc(_ladoNome(side))} finalizou ${sh}x — ${sh>proj?'bem acima':'abaixo'} da sua projeção histórica (~${Math.round(proj)} por jogo).`); }
+    if(ref.xgPorMin!=null&&xg>0){ const projx=ref.xgPorMin*90; if(projx>0&&Math.abs(xg-projx)/projx>=0.4) linhas.push(`Criou ~${xg.toFixed(1)} de xG, ${xg>projx?'acima':'abaixo'} do que costuma gerar (~${projx.toFixed(1)}).`); } });
   // Gols x janelas previstas: minuto e em qual faixa do Raio-X caiu
   const gj=golsPorMinuto(); const gols=[]; Object.keys(gj).forEach(mn=>gj[mn].forEach(nm=>gols.push({m:+mn,nome:nm})));
   gols.sort((a,b)=>a.m-b.m);
   let acertosJanela=0;
   gols.forEach(g=>{ const ld=_ladoDe(g.nome); const mt=ld?matchJanela(ld,g.m):{nivel:'fora'}; if(mt.nivel!=='fora')acertosJanela++;
     const nm=esc(g.nome||(ld?_ladoNome(ld):'time'));
-    linhas.push(mt.nivel==='5'?`⚽ ${g.m}' — gol do ${nm} caiu na faixa <b>${mt.lbl} min</b>, exatamente onde ele mais marca no Raio-X.`
+    linhas.push(mt.nivel==='5'?`⚽ ${g.m}' — gol do ${nm} caiu na faixa <b>${mt.lbl} min</b>, onde ele ${palavraFreq(mt.conf)} marcar.`
+      :mt.nivel==='cluster'?`⚽ ${g.m}' — gol do ${nm} bem no minuto em que o histórico concentra gols (${mt.lbl}).`
       :mt.nivel==='15'?`⚽ ${g.m}' — gol do ${nm} dentro do bloco <b>${mt.lbl} min</b>, faixa em que ele costuma aparecer.`
       :`⚽ ${g.m}' — gol do ${nm} fora das faixas habituais dele.`); });
   if(gols.length) linhas.push(acertosJanela>=Math.ceil(gols.length/2)?`No geral, o relógio dos gols bateu com o que o Raio-X previa.`:`No geral, os gols fugiram das faixas previstas — jogo com roteiro próprio.`);
@@ -1320,8 +1345,11 @@ function comentariosAoVivo(){
     // #19 Jogo pegando fogo (faltas + cartão)
     const dFoul=(comb(cur._est,'fouls')||0)-(comb(win._est,'fouls')||0), temCard=cardMin[m]>0;
     if((dFoul>=5||temCard)&&ok('fogo',m,6)) feed.push({min:m,ic:'🟨',txt:`O jogo pegou fogo: faltas se acumulando${temCard?' e cartão na praça':''}.`});
-    // Entrando numa faixa quente (marca uma vez por janela/lado)
-    ['casa','fora'].forEach(side=>(jqSc[side]||[]).forEach(j=>{ if(j.ini>0&&m===j.ini&&!jaJan[side+'-'+j.i]){ jaJan[side+'-'+j.i]=1; feed.push({min:m,ic:'⏱️',txt:`Entrando na faixa dos ${j.lbl} min, em que o <b>${esc(_ladoNome(side))}</b> costuma marcar — olho vivo.`}); } }));
+    // Entrando numa faixa quente (só janelas confiáveis; palavra graduada)
+    ['casa','fora'].forEach(side=>(jqSc[side]||[]).forEach(j=>{ if(j.ini>0&&m===j.ini&&j.conf>=2&&!jaJan[side+'-'+j.i]){ jaJan[side+'-'+j.i]=1; feed.push({min:m,ic:'⏱️',txt:`Entrando na faixa dos ${j.lbl} min, em que o <b>${esc(_ladoNome(side))}</b> ${palavraFreq(j.conf)} marcar — olho vivo.`}); } }));
+    // Baseline: time finalizando bem acima do seu ritmo histórico (referenciaMin.finPorMin)
+    ['casa','fora'].forEach(side=>{ const ref=_refS(side); if(!ref||ref.finPorMin==null||m<20)return; const sh=sideVal(cur,side,'shots'); const paceVivo=sh/m, paceHist=ref.finPorMin;
+      if(paceHist>0&&sh>=6&&paceVivo>=paceHist*1.5&&ok('basefin-'+side,m,12)) feed.push({min:m,ic:'📈',txt:`O <b>${esc(_ladoNome(side))}</b> está finalizando bem acima do seu normal (${sh} chutes em ${m}' — ritmo ~${Math.round((paceVivo/paceHist-1)*100)}% acima do histórico).`}); });
     // #12 Time de 2º tempo (uma vez, ao começar o 2º tempo)
     if(m>=46&&m<=48) ['casa','fora'].forEach(side=>{ if(!jaT2[side]&&t2Side(side)){ jaT2[side]=1; feed.push({min:m,ic:'📈',txt:`Começa o 2º tempo: o <b>${esc(_ladoNome(side))}</b> faz a maioria dos gols nessa etapa — tende a crescer.`}); } });
     // Entrando numa faixa goleadora do confronto (soma gols feitos+sofridos dos 2 no histórico)
