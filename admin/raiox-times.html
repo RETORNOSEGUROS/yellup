@@ -1422,6 +1422,25 @@ function buildTable(enriched, team, statsMap) {
   </div>`;
 }
 
+// ── Detalhe estruturado dos jogos p/ snapshot (arena renderiza sem gastar API) ──
+function buildJogosDet(enriched, team, statsMap){
+  return (enriched||[]).map(e=>{
+    const f=e.f||{}, st=statsMap?statsMap[f.fixture?.id]:null;
+    const ts=e.home?'home':'away', os=e.home?'away':'home';
+    const opp=e.home?f.teams?.away:f.teams?.home;
+    let poss=null,xg=null,sh=null,shog=null,pa=null,pt=null;
+    if(st){ try{ const s=parseStats(st,f.teams.home.id,f.teams.away.id);
+      poss=[s.poss[ts],s.poss[os]]; xg=[s.xg[ts],s.xg[os]]; sh=[s.shots[ts],s.shots[os]];
+      shog=[s.shotsOG[ts],s.shotsOG[os]]; pa=[s.passAcc[ts],s.passAcc[os]]; pt=[s.passTotal[ts],s.passTotal[os]];
+    }catch(_){} }
+    return { d:(f.fixture?.date||'').slice(0,10), h:e.home?1:0, res:e.res||'',
+      lg:f.league?.name||'', lgL:f.league?.logo||'',
+      opp:opp?.name||'', oppL:opp?.logo||'',
+      gT:(f.goals?f.goals[ts]:null)??e.tGoals??null, gO:(f.goals?f.goals[os]:null)??e.oGoals??null,
+      poss,xg,sh,shog,pa,pt };
+  });
+}
+
 // ── Build Row HTML ─────────────────────────────────────────────
 function buildRow(e, team, stats) {
   const f   = e.f;
@@ -2508,6 +2527,9 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
       B: FORTE_FULL_CACHE[H2H_B.apiId] || null,
     },
     agg: { A: aggA, B: aggB },
+    // Detalhe dos últimos jogos (estruturado) p/ a aba Forças da arena — sem gastar API
+    jogosDetA: buildJogosDet(eA_hidrat, H2H_A, smA),
+    jogosDetB: buildJogosDet(eB_hidrat, H2H_B, smB),
     // Resumo COMPACTO dos 20 últimos jogos: cada jogo vira 1 string CSV-like
     // formato: "data|home|oppId|tG|oG|tXG|tShots|tShotsOG|tPoss|res"
     enrichedCompact: {
