@@ -1422,6 +1422,17 @@ function buildTable(enriched, team, statsMap) {
   </div>`;
 }
 
+// Componentes do ForteScore inline (sem chamada extra à API) — fallback p/ snapshot
+function forteFullInline(team, enriched, statsMap){
+  try{
+    if(!enriched||!enriched.length) return null;
+    const wrs=calcWRS(enriched), io=calcIO(null,enriched,statsMap,team.apiId), id=calcID(null,enriched,statsMap,team.apiId), idom=calcIDom(enriched,statsMap,team.apiId), lcs=calcLCS(enriched);
+    const wrsC=(typeof wrs==='object'&&wrs)?wrs.combined:wrs;
+    const raw=wrsC*0.45+io*0.20+id*0.20+idom*0.10+lcs*0.05;
+    const score=parseFloat(Math.max(0.01,Math.min(10,Math.pow(Math.max(0.001,raw),0.62)*10)).toFixed(2));
+    return { score, wrs:wrsC, io, id, idom, lcs, origem:'inline-20j' };
+  }catch(_){ return null; }
+}
 // ── Detalhe estruturado dos jogos p/ snapshot (arena renderiza sem gastar API) ──
 function buildJogosDet(enriched, team, statsMap){
   return (enriched||[]).map(e=>{
@@ -2523,8 +2534,8 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
     },
     // v16: components completos do ForteScore (io=ataque, id=defesa, idom=domínio, lcs=calendário, wrs=winrate)
     forteFull: {
-      A: FORTE_FULL_CACHE[H2H_A.apiId] || null,
-      B: FORTE_FULL_CACHE[H2H_B.apiId] || null,
+      A: FORTE_FULL_CACHE[H2H_A.apiId] || forteFullInline(H2H_A, eA_hidrat, smA),
+      B: FORTE_FULL_CACHE[H2H_B.apiId] || forteFullInline(H2H_B, eB_hidrat, smB),
     },
     agg: { A: aggA, B: aggB },
     // Detalhe dos últimos jogos (estruturado) p/ a aba Forças da arena — sem gastar API
