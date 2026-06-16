@@ -1238,6 +1238,31 @@ function desempenhoVsForca(side,oppForte){
   let gf=0,gc=0,v=0,e=0,d=0; arr.forEach(g=>{ gf+=g.tG||0; gc+=g.oG||0; const r=(g.res||'').toUpperCase(); if(r==='V')v++;else if(r==='E')e++;else if(r==='D')d++; });
   const n=arr.length; return {key,n,gfAvg:gf/n,gcAvg:gc/n,v,e,d,winPct:Math.round(v/n*100)};
 }
+// "Receita do gol": qual métrica melhor separa jogo de gol x jogo truncado (do jogosDet)
+function receitaGol(side){
+  const arr=_jogosDetS(side); if(!Array.isArray(arr)||arr.length<6) return null;
+  const cands=[
+    {k:'poss',lbl:'posse',un:'%',cum:false,get:g=>g.poss&&g.poss[0]!=null?+g.poss[0]:null},
+    {k:'sh',lbl:'finalizações',un:'',cum:true,get:g=>g.sh&&g.sh[0]!=null?+g.sh[0]:null},
+    {k:'xg',lbl:'xG',un:'',cum:true,get:g=>g.xg&&g.xg[0]!=null?+g.xg[0]:null},
+    {k:'pt',lbl:'passes',un:'',cum:true,get:g=>g.pt&&g.pt[0]!=null?+g.pt[0]:null},
+  ];
+  let best=null;
+  cands.forEach(c=>{
+    const rows=arr.map(g=>({v:c.get(g),gol:g.gT!=null?+g.gT:null})).filter(r=>r.v!=null&&r.gol!=null);
+    if(rows.length<6) return;
+    const sorted=rows.map(r=>r.v).slice().sort((a,b)=>a-b);
+    const med=sorted[Math.floor(sorted.length/2)];
+    const hi=rows.filter(r=>r.v>=med), lo=rows.filter(r=>r.v<med);
+    if(hi.length<3||lo.length<3) return;
+    const gHi=hi.reduce((s,r)=>s+r.gol,0)/hi.length, gLo=lo.reduce((s,r)=>s+r.gol,0)/lo.length;
+    const gap=gHi-gLo;
+    if(gap>=0.5 && (!best||gap>best.gap)) best={k:c.k,lbl:c.lbl,un:c.un,cum:c.cum,med:Math.round(med*10)/10,gHi,gLo,gap,n:rows.length};
+  });
+  return best;
+}
+function _statLive(row,side,k){ if(k==='poss')return sideVal(row,side,'posse'); if(k==='sh')return sideVal(row,side,'shots'); if(k==='xg')return sideVal(row,side,'xg'); if(k==='pt')return sideVal(row,side,'passes'); return null; }
+function _fmtR(v,k){ return k==='xg'?(Math.round(v*10)/10).toFixed(1):String(Math.round(v)); }
 function _ladoNome(side){ return side==='casa'?(JOGO?.timeCasaNome||'Casa'):(JOGO?.timeForaNome||'Fora'); }
 function _ladoDe(nome){ const n=_norm(nome); if(n&&n===_norm(JOGO?.timeCasaNome))return 'casa'; if(n&&n===_norm(JOGO?.timeForaNome))return 'fora'; return null; }
 function formaArr(c){ if(!Array.isArray(c))return []; return c.slice(0,5).map(s=>(String(s).split('|')[9]||'').toUpperCase()).filter(r=>r==='V'||r==='E'||r==='D'); }
@@ -1342,6 +1367,9 @@ function comentariosPreJogo(){
   const dpC=desempenhoVsForca('casa', _forteS('fora')), dpF=desempenhoVsForca('fora', _forteS('casa'));
   if(dpC&&dpC.n>=3) out.push({ic:'🛡️',txt:`Contra rivais de força <b>${TIER_LBL[dpC.key]}</b> (como o ${esc(nF)} hoje), o ${esc(nC)} em ${dpC.n} jogos fez ${dpC.gfAvg.toFixed(1)} e levou ${dpC.gcAvg.toFixed(1)} por jogo — ${dpC.v}V/${dpC.e}E/${dpC.d}D (${dpC.winPct}% de vitória).`});
   if(dpF&&dpF.n>=3) out.push({ic:'🛡️',txt:`Já o ${esc(nF)}, contra força <b>${TIER_LBL[dpF.key]}</b> (nível do ${esc(nC)}), fez ${dpF.gfAvg.toFixed(1)} e levou ${dpF.gcAvg.toFixed(1)} em ${dpF.n} jogos — ${dpF.winPct}% de vitória.`});
+  // Receita do gol: a métrica que mais separa jogo de gol x jogo truncado
+  ['casa','fora'].forEach(side=>{ const r=receitaGol(side); if(r&&r.gap>=0.6){ const nm=_ladoNome(side);
+    out.push({ic:'🍳',txt:`A receita do gol do <b>${esc(nm)}</b>: quando tem ${r.med}${r.un}+ de ${r.lbl}, marca ${r.gHi.toFixed(1)} por jogo (contra ${r.gLo.toFixed(1)} abaixo disso). De olho nesse número hoje.`}); } });
   // Veredito
   let vd = lf.nivel==='forte'?`Favoritismo do ${lf.favLado==='casa'?esc(nC):esc(nF)}`:(lf.nivel==='leve'?`Ligeira vantagem do ${lf.favLado==='casa'?esc(nC):esc(nF)}`:'Jogo parelho');
   const somaGols=(lf.gfC||0)+(lf.gfF||0)+(lf.gcC||0)+(lf.gcF||0);
@@ -1376,6 +1404,9 @@ function analisePosJogo(){
   ['casa','fora'].forEach(side=>{ const ref=_refS(side); if(!ref)return; const sh=sideVal(fim,side,'shots'), xg=sideVal(fim,side,'xg');
     if(ref.finPorMin!=null&&sh>0){ const proj=ref.finPorMin*90; if(proj>0&&Math.abs(sh-proj)/proj>=0.35) linhas.push(`O ${esc(_ladoNome(side))} finalizou ${sh}x — ${sh>proj?'bem acima':'abaixo'} da sua projeção histórica (~${Math.round(proj)} por jogo).`); }
     if(ref.xgPorMin!=null&&xg>0){ const projx=ref.xgPorMin*90; if(projx>0&&Math.abs(xg-projx)/projx>=0.4) linhas.push(`Criou ~${xg.toFixed(1)} de xG, ${xg>projx?'acima':'abaixo'} do que costuma gerar (~${projx.toFixed(1)}).`); } });
+  // Receita do gol: o jogo bateu o patamar em que o time costuma marcar mais?
+  ['casa','fora'].forEach(side=>{ const r=receitaGol(side); if(!r||r.gap<0.6)return; const v=_statLive(fim,side,r.k); if(v==null||v<=0)return; const g=side==='casa'?pc:pf; const bateu=v>=r.med;
+    linhas.push(`Receita do ${esc(_ladoNome(side))}: ${bateu?`atingiu o patamar de ${r.lbl} (${_fmtR(v,r.k)}${r.un} ≥ ${r.med}) e fez ${g} — confirmou o cenário em que costuma marcar mais.`:`ficou abaixo do patamar de ${r.lbl} (${_fmtR(v,r.k)}${r.un} < ${r.med}) e fez ${g} gol(s).`}`); });
   // Gols x janelas previstas: minuto e em qual faixa do Raio-X caiu
   const gj=golsPorMinuto(); const gols=[]; Object.keys(gj).forEach(mn=>gj[mn].forEach(nm=>gols.push({m:+mn,nome:nm})));
   gols.sort((a,b)=>a.m-b.m);
@@ -1493,8 +1524,9 @@ function comentariosAoVivo(){
   const golMap=golsPorMinuto(), evPl=fnPlacarEventos();
   const jqSc={casa:topJanelas('casa','sc'), fora:topJanelas('fora','sc')};
   const jqCn={casa:topJanelas('casa','cn'), fora:topJanelas('fora','cn')};
-  const W=5, feed=[], cd={}, jaJan={}, jaT2={}, jaGol={};
+  const W=5, feed=[], cd={}, jaJan={}, jaT2={}, jaGol={}, jaReceita={};
   const jgl=janelasGoleadoras();
+  const RECEITA={casa:receitaGol('casa'), fora:receitaGol('fora')};
   const ok=(k,m,n)=>{ if(cd[k]!=null && (m-cd[k])<n) return false; cd[k]=m; return true; };
   const cardMin={}; (JOGO?.eventosJogo||[]).forEach(e=>{ if((e.tipo||'').toLowerCase()==='card'||/yellow|red|amarelo|vermelho/.test((e.detalhe||'').toLowerCase())){ const b=parseInt(String(e.tempo).split('+')[0],10); if(!isNaN(b))cardMin[b]=(cardMin[b]||0)+1; } });
   const t2Side=side=>{ const b=_bkS(side); if(!b||!Array.isArray(b.sc))return false; const t1=b.sc.slice(0,10).reduce((s,v)=>s+v,0), t2=b.sc.slice(10).reduce((s,v)=>s+v,0); return t2>0&&t2>=t1*1.5; };
@@ -1533,6 +1565,9 @@ function comentariosAoVivo(){
     // Baseline: time finalizando bem acima do seu ritmo histórico (referenciaMin.finPorMin)
     ['casa','fora'].forEach(side=>{ const ref=_refS(side); if(!ref||ref.finPorMin==null||m<20)return; const sh=sideVal(cur,side,'shots'); const paceVivo=sh/m, paceHist=ref.finPorMin;
       if(paceHist>0&&sh>=6&&paceVivo>=paceHist*1.5&&ok('basefin-'+side,m,12)) feed.push({min:m,ic:'📈',txt:`O <b>${esc(_ladoNome(side))}</b> está finalizando bem acima do seu normal (${sh} chutes em ${m}' — ritmo ~${Math.round((paceVivo/paceHist-1)*100)}% acima do histórico).`}); });
+    // Receita do gol: o time está reproduzindo o cenário em que costuma marcar mais
+    if(m>=30) ['casa','fora'].forEach(side=>{ if(jaReceita[side])return; const r=RECEITA[side]; if(!r||r.gap<0.6)return; let v=_statLive(cur,side,r.k); if(v==null)return; if(r.cum)v=v*90/m;
+      if(v>=r.med){ jaReceita[side]=1; feed.push({min:m,ic:'🍳',txt:`O <b>${esc(_ladoNome(side))}</b> está repetindo a receita: no ritmo atual projeta ${_fmtR(v,r.k)}${r.un} de ${r.lbl} — o patamar em que costuma marcar mais (${r.gHi.toFixed(1)} gols/jogo). Cenário de gol.`}); } });
     // #12 Time de 2º tempo (uma vez, ao começar o 2º tempo)
     if(m>=46&&m<=48) ['casa','fora'].forEach(side=>{ if(!jaT2[side]&&t2Side(side)){ jaT2[side]=1; feed.push({min:m,ic:'📈',txt:`Começa o 2º tempo: o <b>${esc(_ladoNome(side))}</b> faz a maioria dos gols nessa etapa — tende a crescer.`}); } });
     // Entrando numa faixa goleadora do confronto (soma gols feitos+sofridos dos 2 no histórico)
