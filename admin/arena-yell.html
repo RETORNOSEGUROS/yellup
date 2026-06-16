@@ -1353,6 +1353,22 @@ function consistencia(side){ const arr=_jogosDetS(side); if(!Array.isArray(arr))
 // Selo de confiança da leitura pré-jogo
 function confiancaLeitura(){ const n=Math.min(_amostra('casa'),_amostra('fora')); const lf=leituraForcas();
   let c=n>=15?2:n>=8?1:0; if(lf.nivel==='forte')c++; return c>=3?'alta':c>=2?'média':'baixa'; }
+// Quando o time costuma fazer seu 1º gol (minutosPorJogo)
+function primeiroGol(side){
+  const mp=_pick(side, SNAP?.minutosPorJogoA, SNAP?.minutosPorJogoB);
+  if(!mp||typeof mp!=='object') return null;
+  const firsts=[]; Object.values(mp).forEach(arr=>{ if(!Array.isArray(arr))return; const idx=arr.findIndex(v=>v>0); if(idx>=0) firsts.push(idx); });
+  if(firsts.length<4) return null;
+  const avg=firsts.reduce((a,b)=>a+b,0)/firsts.length, pct15=Math.round(firsts.filter(m=>m<=15).length/firsts.length*100);
+  return {n:firsts.length, avg:Math.round(avg), pct15};
+}
+// Placar mais recorrente nos últimos 20
+function placarComum(side){
+  const arr=_jogosDetS(side); if(!Array.isArray(arr))return null;
+  const cnt={}; arr.slice(0,20).forEach(x=>{ if(x.gT==null||x.gO==null)return; const k=`${x.gT}-${x.gO}`; cnt[k]=(cnt[k]||0)+1; });
+  const ent=Object.entries(cnt).sort((a,b)=>b[1]-a[1]); if(!ent.length||ent[0][1]<3)return null;
+  return {placar:ent[0][0].replace('-','–'), n:ent[0][1]};
+}
 function _ladoNome(side){ return side==='casa'?(JOGO?.timeCasaNome||'Casa'):(JOGO?.timeForaNome||'Fora'); }
 function _ladoDe(nome){ const n=_norm(nome); if(n&&n===_norm(JOGO?.timeCasaNome))return 'casa'; if(n&&n===_norm(JOGO?.timeForaNome))return 'fora'; return null; }
 function formaArr(c){ if(!Array.isArray(c))return []; return c.slice(0,5).map(s=>(String(s).split('|')[9]||'').toUpperCase()).filter(r=>r==='V'||r==='E'||r==='D'); }
@@ -1491,6 +1507,11 @@ function comentariosPreJogo(){
   ['casa','fora'].forEach(side=>{ const cs=consistencia(side); if(!cs)return; const nm=_ladoNome(side);
     if(cs.instavel) out.push({ic:'🎢',txt:`O <b>${esc(nm)}</b> é montanha-russa: ora goleia, ora trava — placar imprevisível.`});
     else if(cs.regular) out.push({ic:'📐',txt:`O <b>${esc(nm)}</b> é regular no volume de gols — placar mais previsível.`}); });
+  // Quando costuma fazer o 1º gol
+  ['casa','fora'].forEach(side=>{ const pg=primeiroGol(side); if(!pg)return; const nm=_ladoNome(side);
+    out.push({ic:'⏰',txt:`O <b>${esc(nm)}</b> costuma fazer seu 1º gol por volta dos ${pg.avg}'${pg.pct15>=40?` — em ${pg.pct15}% das vezes já balança a rede nos primeiros 15'`:''}.`}); });
+  // Placar mais recorrente
+  ['casa','fora'].forEach(side=>{ const pl=placarComum(side); if(!pl)return; out.push({ic:'📋',txt:`O placar mais comum do <b>${esc(_ladoNome(side))}</b> nos últimos 20 foi <b>${pl.placar}</b> (${pl.n} vezes).`}); });
   // Veredito
   let vd = lf.nivel==='forte'?`Favoritismo do ${lf.favLado==='casa'?esc(nC):esc(nF)}`:(lf.nivel==='leve'?`Ligeira vantagem do ${lf.favLado==='casa'?esc(nC):esc(nF)}`:'Jogo parelho');
   const somaGols=(lf.gfC||0)+(lf.gfF||0)+(lf.gcC||0)+(lf.gcF||0);
