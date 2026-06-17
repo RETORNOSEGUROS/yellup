@@ -1496,11 +1496,43 @@ function _xgLeitura(side,cur,m){
   const med=_aggS(side); const xgMed=numr(med.xg); if(xgMed==null||xgMed<=0) return null;
   const xgA=sideVal(cur,side,'xg'); const sh=sideVal(cur,side,'shots'); if(xgA==null) return null;
   const gols=(+(side==='casa'?cur.placarCasa:cur.placarFora))||0; const out=[];
-  if(m>=20) out.push(`já criou ${xgA.toFixed(1)} de xG (${Math.round(xgA/xgMed*100)}% do que costuma criar num jogo, ~${xgMed.toFixed(1)})`);
+  const ref=_refS(side); const espAgora = (ref&&ref.xgPorMin!=null)? ref.xgPorMin*m : (xgMed*m/90);
+  if(m>=20 && espAgora>0){ const r=xgA/espAgora; out.push(`já criou ${xgA.toFixed(1)} de xG — ${r>=1.15?'acima':r<=0.7?'abaixo':'em linha com'} o ritmo normal dele a esta altura (~${espAgora.toFixed(1)})`); }
   if(gols>=1 && xgA<gols-0.7) out.push(`está marcando acima do que as chances pediam — eficiência/individualidade decidindo`);
   else if(m>=35 && xgA-gols>=1.0) out.push(`cria mais do que faz (xG ${xgA.toFixed(1)} para ${gols} gol) — chega mas peca na finalização`);
   if(sh>=8 && xgA/Math.max(sh,1)<0.06) out.push(`finaliza muito mas de pouco perigo — chutes de longe, pouca chance clara`);
   return out.length?out:null;
+}
+// MOMENTO: ritmo recente (~últimos 5') por delta real → projeta o pique e extrapola o tempo restante
+function _momento(side,arr,i){
+  const cur=arr[i], m=cur.minuto; if(m<15) return null;
+  const w=arr[Math.max(0,i-5)]; const dmin=m-(w.minuto||0); if(dmin<4) return null;
+  const med=_medSide(side); const passMed=med.passes; if(!passMed) return null;
+  const dPass=sideVal(cur,side,'passes')-sideVal(w,side,'passes'); const taxa=dPass/dmin; const taxaMed=passMed/90;
+  if(taxaMed<=0) return null; const rel=taxa/taxaMed;
+  // projeta o ritmo recente pro 90' e casa com a banda de gols
+  const proj=k=>{ const dv=sideVal(cur,side,k)-sideVal(w,side,k); return (dv/dmin)*90; };
+  const projVec={ poss:sideVal(cur,side,'posse'), shots:proj('shots'), shotsOn:proj('shotsOn'), passes:taxa*90 };
+  const band=_matchBanda(projVec, perfilPorGols(side), med);
+  const nm=esc(_ladoNome(side)); const rest=Math.max(0,90-m);
+  if(rel>=1.5){ // acelerou
+    let txt=`Nos últimos ~${dmin}', o <b>${nm}</b> acelerou: ${Math.round(taxa)} passes/min (média ${taxaMed.toFixed(1)}/min)`;
+    if(band){ const tend=Math.round(band.g*rest/90*10)/10; txt+=` — nesse pique é padrão de jogo de ${band.g}${band.g>=5?'+':''} gol${band.g===1?'':'s'}. Faltam ${rest}': se mantiver, tende a sair ~${tend} ${tend===1?'gol':'gols'}.`; }
+    else txt+='.';
+    return txt;
+  }
+  if(rel<=0.55 && m>=30){ return `Nos últimos ~${dmin}', o <b>${nm}</b> esfriou: ${Math.round(taxa)} passes/min (bem abaixo da média de ${taxaMed.toFixed(1)}/min) — saiu do seu ritmo de criar.`; }
+  return null;
+}
+// Janelas de 10' (pares de buckets de 5') em que o time é historicamente goleador (soma >= thr)
+function janelas10Quentes(side, thr){
+  thr=thr||7; const b=_bkS(side); if(!b||!Array.isArray(b.sc)) return [];
+  const out=[];
+  for(let i=0;i<19;i++){ if(i===9||i+1===9||i===19) continue; const soma=(b.sc[i]||0)+(b.sc[i+1]||0);
+    if(soma>=thr) out.push({ini:bkStart(i), fim:bkStart(i)+10, gols:soma, i}); }
+  out.sort((x,y)=>y.gols-x.gols); const picked=[], used=new Set();
+  out.forEach(w=>{ if(used.has(w.i)||used.has(w.i+1))return; picked.push(w); used.add(w.i); used.add(w.i+1); });
+  picked.sort((x,y)=>x.ini-y.ini); return picked;
 }
 // Traduz os números do momento em palavras
 function _emPalavras(side,cur,m){
@@ -1610,6 +1642,9 @@ function comentariosPreJogo(){
   // Faixas goleadoras do confronto (soma dos dois)
   const jgl=janelasGoleadoras();
   if(jgl.length) out.push({ic:'🎯',txt:`Somando os dois lados, as faixas mais movimentadas de gol são <b>${jgl.map(j=>j.lbl).join(', ')} min</b> — fica de olho nelas.`});
+  // Janela quente de gol por time (10' com 7+ gols nos últimos 20 = costuma sair gol no jogo)
+  ['casa','fora'].forEach(side=>{ const jq=janelas10Quentes(side); if(!jq.length)return; const top=jq[0];
+    out.push({ic:'🔝',txt:`O <b>${esc(_ladoNome(side))}</b> tem uma janela quente de gol entre <b>${top.ini}-${top.fim}'</b>: balançou a rede <b>${top.gols}x</b> nessa faixa nos últimos 20 — quando o jogo chega aí, costuma sair gol dele.`}); });
   // Desempenho histórico contra adversários do nível do rival de hoje
   const dpC=desempenhoVsForca('casa', _forteS('fora')), dpF=desempenhoVsForca('fora', _forteS('casa'));
   if(dpC&&dpC.n>=3) out.push({ic:'🛡️',txt:`Contra rivais de força <b>${TIER_LBL[dpC.key]}</b> (como o ${esc(nF)} hoje), o ${esc(nC)} em ${dpC.n} jogos fez ${dpC.gfAvg.toFixed(1)} e levou ${dpC.gcAvg.toFixed(1)} por jogo — ${dpC.v}V/${dpC.e}E/${dpC.d}D (${dpC.winPct}% de vitória).`});
@@ -1700,7 +1735,7 @@ function analisePosJogo(){
     if(ref.xgPorMin!=null&&xg>0){ const projx=ref.xgPorMin*90; if(projx>0&&Math.abs(xg-projx)/projx>=0.4) linhas.push(`Criou ~${xg.toFixed(1)} de xG, ${xg>projx?'acima':'abaixo'} do que costuma gerar (~${projx.toFixed(1)}).`); } });
   // Receita do gol: o jogo bateu o patamar em que o time costuma marcar mais?
   ['casa','fora'].forEach(side=>{ const r=receitaGol(side); if(!r||r.gap<0.6)return; const v=_statLive(fim,side,r.k); if(v==null||v<=0)return; const g=side==='casa'?pc:pf; const bateu=v>=r.med;
-    linhas.push(`Receita do ${esc(_ladoNome(side))}: ${bateu?`atingiu o patamar de ${r.lbl} (${_fmtR(v,r.k)}${r.un} ≥ ${r.med}) e fez ${g} — confirmou o cenário em que costuma marcar mais.`:`ficou abaixo do patamar de ${r.lbl} (${_fmtR(v,r.k)}${r.un} < ${r.med}) e fez ${g} gol(s).`}`); });
+    linhas.push(`Receita do ${esc(_ladoNome(side))}: ${bateu?(g>0?`atingiu o patamar de ${r.lbl} (${_fmtR(v,r.k)}${r.un} ≥ ${r.med}) e fez ${g} — confirmou o cenário em que costuma marcar mais.`:`atingiu o volume de ${r.lbl} (${_fmtR(v,r.k)}${r.un} ≥ ${r.med}) mas não converteu — não saiu gol.`):`ficou abaixo do patamar de ${r.lbl} (${_fmtR(v,r.k)}${r.un} < ${r.med}) e fez ${g} gol(s).`}`); });
   // Gols x janelas previstas: minuto e em qual faixa do Raio-X caiu
   const gj=golsPorMinuto(); const gols=[]; Object.keys(gj).forEach(mn=>gj[mn].forEach(nm=>gols.push({m:+mn,nome:nm})));
   gols.sort((a,b)=>a.m-b.m);
@@ -1862,6 +1897,7 @@ function comentariosAoVivo(){
   const jqCn={casa:topJanelas('casa','cn'), fora:topJanelas('fora','cn')};
   const W=5, feed=[], cd={}, jaJan={}, jaT2={}, jaGol={}, jaReceita={}, jaRaiox={};
   const jgl=janelasGoleadoras();
+  const jq10={casa:janelas10Quentes('casa'), fora:janelas10Quentes('fora')}, jaJQ={};
   const jcas=janelaCasada(), jaCas={};
   const RECEITA={casa:receitaGol('casa'), fora:receitaGol('fora')};
   const ok=(k,m,n)=>{ if(cd[k]!=null && (m-cd[k])<n) return false; cd[k]=m; return true; };
@@ -1912,9 +1948,11 @@ function comentariosAoVivo(){
         const pP=rp('passes'), rP=rr('passes'), pS=rp('shots');
         const palavras=_emPalavras(side,cur,m);
         const cenTxt = pl.cenarioG!=null? ` — pelo ritmo, padrão dos jogos em que faz <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>`:'';
-        feed.push({min:m,ic:'🔭',txt:`Aos ${m}', o <b>${esc(_ladoNome(side))}</b> ${palavras.length?palavras.join(', ')+'. ':''}Projeta ${pP?Math.round(pP):'?'} passes${rP?` (méd ${Math.round(rP)})`:''} e ${pS?Math.round(pS):'?'} finalizações${cenTxt}.`});
+        feed.push({min:m,ic:'🔭',txt:`Aos ${m}', o <b>${esc(_ladoNome(side))}</b> ${palavras.length?palavras.join(', ')+'. ':''}Projeta ${pP?Math.round(pP):0} passes${rP?` (méd ${Math.round(rP)})`:''} e ${pS?Math.round(pS):0} finalizações${cenTxt}.`});
         // leitura de conversão (xG) — só quando o time tem xG histórico
         const xgL=_xgLeitura(side,cur,m); if(xgL && ok('xg-'+side,m,10)) feed.push({min:m,ic:'🎯',txt:`O <b>${esc(_ladoNome(side))}</b> ${xgL.join('; ')}.`});
+        // MOMENTO: ritmo dos últimos ~5' (delta real) vs média/min → cenário do pique + extrapolação
+        const mm=_momento(side,arr,i); if(mm && ok('momento-'+side,m,10)) feed.push({min:m,ic:'⏩',txt:mm});
         // cruzamento atacante × defesa cedendo
         const sofre=cenarioSofrido(opp, pl.projVec);
         if(pl.cenarioG!=null && pl.cenarioG>=2 && sofre!=null && sofre>=3 && ok('cross-'+side,m,12)) feed.push({min:m,ic:'⚔️',txt:`Cruzamento: o <b>${esc(_ladoNome(side))}</b> produz como quando faz ${pl.cenarioG}+ e o ${esc(_ladoNome(opp))} cede como nos jogos em que sofre ${sofre}+ — forte tendência de gol do ${esc(_ladoNome(side))}.`}); });
@@ -1927,11 +1965,13 @@ function comentariosAoVivo(){
     }
     // Pressão no alvo: chutes no alvo nos últimos ~10' (sinal de gol iminente melhor que finalizações totais)
     if(m>=15){ const w10=arr[Math.max(0,i-10)]; ['casa','fora'].forEach(side=>{ const dOn=sideVal(cur,side,'shotsOn')-sideVal(w10,side,'shotsOn');
-      if(dOn>=3 && ok('alvo-'+side,m,8)) feed.push({min:m,ic:'🔥',txt:`O <b>${esc(_ladoNome(side))}</b> acertou ${dOn} chutes no alvo nos últimos 10' — pressão real, a bola está chegando. Cenário de gol.`}); }); }
+      if(dOn>=3 && ok('alvo-'+side,m,8)) feed.push({min:m,ic:'🥅',txt:`O <b>${esc(_ladoNome(side))}</b> acertou ${dOn} chutes no alvo nos últimos 10' — pressão real, a bola está chegando. Cenário de gol.`}); }); }
     // #12 Time de 2º tempo (uma vez, ao começar o 2º tempo)
     if(m>=46&&m<=48) ['casa','fora'].forEach(side=>{ if(!jaT2[side]&&t2Side(side)){ jaT2[side]=1; feed.push({min:m,ic:'📈',txt:`Começa o 2º tempo: o <b>${esc(_ladoNome(side))}</b> faz a maioria dos gols nessa etapa — tende a crescer.`}); } });
     // Entrando numa faixa goleadora do confronto (soma gols feitos+sofridos dos 2 no histórico)
     jgl.forEach(j=>{ if(j.ini>0&&m===j.ini&&!jaGol[j.i]){ jaGol[j.i]=1; feed.push({min:m,ic:'🎯',txt:`Faixa dos ${j.lbl} min costuma ser movimentada nesse confronto — historicamente saem gols dos dois lados aqui.`}); } });
+    // Entrando na janela quente de gol do time (10' com 7+ gols nos últimos 20)
+    ['casa','fora'].forEach(side=>{ (jq10[side]||[]).forEach(w=>{ const key=side+w.i; if(m===w.ini&&!jaJQ[key]){ jaJQ[key]=1; feed.push({min:m,ic:'🔝',txt:`Entrando na janela mais goleadora do <b>${esc(_ladoNome(side))}</b> (${w.ini}-${w.fim}'): ${w.gols} gols nessa faixa nos últimos 20 — risco alto de sair gol dele agora.`}); } }); });
     // Entrando na JANELA CASADA (um marca muito × outro sofre muito) — maior risco de gol
     jcas.forEach(j=>{ if(j.ini>0&&m===j.ini&&j.max>=2&&!jaCas[j.i]){ jaCas[j.i]=1; feed.push({min:m,ic:'🚨',txt:`Chegando a faixa de maior risco de gol: nos últimos 20, o <b>${esc(_ladoNome(j.lado))}</b> marca muito nos ${j.lbl} min e o adversário sofre demais aí.`}); } });
   }
