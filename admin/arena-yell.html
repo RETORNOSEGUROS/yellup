@@ -1370,16 +1370,22 @@ function placarComum(side){
   return {placar:ent[0][0].replace('-','–'), n:ent[0][1]};
 }
 // ===== Perfil por cenário de gols (bandas) + faixas durante o jogo (pós) =====
-function perfilPorGols(side){
+// Perfil completo por gols e por resultado, com TODAS as métricas do jogosDet
+function perfilCenario(side){
   const arr=_jogosDetS(side); if(!Array.isArray(arr)||arr.length<6) return null;
+  const stat=(rows)=>{ const med=(ex)=>{ const v=rows.map(ex).filter(n=>n!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
+    const poss=med(x=>x.poss?.[0]!=null?+x.poss[0]:null), shots=med(x=>x.sh?.[0]!=null?+x.sh[0]:null),
+      shotsOn=med(x=>x.shog?.[0]!=null?+x.shog[0]:null), passPct=med(x=>x.pa?.[0]!=null?+x.pa[0]:null),
+      passes=med(x=>x.pt?.[0]!=null?+x.pt[0]:null), xg=med(x=>x.xg?.[0]!=null?+x.xg[0]:null);
+    const pfin=(passes!=null&&shots)?passes/shots:null;
+    return {n:rows.length, poss, shots, shotsOn, passPct, passes, xg, pfin}; };
   const byG={}; arr.forEach(x=>{ if(x.gT==null)return; const g=Math.min(5,+x.gT); (byG[g]=byG[g]||[]).push(x); });
-  const med=(rows,ex)=>{ const v=rows.map(ex).filter(n=>n!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
-  const out={};
-  Object.keys(byG).forEach(g=>{ const rows=byG[g]; out[g]={ n:rows.length,
-    poss:med(rows,x=>x.poss?.[0]!=null?+x.poss[0]:null), shots:med(rows,x=>x.sh?.[0]!=null?+x.sh[0]:null),
-    passes:med(rows,x=>x.pt?.[0]!=null?+x.pt[0]:null), xg:med(rows,x=>x.xg?.[0]!=null?+x.xg[0]:null) }; });
-  return out;
+  const porGols={}; Object.keys(byG).sort((a,b)=>a-b).forEach(g=>porGols[g]=stat(byG[g]));
+  const byR={V:[],E:[],D:[]}; arr.forEach(x=>{ if(byR[x.res]) byR[x.res].push(x); });
+  const porRes={}; ['V','E','D'].forEach(r=>{ if(byR[r].length) porRes[r]=stat(byR[r]); });
+  return {porGols, porRes};
 }
+function perfilPorGols(side){ const p=perfilCenario(side); return p?p.porGols:null; }
 function _medSide(side){ const a=_aggS(side); return {poss:numr(a.poss), shots:numr(a.shots), passes:numr(a.passTotal), xg:numr(a.xg)}; }
 function _matchBanda(proj, bands, med){
   if(!proj||!bands||!med) return null;
@@ -1657,9 +1663,11 @@ function renderForcas(){
   h+=`<div class="fc-subtabs">`+
     `<button class="fc-st ${FORCAS_SUB==='jogos'?'on':''}" onclick="forcasSub('jogos')">Últimos Jogos</button>`+
     `<button class="fc-st ${FORCAS_SUB==='forte'?'on':''}" onclick="forcasSub('forte')">ForteScore</button>`+
+    `<button class="fc-st ${FORCAS_SUB==='cenario'?'on':''}" onclick="forcasSub('cenario')">Cenários</button>`+
     `<button class="fc-st ${FORCAS_SUB==='tier'?'on':''}" onclick="forcasSub('tier')">vs Força</button></div>`;
   if(FORCAS_SUB==='jogos') h+=subJogos(side,nome);
   else if(FORCAS_SUB==='forte') h+=subForte(side,full,fS);
+  else if(FORCAS_SUB==='cenario') h+=subCenario(side);
   else h+=subTier(side,nome);
   box.innerHTML=h;
 }
@@ -1719,6 +1727,18 @@ function subTier(side,nome){
     `<div class="fc-leg">GF/GC = média por jogo · 👈 = nível do adversário de hoje</div>${read}</div>`;
 }
 function corForte(v){ v=_forteNorm(v); if(v==null)return 'var(--tx2,#94a3b8)'; if(v>=8)return '#34d399'; if(v>=6.5)return '#22d3ee'; if(v>=4.5)return '#fbbf24'; return '#f87171'; }
+// Sub-aba: perfil por cenário (todas as métricas, por gols e por resultado)
+function subCenario(side){
+  const pc=perfilCenario(side); if(!pc) return `<div class="ar-soon" style="padding:24px"><div class="ic">🎯</div><p>Histórico insuficiente neste Raio-X pra montar os cenários.</p></div>`;
+  const f1=(v,d)=> v==null?'–':(d?v.toFixed(d):String(Math.round(v)));
+  const head=(c1)=>`<thead><tr><th>${c1}</th><th>J</th><th>Posse</th><th>Finaliz</th><th>Alvo</th><th>Pass%</th><th>Passes</th><th>xG</th><th>P/Fin</th></tr></thead>`;
+  const row=(lbl,p)=>`<tr><td>${lbl}</td><td>${p.n}</td><td>${f1(p.poss)}%</td><td>${f1(p.shots)}</td><td>${f1(p.shotsOn)}</td><td>${f1(p.passPct)}%</td><td>${f1(p.passes)}</td><td>${f1(p.xg,2)}</td><td>${f1(p.pfin,1)}</td></tr>`;
+  let rg=''; [0,1,2,3,4,5].forEach(g=>{ const p=pc.porGols[g]; if(p) rg+=row(`${g}${g===5?'+':''} gol${g===1?'':'s'}`,p); });
+  const RL={V:'Vitória',E:'Empate',D:'Derrota'}; let rr=''; ['V','E','D'].forEach(r=>{ const p=pc.porRes[r]; if(p) rr+=row(RL[r],p); });
+  return `<div class="fc-card"><div class="fc-card-tt">Quando faz X gols</div><div class="fc-tablewrap"><table class="fc-games">${head('Gols')}<tbody>${rg}</tbody></table></div></div>`+
+    `<div class="fc-card"><div class="fc-card-tt">Por resultado</div><div class="fc-tablewrap"><table class="fc-games">${head('Result.')}<tbody>${rr}</tbody></table></div></div>`+
+    `<div class="fc-leg" style="margin:0 2px 10px">Médias por jogo. <b>P/Fin</b> = passes por finalização (quanto menor, mais direto ao ataque). <b>Alvo</b> = chutes no alvo.</div>`;
+}
 
 function comentariosAoVivo(){
   const arr=serieVisivel().filter(r=>r._est&&(r._est.casa||r._est.fora));
