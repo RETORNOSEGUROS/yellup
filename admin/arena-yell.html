@@ -1525,14 +1525,15 @@ function _momento(side,arr,i){
   return null;
 }
 // Janelas de 10' (pares de buckets de 5') em que o time é historicamente goleador (soma >= thr)
+// Retorna TODAS as ocorrências que somaram >= thr (sem filtrar), ordenadas pelo minuto.
 function janelas10Quentes(side, thr){
   thr=thr||7; const b=_bkS(side); if(!b||!Array.isArray(b.sc)) return [];
+  const iniDe=j=>{ const n=parseInt((BK_LBL[j]||'').split('-')[0],10); return isNaN(n)?bkStart(j):n; };
+  const fimDe=j=>{ const n=parseInt((BK_LBL[j]||'').split('-')[1],10); return isNaN(n)?bkStart(j)+5:n; };
   const out=[];
   for(let i=0;i<19;i++){ if(i===9||i+1===9||i===19) continue; const soma=(b.sc[i]||0)+(b.sc[i+1]||0);
-    if(soma>=thr) out.push({ini:bkStart(i), fim:bkStart(i)+10, gols:soma, i}); }
-  out.sort((x,y)=>y.gols-x.gols); const picked=[], used=new Set();
-  out.forEach(w=>{ if(used.has(w.i)||used.has(w.i+1))return; picked.push(w); used.add(w.i); used.add(w.i+1); });
-  picked.sort((x,y)=>x.ini-y.ini); return picked;
+    if(soma>=thr) out.push({ini:iniDe(i), fim:fimDe(i+1), gols:soma, i}); }
+  out.sort((x,y)=>x.ini-y.ini); return out;
 }
 // Traduz os números do momento em palavras
 function _emPalavras(side,cur,m){
@@ -1642,9 +1643,10 @@ function comentariosPreJogo(){
   // Faixas goleadoras do confronto (soma dos dois)
   const jgl=janelasGoleadoras();
   if(jgl.length) out.push({ic:'🎯',txt:`Somando os dois lados, as faixas mais movimentadas de gol são <b>${jgl.map(j=>j.lbl).join(', ')} min</b> — fica de olho nelas.`});
-  // Janela quente de gol por time (10' com 7+ gols nos últimos 20 = costuma sair gol no jogo)
-  ['casa','fora'].forEach(side=>{ const jq=janelas10Quentes(side); if(!jq.length)return; const top=jq[0];
-    out.push({ic:'🔝',txt:`O <b>${esc(_ladoNome(side))}</b> tem uma janela quente de gol entre <b>${top.ini}-${top.fim}'</b>: balançou a rede <b>${top.gols}x</b> nessa faixa nos últimos 20 — quando o jogo chega aí, costuma sair gol dele.`}); });
+  // Janelas quentes de gol por time (cada 10' com 7+ gols nos últimos 20 = costuma sair gol no jogo)
+  ['casa','fora'].forEach(side=>{ const jq=janelas10Quentes(side); if(!jq.length)return;
+    const lista=jq.map(w=>`<b>${w.ini}-${w.fim}'</b> (${w.gols})`).join(', ');
+    out.push({ic:'🔝',txt:`Janelas quentes de gol do <b>${esc(_ladoNome(side))}</b> — faixas de 10' em que mais marcou nos últimos 20 (gols entre parênteses): ${lista}. Fica de olho quando o jogo passar por elas.`}); });
   // Desempenho histórico contra adversários do nível do rival de hoje
   const dpC=desempenhoVsForca('casa', _forteS('fora')), dpF=desempenhoVsForca('fora', _forteS('casa'));
   if(dpC&&dpC.n>=3) out.push({ic:'🛡️',txt:`Contra rivais de força <b>${TIER_LBL[dpC.key]}</b> (como o ${esc(nF)} hoje), o ${esc(nC)} em ${dpC.n} jogos fez ${dpC.gfAvg.toFixed(1)} e levou ${dpC.gcAvg.toFixed(1)} por jogo — ${dpC.v}V/${dpC.e}E/${dpC.d}D (${dpC.winPct}% de vitória).`});
