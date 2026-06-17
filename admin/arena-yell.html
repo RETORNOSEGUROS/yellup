@@ -830,6 +830,13 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
 .pj-nm{font-size:14px;font-weight:800;color:#fff;margin-bottom:6px}.pj-nm span{font-size:11px;font-weight:600;color:var(--tx2,#94a3b8)}
 .pj-cen{font-size:11.5px;line-height:1.4;color:#cbd5e1;background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.18);border-radius:8px;padding:6px 9px;margin-bottom:9px}
 .pj-read{font-size:11.5px;line-height:1.45;color:#e2e8f0;margin-bottom:9px}
+.rs-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:12px;margin:0 2px 10px;overflow:hidden}
+.rs-head{cursor:pointer;list-style:none;padding:12px 14px;font-size:13px;font-weight:800;color:#fff;display:flex;align-items:center;gap:8px;user-select:none}
+.rs-head::-webkit-details-marker{display:none}
+.rs-chev{margin-left:auto;color:var(--tx2,#94a3b8);transition:transform .2s;font-size:12px}
+.rs-card[open] .rs-chev{transform:rotate(180deg)}
+.rs-n{font-size:10px;font-weight:700;color:#67e8f9;background:rgba(34,211,238,.12);border-radius:10px;padding:1px 7px}
+.rs-body{padding:0 12px 12px}
 .pj-tb{width:100%;border-collapse:collapse;font-size:12px}
 .pj-tb th{font-size:9px;letter-spacing:.04em;text-transform:uppercase;color:var(--tx2,#94a3b8);font-weight:600;text-align:right;padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.1)}
 .pj-tb th:first-child{text-align:left}
@@ -1157,6 +1164,7 @@ function renderFluxo(){
   box.innerHTML=head+`<div class="fx-list">${rows}</div>`;
 }
 let SNAP=null;
+let RESENHA_UI={}; // estado aberto/fechado dos cards da resenha (persiste entre re-renders)
 const numr=v=>{if(v==null||v==='—')return null;if(typeof v==='number')return v;const n=parseFloat(String(v).replace('%','').replace(',','.'));return isNaN(n)?null:n;};
 function rxRow(label,a,b,fmt,inv){fmt=fmt||(x=>x);const va=numr(a),vb=numr(b);let pa=50,pb=50,aw=false,bw=false;
   if(va!=null&&vb!=null){const s=va+vb;if(s>0){pa=va/s*100;pb=100-pa;}if(va!==vb){const ab=inv?va<vb:va>vb;aw=ab;bw=!ab;}}
@@ -1591,24 +1599,32 @@ function sideVal(r,side,key){ return pv(r&&r._est&&r._est[side]?r._est[side][key
 // Anatomia do gol: volta ~7 min e mostra o que mudou + veredito
 function anatomiaGol(arr,i,lado,nome,evPl,golMin){
   const cur=arr[i], W=7, pre=arr[Math.max(0,i-W)], m=(golMin!=null?golMin:cur.minuto);
+  const w10=arr[Math.max(0,i-10)];
   const nomeT=nome||(lado?_ladoNome(lado):'time'); const linhas=[]; let sinais=0;
+  const opp=lado==='casa'?'fora':'casa';
   if(lado){
     const p0=sideVal(pre,lado,'posse'), p1=sideVal(cur,lado,'posse');
-    if(p0>0&&p1>0&&Math.abs(p1-p0)>=2){ linhas.push(`Posse ${p1>p0?'subiu':'caiu'} de ${Math.round(p0)}% pra ${Math.round(p1)}% nos minutos que antecederam.`); if(p1>p0)sinais++; }
-    const dPa=sideVal(cur,lado,'passes')-sideVal(pre,lado,'passes'); const mins=Math.max(1,m-pre.minuto);
+    if(p0>0&&p1>0&&Math.abs(p1-p0)>=2){ linhas.push(`Posse do ${esc(nomeT)} ${p1>p0?'subiu':'caiu'} de ${Math.round(p0)}% pra ${Math.round(p1)}% nos minutos que antecederam.`); if(p1>p0)sinais++; }
+    const mins=Math.max(1,m-pre.minuto); const dPa=sideVal(cur,lado,'passes')-sideVal(pre,lado,'passes');
     if(dPa>0){ linhas.push(`Trocou ${dPa} passes nos últimos ~${mins} min (ritmo de ${Math.round(dPa/mins)}/min).`); if(dPa/mins>=12)sinais++; }
     const sh=sideVal(cur,lado,'shots')-sideVal(pre,lado,'shots'), on=sideVal(cur,lado,'shotsOn')-sideVal(pre,lado,'shotsOn');
     if(sh>0){ linhas.push(`Finalizou ${sh}x${on>0?` (${on} no gol)`:''} pouco antes do gol.`); if(sh>=2||on>=1)sinais++; }
-    const co=sideVal(cur,lado,'corners')-sideVal(pre,lado,'corners');
-    if(co>=2){ linhas.push(`Forçou ${co} escanteios na pressão.`); sinais++; }
-    const xg=sideVal(cur,lado,'xg')-sideVal(pre,lado,'xg');
-    if(xg>=0.2){ linhas.push(`Acumulou ~${xg.toFixed(2)} de xG (chance real criada) antes de marcar.`); sinais++; }
+    const co=sideVal(cur,lado,'corners')-sideVal(pre,lado,'corners'); if(co>=2){ linhas.push(`Forçou ${co} escanteios na pressão.`); sinais++; }
+    const xg=sideVal(cur,lado,'xg')-sideVal(pre,lado,'xg'); if(xg>=0.2){ linhas.push(`Acumulou ~${xg.toFixed(2)} de xG (chance real) antes de marcar.`); sinais++; }
     const mt=matchJanela(lado,m);
-    if(mt.nivel==='5'){ linhas.push(`E saiu na faixa dos <b>${mt.lbl} min</b>, onde o ${esc(nomeT)} ${palavraFreq(mt.conf)} marcar.`); sinais++; }
+    if(mt.nivel==='5'){ linhas.push(`Saiu na faixa dos <b>${mt.lbl} min</b>, onde o ${esc(nomeT)} ${palavraFreq(mt.conf)} marcar.`); sinais++; }
     else if(mt.nivel==='cluster'){ linhas.push(`O histórico do ${esc(nomeT)} concentra gols bem em torno desse minuto (${mt.lbl}).`); sinais++; }
     else if(mt.nivel==='15'){ linhas.push(`Dentro do bloco dos ${mt.lbl} min, faixa em que o ${esc(nomeT)} costuma aparecer.`); sinais++; }
-    const opp=lado==='casa'?'fora':'casa'; const naCn=topJanelas(opp,'cn').find(j=>m>=j.ini-1&&m<j.ini+5);
-    if(naCn){ linhas.push(`Pegou o ${esc(_ladoNome(opp))} na faixa em que ele costuma sofrer gol.`); sinais++; }
+    const naCn=topJanelas(opp,'cn').find(j=>m>=j.ini-1&&m<j.ini+5); if(naCn){ linhas.push(`Pegou o ${esc(_ladoNome(opp))} na faixa em que ele costuma sofrer gol.`); sinais++; }
+    const jq=(janelas10Quentes(lado)||[]).find(wd=>m>=wd.ini&&m<=wd.fim); if(jq){ linhas.push(`Caiu numa janela quente do ${esc(nomeT)} (${jq.ini}-${jq.fim}', ${jq.gols} gols nos últimos 20).`); sinais++; }
+    const rc=receitaGol(lado); if(rc&&rc.gap>=0.6){ let v=_statLive(cur,lado,rc.k); if(v!=null){ if(rc.cum)v=v*90/m; if(v>=rc.med){ linhas.push(`Bateu a receita: ${rc.lbl} no patamar em que costuma marcar mais (${rc.gHi.toFixed(1)} gols/jogo).`); sinais++; } } }
+    const oMins=Math.max(1,m-(w10.minuto||0)); const oPa=sideVal(cur,opp,'passes')-sideVal(w10,opp,'passes'); const oSh=sideVal(cur,opp,'shots')-sideVal(w10,opp,'shots'); const oOn=sideVal(cur,opp,'shotsOn')-sideVal(w10,opp,'shotsOn'); const oPos=sideVal(cur,opp,'posse');
+    if(oSh>=3||oOn>=1) linhas.push(`Do outro lado, o ${esc(_ladoNome(opp))} também rondava (${oSh} finaliz.${oOn>0?`, ${oOn} no alvo`:''} nos últimos 10') — jogo de ida e volta.`);
+    else if((oPa/oMins)<6 || oSh===0) linhas.push(`O ${esc(_ladoNome(opp))} estava apagado no período (${Math.round(oPos)}% de posse, sem chegar) — o gol nasceu do domínio do ${esc(nomeT)}.`);
+    const shC=sideVal(cur,'casa','shots'), shF=sideVal(cur,'fora','shots'), posC=sideVal(cur,'casa','posse');
+    linhas.push(`No geral até os ${m}': posse ${Math.round(posC)}%×${Math.round(100-posC)}%, finalizações ${shC}×${shF}.`);
+    const pl=projLado(lado,cur,m); if(pl&&pl.cenarioG!=null){ const sofre=cenarioSofrido(opp,pl.projVec);
+      linhas.push(`Pelo ritmo até aqui, o ${esc(nomeT)} já se enquadrava no padrão dos jogos em que faz <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>${sofre!=null?`, e o ${esc(_ladoNome(opp))} cedia como nos jogos em que sofre ${sofre}`:''}.`); if(pl.cenarioG>=2)sinais++; }
   }
   let vtxt,tom;
   if(sinais>=3){ vtxt='Resumindo: os números já vinham avisando — esse gol estava no ar.'; tom='quente'; }
@@ -2031,41 +2047,40 @@ function renderResenha(){
   const isLive=JOGO&&(JOGO.status==='ao_vivo'||JOGO.status==='finalizado'||JOGO.status==='encerrado');
   if(!SNAP&&!temVivo){ box.innerHTML='<div class="ar-soon"><div class="ic">🗣️</div><p>A resenha aparece com o Raio-X pré-jogo e vira narração quando a bola rola.</p></div>'; return; }
   const linhaPre=c=>`<div class="cm-item"><span class="cm-ic">${c.ic}</span><span class="cm-tx">${c.txt}</span></div>`;
+  const card=(key,titulo,inner,openDef)=>{ const op = (RESENHA_UI[key]!==undefined)?RESENHA_UI[key]:openDef; return `<details class="rs-card"${op?' open':''} ontoggle="RESENHA_UI['${key}']=this.open"><summary class="rs-head">${titulo}<span class="rs-chev">▾</span></summary><div class="rs-body">${inner}</div></details>`; };
   let html='';
   html+=`<div style="display:flex;justify-content:flex-end;margin:0 2px 10px"><button onclick="exportarAnalise()" style="background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.3);color:#67e8f9;font-size:11px;font-weight:700;padding:7px 12px;border-radius:9px;cursor:pointer">⬇️ Exportar análise (JSON)</button></div>`;
   const fimDeJogo=JOGO&&(JOGO.status==='finalizado'||JOGO.status==='encerrado');
   if(fimDeJogo){ const ap=analisePosJogo();
-    if(ap){ html+=`<div class="cm-tt">🏁 Depois do apito · ${ap.placar}</div>`;
-      // Boletim de acerto (previsão × realidade)
+    if(ap){ let pos='';
       if(ap.boletim&&ap.boletim.total){ const b=ap.boletim;
-        html+=`<div class="bol"><div class="bol-hd">📋 Boletim do pré-jogo <span>${b.acertos}/${b.total} acertos</span></div>`+
+        pos+=`<div class="bol"><div class="bol-hd">📋 Boletim do pré-jogo <span>${b.acertos}/${b.total} acertos</span></div>`+
           b.itens.map(i=>`<div class="bol-li ${i.ok?'ok':'no'}"><span class="bol-ic">${i.ok?'✔':'✗'}</span><div><b>${i.l}:</b> previmos "${i.prev}" · deu "${i.real}"</div></div>`).join('')+`</div>`; }
-      // Narrativa por fases
-      if(ap.fases&&ap.fases.length){ html+=`<div class="fase"><div class="fase-hd">⏱️ Como o jogo se desenrolou</div>`+ap.fases.map(f=>`<div class="fase-li">${f}</div>`).join('')+`</div>`; }
-      // Faixas de cenário durante o jogo (reconstruído da série minuto a minuto)
+      if(ap.fases&&ap.fases.length){ pos+=`<div class="fase"><div class="fase-hd">⏱️ Como o jogo se desenrolou</div>`+ap.fases.map(f=>`<div class="fase-li">${f}</div>`).join('')+`</div>`; }
       if(ap.faixas){ const fx=ap.faixas; const lc=_faixaTxt('casa',fx.casa), lf2=_faixaTxt('fora',fx.fora);
-        if(lc||lf2){ html+=`<div class="fase"><div class="fase-hd">📉 Faixas de gol durante o jogo</div>`+
+        if(lc||lf2){ pos+=`<div class="fase"><div class="fase-hd">📉 Faixas de gol durante o jogo</div>`+
           (lc?`<div class="fase-li">${lc}</div>`:'')+(lf2?`<div class="fase-li">${lf2}</div>`:'')+
           (fx.atipico?`<div class="fase-li" style="color:#fbbf24">⚠️ Jogo atípico: nos minutos finais, os dois times projetavam bem abaixo do que costumam produzir — cenário de poucos gols.</div>`:'')+
           `<div class="fase-li" style="color:var(--tx2,#94a3b8);font-size:11px">"Cenário de N gols" = pelo ritmo projetado, o time estava no padrão dos jogos em que faz N gols.</div></div>`; } }
-      html+=`<div class="cm-gol cm-gol-${ap.acertou?'quente':'surpresa'}"><div class="cm-gol-hd"><span class="cm-ic">📊</span><span class="cm-tx">Leitura comparada ao Raio-X:</span></div>`+
+      pos+=`<div class="cm-gol cm-gol-${ap.acertou?'quente':'surpresa'}"><div class="cm-gol-hd"><span class="cm-ic">📊</span><span class="cm-tx">Leitura comparada ao Raio-X:</span></div>`+
       (ap.linhas.length?`<ul class="cm-gol-li">${ap.linhas.map(l=>`<li>${l}</li>`).join('')}</ul>`:'')+
-      `<div class="cm-gol-vd">${ap.verdict}</div></div>`; }
+      `<div class="cm-gol-vd">${ap.verdict}</div></div>`;
+      html+=card('pos',`🏁 Depois do apito · ${ap.placar}`,pos,true); }
   }
   if(temVivo||isLive){
     const feed=comentariosAoVivo(), pre=comentariosPreJogo();
-    html+=`<div class="cm-tt">🗣️ Comentários ao vivo</div>`;
-    html+= feed.length
+    const feedHtml = feed.length
       ? `<div class="cm-feed">`+feed.slice().reverse().map(c=> c.tipo==='gol'
           ? `<div class="cm-gol cm-gol-${c.verdict.tom}"><div class="cm-gol-hd"><span class="cm-min">${c.min}'</span><span class="cm-ic">⚽</span><span class="cm-tx">${c.txt}</span></div>${c.linhas&&c.linhas.length?`<ul class="cm-gol-li">${c.linhas.map(l=>`<li>${l}</li>`).join('')}</ul>`:''}<div class="cm-gol-vd">${c.verdict.txt}</div></div>`
           : `<div class="cm-item"><span class="cm-min">${c.min}'</span><span class="cm-ic">${c.ic}</span><span class="cm-tx">${c.txt}</span></div>`
         ).join('')+`</div>`
       : `<div class="ar-soon" style="padding:18px"><p>Bola rolando — assim que aparecer movimento (passes, escanteios, finalizações), eu começo a comentar aqui.</p></div>`;
-    if(pre.length) html+=`<div class="cm-tt" style="margin-top:18px">📋 Antes da bola rolar</div><div class="cm-feed">`+pre.map(linhaPre).join('')+`</div>`;
+    html+=card('vivo',`🗣️ Comentários ao vivo${feed.length?` <span class="rs-n">${feed.length}</span>`:''}`,feedHtml,true);
+    if(pre.length) html+=card('pre',`📋 Antes da bola rolar`,`<div class="cm-feed">`+pre.map(linhaPre).join('')+`</div>`,false);
   } else {
     const pre=comentariosPreJogo();
-    html+=`<div class="cm-tt">📋 A resenha antes do jogo</div>`;
-    html+= pre.length?`<div class="cm-feed">`+pre.map(linhaPre).join('')+`</div>`:'<div class="ar-soon" style="padding:18px"><p>Sem dados de Raio-X pra comentar ainda.</p></div>';
+    const preHtml = pre.length?`<div class="cm-feed">`+pre.map(linhaPre).join('')+`</div>`:'<div class="ar-soon" style="padding:18px"><p>Sem dados de Raio-X pra comentar ainda.</p></div>';
+    html+=card('pre',`📋 A resenha antes do jogo`,preHtml,true);
   }
   box.innerHTML=html;
 }
