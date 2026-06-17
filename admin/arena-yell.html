@@ -829,6 +829,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
 .pj-team{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:12px;margin:0 2px 10px}
 .pj-nm{font-size:14px;font-weight:800;color:#fff;margin-bottom:6px}.pj-nm span{font-size:11px;font-weight:600;color:var(--tx2,#94a3b8)}
 .pj-cen{font-size:11.5px;line-height:1.4;color:#cbd5e1;background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.18);border-radius:8px;padding:6px 9px;margin-bottom:9px}
+.pj-read{font-size:11.5px;line-height:1.45;color:#e2e8f0;margin-bottom:9px}
 .pj-tb{width:100%;border-collapse:collapse;font-size:12px}
 .pj-tb th{font-size:9px;letter-spacing:.04em;text-transform:uppercase;color:var(--tx2,#94a3b8);font-weight:600;text-align:right;padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.1)}
 .pj-tb th:first-child{text-align:left}
@@ -1401,14 +1402,15 @@ function perfilCenario(side){
   return {porGols, porRes};
 }
 function perfilPorGols(side){ const p=perfilCenario(side); return p?p.porGols:null; }
-function _medSide(side){ const a=_aggS(side); return {poss:numr(a.poss), shots:numr(a.shots), passes:numr(a.passTotal), xg:numr(a.xg)}; }
+function _medSide(side){ const a=_aggS(side); return {poss:numr(a.poss), shots:numr(a.shots), shotsOn:numr(a.shotsOG), passes:numr(a.passTotal), xg:numr(a.xg)}; }
 function _matchBanda(proj, bands, med){
   if(!proj||!bands||!med) return null;
+  const W={poss:1.3, shots:1.0, shotsOn:1.2, passes:1.0}; // xG fora do match (ausente/instável); ancora em volume real
   const norm=(v,k)=> (v==null||!med[k])?null:v/med[k];
   let best=null;
-  Object.keys(bands).forEach(g=>{ const b=bands[g]; if(!b||b.n<2)return; let d=0,c=0;
-    ['poss','shots','passes','xg'].forEach(k=>{ const a=norm(proj[k],k), bb=norm(b[k],k); if(a!=null&&bb!=null){ d+=Math.abs(a-bb); c++; } });
-    if(c>=2){ const dist=d/c; if(!best||dist<best.dist) best={g:+g,dist}; } });
+  Object.keys(bands).forEach(g=>{ const b=bands[g]; if(!b||!b.n)return; let d=0,w=0,c=0;
+    for(const k in W){ const a=norm(proj[k],k), bb=norm(b[k],k); if(a!=null&&bb!=null){ d+=W[k]*Math.abs(a-bb); w+=W[k]; c++; } }
+    if(c>=2&&w>0){ let dist=d/w + 0.05*(5-Math.min(5,b.n)); if(!best||dist<best.dist) best={g:+g,dist,n:b.n}; } });
   return best;
 }
 // Reconstrói, minuto a minuto (da SERIE), a faixa de gols que cada time projetava
@@ -1458,7 +1460,7 @@ function projLado(side,row,m){
     {k:'poss',   lbl:'Posse %',      atual:possA,  proj:null,       ref:numr(med.poss)},
     {k:'pfin',   lbl:'P/Fin',        atual:(shotsA?passesA/shotsA:null), proj:(projS?projP/projS:null), ref:refPfin, dec:1},
   ];
-  const projVec={ poss:possA, shots:projS, passes:projP, xg:proj(xgA) };
+  const projVec={ poss:possA, shots:projS, shotsOn:proj(shogA), passes:projP, xg:proj(xgA) };
   const band=_matchBanda(projVec, perfilPorGols(side), _medSide(side));
   return { rows, projVec, cenarioG: band?band.g:null, m };
 }
@@ -1469,14 +1471,45 @@ function perfilSofrido(side){
   const med=(rows,ex)=>{ const v=rows.map(ex).filter(n=>n!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
   const out={}; Object.keys(byG).forEach(g=>{ const r=byG[g]; out[g]={n:r.length,
     poss:med(r,x=>x.poss?.[1]!=null?+x.poss[1]:null), shots:med(r,x=>x.sh?.[1]!=null?+x.sh[1]:null),
+    shotsOn:med(r,x=>x.shog?.[1]!=null?+x.shog[1]:null),
     passes:med(r,x=>x.pt?.[1]!=null?+x.pt[1]:null), xg:med(r,x=>x.xg?.[1]!=null?+x.xg[1]:null)}; });
   return out;
 }
 function _medSofrido(side){ const arr=_jogosDetS(side); if(!Array.isArray(arr))return null;
   const med=ex=>{ const v=arr.map(ex).filter(n=>n!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
-  return {poss:med(x=>x.poss?.[1]!=null?+x.poss[1]:null), shots:med(x=>x.sh?.[1]!=null?+x.sh[1]:null), passes:med(x=>x.pt?.[1]!=null?+x.pt[1]:null), xg:med(x=>x.xg?.[1]!=null?+x.xg[1]:null)}; }
+  return {poss:med(x=>x.poss?.[1]!=null?+x.poss[1]:null), shots:med(x=>x.sh?.[1]!=null?+x.sh[1]:null), shotsOn:med(x=>x.shog?.[1]!=null?+x.shog[1]:null), passes:med(x=>x.pt?.[1]!=null?+x.pt[1]:null), xg:med(x=>x.xg?.[1]!=null?+x.xg[1]:null)}; }
 // Quantos gols 'defSide' projeta SOFRER, dado o que o atacante está produzindo (projVec)
 function cenarioSofrido(defSide, projVec){ const b=_matchBanda(projVec, perfilSofrido(defSide), _medSofrido(defSide)); return b?b.g:null; }
+// Índice do bucket de 5' a partir do minuto
+function _bucketIdx(m){ if(m<=45) return Math.max(0,Math.min(8,Math.floor((m-1)/5))); return Math.min(18, 10+Math.floor((m-46)/5)); }
+// Faixa histórica dos próximos ~10': quanto o time costuma marcar e o adversário sofrer
+function janelaProx10(side,m){
+  const sc=_bkS(side), cnOpp=_bkS(side==='casa'?'fora':'casa');
+  if(!sc||!Array.isArray(sc.sc)||!cnOpp||!Array.isArray(cnOpp.cn)) return null;
+  const i0=_bucketIdx(m); const idxs=[i0+1,i0+2].filter(i=>i>=0&&i<20&&i!==9&&i!==19);
+  if(!idxs.length) return null;
+  const marca=idxs.reduce((s,i)=>s+(sc.sc[i]||0),0), sofreOpp=idxs.reduce((s,i)=>s+(cnOpp.cn[i]||0),0);
+  return { marca, sofreOpp, ini:bkStart(idxs[0]), fim:bkStart(idxs[0])+10 };
+}
+// Leitura de conversão via xG (só quando o time tem xG histórico)
+function _xgLeitura(side,cur,m){
+  const med=_aggS(side); const xgMed=numr(med.xg); if(xgMed==null||xgMed<=0) return null;
+  const xgA=sideVal(cur,side,'xg'); const sh=sideVal(cur,side,'shots'); if(xgA==null) return null;
+  const gols=(+(side==='casa'?cur.placarCasa:cur.placarFora))||0; const out=[];
+  if(m>=20) out.push(`já criou ${xgA.toFixed(1)} de xG (${Math.round(xgA/xgMed*100)}% do que costuma criar num jogo, ~${xgMed.toFixed(1)})`);
+  if(gols>=1 && xgA<gols-0.7) out.push(`está marcando acima do que as chances pediam — eficiência/individualidade decidindo`);
+  else if(m>=35 && xgA-gols>=1.0) out.push(`cria mais do que faz (xG ${xgA.toFixed(1)} para ${gols} gol) — chega mas peca na finalização`);
+  if(sh>=8 && xgA/Math.max(sh,1)<0.06) out.push(`finaliza muito mas de pouco perigo — chutes de longe, pouca chance clara`);
+  return out.length?out:null;
+}
+// Traduz os números do momento em palavras
+function _emPalavras(side,cur,m){
+  const out=[]; const poss=sideVal(cur,side,'posse'), sh=sideVal(cur,side,'shots'), on=sideVal(cur,side,'shotsOn'), ps=sideVal(cur,side,'passes');
+  if(poss!=null){ if(poss>=62) out.push(`manda na bola (${Math.round(poss)}%)`); else if(poss<=38) out.push(`vive sem a bola (${Math.round(poss)}%)`); }
+  if(sh>=6 && ps!=null){ const pf=ps/Math.max(sh,1); if(pf>=48) out.push(`troca muito passe e finaliza pouco — jogo burocrático`); }
+  if(on>=4) out.push(`${on} no alvo, testando o goleiro`);
+  return out;
+}
 function _ladoNome(side){ return side==='casa'?(JOGO?.timeCasaNome||'Casa'):(JOGO?.timeForaNome||'Fora'); }
 function _ladoDe(nome){ const n=_norm(nome); if(n&&n===_norm(JOGO?.timeCasaNome))return 'casa'; if(n&&n===_norm(JOGO?.timeForaNome))return 'fora'; return null; }
 function formaArr(c){ if(!Array.isArray(c))return []; return c.slice(0,5).map(s=>(String(s).split('|')[9]||'').toUpperCase()).filter(r=>r==='V'||r==='E'||r==='D'); }
@@ -1655,6 +1688,12 @@ function analisePosJogo(){
   ['casa','fora'].forEach(side=>{ const sh=sideVal(fim,side,'shots'); const h=numr(_aggS(side).shots); if(sh>0&&h!=null&&Math.abs(sh-h)>=4) linhas.push(`O ${esc(_ladoNome(side))} finalizou ${sh}x (média ~${Math.round(h)}) — ${sh>h?'bem mais agressivo':'abaixo do seu padrão'}.`); });
   // xG x gols (eficiência / sorte)
   ['casa','fora'].forEach(side=>{ const xg=sideVal(fim,side,'xg'); const g=side==='casa'?pc:pf; if(xg>=0.3){ if(g-xg>=1) linhas.push(`O ${esc(_ladoNome(side))} foi clínico: fez ${g} com ~${xg.toFixed(1)} de xG, acima do que as chances pediam.`); else if(xg-g>=1) linhas.push(`O ${esc(_ladoNome(side))} criou ~${xg.toFixed(1)} de xG e fez só ${g} — faltou capricho.`); } });
+  // Placar elástico: o vencedor fez bem mais gols do que o jogo (xG) pedia
+  (()=>{ const venc = pc>pf?'casa':(pf>pc?'fora':null); if(!venc)return; const xg=sideVal(fim,venc,venc==='casa'?'xg':'xg'); const xgV=sideVal(fim,venc,'xg'); const gV=venc==='casa'?pc:pf;
+    if(xgV!=null&&xgV>=0.2&&gV-xgV>=1.5){ const bp=(JOGO?.eventosJogo||[]).some(e=>/penalty|own goal/i.test(e.detalhe||'')); linhas.push(`Placar elástico: o ${esc(_ladoNome(venc))} venceu por ${pc}×${pf} criando só ~${xgV.toFixed(1)} de xG${bp?' (com gol de bola parada/pênalti no meio)':''} — em jogo corrido foi mais apertado que o placar.`); } })();
+  // Paradoxo da posse: venceu sem dominar a bola
+  (()=>{ const venc = pc>pf?'casa':(pf>pc?'fora':null); if(!venc)return; const pos=sideVal(fim,venc,'posse'); const h=numr(_aggS(venc).poss);
+    if(pos>0&&h!=null&&h-pos>=12) linhas.push(`O ${esc(_ladoNome(venc))} venceu sem dominar: ${Math.round(pos)}% de posse (média ~${Math.round(h)}%) — ganhou na eficiência, não no controle do jogo.`); })();
   // Baseline: finalizações/xG reais vs PROJEÇÃO histórica (referenciaMin = fin/min, xg/min)
   ['casa','fora'].forEach(side=>{ const ref=_refS(side); if(!ref)return; const sh=sideVal(fim,side,'shots'), xg=sideVal(fim,side,'xg');
     if(ref.finPorMin!=null&&sh>0){ const proj=ref.finPorMin*90; if(proj>0&&Math.abs(sh-proj)/proj>=0.35) linhas.push(`O ${esc(_ladoNome(side))} finalizou ${sh}x — ${sh>proj?'bem acima':'abaixo'} da sua projeção histórica (~${Math.round(proj)} por jogo).`); }
@@ -1801,7 +1840,9 @@ function renderProj(){
     const rows=pl.rows.map(r=>`<tr><td>${r.lbl}</td><td class="pj-a">${f(r.atual,r.dec)}${r.k==='poss'?'%':''}</td><td>${r.proj!=null?f(r.proj,r.dec):'—'}</td><td class="pj-r">${f(r.ref,r.dec)}${r.k==='poss'?'%':''}</td><td>${st(r)}</td></tr>`).join('');
     const sofre=cenarioSofrido(opp, pl.projVec);
     const cen = pl.cenarioG!=null?`<div class="pj-cen">Projetando como nos jogos de <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>${sofre!=null?` · ${esc(_ladoNome(opp))} cedendo como quando sofre ${sofre}${sofre>=5?'+':''}`:''}</div>`:'';
-    return `<div class="pj-team"><div class="pj-nm">${esc(_ladoNome(side))} <span>aos ${m}'</span></div>${cen}`+
+    const pal=_emPalavras(side,last,m); const xgL=_xgLeitura(side,last,m);
+    const leitura=(pal.length||xgL)?`<div class="pj-read">${[pal.join(', '),(xgL?xgL.join('; '):'')].filter(Boolean).join('. ')}.</div>`:'';
+    return `<div class="pj-team"><div class="pj-nm">${esc(_ladoNome(side))} <span>aos ${m}'</span></div>${cen}${leitura}`+
       `<table class="pj-tb"><thead><tr><th>Stat</th><th>Atual</th><th>Proj 90'</th><th>Ref</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   };
   // Linha do tempo: cenário projetado a cada 5'
@@ -1864,15 +1905,29 @@ function comentariosAoVivo(){
     // Receita do gol: o time está reproduzindo o cenário em que costuma marcar mais
     if(m>=30) ['casa','fora'].forEach(side=>{ if(jaReceita[side])return; const r=RECEITA[side]; if(!r||r.gap<0.6)return; let v=_statLive(cur,side,r.k); if(v==null)return; if(r.cum)v=v*90/m;
       if(v>=r.med){ jaReceita[side]=1; feed.push({min:m,ic:'🍳',txt:`O <b>${esc(_ladoNome(side))}</b> está repetindo a receita: no ritmo atual projeta ${_fmtR(v,r.k)}${r.un} de ${r.lbl} — o patamar em que costuma marcar mais (${r.gHi.toFixed(1)} gols/jogo). Cenário de gol.`}); } });
-    // 🔭 Raio-X do momento (a cada 5'): projeção 90' + cenário de gols + cruzamento com o adversário
+    // 🔭 Raio-X do momento (a cada 5'): projeção + palavras + cenário + xG + cruzamento + próximos 10'
     if(m>=10 && m%5===0 && !jaRaiox[m]){ jaRaiox[m]=1;
-      ['casa','fora'].forEach(side=>{ const opp=side==='casa'?'fora':'casa'; const pl=projLado(side,cur,m); if(!pl||pl.cenarioG==null)return;
+      ['casa','fora'].forEach(side=>{ const opp=side==='casa'?'fora':'casa'; const pl=projLado(side,cur,m); if(!pl)return;
         const rp=k=>{ const r=pl.rows.find(x=>x.k===k); return r?r.proj:null; }; const rr=k=>{ const r=pl.rows.find(x=>x.k===k); return r?r.ref:null; };
-        const pP=rp('passes'), rP=rr('passes'), pX=rp('xg'), pS=rp('shots');
-        feed.push({min:m,ic:'🔭',txt:`Aos ${m}', o <b>${esc(_ladoNome(side))}</b> projeta ${pP?Math.round(pP):'?'} passes${rP?` (méd ${Math.round(rP)})`:''}, ${pS?Math.round(pS):'?'} finalizações e ${pX!=null?pX.toFixed(1):'?'} xG — padrão dos jogos em que faz <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>.`});
+        const pP=rp('passes'), rP=rr('passes'), pS=rp('shots');
+        const palavras=_emPalavras(side,cur,m);
+        const cenTxt = pl.cenarioG!=null? ` — pelo ritmo, padrão dos jogos em que faz <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>`:'';
+        feed.push({min:m,ic:'🔭',txt:`Aos ${m}', o <b>${esc(_ladoNome(side))}</b> ${palavras.length?palavras.join(', ')+'. ':''}Projeta ${pP?Math.round(pP):'?'} passes${rP?` (méd ${Math.round(rP)})`:''} e ${pS?Math.round(pS):'?'} finalizações${cenTxt}.`});
+        // leitura de conversão (xG) — só quando o time tem xG histórico
+        const xgL=_xgLeitura(side,cur,m); if(xgL && ok('xg-'+side,m,10)) feed.push({min:m,ic:'🎯',txt:`O <b>${esc(_ladoNome(side))}</b> ${xgL.join('; ')}.`});
+        // cruzamento atacante × defesa cedendo
         const sofre=cenarioSofrido(opp, pl.projVec);
-        if(pl.cenarioG>=2 && sofre!=null && sofre>=3 && ok('cross-'+side,m,12)) feed.push({min:m,ic:'🎯',txt:`Cruzamento: o <b>${esc(_ladoNome(side))}</b> produz como quando faz ${pl.cenarioG}+ e o ${esc(_ladoNome(opp))} cede como nos jogos em que sofre ${sofre}+ — forte tendência de gol do ${esc(_ladoNome(side))}.`}); });
+        if(pl.cenarioG!=null && pl.cenarioG>=2 && sofre!=null && sofre>=3 && ok('cross-'+side,m,12)) feed.push({min:m,ic:'⚔️',txt:`Cruzamento: o <b>${esc(_ladoNome(side))}</b> produz como quando faz ${pl.cenarioG}+ e o ${esc(_ladoNome(opp))} cede como nos jogos em que sofre ${sofre}+ — forte tendência de gol do ${esc(_ladoNome(side))}.`}); });
+      // Faixa histórica dos próximos 10' (quem costuma marcar/sofrer na janela que vem)
+      ['casa','fora'].forEach(side=>{ const opp=side==='casa'?'fora':'casa'; const jp=janelaProx10(side,m); if(!jp)return;
+        if((jp.marca>=2||jp.sofreOpp>=3) && jp.marca+jp.sofreOpp>=4 && ok('prox10-'+side,m,10)){
+          const forte = jp.marca>=2 && jp.sofreOpp>=3;
+          feed.push({min:m,ic:'⏭️',txt:`Nos próximos 10' (${jp.ini}-${jp.fim}'), nos últimos 20 jogos o <b>${esc(_ladoNome(side))}</b> marcou ${jp.marca}x nessa faixa e o ${esc(_ladoNome(opp))} sofreu ${jp.sofreOpp}x${forte?` — janela quente: boa chance de gol do ${esc(_ladoNome(side))}`:''}.`});
+        } });
     }
+    // Pressão no alvo: chutes no alvo nos últimos ~10' (sinal de gol iminente melhor que finalizações totais)
+    if(m>=15){ const w10=arr[Math.max(0,i-10)]; ['casa','fora'].forEach(side=>{ const dOn=sideVal(cur,side,'shotsOn')-sideVal(w10,side,'shotsOn');
+      if(dOn>=3 && ok('alvo-'+side,m,8)) feed.push({min:m,ic:'🔥',txt:`O <b>${esc(_ladoNome(side))}</b> acertou ${dOn} chutes no alvo nos últimos 10' — pressão real, a bola está chegando. Cenário de gol.`}); }); }
     // #12 Time de 2º tempo (uma vez, ao começar o 2º tempo)
     if(m>=46&&m<=48) ['casa','fora'].forEach(side=>{ if(!jaT2[side]&&t2Side(side)){ jaT2[side]=1; feed.push({min:m,ic:'📈',txt:`Começa o 2º tempo: o <b>${esc(_ladoNome(side))}</b> faz a maioria dos gols nessa etapa — tende a crescer.`}); } });
     // Entrando numa faixa goleadora do confronto (soma gols feitos+sofridos dos 2 no histórico)
@@ -1898,7 +1953,7 @@ function exportarAnalise(){
              placarCasa:(J.placarCasa!=null?+J.placarCasa:null), placarFora:(J.placarFora!=null?+J.placarFora:null),
              minutosJogo:J.minutosJogo||null, estatisticasFinais:J.estatisticasPartida||null, eventos:J.eventosJogo||[] },
       raiox: SNAP? {
-        teamA:SNAP.teamA, teamB:SNAP.teamB, aIsCasa:safe(()=>_aIsCasa()),
+        teamA:SNAP.teamA, teamB:SNAP.teamB, aIsCasa:safe(()=>_aIsCasa()), capturedAt:SNAP.capturedAt||null,
         forteScore:SNAP.forteScore, forteFull:SNAP.forteFull, agg:SNAP.agg, forteTiers:SNAP.forteTiers,
         referenciaMin:SNAP.referenciaMin, bucketsA:SNAP.bucketsA, bucketsB:SNAP.bucketsB,
         buckets10A:SNAP.buckets10A, buckets10B:SNAP.buckets10B, minutosA:SNAP.minutosA, minutosB:SNAP.minutosB,
