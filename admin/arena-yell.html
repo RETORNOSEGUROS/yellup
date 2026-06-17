@@ -1369,6 +1369,58 @@ function placarComum(side){
   const ent=Object.entries(cnt).sort((a,b)=>b[1]-a[1]); if(!ent.length||ent[0][1]<3)return null;
   return {placar:ent[0][0].replace('-','–'), n:ent[0][1]};
 }
+// ===== Perfil por cenário de gols (bandas) + faixas durante o jogo (pós) =====
+function perfilPorGols(side){
+  const arr=_jogosDetS(side); if(!Array.isArray(arr)||arr.length<6) return null;
+  const byG={}; arr.forEach(x=>{ if(x.gT==null)return; const g=Math.min(5,+x.gT); (byG[g]=byG[g]||[]).push(x); });
+  const med=(rows,ex)=>{ const v=rows.map(ex).filter(n=>n!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
+  const out={};
+  Object.keys(byG).forEach(g=>{ const rows=byG[g]; out[g]={ n:rows.length,
+    poss:med(rows,x=>x.poss?.[0]!=null?+x.poss[0]:null), shots:med(rows,x=>x.sh?.[0]!=null?+x.sh[0]:null),
+    passes:med(rows,x=>x.pt?.[0]!=null?+x.pt[0]:null), xg:med(rows,x=>x.xg?.[0]!=null?+x.xg[0]:null) }; });
+  return out;
+}
+function _medSide(side){ const a=_aggS(side); return {poss:numr(a.poss), shots:numr(a.shots), passes:numr(a.passTotal), xg:numr(a.xg)}; }
+function _matchBanda(proj, bands, med){
+  if(!proj||!bands||!med) return null;
+  const norm=(v,k)=> (v==null||!med[k])?null:v/med[k];
+  let best=null;
+  Object.keys(bands).forEach(g=>{ const b=bands[g]; if(!b||b.n<2)return; let d=0,c=0;
+    ['poss','shots','passes','xg'].forEach(k=>{ const a=norm(proj[k],k), bb=norm(b[k],k); if(a!=null&&bb!=null){ d+=Math.abs(a-bb); c++; } });
+    if(c>=2){ const dist=d/c; if(!best||dist<best.dist) best={g:+g,dist}; } });
+  return best;
+}
+// Reconstrói, minuto a minuto (da SERIE), a faixa de gols que cada time projetava
+function faixasDoJogo(){
+  const arr=SERIE.filter(r=>r._est&&(r._est.casa||r._est.fora)); if(arr.length<6) return null;
+  const res={casa:[],fora:[]}; let abaixoAmbos=0, amostras=0;
+  ['casa','fora'].forEach(side=>{
+    const bands=perfilPorGols(side); const med=_medSide(side); if(!bands||med.shots==null)return;
+    let prev=null;
+    arr.forEach(r=>{ const m=r.minuto; if(m<15)return;
+      const proj={ poss:sideVal(r,side,'posse'), shots:sideVal(r,side,'shots')*90/m, passes:sideVal(r,side,'passes')*90/m, xg:sideVal(r,side,'xg')*90/m };
+      const b=_matchBanda(proj,bands,med); if(!b)return;
+      if(b.g!==prev){ res[side].push({min:m,g:b.g}); prev=b.g; }
+    });
+  });
+  // atípico: nos últimos minutos, os dois abaixo do habitual (chutes e passes)
+  const ult=arr[arr.length-1]; const m=ult.minuto||90;
+  if(m>=30){ let baixos=0;
+    ['casa','fora'].forEach(side=>{ const med=_medSide(side); if(med.shots==null)return; amostras++;
+      const sh=sideVal(ult,side,'shots')*90/m, ps=sideVal(ult,side,'passes')*90/m;
+      if((med.shots&&sh<med.shots*0.8)&&(med.passes&&ps<med.passes*0.85)) baixos++; });
+    res.atipico = amostras>=2 && baixos>=2;
+  }
+  return res;
+}
+function _faixaTxt(side,segs){
+  if(!segs||!segs.length) return null;
+  const g=(n)=>`${n}${n>=5?'+':''} gol${n===1?'':'s'}`;
+  const parts=segs.map(s=>`${s.min}' cenário de ${g(s.g)}`);
+  const mx=Math.max.apply(null,segs.map(s=>s.g));
+  const extra=mx>=3?` — chegou a projetar cenário de ${g(mx)}`:'';
+  return `<b>${esc(_ladoNome(side))}:</b> ${parts.join(' → ')}${extra}.`;
+}
 function _ladoNome(side){ return side==='casa'?(JOGO?.timeCasaNome||'Casa'):(JOGO?.timeForaNome||'Fora'); }
 function _ladoDe(nome){ const n=_norm(nome); if(n&&n===_norm(JOGO?.timeCasaNome))return 'casa'; if(n&&n===_norm(JOGO?.timeForaNome))return 'fora'; return null; }
 function formaArr(c){ if(!Array.isArray(c))return []; return c.slice(0,5).map(s=>(String(s).split('|')[9]||'').toUpperCase()).filter(r=>r==='V'||r==='E'||r==='D'); }
@@ -1569,7 +1621,7 @@ function analisePosJogo(){
   const jcas=janelaCasada();
   if(jcas.length){ const j=jcas[0]; const allG=[]; Object.keys(gj).forEach(mn=>gj[mn].forEach(()=>allG.push(+mn))); if(allG.some(mm=>mm>=j.ini-1&&mm<j.ini+5)) linhas.push(`Saiu gol na janela casada que o Raio-X apontou (${j.lbl} min) — leitura confirmada.`); }
   const vtxt = acertou?'No fim, o que o Raio-X mostrava antes da bola rolar se confirmou em campo.':'No fim, o jogo contrariou os números — e futebol também é isso.';
-  return { placar:`${pc}×${pf}`, linhas, verdict:vtxt, acertou, boletim:boletimAcerto(pc,pf,gj), fases:narrativaFases(gj) };
+  return { placar:`${pc}×${pf}`, linhas, verdict:vtxt, acertou, boletim:boletimAcerto(pc,pf,gj), fases:narrativaFases(gj), faixas:faixasDoJogo() };
 }
 
 // ===== Aba Forças: réplica do Raio-X individual (últimos jogos + ForteScore + vs força) =====
@@ -1749,6 +1801,12 @@ function renderResenha(){
           b.itens.map(i=>`<div class="bol-li ${i.ok?'ok':'no'}"><span class="bol-ic">${i.ok?'✔':'✗'}</span><div><b>${i.l}:</b> previmos "${i.prev}" · deu "${i.real}"</div></div>`).join('')+`</div>`; }
       // Narrativa por fases
       if(ap.fases&&ap.fases.length){ html+=`<div class="fase"><div class="fase-hd">⏱️ Como o jogo se desenrolou</div>`+ap.fases.map(f=>`<div class="fase-li">${f}</div>`).join('')+`</div>`; }
+      // Faixas de cenário durante o jogo (reconstruído da série minuto a minuto)
+      if(ap.faixas){ const fx=ap.faixas; const lc=_faixaTxt('casa',fx.casa), lf2=_faixaTxt('fora',fx.fora);
+        if(lc||lf2){ html+=`<div class="fase"><div class="fase-hd">📉 Faixas de gol durante o jogo</div>`+
+          (lc?`<div class="fase-li">${lc}</div>`:'')+(lf2?`<div class="fase-li">${lf2}</div>`:'')+
+          (fx.atipico?`<div class="fase-li" style="color:#fbbf24">⚠️ Jogo atípico: nos minutos finais, os dois times projetavam bem abaixo do que costumam produzir — cenário de poucos gols.</div>`:'')+
+          `<div class="fase-li" style="color:var(--tx2,#94a3b8);font-size:11px">"Cenário de N gols" = pelo ritmo projetado, o time estava no padrão dos jogos em que faz N gols.</div></div>`; } }
       html+=`<div class="cm-gol cm-gol-${ap.acertou?'quente':'surpresa'}"><div class="cm-gol-hd"><span class="cm-ic">📊</span><span class="cm-tx">Leitura comparada ao Raio-X:</span></div>`+
       (ap.linhas.length?`<ul class="cm-gol-li">${ap.linhas.map(l=>`<li>${l}</li>`).join('')}</ul>`:'')+
       `<div class="cm-gol-vd">${ap.verdict}</div></div>`; }
