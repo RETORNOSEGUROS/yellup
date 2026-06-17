@@ -380,8 +380,16 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
 .rx-alert.alto{animation:rxPulse 2.5s ease-in-out infinite;}
 @keyframes rxPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,69,96,0)}50%{box-shadow:0 0 0 3px rgba(255,69,96,.15)}}
 
-/* Projection table */
-.rx-teams{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+/* Perfis condicionais */
+.pc-team{margin-bottom:14px}
+.pc-nm{font-size:13px;font-weight:700;color:var(--t1);margin-bottom:6px}
+.pc-sub{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.04em;margin:8px 0 4px}
+.pc-cen{font-size:11.5px;line-height:1.45;color:var(--t1);background:rgba(0,229,160,.08);border:1px solid rgba(0,229,160,.2);border-radius:8px;padding:7px 9px;margin-bottom:6px}
+.pc-tb{width:100%;border-collapse:collapse;font-size:11px;font-family:'DM Mono',monospace}
+.pc-tb th{color:var(--t3);font-weight:500;text-align:center;padding:3px 2px;border-bottom:1px solid var(--brd2)}
+.pc-tb td{text-align:center;padding:4px 2px;color:var(--t1);border-bottom:1px solid var(--brd2)}
+.pc-tb td:first-child,.pc-tb th:first-child{text-align:left}
+/* Projection table */.rx-teams{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
 .rx-team-card{background:var(--bg2);border:1px solid var(--brd);border-radius:10px;overflow:hidden;}
 .rx-team-head{
   display:flex;align-items:center;justify-content:space-between;
@@ -853,6 +861,12 @@ html,body{min-height:100%;background:var(--bg);color:var(--t1);font-family:"Syne
     <div id="fpMediasEl"></div>
   </div>
 
+  <!-- Perfis condicionais: o que o time produz por gols / resultado -->
+  <div class="card" id="perfisCondCard" style="display:none">
+    <div class="card-title">🎯 Perfil por Cenário (o que produz quando faz X gols / vence)</div>
+    <div id="perfisCondEl"></div>
+  </div>
+
   <!-- Diagnóstico -->
   <div class="card" id="fpDiagCard" style="display:none">
     <div class="card-title">🔍 Diagnóstico — Atual vs Histórico</div>
@@ -939,6 +953,7 @@ const auth = firebase.auth(), fns = firebase.functions(), db = firebase.firestor
 
 let DADOS = null, FIX_ID = null, DOC_ID = null;
 let HIST_MEDIAS = { casa: null, fora: null }; // médias históricas por 90min
+let HIST_PERFIS = { casa: null, fora: null }; // perfis condicionais por gols/resultado
 let PERFIL_CASA = null, PERFIL_FORA = null;   // 📈 Fase 3 — perfis-times baseline
 let PREVISAO_PRE = null;                       // ⚡ Fase 5 — previsão pré-jogo salva
 let FP_DATA = null;                            // 🧬 Fase 6 — fingerprint de padrões
@@ -1076,13 +1091,98 @@ async function carregarMediasHistoricas() {
     HIST_MEDIAS.casa = calcMedias(jogosC);
     HIST_MEDIAS.fora = calcMedias(jogosF);
 
+    HIST_PERFIS.casa = calcPerfisCond(jogosC);
+    HIST_PERFIS.fora = calcPerfisCond(jogosF);
+
     console.log('[HistMedias] Casa:', HIST_MEDIAS.casa);
     console.log('[HistMedias] Fora:', HIST_MEDIAS.fora);
 
     // Re-renderizar ritmo com médias agora disponíveis
     if (DADOS.estatisticas?.length >= 2) renderStats();
+    renderPerfisCond();
   } catch(e) { console.warn('Hist médias:', e); }
 }
+
+// ── PERFIS CONDICIONAIS: o que o time produz quando faz 0/1/2/3+ gols ou quando V/E/D ──
+function _statOfJogo(j){
+  const s = j.stats?.time || {};
+  const num = (...keys) => { for (const k of keys){ const r=s[k]; if(r!=null&&!isNaN(parseFloat(r))) return parseFloat(r); } return null; };
+  return {
+    poss:   num('Ball Possession','ball_possession'),
+    shots:  num('Total Shots','Shots','total_shots'),
+    shotsOn:num('Shots on Goal','Shots On Goal','shots_on_goal'),
+    passes: num('Total passes','Total Passes','Passes','passes','total_passes'),
+    xg:     num('expected_goals','Expected Goals','xG','xg'),
+  };
+}
+function _mediaPerfil(arr){
+  if(!arr.length) return null;
+  const keys=['poss','shots','shotsOn','passes','xg']; const out={n:arr.length};
+  keys.forEach(k=>{ const v=arr.map(s=>s[k]).filter(x=>x!=null); out[k]=v.length?v.reduce((a,b)=>a+b,0)/v.length:null; });
+  return out;
+}
+function calcPerfisCond(jogos){
+  if(!jogos?.length) return null;
+  const gG={}, gR={V:[],E:[],D:[]};
+  jogos.forEach(j=>{ const st=_statOfJogo(j); const g=Math.min(5, j.gols??0);
+    (gG[g]=gG[g]||[]).push(st);
+    if(j.resultado&&gR[j.resultado]) gR[j.resultado].push(st); });
+  const porGols={}; Object.keys(gG).forEach(g=>porGols[g]=_mediaPerfil(gG[g]));
+  const porRes={}; ['V','E','D'].forEach(r=>porRes[r]=_mediaPerfil(gR[r]));
+  return { porGols, porRes, n:jogos.length };
+}
+// Projeção 90' do lado ao vivo (posse é taxa; resto projeta pelo ritmo)
+function _projLive(side){
+  if(!DADOS) return null; const f=DADOS.fixture; const sts=DADOS.estatisticas||[];
+  const raw=getStats(sts, side==='casa'?f.timeCasa.id:f.timeFora.id);
+  const min=Math.max(f.status.elapsed||0,1);
+  const cum=(...keys)=>{ for(const k of keys){ const r=raw[k]; if(r!=null&&!isNaN(parseFloat(r))) return parseFloat(r); } return null; };
+  const proj=v=> v==null?null:+(v*90/min).toFixed(1);
+  return { min, poss:cum('Ball Possession'), shots:proj(cum('Total Shots')), shotsOn:proj(cum('Shots on Goal')), passes:proj(cum('Total passes','Passes')), xg:proj(cum('expected_goals','xG')) };
+}
+// Acha o perfil (por gols ou resultado) mais parecido com a projeção atual
+function _matchPerfil(proj, perfis, med){
+  if(!proj||!perfis) return null;
+  const norm=(v,k)=> (v==null||!med||!med[k])?null:v/med[k];
+  let best=null;
+  Object.entries(perfis).forEach(([k,p])=>{ if(!p||!p.n) return; let d=0,c=0;
+    ['poss','shots','passes','xg'].forEach(st=>{ const a=norm(proj[st],st), b=norm(p[st],st); if(a!=null&&b!=null){ d+=Math.abs(a-b); c++; } });
+    if(c>=2){ const dist=d/c; if(!best||dist<best.dist) best={k,dist,p}; } });
+  return best;
+}
+function renderPerfisCond(){
+  const el=document.getElementById('perfisCondEl'); const card=document.getElementById('perfisCondCard'); if(!el||!card) return;
+  if(!HIST_PERFIS.casa&&!HIST_PERFIS.fora){ card.style.display='none'; return; }
+  card.style.display='';
+  const f=DADOS.fixture;
+  const bloco=(side)=>{
+    const pf=HIST_PERFIS[side], med=HIST_MEDIAS[side]; if(!pf) return '';
+    const nome= side==='casa'? f.timeCasa.nome : f.timeFora.nome;
+    const fmt=(v,d)=> v==null?'–':(d?v.toFixed(d):Math.round(v));
+    // tabela por gols
+    let rows='';
+    [0,1,2,3,4,5].forEach(g=>{ const p=pf.porGols[g]; if(!p)return;
+      rows+=`<tr><td>${g}${g===5?'+':''} gol${g===1?'':'s'}</td><td>${p.n}</td><td>${fmt(p.poss)}%</td><td>${fmt(p.shots)}</td><td>${fmt(p.passes)}</td><td>${fmt(p.xg,2)}</td></tr>`; });
+    let rowsR=''; const RL={V:'Vitória',E:'Empate',D:'Derrota'};
+    ['V','E','D'].forEach(r=>{ const p=pf.porRes[r]; if(!p)return;
+      rowsR+=`<tr><td>${RL[r]}</td><td>${p.n}</td><td>${fmt(p.poss)}%</td><td>${fmt(p.shots)}</td><td>${fmt(p.passes)}</td><td>${fmt(p.xg,2)}</td></tr>`; });
+    // cenário atual (ao vivo)
+    let cen='';
+    const live = f.status?.short && ['1H','HT','2H','ET','BT','P'].includes(f.status.short);
+    if(live){ const proj=_projLive(side); if(proj&&proj.min>=10){
+      const mg=_matchPerfil(proj, pf.porGols, med), mr=_matchPerfil(proj, pf.porRes, med);
+      const parts=[];
+      if(mg) parts.push(`nível dos jogos de <b>${mg.k}${mg.k==='5'?'+':''} gol${mg.k==='1'?'':'s'}</b>`);
+      if(mr) parts.push(`cenário de <b>${RL[mr.k]}</b>`);
+      if(parts.length) cen=`<div class="pc-cen">⚡ Aos ${proj.min}', projetando o ritmo, o ${esc2(nome)} está produzindo no ${parts.join(' e ')}.</div>`;
+    }}
+    return `<div class="pc-team"><div class="pc-nm">${esc2(nome)}</div>${cen}`+
+      `<div class="pc-sub">Quando faz X gols:</div><table class="pc-tb"><thead><tr><th>Gols</th><th>J</th><th>Posse</th><th>Chutes</th><th>Passes</th><th>xG</th></tr></thead><tbody>${rows}</tbody></table>`+
+      `<div class="pc-sub">Por resultado:</div><table class="pc-tb"><thead><tr><th>Result.</th><th>J</th><th>Posse</th><th>Chutes</th><th>Passes</th><th>xG</th></tr></thead><tbody>${rowsR}</tbody></table></div>`;
+  };
+  el.innerHTML = bloco('casa') + bloco('fora');
+}
+function esc2(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 async function buscarDados() {
   try {
@@ -1521,6 +1621,7 @@ function renderStats() {
     const tot = d.hv + d.av || 1, p = Math.round(d.hv / tot * 100);
     return donutSVG(d.label, d.hv + d.unit, d.av + d.unit, p, d.cor);
   }).join("");
+  try { renderPerfisCond(); } catch(_){}
 }
 
 function donutSVG(label, valH, valA, pctH, color) {
