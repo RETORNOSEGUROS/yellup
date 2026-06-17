@@ -1619,11 +1619,14 @@ function anatomiaGol(arr,i,lado,nome,evPl,golMin){
     const jq=(janelas10Quentes(lado)||[]).find(wd=>m>=wd.ini&&m<=wd.fim); if(jq){ linhas.push(`Caiu numa janela quente do ${esc(nomeT)} (${jq.ini}-${jq.fim}', ${jq.gols} gols nos últimos 20).`); sinais++; }
     const rc=receitaGol(lado); if(rc&&rc.gap>=0.6){ let v=_statLive(cur,lado,rc.k); if(v!=null){ if(rc.cum)v=v*90/m; if(v>=rc.med){ linhas.push(`Bateu a receita: ${rc.lbl} no patamar em que costuma marcar mais (${rc.gHi.toFixed(1)} gols/jogo).`); sinais++; } } }
     const oMins=Math.max(1,m-(w10.minuto||0)); const oPa=sideVal(cur,opp,'passes')-sideVal(w10,opp,'passes'); const oSh=sideVal(cur,opp,'shots')-sideVal(w10,opp,'shots'); const oOn=sideVal(cur,opp,'shotsOn')-sideVal(w10,opp,'shotsOn'); const oPos=sideVal(cur,opp,'posse');
+    const scorerPos=sideVal(cur,lado,'posse');
+    if(scorerPos>=58) linhas.push(`O ${esc(nomeT)} controlava o jogo (${Math.round(scorerPos)}% de posse) e furou o bloqueio do ${esc(_ladoNome(opp))}.`);
+    else if(scorerPos>0&&scorerPos<=42) linhas.push(`Golpe contra a corrente: o ${esc(nomeT)} tinha pouca bola (${Math.round(scorerPos)}%) mas foi cirúrgico — gol no contra-ataque/eficiência, enquanto o ${esc(_ladoNome(opp))} dominava a posse.`);
     if(oSh>=3||oOn>=1) linhas.push(`Do outro lado, o ${esc(_ladoNome(opp))} também rondava (${oSh} finaliz.${oOn>0?`, ${oOn} no alvo`:''} nos últimos 10') — jogo de ida e volta.`);
-    else if((oPa/oMins)<6 || oSh===0) linhas.push(`O ${esc(_ladoNome(opp))} estava apagado no período (${Math.round(oPos)}% de posse, sem chegar) — o gol nasceu do domínio do ${esc(nomeT)}.`);
+    else if(oPos>0&&oPos<45&&oSh===0) linhas.push(`O ${esc(_ladoNome(opp))} estava apagado no período (${Math.round(oPos)}% de posse, sem chegar).`);
     const shC=sideVal(cur,'casa','shots'), shF=sideVal(cur,'fora','shots'), posC=sideVal(cur,'casa','posse');
     linhas.push(`No geral até os ${m}': posse ${Math.round(posC)}%×${Math.round(100-posC)}%, finalizações ${shC}×${shF}.`);
-    const pl=projLado(lado,cur,m); if(pl&&pl.cenarioG!=null){ const sofre=cenarioSofrido(opp,pl.projVec);
+    const pl=m>=15?projLado(lado,cur,m):null; if(pl&&pl.cenarioG!=null){ const sofre=cenarioSofrido(opp,pl.projVec);
       linhas.push(`Pelo ritmo até aqui, o ${esc(nomeT)} já se enquadrava no padrão dos jogos em que faz <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>${sofre!=null?`, e o ${esc(_ladoNome(opp))} cedia como nos jogos em que sofre ${sofre}`:''}.`); if(pl.cenarioG>=2)sinais++; }
   }
   let vtxt,tom;
@@ -1963,9 +1966,16 @@ function comentariosAoVivo(){
     if(m>=10 && m%5===0 && !jaRaiox[m]){ jaRaiox[m]=1;
       ['casa','fora'].forEach(side=>{ const opp=side==='casa'?'fora':'casa'; const pl=projLado(side,cur,m); if(!pl)return;
         const rp=k=>{ const r=pl.rows.find(x=>x.k===k); return r?r.proj:null; }; const rr=k=>{ const r=pl.rows.find(x=>x.k===k); return r?r.ref:null; };
-        const pP=rp('passes'), rP=rr('passes'), pS=rp('shots');
+        const pP=rp('passes'), rP=rr('passes'), pS=rp('shots'), rSh=rr('shots');
         const palavras=_emPalavras(side,cur,m);
-        const cenTxt = pl.cenarioG!=null? ` — pelo ritmo, padrão dos jogos em que faz <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>`:'';
+        let cenTxt = pl.cenarioG!=null? ` — pelo ritmo, padrão dos jogos em que faz <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>`:'';
+        // Domínio estéril: muito passe, pouca finalização → não converte (substitui o rótulo de "N gols", que engana aqui)
+        const posseAt=sideVal(cur,side,'posse');
+        if(m>=20 && rSh && rP && pP>=rP*1.15 && pS!=null && pS<=rSh*0.7 && posseAt>=55){
+          const S=sideVal(cur,side,'shots'); const rest=Math.max(1,90-m); const need=Math.max(0,Math.round(rSh)-S);
+          const cada=need>0?Math.max(1,Math.round(rest/need)):null;
+          cenTxt=` — <b>domina sem objetividade</b>: ${Math.round(pP)} passes projetados (média ${Math.round(rP)}) é volume altíssimo, mas só ${Math.round(pS)} finalizações projetadas (média ${Math.round(rSh)}). Falta chegar com qualidade no ataque${cada?`; pra fechar no padrão (~${Math.round(rSh)} finaliz.) precisa finalizar ~1x a cada ${cada}' daqui pra frente`:''}`;
+        }
         feed.push({min:m,ic:'🔭',txt:`Aos ${m}', o <b>${esc(_ladoNome(side))}</b> ${palavras.length?palavras.join(', ')+'. ':''}Projeta ${pP?Math.round(pP):0} passes${rP?` (méd ${Math.round(rP)})`:''} e ${pS?Math.round(pS):0} finalizações${cenTxt}.`});
         // leitura de conversão (xG) — só quando o time tem xG histórico
         const xgL=_xgLeitura(side,cur,m); if(xgL && ok('xg-'+side,m,10)) feed.push({min:m,ic:'🎯',txt:`O <b>${esc(_ladoNome(side))}</b> ${xgL.join('; ')}.`});
