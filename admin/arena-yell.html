@@ -1887,6 +1887,47 @@ function comentariosAoVivo(){
   return feed;
 }
 
+// Gera um JSON completo do jogo (pré + durante + pós, série minuto a minuto, projeções) pra análise externa
+function exportarAnalise(){
+  try{
+    const J=JOGO||{}; const safe=fn=>{ try{ const r=fn(); return (r===undefined?null:r); }catch(e){ return {_erro:String((e&&e.message)||e)}; } };
+    const obj={
+      _meta:{ geradoEm:new Date().toISOString(), versao:'arena-yell-export-v1', jogoId:JID },
+      jogo:{ id:JID, liga:J.liga||null, status:J.status||null,
+             timeCasa:J.timeCasaNome||null, timeFora:J.timeForaNome||null,
+             placarCasa:(J.placarCasa!=null?+J.placarCasa:null), placarFora:(J.placarFora!=null?+J.placarFora:null),
+             minutosJogo:J.minutosJogo||null, estatisticasFinais:J.estatisticasPartida||null, eventos:J.eventosJogo||[] },
+      raiox: SNAP? {
+        teamA:SNAP.teamA, teamB:SNAP.teamB, aIsCasa:safe(()=>_aIsCasa()),
+        forteScore:SNAP.forteScore, forteFull:SNAP.forteFull, agg:SNAP.agg, forteTiers:SNAP.forteTiers,
+        referenciaMin:SNAP.referenciaMin, bucketsA:SNAP.bucketsA, bucketsB:SNAP.bucketsB,
+        buckets10A:SNAP.buckets10A, buckets10B:SNAP.buckets10B, minutosA:SNAP.minutosA, minutosB:SNAP.minutosB,
+        jogosDetA:SNAP.jogosDetA, jogosDetB:SNAP.jogosDetB, h2h:SNAP.h2h }:null,
+      derivados:{
+        leituraForcas: safe(()=>leituraForcas()),
+        janelasGoleadoras: safe(()=>janelasGoleadoras()),
+        janelaCasada: safe(()=>janelaCasada()),
+        receita:{ casa:safe(()=>receitaGol('casa')), fora:safe(()=>receitaGol('fora')) },
+        perfilCenario:{ casa:safe(()=>perfilCenario('casa')), fora:safe(()=>perfilCenario('fora')) },
+        perfilSofrido:{ casa:safe(()=>perfilSofrido('casa')), fora:safe(()=>perfilSofrido('fora')) },
+        dossie:{ casa:safe(()=>dossieGols('casa')), fora:safe(()=>dossieGols('fora')) },
+      },
+      analises:{
+        preJogo: safe(()=>comentariosPreJogo()),
+        aoVivo:  safe(()=>comentariosAoVivo()),
+        posJogo: safe(()=>analisePosJogo()),
+      },
+      golsPorMinuto: safe(()=>golsPorMinuto()),
+      serie: safe(()=> SERIE.map(r=>({ minuto:r.minuto, minutoExibicao:r.minutoExibicao||null, placarCasa:r.placarCasa, placarFora:r.placarFora, est:r._est||null }))),
+      projecaoPorMinuto: safe(()=>{ const out=[]; SERIE.filter(r=>r._est).forEach(r=>{ const m=r.minuto; if(!m||m<1)return; out.push({ min:m, casa:safe(()=>projLado('casa',r,m)), fora:safe(()=>projLado('fora',r,m)) }); }); return out; }),
+    };
+    const txt=JSON.stringify(obj,null,2);
+    const blob=new Blob([txt],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=`yellup-jogo-${JID||'export'}.json`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500);
+  }catch(e){ alert('Erro ao gerar o arquivo: '+((e&&e.message)||e)); }
+}
 function renderResenha(){
   const box=document.getElementById('resenhaBox'); if(!box)return;
   const temVivo=serieVisivel().filter(r=>r._est).length>=2;
@@ -1894,6 +1935,7 @@ function renderResenha(){
   if(!SNAP&&!temVivo){ box.innerHTML='<div class="ar-soon"><div class="ic">🗣️</div><p>A resenha aparece com o Raio-X pré-jogo e vira narração quando a bola rola.</p></div>'; return; }
   const linhaPre=c=>`<div class="cm-item"><span class="cm-ic">${c.ic}</span><span class="cm-tx">${c.txt}</span></div>`;
   let html='';
+  html+=`<div style="display:flex;justify-content:flex-end;margin:0 2px 10px"><button onclick="exportarAnalise()" style="background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.3);color:#67e8f9;font-size:11px;font-weight:700;padding:7px 12px;border-radius:9px;cursor:pointer">⬇️ Exportar análise (JSON)</button></div>`;
   const fimDeJogo=JOGO&&(JOGO.status==='finalizado'||JOGO.status==='encerrado');
   if(fimDeJogo){ const ap=analisePosJogo();
     if(ap){ html+=`<div class="cm-tt">🏁 Depois do apito · ${ap.placar}</div>`;
