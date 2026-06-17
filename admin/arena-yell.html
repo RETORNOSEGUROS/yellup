@@ -826,6 +826,16 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
 .fc-na{color:var(--tx2,#94a3b8);font-style:italic}
 .fc-leg{font-size:10px;color:var(--tx2,#94a3b8);margin-top:7px}
 .fc-read{font-size:12px;line-height:1.5;color:#cbd5e1;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.07)}
+.pj-team{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:12px;margin:0 2px 10px}
+.pj-nm{font-size:14px;font-weight:800;color:#fff;margin-bottom:6px}.pj-nm span{font-size:11px;font-weight:600;color:var(--tx2,#94a3b8)}
+.pj-cen{font-size:11.5px;line-height:1.4;color:#cbd5e1;background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.18);border-radius:8px;padding:6px 9px;margin-bottom:9px}
+.pj-tb{width:100%;border-collapse:collapse;font-size:12px}
+.pj-tb th{font-size:9px;letter-spacing:.04em;text-transform:uppercase;color:var(--tx2,#94a3b8);font-weight:600;text-align:right;padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.1)}
+.pj-tb th:first-child{text-align:left}
+.pj-tb td{text-align:right;padding:6px;border-bottom:1px solid rgba(255,255,255,.05);color:#cbd5e1}
+.pj-tb td:first-child{text-align:left;color:#e2e8f0}
+.pj-a{font-weight:800;color:#fff}.pj-r{color:var(--tx2,#94a3b8)}
+.pj-s{font-weight:900}.pj-s.up{color:#34d399}.pj-s.dn{color:#f87171}.pj-s.ok{color:#22d3ee}
 .fx-head{font-size:11.5px;color:var(--tx2);line-height:1.5;background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:10px 12px;margin-bottom:10px}
 .fx-list{display:flex;flex-direction:column;gap:6px}
 .fx-row{display:flex;gap:10px;align-items:flex-start;background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:8px 10px}
@@ -894,6 +904,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
       <button class="ar-tab" data-tab="vivo" onclick="trocarAba('vivo')">Ao Vivo</button>
       <button class="ar-tab" data-tab="fluxo" onclick="trocarAba('fluxo')">📈 Fluxo</button>
       <button class="ar-tab" data-tab="forcas" onclick="trocarAba('forcas')">📋 Forças</button>
+      <button class="ar-tab" data-tab="proj" onclick="trocarAba('proj')">📊 Projeção</button>
       <button class="ar-tab" data-tab="quiz" onclick="trocarAba('quiz')">Quiz</button>
       <button class="ar-tab" data-tab="chat" onclick="trocarAba('chat')">Chat</button>
     </div>
@@ -911,6 +922,9 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx)}
     </div>
     <div class="ar-pane" id="pane-forcas">
       <div id="forcasBox" class="fc-wrap"><div class="ar-soon"><div class="ic">📋</div><p>Carregando forças e histórico dos times...</p></div></div>
+    </div>
+    <div class="ar-pane" id="pane-proj">
+      <div id="projBox" class="fc-wrap"><div class="ar-soon"><div class="ic">📊</div><p>Abre durante o jogo (e fica registrado pro pós): projeção pra 90' × média do time, minuto a minuto.</p></div></div>
     </div>
     <div class="ar-pane" id="pane-quiz"><div class="ar-soon"><div class="ic">🎯</div><h3>Quiz</h3><p>Perguntas durante e fora da partida, valendo pontos e ranking. Próximo passo da estrutura.</p></div></div>
     <div class="ar-pane" id="pane-chat"><div class="ar-soon"><div class="ic">💬</div><h3>Chat</h3><p>A torcida conversando durante o jogo. Sala por partida.</p></div></div>
@@ -967,6 +981,7 @@ function trocarAba(t){
   if((t==='vivo'||t==='fluxo') && !VIVO_CARREGADO) carregarVivo();
   if(t==='fluxo') renderFluxo();
   if(t==='forcas'){ if(!RAIOX_CARREGADO) carregarRaiox(); renderForcas(); }
+  if(t==='proj'){ if(!RAIOX_CARREGADO) carregarRaiox(); if(!VIVO_CARREGADO) carregarVivo(); renderProj(); }
   if(t==='resenha'){ if(!RAIOX_CARREGADO) carregarRaiox(); if(!VIVO_CARREGADO) carregarVivo(); renderResenha(); }
   atualizarFab();
 }
@@ -1059,7 +1074,7 @@ function carregarVivo(){
     if(!SERIE.length && JOGO?.estatisticasPartida){
       SERIE=[{minuto:JOGO.minutosJogo||0,placarCasa:JOGO.placarCasa,placarFora:JOGO.placarFora,estatisticas:JOGO.estatisticasPartida,_est:JOGO.estatisticasPartida}];
     }
-    avScrub();avBoard();renderFluxo();renderResenha();
+    avScrub();avBoard();renderFluxo();renderResenha();try{renderProj();}catch(_){}
   }, e=>{ console.warn('jogo-snapshots:',e.message); SERIE=[]; avScrub(); avBoard(); });
 }
 
@@ -1427,6 +1442,41 @@ function _faixaTxt(side,segs){
   const extra=mx>=3?` — chegou a projetar cenário de ${g(mx)}`:'';
   return `<b>${esc(_ladoNome(side))}:</b> ${parts.join(' → ')}${extra}.`;
 }
+// Projeção 90' de um lado num dado minuto: Atual / Proj / Ref + cenário projetado
+function projLado(side,row,m){
+  if(!row||!row._est||!m) return null;
+  const cum=k=>sideVal(row,side,k); const proj=v=> m>0? v*90/m : v;
+  const med=_aggS(side);
+  const passesA=cum('passes'), shotsA=cum('shots'), shogA=cum('shotsOn'), xgA=cum('xg'), possA=cum('posse');
+  const projP=proj(passesA), projS=proj(shotsA);
+  const refPfin=(numr(med.passTotal)&&numr(med.shots))? numr(med.passTotal)/numr(med.shots):null;
+  const rows=[
+    {k:'xg',     lbl:'xG',           atual:xgA,    proj:proj(xgA),  ref:numr(med.xg),       dec:2},
+    {k:'passes', lbl:'Passes',       atual:passesA,proj:projP,      ref:numr(med.passTotal)},
+    {k:'shots',  lbl:'Finalizações', atual:shotsA, proj:projS,      ref:numr(med.shots)},
+    {k:'shotsOn',lbl:'Chutes Alvo',  atual:shogA,  proj:proj(shogA),ref:numr(med.shotsOn)},
+    {k:'poss',   lbl:'Posse %',      atual:possA,  proj:null,       ref:numr(med.poss)},
+    {k:'pfin',   lbl:'P/Fin',        atual:(shotsA?passesA/shotsA:null), proj:(projS?projP/projS:null), ref:refPfin, dec:1},
+  ];
+  const projVec={ poss:possA, shots:projS, passes:projP, xg:proj(xgA) };
+  const band=_matchBanda(projVec, perfilPorGols(side), _medSide(side));
+  return { rows, projVec, cenarioG: band?band.g:null, m };
+}
+// Perfil do que o time CEDE (stats do adversário) agrupado por gols sofridos
+function perfilSofrido(side){
+  const arr=_jogosDetS(side); if(!Array.isArray(arr)||arr.length<6)return null;
+  const byG={}; arr.forEach(x=>{ if(x.gO==null)return; const g=Math.min(5,+x.gO); (byG[g]=byG[g]||[]).push(x); });
+  const med=(rows,ex)=>{ const v=rows.map(ex).filter(n=>n!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
+  const out={}; Object.keys(byG).forEach(g=>{ const r=byG[g]; out[g]={n:r.length,
+    poss:med(r,x=>x.poss?.[1]!=null?+x.poss[1]:null), shots:med(r,x=>x.sh?.[1]!=null?+x.sh[1]:null),
+    passes:med(r,x=>x.pt?.[1]!=null?+x.pt[1]:null), xg:med(r,x=>x.xg?.[1]!=null?+x.xg[1]:null)}; });
+  return out;
+}
+function _medSofrido(side){ const arr=_jogosDetS(side); if(!Array.isArray(arr))return null;
+  const med=ex=>{ const v=arr.map(ex).filter(n=>n!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
+  return {poss:med(x=>x.poss?.[1]!=null?+x.poss[1]:null), shots:med(x=>x.sh?.[1]!=null?+x.sh[1]:null), passes:med(x=>x.pt?.[1]!=null?+x.pt[1]:null), xg:med(x=>x.xg?.[1]!=null?+x.xg[1]:null)}; }
+// Quantos gols 'defSide' projeta SOFRER, dado o que o atacante está produzindo (projVec)
+function cenarioSofrido(defSide, projVec){ const b=_matchBanda(projVec, perfilSofrido(defSide), _medSofrido(defSide)); return b?b.g:null; }
 function _ladoNome(side){ return side==='casa'?(JOGO?.timeCasaNome||'Casa'):(JOGO?.timeForaNome||'Fora'); }
 function _ladoDe(nome){ const n=_norm(nome); if(n&&n===_norm(JOGO?.timeCasaNome))return 'casa'; if(n&&n===_norm(JOGO?.timeForaNome))return 'fora'; return null; }
 function formaArr(c){ if(!Array.isArray(c))return []; return c.slice(0,5).map(s=>(String(s).split('|')[9]||'').toUpperCase()).filter(r=>r==='V'||r==='E'||r==='D'); }
@@ -1739,6 +1789,29 @@ function subCenario(side){
     `<div class="fc-card"><div class="fc-card-tt">Por resultado</div><div class="fc-tablewrap"><table class="fc-games">${head('Result.')}<tbody>${rr}</tbody></table></div></div>`+
     `<div class="fc-leg" style="margin:0 2px 10px">Médias por jogo. <b>P/Fin</b> = passes por finalização (quanto menor, mais direto ao ataque). <b>Alvo</b> = chutes no alvo.</div>`;
 }
+// ===== Aba Projeção: print-1 (Atual/Proj90/Ref) minuto a minuto + linha do tempo de cenários =====
+function renderProj(){
+  const box=document.getElementById('projBox'); if(!box)return;
+  const arr=serieVisivel().filter(r=>r._est&&(r._est.casa||r._est.fora));
+  if(!SNAP||!arr.length){ box.innerHTML=`<div class="ar-soon"><div class="ic">📊</div><p>Sem dados ao vivo ainda. Abre durante o jogo (ou depois, com o Raio-X gerado).</p></div>`; return; }
+  const last=arr[arr.length-1], m=last.minuto||90;
+  const f=(v,d)=> v==null?'–':(d?(+v).toFixed(d):String(Math.round(v)));
+  const st=(r)=>{ const val=r.proj!=null?r.proj:r.atual; if(r.ref==null||val==null)return '<span class="pj-s">–</span>'; if(val>=r.ref*1.12)return '<span class="pj-s up">▲</span>'; if(val<=r.ref*0.88)return '<span class="pj-s dn">▼</span>'; return '<span class="pj-s ok">✓</span>'; };
+  const card=(side)=>{ const pl=projLado(side,last,m); if(!pl)return ''; const opp=side==='casa'?'fora':'casa';
+    const rows=pl.rows.map(r=>`<tr><td>${r.lbl}</td><td class="pj-a">${f(r.atual,r.dec)}${r.k==='poss'?'%':''}</td><td>${r.proj!=null?f(r.proj,r.dec):'—'}</td><td class="pj-r">${f(r.ref,r.dec)}${r.k==='poss'?'%':''}</td><td>${st(r)}</td></tr>`).join('');
+    const sofre=cenarioSofrido(opp, pl.projVec);
+    const cen = pl.cenarioG!=null?`<div class="pj-cen">Projetando como nos jogos de <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>${sofre!=null?` · ${esc(_ladoNome(opp))} cedendo como quando sofre ${sofre}${sofre>=5?'+':''}`:''}</div>`:'';
+    return `<div class="pj-team"><div class="pj-nm">${esc(_ladoNome(side))} <span>aos ${m}'</span></div>${cen}`+
+      `<table class="pj-tb"><thead><tr><th>Stat</th><th>Atual</th><th>Proj 90'</th><th>Ref</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  };
+  // Linha do tempo: cenário projetado a cada 5'
+  const rowAt=(mm)=>{ let r=null; for(const x of arr){ if(x.minuto<=mm) r=x; } return r; };
+  let tlRows=''; for(let mm=5; mm<=m; mm+=5){ const r=rowAt(mm); if(!r)continue;
+    const pc=projLado('casa',r,mm), pf=projLado('fora',r,mm);
+    const cg=v=>v==null?'–':v+(v>=5?'+':''); tlRows+=`<tr><td>${mm}'</td><td>${cg(pc&&pc.cenarioG)}</td><td>${cg(pf&&pf.cenarioG)}</td></tr>`; }
+  const tl=`<div class="pj-team"><div class="pj-nm">Linha do tempo — cenário projetado (gols)</div><table class="pj-tb"><thead><tr><th>Min</th><th>${esc(_ladoNome('casa'))}</th><th>${esc(_ladoNome('fora'))}</th></tr></thead><tbody>${tlRows}</tbody></table><div class="fc-leg">Número = quantos gols o time costuma fazer quando projeta esse ritmo pro fim do jogo.</div></div>`;
+  box.innerHTML = card('casa')+card('fora')+tl;
+}
 
 function comentariosAoVivo(){
   const arr=serieVisivel().filter(r=>r._est&&(r._est.casa||r._est.fora));
@@ -1746,7 +1819,7 @@ function comentariosAoVivo(){
   const golMap=golsPorMinuto(), evPl=fnPlacarEventos();
   const jqSc={casa:topJanelas('casa','sc'), fora:topJanelas('fora','sc')};
   const jqCn={casa:topJanelas('casa','cn'), fora:topJanelas('fora','cn')};
-  const W=5, feed=[], cd={}, jaJan={}, jaT2={}, jaGol={}, jaReceita={};
+  const W=5, feed=[], cd={}, jaJan={}, jaT2={}, jaGol={}, jaReceita={}, jaRaiox={};
   const jgl=janelasGoleadoras();
   const jcas=janelaCasada(), jaCas={};
   const RECEITA={casa:receitaGol('casa'), fora:receitaGol('fora')};
@@ -1791,6 +1864,15 @@ function comentariosAoVivo(){
     // Receita do gol: o time está reproduzindo o cenário em que costuma marcar mais
     if(m>=30) ['casa','fora'].forEach(side=>{ if(jaReceita[side])return; const r=RECEITA[side]; if(!r||r.gap<0.6)return; let v=_statLive(cur,side,r.k); if(v==null)return; if(r.cum)v=v*90/m;
       if(v>=r.med){ jaReceita[side]=1; feed.push({min:m,ic:'🍳',txt:`O <b>${esc(_ladoNome(side))}</b> está repetindo a receita: no ritmo atual projeta ${_fmtR(v,r.k)}${r.un} de ${r.lbl} — o patamar em que costuma marcar mais (${r.gHi.toFixed(1)} gols/jogo). Cenário de gol.`}); } });
+    // 🔭 Raio-X do momento (a cada 5'): projeção 90' + cenário de gols + cruzamento com o adversário
+    if(m>=10 && m%5===0 && !jaRaiox[m]){ jaRaiox[m]=1;
+      ['casa','fora'].forEach(side=>{ const opp=side==='casa'?'fora':'casa'; const pl=projLado(side,cur,m); if(!pl||pl.cenarioG==null)return;
+        const rp=k=>{ const r=pl.rows.find(x=>x.k===k); return r?r.proj:null; }; const rr=k=>{ const r=pl.rows.find(x=>x.k===k); return r?r.ref:null; };
+        const pP=rp('passes'), rP=rr('passes'), pX=rp('xg'), pS=rp('shots');
+        feed.push({min:m,ic:'🔭',txt:`Aos ${m}', o <b>${esc(_ladoNome(side))}</b> projeta ${pP?Math.round(pP):'?'} passes${rP?` (méd ${Math.round(rP)})`:''}, ${pS?Math.round(pS):'?'} finalizações e ${pX!=null?pX.toFixed(1):'?'} xG — padrão dos jogos em que faz <b>${pl.cenarioG}${pl.cenarioG>=5?'+':''} gol${pl.cenarioG===1?'':'s'}</b>.`});
+        const sofre=cenarioSofrido(opp, pl.projVec);
+        if(pl.cenarioG>=2 && sofre!=null && sofre>=3 && ok('cross-'+side,m,12)) feed.push({min:m,ic:'🎯',txt:`Cruzamento: o <b>${esc(_ladoNome(side))}</b> produz como quando faz ${pl.cenarioG}+ e o ${esc(_ladoNome(opp))} cede como nos jogos em que sofre ${sofre}+ — forte tendência de gol do ${esc(_ladoNome(side))}.`}); });
+    }
     // #12 Time de 2º tempo (uma vez, ao começar o 2º tempo)
     if(m>=46&&m<=48) ['casa','fora'].forEach(side=>{ if(!jaT2[side]&&t2Side(side)){ jaT2[side]=1; feed.push({min:m,ic:'📈',txt:`Começa o 2º tempo: o <b>${esc(_ladoNome(side))}</b> faz a maioria dos gols nessa etapa — tende a crescer.`}); } });
     // Entrando numa faixa goleadora do confronto (soma gols feitos+sofridos dos 2 no histórico)
@@ -1893,7 +1975,7 @@ async function init(){
   if(HEAD_UNSUB) HEAD_UNSUB();
   HEAD_UNSUB = db.collection('jogos').doc(JID).onSnapshot(d=>{
     if(d.exists){ JOGO={id:JID,...d.data()}; renderHead(JOGO);
-      if(VIVO_CARREGADO){ avScrub(); avBoard(); renderFluxo(); renderResenha(); } // acompanha o minuto real
+      if(VIVO_CARREGADO){ avScrub(); avBoard(); renderFluxo(); renderResenha(); try{renderProj();}catch(_){} } // acompanha o minuto real
     }
     if(!RAIOX_ONCE){ RAIOX_ONCE=true; carregarRaiox(); }   // raio-x é congelado: carrega 1x só
   }, e=>{
