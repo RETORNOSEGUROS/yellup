@@ -1129,6 +1129,14 @@ function parseEvents(events, enriched, teamId) {
   if (!events?.length) return [];
   return events
     .filter(ev => ev.type?.toLowerCase() === 'goal')  // case-insensitive
+    .filter(ev => {
+      // Disputa de pênaltis NÃO entra no placar — a API a retorna como gols (no fim),
+      // o que inflava o minuto-a-minuto e os buckets. Exclui pela marcação e por segurança
+      // pelo tempo (nada legítimo nesses jogos passa de ~105'; pênalti de disputa vem ~120').
+      if (/shoot.?out/i.test(ev.comments || '')) return false;
+      if ((ev.time?.elapsed ?? 0) > 105) return false;
+      return true;
+    })
     .map(ev => {
       const bySelected = String(ev.team?.id) === String(teamId);
       const ownGoal    = ev.detail === 'Own Goal';
