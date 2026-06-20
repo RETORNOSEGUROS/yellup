@@ -4243,8 +4243,14 @@ function st(state, msg) {
 async function registrarSnapshot() {
   const btn = document.getElementById('snapBtn');
   if (!btn) return;
+  // Se a análise ainda está rodando (cache frio = demora), espera em vez de falhar
+  if (!window.SNAPSHOT_DATA && RX_RUNNING) {
+    btn.disabled = true; btn.textContent = '⏳ aguardando análise...';
+    try { await RX_RUNNING; } catch(e){}
+    btn.disabled = false; btn.textContent = '📌 REGISTRAR';
+  }
   if (!window.SNAPSHOT_DATA) {
-    alert('Rode o comparativo primeiro (clique em Analisar).');
+    alert('Rode o comparativo primeiro (escolha um jogo), ou aguarde a análise terminar.');
     return;
   }
   btn.disabled = true; btn.textContent = '⏳ salvando...';
@@ -4318,7 +4324,7 @@ async function carregarJogosYellup(dDe, dAte){
   snap.forEach(d=>{
     const g = d.data();
     if (g.ativo === false) return;
-    if (g.status === 'encerrado' || g.status === 'finalizado') return; // só pré-jogo
+    // (removido o filtro "só pré-jogo" — permite regerar jogos encerrados p/ calibração)
     if (!g.timeCasa?.apiId || !g.timeFora?.apiId) return;
     if (dDe || dAte){
       const ts = g.dataInicio?.toMillis ? g.dataInicio.toMillis()
@@ -4413,6 +4419,7 @@ async function gerarSnapshotsPendentes(forcar){
 
 // Barra flutuante: seletor de JOGO CADASTRADO (manual, jogo a jogo)
 let JOGOS_PICK = {};
+let RX_RUNNING = null; // promessa da análise em andamento (evita registrar antes de terminar)
 async function montarListaJogos(){
   const de=document.getElementById('rxDe')?.value, ate=document.getElementById('rxAte')?.value;
   const dDe = de? new Date(de+'T00:00:00').getTime():null;
@@ -4445,7 +4452,8 @@ async function carregarJogoNoComparativo(jogoId){
     setH2HTeam('A', _timeDoJogo(g.timeCasa));
     setH2HTeam('B', _timeDoJogo(g.timeFora));
     window.SNAPSHOT_DATA=null;
-    await runH2H();
+    RX_RUNNING = runH2H();
+    try { await RX_RUNNING; } finally { RX_RUNNING = null; }
     if(lbl)lbl.textContent='✓ pronto — revise e clique em REGISTRAR';
   }catch(e){ if(lbl)lbl.textContent='erro: '+(e.message||e); console.error(e); }
 }
