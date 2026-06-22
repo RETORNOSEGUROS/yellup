@@ -1241,7 +1241,7 @@ function _pick(side,A,B){ return _aIsCasa() ? (side==='casa'?A:B) : (side==='cas
 function _aggS(side){ return _pick(side, SNAP?.agg?.A, SNAP?.agg?.B)||{}; }
 function _bkS(side){ return _pick(side, SNAP?.bucketsA, SNAP?.bucketsB); }
 function _formaS(side){ return _pick(side, SNAP?.enrichedCompact?.A, SNAP?.enrichedCompact?.B); }
-function _forteS(side){ return numr(_pick(side, SNAP?.forteScore?.A, SNAP?.forteScore?.B)); }
+function _forteS(side){ const ff=_pick(side, SNAP?.forteFull?.A, SNAP?.forteFull?.B); const s=ff&&numr(ff.score); if(s) return s; return numr(_pick(side, SNAP?.forteScore?.A, SNAP?.forteScore?.B)); }
 function _refS(side){ return _pick(side, SNAP?.referenciaMin?.A, SNAP?.referenciaMin?.B)||null; }   // baseline: xg/min, fin/min, gf/min, gc/min
 function _minsS(side){ return _pick(side, SNAP?.minutosA, SNAP?.minutosB); }                          // gols por minuto (array 95)
 function _bk10S(side){ return _pick(side, SNAP?.buckets10A, SNAP?.buckets10B); }                      // últimos 10 jogos
@@ -1709,6 +1709,43 @@ function comentariosPreJogo(){
     out.push({ic:'⏰',txt:`O <b>${esc(nm)}</b> costuma fazer seu 1º gol por volta dos ${pg.avg}'${pg.pct15>=40?` — em ${pg.pct15}% das vezes já balança a rede nos primeiros 15'`:''}.`}); });
   // Placar mais recorrente
   ['casa','fora'].forEach(side=>{ const pl=placarComum(side); if(!pl)return; out.push({ic:'📋',txt:`O placar mais comum do <b>${esc(_ladoNome(side))}</b> nos últimos 20 foi <b>${pl.placar}</b> (${pl.n} vezes).`}); });
+  // ── ForteScore explícito + delta + trava de validade (usa forteFull, sem os zeros bugados) ──
+  (()=>{ const ffC=_forteFullS('casa'), ffF=_forteFullS('fora'); if(!ffC||!ffF)return;
+    const sC=numr(ffC.score), sF=numr(ffF.score); const okC=sC&&ffC.origem, okF=sF&&ffF.origem;
+    if(okC&&okF){ const dl=Math.abs(sC-sF), forte=sC>=sF?nC:nF;
+      out.push({ic:'🏅',txt:`ForteScore: <b>${esc(nC)} ${sC.toFixed(1)}</b> × <b>${esc(nF)} ${sF.toFixed(1)}</b> (Δ ${dl.toFixed(1)}). ${dl>=1.5?`Diferença grande — <b>${esc(forte)}</b> bem superior no papel (Δ desse tamanho costuma virar vitória folgada).`:dl>=0.7?`Vantagem do <b>${esc(forte)}</b>.`:dl<=0.3?'Forças praticamente idênticas — cara de jogo parelho/empate.':`Leve vantagem do <b>${esc(forte)}</b>.`}`}); }
+    else { const falta=!okC?nC:nF; out.push({ic:'⚠️',txt:`O ForteScore do <b>${esc(falta)}</b> está indisponível — <b>ignore a diferença de força</b> neste jogo (não é confiável); decida pelos outros números.`}); }
+  })();
+  // ── Solidez/fragilidade defensiva (forteFull.id) ──
+  ['casa','fora'].forEach(side=>{ const ff=_forteFullS(side); if(!ff||ff.id==null)return; const nm=_ladoNome(side);
+    if(ff.id<=0.42) out.push({ic:'🩹',txt:`A <b>defesa do ${esc(nm)}</b> é o ponto fraco (índice ${(ff.id*10).toFixed(1)}/10) — tende a sofrer; defesas nesse nível costumam levar 2-3 contra ataque forte.`});
+    else if(ff.id>=0.7) out.push({ic:'🧱',txt:`A <b>defesa do ${esc(nm)}</b> é sólida (${(ff.id*10).toFixed(1)}/10) — difícil de furar, puxa o placar pra baixo.`}); });
+  // ── Mismatch: ataque forte de um × defesa frágil do outro ──
+  (()=>{ const ffC=_forteFullS('casa'), ffF=_forteFullS('fora'); if(!ffC||!ffF||ffC.io==null||ffF.io==null)return;
+    if(ffC.io>=0.6&&ffF.id<=0.45) out.push({ic:'🔓',txt:`Ataque do <b>${esc(nC)}</b> (${(ffC.io*10).toFixed(1)}) contra defesa frágil do ${esc(nF)} (${(ffF.id*10).toFixed(1)}) — cenário claro de gols do ${esc(nC)}.`});
+    if(ffF.io>=0.6&&ffC.id<=0.45) out.push({ic:'🔓',txt:`Ataque do <b>${esc(nF)}</b> (${(ffF.io*10).toFixed(1)}) contra defesa frágil do ${esc(nC)} (${(ffC.id*10).toFixed(1)}) — o ${esc(nF)} tem por onde furar.`}); })();
+  // ── Condicional de posse (faz X com a bola, Y sem) ──
+  ['casa','fora'].forEach(side=>{ const jd=_jogosDetS(side); if(!Array.isArray(jd)||jd.length<7)return; const nm=_ladoNome(side);
+    const alta=jd.filter(j=>Array.isArray(j.poss)&&j.poss[0]>=55), baixa=jd.filter(j=>Array.isArray(j.poss)&&j.poss[0]<=45);
+    if(alta.length>=4&&baixa.length>=3){ const af=alta.reduce((s,j)=>s+(j.gT||0),0)/alta.length, bf=baixa.reduce((s,j)=>s+(j.gT||0),0)/baixa.length, bc=baixa.reduce((s,j)=>s+(j.gO||0),0)/baixa.length;
+      if(Math.abs(af-bf)>=0.6) out.push({ic:'🎮',txt:`Condicional do <b>${esc(nm)}</b>: com a bola (posse ≥55%) faz <b>${af.toFixed(1)}</b> gol/jogo; sem a bola (≤45%) cai pra <b>${bf.toFixed(1)}</b>${bc>=1.4?` e ainda sofre ${bc.toFixed(1)}`:''}. ${af>bf?'Vive de impor o jogo.':'Rende melhor reativo.'}`}); } });
+  // ── Casa × fora (split de mando, do jogosDet) ──
+  ['casa','fora'].forEach(side=>{ const jd=_jogosDetS(side); if(!Array.isArray(jd)||jd.length<8)return; const nm=_ladoNome(side);
+    const casa=jd.filter(j=>j.h===1), fora=jd.filter(j=>j.h!==1); if(casa.length<3||fora.length<3)return;
+    const cf=casa.reduce((s,j)=>s+(j.gT||0),0)/casa.length, ff2=fora.reduce((s,j)=>s+(j.gT||0),0)/fora.length, fc=fora.reduce((s,j)=>s+(j.gO||0),0)/fora.length;
+    if(Math.abs(cf-ff2)>=0.7) out.push({ic:'✈️',txt:`O <b>${esc(nm)}</b> é outro time fora: em casa faz ${cf.toFixed(1)}, fora faz ${ff2.toFixed(1)}${fc>=1.5?` e sofre ${fc.toFixed(1)}`:''} por jogo.`}); });
+  // ── Janelas que mais SOFRE (relógio defensivo, agora que temos sofrido por faixa) ──
+  ['casa','fora'].forEach(side=>{ const jc=topJanelas(side,'cn'); if(!jc||!jc.length)return; const nm=_ladoNome(side);
+    out.push({ic:'🕳️',txt:`O <b>${esc(nm)}</b> é mais vazado nas faixas de <b>${jc.map(j=>j.lbl).join(' e ')} min</b> — onde mais sofreu nos últimos 20. Risco quando o jogo passar por aí.`}); });
+  // ── Cenários por nível de adversário (forteTiers): faz/sofre conforme a força do rival ──
+  (()=>{ const ft=SNAP?.forteTiers; if(!ft)return;
+    ['casa','fora'].forEach(side=>{ const tiers=_pick(side, ft.A, ft.B); if(!tiers)return; const nm=_ladoNome(side);
+      const oppForte=_forteFullS(side==='casa'?'fora':'casa'); const oppS=oppForte&&numr(oppForte.score);
+      const tierKey = oppS==null?null:(oppS>=7?'elite':oppS>=6?'forte':oppS>=4?'medio':'fraco');
+      const TL={elite:'elite',forte:'forte',medio:'médio',fraco:'fraco'};
+      const g=tierKey&&Array.isArray(tiers[tierKey])?tiers[tierKey]:null;
+      if(g&&g.length>=3){ const gf=g.reduce((s,x)=>s+(x.tG||0),0)/g.length, gc=g.reduce((s,x)=>s+(x.oG||0),0)/g.length, v=g.filter(x=>x.res==='v').length;
+        out.push({ic:'🎚️',txt:`Contra rival de nível <b>${TL[tierKey]}</b> (como hoje), o <b>${esc(nm)}</b> em ${g.length} jogos fez ${gf.toFixed(1)} e sofreu ${gc.toFixed(1)} por jogo (${v} vitória${v===1?'':'s'}).`}); } }); })();
   // Veredito
   let vd = lf.nivel==='forte'?`Favoritismo do ${lf.favLado==='casa'?esc(nC):esc(nF)}`:(lf.nivel==='leve'?`Ligeira vantagem do ${lf.favLado==='casa'?esc(nC):esc(nF)}`:'Jogo parelho');
   const somaGols=(lf.gfC||0)+(lf.gfF||0)+(lf.gcC||0)+(lf.gcF||0);
