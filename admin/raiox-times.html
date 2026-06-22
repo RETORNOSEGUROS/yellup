@@ -1442,7 +1442,7 @@ function forteFullInline(team, enriched, statsMap){
   }catch(_){ return null; }
 }
 // ── Detalhe estruturado dos jogos p/ snapshot (arena renderiza sem gastar API) ──
-function buildJogosDet(enriched, team, statsMap){
+function buildJogosDet(enriched, team, statsMap, evMap){
   return (enriched||[]).map(e=>{
     const f=e.f||{}, st=statsMap?statsMap[f.fixture?.id]:null;
     const ts=e.home?'home':'away', os=e.home?'away':'home';
@@ -1452,11 +1452,15 @@ function buildJogosDet(enriched, team, statsMap){
       poss=[s.poss[ts],s.poss[os]]; xg=[s.xg[ts],s.xg[os]]; sh=[s.shots[ts],s.shots[os]];
       shog=[s.shotsOG[ts],s.shotsOG[os]]; pa=[s.passAcc[ts],s.passAcc[os]]; pt=[s.passTotal[ts],s.passTotal[os]];
     }catch(_){} }
+    // minutos dos gols (feitos gM / sofridos gMs) deste jogo — dos eventos já parseados (sem pênaltis de disputa)
+    let gM=[], gMs=[];
+    const _evs = evMap ? (evMap[f.fixture?.id] || evMap[String(f.fixture?.id)]) : null;
+    if(Array.isArray(_evs)){ _evs.forEach(ev=>{ (ev.sc?gM:gMs).push(ev.elapsed||0); }); gM.sort((a,b)=>a-b); gMs.sort((a,b)=>a-b); }
     return { d:(f.fixture?.date||'').slice(0,10), h:e.home?1:0, res:e.res||'',
       lg:f.league?.name||'', lgL:f.league?.logo||'',
       opp:opp?.name||'', oppL:opp?.logo||'',
       gT:(f.goals?f.goals[ts]:null)??e.tGoals??null, gO:(f.goals?f.goals[os]:null)??e.oGoals??null,
-      poss,xg,sh,shog,pa,pt };
+      poss,xg,sh,shog,pa,pt, gM, gMs };
   });
 }
 
@@ -2547,8 +2551,8 @@ function renderH2H(eA, eB, smA, smB, evA, evB, fixH, fixA, fixB) {
     },
     agg: { A: aggA, B: aggB },
     // Detalhe dos últimos jogos (estruturado) p/ a aba Forças da arena — sem gastar API
-    jogosDetA: buildJogosDet(eA_hidrat, H2H_A, smA),
-    jogosDetB: buildJogosDet(eB_hidrat, H2H_B, smB),
+    jogosDetA: buildJogosDet(eA_hidrat, H2H_A, smA, evA),
+    jogosDetB: buildJogosDet(eB_hidrat, H2H_B, smB, evB),
     // Resumo COMPACTO dos 20 últimos jogos: cada jogo vira 1 string CSV-like
     // formato: "data|home|oppId|tG|oG|tXG|tShots|tShotsOG|tPoss|res"
     enrichedCompact: {
