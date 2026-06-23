@@ -1714,6 +1714,33 @@ function comentariosPreJogo(){
     out.push({ic:'⏰',txt:`O <b>${esc(nm)}</b> costuma fazer seu 1º gol por volta dos ${pg.avg}'${pg.pct15>=40?` — em ${pg.pct15}% das vezes já balança a rede nos primeiros 15'`:''}.`}); });
   // Placar mais recorrente
   ['casa','fora'].forEach(side=>{ const pl=placarComum(side); if(!pl)return; out.push({ic:'📋',txt:`O placar mais comum do <b>${esc(_ladoNome(side))}</b> nos últimos 20 foi <b>${pl.placar}</b> (${pl.n} vezes).`}); });
+  // ── Análise POR TEMPO (modelo GF/GC ÷10 + validação de gols + veredito MIX) ──
+  (()=>{
+    const bC=_bkS('casa'), bF=_bkS('fora'); if(!bC||!bF||!Array.isArray(bC.sc)||!Array.isArray(bF.sc)) return;
+    const ffC=_forteFullS('casa'), ffF=_forteFullS('fora'); if(!ffC||!ffF) return;
+    const sum=(a,i,j)=>a.slice(i,j).reduce((s,x)=>s+(x||0),0);
+    const H=(b)=>({gf:[sum(b.sc,0,10)/10, sum(b.sc,10,19)/10], gc:[sum(b.cn,0,10)/10, sum(b.cn,10,19)/10]});
+    const A=H(bC), B=H(bF);
+    A.atk=numr(ffC.io)*10; A.def=numr(ffC.id)*10; B.atk=numr(ffF.io)*10; B.def=numr(ffF.id)*10;
+    // regra (validada nos exemplos France 3-0, Argentina 2-0, Norway 3-2):
+    const gt=(X,O,h)=>{ const gf=X.gf[h], oppgc=O.gc[h];
+      if(oppgc<0.6) return 0;                                   // adversário quase não toma nesse tempo
+      const base=(gf+oppgc)/2;
+      if(oppgc<0.8) return base>=0.9?1:0;                       // toma pouco -> teto 1
+      if(X.atk<7 && gf<1.6) return 0;                           // ataque fraco não converte tempo morno
+      return X.atk>=7.7 ? Math.floor(base+0.5) : Math.floor(base); }; // forte arredonda, médio p/ baixo
+    const a1=gt(A,B,0),a2=gt(A,B,1),b1=gt(B,A,0),b2=gt(B,A,1); const pa=a1+a2, pb=b1+b2;
+    out.push({ic:'⏱️',txt:`<b>Por tempo (GF/GC ÷10)</b> — 1ºT: ${esc(nC)} faz ${A.gf[0].toFixed(1)}/sofre ${A.gc[0].toFixed(1)} · ${esc(nF)} faz ${B.gf[0].toFixed(1)}/sofre ${B.gc[0].toFixed(1)}; 2ºT: ${esc(nC)} faz ${A.gf[1].toFixed(1)}/sofre ${A.gc[1].toFixed(1)} · ${esc(nF)} faz ${B.gf[1].toFixed(1)}/sofre ${B.gc[1].toFixed(1)}.`});
+    out.push({ic:'🎯',txt:`<b>Placar provável (modelo por tempo):</b> ${esc(nC)} <b>${pa}–${pb}</b> ${esc(nF)} · 1ºT ${a1}–${b1}, 2ºT ${a2}–${b2}.`});
+    const sC=numr(ffC.score), sF=numr(ffF.score);
+    const mix=(sC-sF)+((A.atk-B.def)-(B.atk-A.def))*0.15;
+    const vMix= mix>0.4?nC : mix<-0.4?nF : '__eq';
+    const vMod= pa>pb?nC : pb>pa?nF : '__eq';
+    const concord = vMix===vMod;
+    out.push({ic: concord?'✅':'⚠️', txt: concord
+      ? `<b>Veredito:</b> modelo por tempo e força apontam o mesmo lado (<b>${vMod==='__eq'?'jogo parelho':esc(vMod)}</b>) — confiança <b>ALTA</b>.`
+      : `<b>Veredito:</b> o modelo por tempo aponta <b>${vMod==='__eq'?'empate':esc(vMod)}</b> e a força aponta <b>${vMix==='__eq'?'empate':esc(vMix)}</b> — <b>divergência</b>: jogo de placar aberto/variância, cautela.`});
+  })();
   // ── ForteScore explícito + delta + trava de validade (usa forteFull, sem os zeros bugados) ──
   (()=>{ const ffC=_forteFullS('casa'), ffF=_forteFullS('fora'); if(!ffC||!ffF)return;
     const sC=numr(ffC.score), sF=numr(ffF.score); const okC=sC&&ffC.origem, okF=sF&&ffF.origem;
