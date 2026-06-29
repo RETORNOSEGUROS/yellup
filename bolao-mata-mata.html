@@ -221,7 +221,7 @@
     </div>
 
     <div id="paneAdmin" class="hidden">
-      <div class="card small">Confirme o pagamento de cada pessoa. Ao marcar <b>PAGO</b>, ela vale e quem a indicou ganha +10. Os <b>resultados oficiais</b> você lança em cada jogo, na aba Jogos (aparece um campo extra pra você).</div>
+      <div class="card small">Confirme o pagamento de cada pessoa. Ao marcar <b>PAGO</b>, ela vale e quem a indicou ganha +10. Os <b>resultados oficiais</b> você lança em cada jogo, na aba Jogos (aparece um campo extra pra você).<br><br>🔑 <b>Redefinir senha</b> (pra quem esqueceu — mantém pagamento e palpites) · 🗑 <b>Excluir</b> o cadastro de vez.</div>
       <div class="card" style="padding:0;overflow:hidden">
         <table><thead><tr><th>Quem</th><th>Celular</th><th>PIX pagador</th><th class="n">Pago</th></tr></thead>
         <tbody id="admBody"></tbody></table>
@@ -517,7 +517,7 @@
     $('admBody').innerHTML=rows.map(u=>`<tr>
       <td>${u.nome||'—'}${u.indicadoPor?`<br><span class="small">ind: ${u.indicadoPor}</span>`:''}${(!u.pagoMata&&u.avisouPagoMata)?'<br><span class="badge pago" style="font-size:9px">💬 avisou que pagou</span>':''}</td>
       <td class="small">${u.celular||''}</td><td class="small">${u.pix||'—'}</td>
-      <td class="n"><button class="mini ${u.pagoMata?'':'sec'}" style="width:auto" onclick="togglePago('${u.id}',${!u.pagoMata})">${u.pagoMata?'PAGO ✓':'marcar'}</button>${u.pagoMata?'':`<button class="mini sec" style="width:auto;margin-left:5px;color:var(--red);border-color:#5c1c1c" onclick="excluir('${u.id}')">🗑</button>`}</td>
+      <td class="n" style="white-space:nowrap"><button class="mini ${u.pagoMata?'':'sec'}" style="width:auto" onclick="togglePago('${u.id}',${!u.pagoMata})">${u.pagoMata?'PAGO ✓':'marcar'}</button><button class="mini sec" title="Redefinir senha" style="width:auto;margin-left:5px" onclick="resetSenha('${u.id}')">🔑</button><button class="mini sec" title="Excluir" style="width:auto;margin-left:5px;color:var(--red);border-color:#5c1c1c" onclick="excluir('${u.id}')">🗑</button></td>
     </tr>`).join('');
   }
   async function jaPaguei(){
@@ -531,10 +531,21 @@
   }
   async function excluir(id){
     const u=USERS.find(x=>x.id===id); if(!u)return;
-    if(u.pago||u.pagoMata){toast('Esse já pagou — não dá pra excluir.',true);return;}
-    if(!window.confirm(`Excluir "${u.nome||id}"? (apaga o cadastro e os palpites)`))return;
+    const pagou=u.pago||u.pagoMata;
+    const msg=pagou
+      ? `Excluir "${u.nome||id}"?\n\n⚠️ Essa pessoa está marcada como PAGA. Excluir apaga o cadastro, o pagamento e os palpites — ela teria que criar conta de novo e pagar de novo.\n\nSe ela só perdeu a senha, use o botão 🔑 (Redefinir senha) no lugar.`
+      : `Excluir "${u.nome||id}"? (apaga o cadastro e os palpites)`;
+    if(!window.confirm(msg))return;
     try{await authReady;await db.collection(COL).doc(id).delete();toast('Usuário excluído.');}
     catch(e){toast('Erro ao excluir: '+e.message,true);}
+  }
+  async function resetSenha(id){
+    const u=USERS.find(x=>x.id===id); if(!u)return;
+    const nova=window.prompt(`Nova senha para "${u.nome||id}" (mín. 3 caracteres):`);
+    if(nova==null)return;
+    if(nova.trim().length<3){toast('Senha muito curta (mín. 3).',true);return;}
+    try{await authReady;await db.collection(COL).doc(id).set({senhaHash:await sha(nova.trim())},{merge:true});toast('Senha redefinida! Passe a nova senha pra pessoa.');}
+    catch(e){toast('Erro: '+e.message,true);}
   }
 
   // ── Palpites (todos os apostadores) — revela só depois do apito; admin vê tudo ──
